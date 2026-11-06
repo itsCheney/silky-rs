@@ -477,6 +477,45 @@ impl Runtime {
         vm.push(result);
     }
 
+    /// きまぐれテンプテーション2's E-mote calls (command 10, read from the
+    /// executable): 6 load the two files of a costume, 7 face, 9 show,
+    /// 11 hide, 12 and 13 pose, 16 `a` timeline, 17 a number kept on each
+    /// model that this runtime does not use. False for the others.
+    fn kimaten2_emote(&mut self, args: &[Value], sub: i32) -> bool {
+        let args = &args[..args.len().saturating_sub(1)];
+        let n = |i: usize| args.get(i).map(Value::int).unwrap_or(0);
+        let emote = &mut self.scene.emote;
+        match (sub, args.len()) {
+            (6, 2) => {
+                let names: Vec<String> = args
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(|s| s.to_ascii_lowercase())
+                    .collect();
+                let first = names.iter().find(|n| n.contains("_h0007"));
+                let second = names.iter().find(|n| n.contains("_h0813"));
+                let (Some(a), Some(b)) = (first, second) else {
+                    return false;
+                };
+                let files = [a.clone(), b.clone()];
+                if emote.as_ref().map(|e| &e.files) != Some(&files) {
+                    *emote = Some(crate::scene::Emote {
+                        files,
+                        ..Default::default()
+                    });
+                }
+            }
+            (7, 2) => emote.iter_mut().for_each(|e| e.face = Some((n(1), n(0)))),
+            (12 | 13, 1) => emote.iter_mut().for_each(|e| e.pose = Some(n(0))),
+            (16, 1) => emote.iter_mut().for_each(|e| e.sub = Some(n(0))),
+            (17, 1) => {}
+            (9, 0) => emote.iter_mut().for_each(|e| e.visible = true),
+            (11, 0) => emote.iter_mut().for_each(|e| e.visible = false),
+            _ => return false,
+        }
+        true
+    }
+
     fn skip(&mut self, name: String, vm: &mut Vm, class: i32, sub: i32) {
         *self.unhandled.entry(name).or_default() += 1;
         if native::returns_value(self.assets.game().title, class, sub) {
@@ -691,6 +730,10 @@ impl Runtime {
             self.handled += 1;
             self.pause = Some(Pause::Map);
             return Ok(Flow::Yield);
+        }
+        if title == Title::Kimaten2 && command == cmd::PORTRAIT && self.kimaten2_emote(&args, sub) {
+            self.handled += 1;
+            return Ok(Flow::Continue);
         }
         if title == Title::Kimaten2 && !KIMATEN2_SHARED.contains(&command) {
             self.skip(format!("Game.{command}"), vm, GAME, command);

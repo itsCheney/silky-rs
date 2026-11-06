@@ -1554,6 +1554,17 @@ impl Session {
             }
             return Ok(self.frame.is_none());
         }
+        if self.screen.is_none() && self.rt.system.settings.emote_animation {
+            // Mouth of the E-mote picture while a voice plays: a provisional
+            // open and close every 160 ms, not the voice's loudness.
+            let talking = self.rt.voice_playing().then(|| {
+                let t = (self.ui.clock % 160) as f32 / 160.0;
+                (t * std::f32::consts::PI).sin()
+            });
+            if self.renderer.progress_emote(&self.rt.scene, ms, talking) {
+                self.frame = None;
+            }
+        }
         if let Some(Screen::Extras(e)) = &mut self.screen {
             if e.playing.is_some() && before / 250 != self.ui.clock / 250 {
                 if !self.rt.audio.is_playing(Bus::Music, 0) {

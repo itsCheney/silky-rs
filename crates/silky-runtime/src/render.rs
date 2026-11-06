@@ -106,6 +106,12 @@ pub struct Renderer {
     /// Name plate rows by speaker name (きまぐれテンプテーション2), for the
     /// language they were made for.
     speaker_rows: Option<(Language, HashMap<String, usize>)>,
+    /// E-mote standing picture (きまぐれテンプテーション2).
+    #[cfg(feature = "emote")]
+    emote: Option<crate::emote::Stage>,
+    /// Files that failed to open, not tried again.
+    #[cfg(feature = "emote")]
+    emote_failed: Option<[String; 2]>,
 }
 
 impl Renderer {
@@ -120,6 +126,10 @@ impl Renderer {
             title: Title::Fuyukuru,
             text_layout: TextLayout::for_title(Title::Fuyukuru),
             speaker_rows: None,
+            #[cfg(feature = "emote")]
+            emote: None,
+            #[cfg(feature = "emote")]
+            emote_failed: None,
         };
         r.set_language(language);
         r
@@ -278,6 +288,43 @@ impl Renderer {
 
     /// Renders the scene with the message window, without engine-drawn
     /// buttons (see [`crate::ui`]).
+    /// Brings the E-mote picture up to date with the scene and returns it.
+    #[cfg(feature = "emote")]
+    fn emote_image(&mut self, scene: &Scene, assets: &Assets) -> Option<(Arc<Image>, f32, f32)> {
+        let emote = scene.emote.as_ref()?;
+        if self.emote.as_ref().map(|s| s.files()) != Some(&emote.files) {
+            self.emote = None;
+            if self.emote_failed.as_ref() == Some(&emote.files) {
+                return None;
+            }
+            match crate::emote::Stage::open(emote, |name| assets.data(name).ok()) {
+                Ok(stage) => self.emote = Some(stage),
+                Err(e) => {
+                    eprintln!("E-mote {}: {e}", emote.files[0]);
+                    self.emote_failed = Some(emote.files.clone());
+                    return None;
+                }
+            }
+        }
+        let stage = self.emote.as_mut()?;
+        stage.apply(emote);
+        if !emote.visible {
+            return None;
+        }
+        stage.image()
+    }
+
+    /// Runs the E-mote animation for `ms`; true when the picture changed.
+    /// `talking` is the mouth opening while a voice plays.
+    pub fn progress_emote(&mut self, scene: &Scene, ms: u64, talking: Option<f32>) -> bool {
+        #[cfg(feature = "emote")]
+        if let (Some(stage), Some(e)) = (&mut self.emote, &scene.emote) {
+            return e.visible && stage.progress(ms as f32, talking);
+        }
+        let _ = (scene, ms, talking);
+        false
+    }
+
     pub fn render(&mut self, scene: &Scene, assets: &mut Assets) -> Result<Canvas> {
         self.render_scene(scene, assets, true)
     }
@@ -332,6 +379,11 @@ impl Renderer {
                 + (c.offset.0 + jolt.0) as f32;
             let y = 300.0 - 700.0 * s + (c.offset.1 + jolt.1) as f32;
             canvas.draw_scaled(&img, x, y, s);
+        }
+
+        #[cfg(feature = "emote")]
+        if let Some((img, x, y)) = self.emote_image(scene, assets) {
+            canvas.draw(&img, x.round() as i32, y.round() as i32, false);
         }
 
         for name in scene.layers.values() {

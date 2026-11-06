@@ -1,5 +1,7 @@
 [workspace]
 members = ["crates/*"]
+# Eluna is vendored as is; two of its own tests fail upstream too.
+exclude = ["vendor"]
 resolver = "2"
 
 [workspace.package]

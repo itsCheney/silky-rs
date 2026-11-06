@@ -17,6 +17,23 @@ pub struct Character {
     pub offset: (i32, i32),
 }
 
+/// An E-mote standing picture (きまぐれテンプテーション2, command 10): the
+/// timelines the script chose, by the game's numbers (see
+/// [`crate::emote::Character`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct Emote {
+    /// The `_h0007` and `_h0813` files of one costume.
+    pub files: [String; 2],
+    /// Face 0..=13 and the extra timeline (sub 7).
+    pub face: Option<(i32, i32)>,
+    /// Main timeline (sub 13).
+    pub pose: Option<i32>,
+    /// `a` timeline (sub 16).
+    pub sub: Option<i32>,
+    pub visible: bool,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct Scene {
@@ -39,6 +56,8 @@ pub struct Scene {
     /// bottom left over the window while `portrait_visible` is set.
     pub portrait: Option<(String, Option<String>)>,
     pub portrait_visible: bool,
+    /// E-mote standing picture.
+    pub emote: Option<Emote>,
     /// Speaker of the current line: row of the nameplate sheet (command
     /// 11). Cleared at every message.
     pub speaker: Option<i32>,

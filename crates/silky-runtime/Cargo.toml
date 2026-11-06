@@ -7,7 +7,13 @@ license.workspace = true
 rust-version.workspace = true
 repository.workspace = true
 
+[features]
+default = ["emote"]
+# E-mote characters through Eluna.
+emote = ["dep:eluna"]
+
 [dependencies]
+eluna = { package = "eluna_rs", path = "../../vendor/eluna_rs", optional = true }
 chrono.workspace = true
 silky-format.workspace = true
 silky-vm.workspace = true
