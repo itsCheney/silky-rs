@@ -211,9 +211,12 @@ impl Mixer {
         });
     }
 
+    /// Whether a channel plays, or waits for its sound to be decoded.
     pub fn is_playing(&self, bus: Bus, channel: i32) -> bool {
-        self.with(|s| s.tracks.contains_key(&(bus, channel)))
-            .unwrap_or(false)
+        self.with(|s| {
+            s.tracks.contains_key(&(bus, channel)) || s.pending.contains_key(&(bus, channel))
+        })
+        .unwrap_or(false)
     }
 
     /// Mixes into `out` (interleaved, `channels` per frame, at the rate

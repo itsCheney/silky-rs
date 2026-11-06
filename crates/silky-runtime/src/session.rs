@@ -3,6 +3,9 @@
 //! clock. The desktop player and a mobile embedding only forward input and
 //! present [`Session::frame`].
 
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use silky_format::game::Game;
 use silky_format::mes::Profile;
 use silky_vm::{Stop, Vm};
@@ -22,6 +25,8 @@ pub enum State {
     Title,
     /// A selection is up.
     Choice,
+    /// A transition or a timed wait is running; [`Session::tick`] ends it.
+    Busy,
     /// The scripts ended, or the player asked to quit.
     Ended,
 }
@@ -50,7 +55,24 @@ pub struct Session {
     /// Time the current message has been shown.
     shown_ms: u64,
     saves: Option<Saves>,
+    /// Transition or wait in progress.
+    busy: Option<Busy>,
+    /// Rule masks by number.
+    rules: HashMap<u32, Option<Arc<Vec<u8>>>>,
 }
+
+struct Busy {
+    /// Frame shown before the change; `None` for plain waits.
+    from: Option<Canvas>,
+    rule: Option<Arc<Vec<u8>>>,
+    ms: u32,
+    elapsed: u32,
+    /// Input poll: lasts one frame, clicks do not end it.
+    frame: bool,
+}
+
+/// Length of one frame for input polls.
+const FRAME_MS: u32 = 16;
 
 impl Session {
     /// Loads the game and runs its scripts from `start` (`start.mes`) to
@@ -77,6 +99,8 @@ impl Session {
             frame: None,
             shown_ms: 0,
             saves: None,
+            busy: None,
+            rules: HashMap::new(),
         };
         s.restart()?;
         Ok(s)
@@ -112,6 +136,7 @@ impl Session {
         }
         let file = saves.read(slot)?;
         self.rt.load_state(&mut self.vm, file.state)?;
+        self.busy = None;
         self.ui = Ui {
             has_saves: true,
             waiting: true,
@@ -145,6 +170,7 @@ impl Session {
         self.vm = Vm::new(Profile::default());
         self.rt.reset();
         self.rt.boot(&mut self.vm, &self.start)?;
+        self.busy = None;
         self.ui = Ui {
             has_saves: self.ui.has_saves,
             ..Ui::default()
@@ -170,6 +196,30 @@ impl Session {
                         self.ui.title = Some(false);
                         self.ui.auto = false;
                         self.ui.skip = false;
+                        break;
+                    }
+                    Some(Pause::Transition(t)) => {
+                        let from = self.base.take();
+                        let rule = t.rule.and_then(|n| self.rule(n));
+                        self.busy = Some(Busy {
+                            from,
+                            rule,
+                            ms: t.ms,
+                            elapsed: 0,
+                            frame: false,
+                        });
+                        self.state = State::Busy;
+                        break;
+                    }
+                    Some(Pause::Frame) => {
+                        self.busy = Some(Busy {
+                            from: None,
+                            rule: None,
+                            ms: FRAME_MS,
+                            elapsed: 0,
+                            frame: true,
+                        });
+                        self.state = State::Busy;
                         break;
                     }
                     Some(Pause::Choice) => {
@@ -206,6 +256,23 @@ impl Session {
         Ok(())
     }
 
+    /// Rule mask `NN.bin`, cached; `None` if the game has none.
+    fn rule(&mut self, n: u32) -> Option<Arc<Vec<u8>>> {
+        let assets = &self.rt.assets;
+        self.rules
+            .entry(n)
+            .or_insert_with(|| assets.data(&format!("{n:02}.bin")).ok().map(Arc::new))
+            .clone()
+    }
+
+    /// Ends the running transition or wait and runs the scripts on.
+    fn finish_busy(&mut self) -> Result<()> {
+        if self.busy.take().is_some() && self.state == State::Busy {
+            self.run()?;
+        }
+        Ok(())
+    }
+
     /// Goes on from the current message.
     fn advance(&mut self) -> Result<()> {
         if self.state == State::Text {
@@ -236,6 +303,15 @@ impl Session {
         self.frame = None;
         let hit = self.hit(x, y);
         if hit.is_some() && hit != pressed {
+            return Ok(());
+        }
+        if self.state == State::Busy {
+            self.rt.clicked = true;
+            if let Some(b) = &mut self.busy {
+                if !b.frame {
+                    b.elapsed = b.ms;
+                }
+            }
             return Ok(());
         }
         if self.ui.window_hidden {
@@ -337,7 +413,11 @@ impl Session {
     }
 
     fn hit(&self, x: i32, y: i32) -> Option<Button> {
-        let text_shown = self.state != State::Title && self.rt.scene.text.is_some();
+        if self.state == State::Busy {
+            return None;
+        }
+        let text_shown =
+            matches!(self.state, State::Text | State::Choice) && self.rt.scene.text.is_some();
         self.layout.hit(&self.ui, text_shown, x, y)
     }
 
@@ -347,6 +427,27 @@ impl Session {
         let before = self.ui.clock;
         self.ui.clock += ms;
         self.shown_ms += ms;
+        if self.state == State::Busy {
+            // Several short steps (input polls) may fit in one tick.
+            let mut left = ms as u32;
+            let mut steps = 0;
+            while self.state == State::Busy && steps < 64 {
+                let Some(b) = &mut self.busy else { break };
+                if self.ui.skip {
+                    b.elapsed = b.ms;
+                }
+                let step = left.min(b.ms - b.elapsed.min(b.ms));
+                b.elapsed += step;
+                left -= step;
+                if b.elapsed < b.ms {
+                    break;
+                }
+                self.finish_busy()?;
+                steps += 1;
+            }
+            self.frame = None;
+            return Ok(true);
+        }
         if self.state == State::Text && !self.ui.window_hidden {
             let chars = self
                 .rt
@@ -385,8 +486,23 @@ impl Session {
                     window && self.state != State::Title,
                 )?);
             }
-            let mut frame = self.base.clone().unwrap();
-            let text_shown = self.state != State::Title && self.rt.scene.text.is_some();
+            let mut frame = match &self.busy {
+                Some(Busy {
+                    from: Some(from),
+                    rule,
+                    ms,
+                    elapsed,
+                    ..
+                }) => Canvas::blend(
+                    from,
+                    self.base.as_ref().unwrap(),
+                    *elapsed as f32 / (*ms).max(1) as f32,
+                    rule.as_deref().map(Vec::as_slice),
+                ),
+                _ => self.base.clone().unwrap(),
+            };
+            let text_shown =
+                matches!(self.state, State::Text | State::Choice) && self.rt.scene.text.is_some();
             self.layout.draw(
                 &mut frame,
                 &mut self.rt.assets,

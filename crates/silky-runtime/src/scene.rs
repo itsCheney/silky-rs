@@ -36,6 +36,10 @@ pub struct Scene {
     pub speaker: Option<i32>,
     /// Music playing, by channel, so a loaded save can start it again.
     pub music: BTreeMap<i32, String>,
+    /// Screen covered by a colour (0xRRGGBB) after a fade out.
+    pub cover: Option<u32>,
+    /// Screen shake offset in pixels.
+    pub shake: (i32, i32),
     /// Current message text.
     pub text: Option<String>,
 }

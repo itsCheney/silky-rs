@@ -133,6 +133,51 @@ impl Canvas {
         }
     }
 
+    /// Moves the picture by (dx, dy), filling the uncovered edge with black.
+    pub fn shift(&mut self, dx: i32, dy: i32) {
+        let (w, h) = (self.width as i32, self.height as i32);
+        let src = std::mem::replace(&mut self.rgba, Canvas::new(self.width, self.height).rgba);
+        for y in 0..h {
+            let sy = y - dy;
+            if sy < 0 || sy >= h {
+                continue;
+            }
+            for x in 0..w {
+                let sx = x - dx;
+                if sx < 0 || sx >= w {
+                    continue;
+                }
+                let (d, s) = (((y * w + x) * 4) as usize, ((sy * w + sx) * 4) as usize);
+                self.rgba[d..d + 4].copy_from_slice(&src[s..s + 4]);
+            }
+        }
+    }
+
+    /// Mixes two frames of the same size: `t` from 0 (all `from`) to 1
+    /// (all `to`). With a rule mask (one byte per pixel), pixels change in
+    /// the order of their mask value, with a soft edge.
+    pub fn blend(from: &Canvas, to: &Canvas, t: f32, rule: Option<&[u8]>) -> Canvas {
+        const EDGE: f32 = 32.0;
+        let t = t.clamp(0.0, 1.0);
+        let mut out = to.clone();
+        let n = (to.width * to.height) as usize;
+        let rule = rule.filter(|r| r.len() >= n);
+        for i in 0..n {
+            let a = match rule {
+                Some(r) => ((t * (255.0 + EDGE) - r[i] as f32) / EDGE).clamp(0.0, 1.0),
+                None => t,
+            };
+            if a >= 1.0 {
+                continue;
+            }
+            for k in 0..3 {
+                let (f, g) = (from.rgba[i * 4 + k] as f32, to.rgba[i * 4 + k] as f32);
+                out.rgba[i * 4 + k] = (f + (g - f) * a).round() as u8;
+            }
+        }
+        out
+    }
+
     /// Fills a rectangle with a colour (alpha blended).
     pub fn fill(&mut self, x: i32, y: i32, w: u32, h: u32, color: [u8; 4]) {
         for row in 0..h as i32 {
@@ -335,6 +380,13 @@ impl Renderer {
                 }
             }
         }
+        if let Some(c) = scene.cover {
+            let rgb = [(c >> 16) as u8, (c >> 8) as u8, c as u8, 255];
+            canvas.fill(0, 0, canvas.width, canvas.height, rgb);
+        }
+        if scene.shake != (0, 0) {
+            canvas.shift(scene.shake.0, scene.shake.1);
+        }
         Ok(canvas)
     }
 }
@@ -390,6 +442,28 @@ mod tests {
         let mut c = Canvas::new(1, 1);
         c.draw_scaled(&img, 0.0, 0.0, 0.5);
         assert_eq!(c.rgba[0], 191);
+    }
+
+    #[test]
+    fn blend_with_rule() {
+        let from = Canvas::new(2, 1);
+        let mut to = Canvas::new(2, 1);
+        to.rgba = vec![200, 200, 200, 255, 200, 200, 200, 255];
+        let half = Canvas::blend(&from, &to, 0.5, None);
+        assert_eq!(half.rgba[0], 100);
+        // Pixel 0 changes first (mask 0), pixel 1 last (mask 255).
+        let r = Canvas::blend(&from, &to, 0.5, Some(&[0, 255]));
+        assert_eq!((r.rgba[0], r.rgba[4]), (200, 0));
+        let done = Canvas::blend(&from, &to, 1.0, Some(&[0, 255]));
+        assert_eq!(done.rgba, to.rgba);
+    }
+
+    #[test]
+    fn shift_moves_picture() {
+        let mut c = Canvas::new(2, 1);
+        c.rgba[0] = 9;
+        c.shift(1, 0);
+        assert_eq!((c.rgba[0], c.rgba[4]), (0, 9));
     }
 
     #[test]

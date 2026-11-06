@@ -14,7 +14,38 @@ use crate::scene::{Character, Scene};
 const MUSIC: i32 = 15;
 const EFFECT: i32 = 16;
 const VOICE: i32 = 18;
+const SHAKE: i32 = 3;
 const SPRITE: i32 = 19;
+const SCREEN: i32 = 20;
+const UI: i32 = 26;
+
+/// Screen calls (class 20). Times are in frames of 1/60 s (provisional).
+mod screen {
+    /// `(time, colour)`: fade out to a colour.
+    pub const FADE_OUT: i32 = 0;
+    /// `(time)`: fade in from the colour.
+    pub const FADE_IN: i32 = 1;
+    /// `(time, rule, colour)`: fade out through a rule mask.
+    pub const RULE_OUT: i32 = 2;
+    /// `(time, rule)`: fade in through a rule mask.
+    pub const RULE_IN: i32 = 3;
+    /// `()`: whether the screen is faded out; returns 1 or 0.
+    pub const COVERED: i32 = 4;
+}
+
+/// Interface calls (class 26).
+mod ui_call {
+    /// `(milliseconds)`: wait; a click ends it early.
+    pub const WAIT: i32 = 0;
+    /// `(input)`: one frame passes; returns 1 if the input happened
+    /// (256 is a click; the others are not known yet and return 0).
+    pub const POLL: i32 = 1;
+}
+
+/// Frames of 1/60 s to milliseconds.
+fn frames_ms(frames: i32) -> u32 {
+    frames.max(0) as u32 * 1000 / 60
+}
 
 /// Sound calls, the same for the music, effect and voice classes.
 mod sound {
@@ -26,6 +57,8 @@ mod sound {
     pub const STOP: i32 = 2;
     /// `(channel, file)` on the voice class: play a voice line.
     pub const VOICE_PLAY: i32 = 5;
+    /// `(channel)`: whether the channel still plays; returns 1 or 0.
+    pub const PLAYING: i32 = 7;
     /// `(channel, time)`: fade out and stop. Time is taken as 1/60 s
     /// units (provisional: `music_fade` passes 60).
     pub const FADE_OUT: i32 = 3;
@@ -94,6 +127,19 @@ pub enum Pause {
     /// A selection is up ([`Runtime::choices`]); answer with
     /// [`Runtime::answer_choice`].
     Choice,
+    /// The scene changed with a transition, or the script waits; the
+    /// frontend shows it for this long, then runs the scripts again.
+    Transition(Transition),
+    /// The script polls input once per frame ([`Runtime::clicked`]).
+    Frame,
+}
+
+/// How the last scene change is shown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Transition {
+    pub ms: u32,
+    /// Rule mask number (`NN.bin`), or `None` for a crossfade.
+    pub rule: Option<u32>,
 }
 
 pub struct Runtime {
@@ -113,6 +159,11 @@ pub struct Runtime {
     option_count: usize,
     /// Labels of the selection that is up.
     pub choices: Vec<String>,
+    /// Set by the frontend when the player clicked; read by input polls.
+    pub clicked: bool,
+    /// Longest time of the character changes since they were last
+    /// applied (game command 13).
+    character_time: i32,
     /// Sound output; disabled unless the frontend plays sound.
     pub audio: Mixer,
 }
@@ -135,6 +186,8 @@ impl Runtime {
             last_text: None,
             option_count: 0,
             choices: Vec::new(),
+            clicked: false,
+            character_time: 0,
             audio,
         }
     }
@@ -215,6 +268,8 @@ impl Runtime {
         self.last_text = None;
         self.option_count = 0;
         self.choices.clear();
+        self.character_time = 0;
+        self.clicked = false;
     }
 
     /// Counts a player action the runtime does not carry out yet.
@@ -233,6 +288,73 @@ impl Runtime {
         if native::returns_value(class, sub) {
             vm.push(0);
         }
+    }
+
+    /// Pauses for a transition of `frames`, or goes on at once.
+    fn transition(&mut self, frames: i32, rule: Option<u32>) -> Flow {
+        let ms = frames_ms(frames);
+        if ms == 0 {
+            return Flow::Continue;
+        }
+        self.pause = Some(Pause::Transition(Transition { ms, rule }));
+        Flow::Yield
+    }
+
+    /// Screen, interface and shake calls. `None` for calls it does not
+    /// know.
+    fn screen(&mut self, vm: &mut Vm, class: i32, sub: i32, args: &[Value]) -> Option<Flow> {
+        let n = |i: usize| args.get(i).map(Value::int).unwrap_or(0);
+        let rule = |i: usize| Some(n(i).max(0) as u32);
+        let colour = |v: i32| v as u32 & 0xff_ffff;
+        Some(match (class, sub, args.len()) {
+            (SCREEN, screen::FADE_OUT, 2) => {
+                self.scene.cover = Some(colour(n(1)));
+                self.transition(n(0), None)
+            }
+            (SCREEN, screen::FADE_IN, 1) => {
+                self.scene.cover = None;
+                self.transition(n(0), None)
+            }
+            (SCREEN, screen::RULE_OUT, 3) => {
+                self.scene.cover = Some(colour(n(2)));
+                self.transition(n(0), rule(1))
+            }
+            (SCREEN, screen::RULE_IN, 2) => {
+                if self.scene.cover.take().is_none() {
+                    return Some(Flow::Continue);
+                }
+                self.transition(n(0), rule(1))
+            }
+            (SCREEN, screen::COVERED, 0) => {
+                vm.push(self.scene.cover.is_some() as i32);
+                Flow::Continue
+            }
+            (UI, ui_call::WAIT, 1) => {
+                let ms = n(0).max(0) as u32;
+                if ms > 0 {
+                    self.pause = Some(Pause::Transition(Transition { ms, rule: None }));
+                    Flow::Yield
+                } else {
+                    Flow::Continue
+                }
+            }
+            (UI, ui_call::POLL, 1) => {
+                let hit = n(0) == 256 && std::mem::take(&mut self.clicked);
+                vm.push(hit as i32);
+                self.pause = Some(Pause::Frame);
+                Flow::Yield
+            }
+            // (dx, dy): shift the screen; 0 starts and 2 ends a shake.
+            (SHAKE, 1, 2) => {
+                self.scene.shake = (n(0), n(1));
+                Flow::Continue
+            }
+            (SHAKE, 0 | 2, 0) => {
+                self.scene.shake = (0, 0);
+                Flow::Continue
+            }
+            _ => return None,
+        })
     }
 
     /// Starts a sound, decoded on another thread. Music loops.
@@ -254,7 +376,13 @@ impl Runtime {
 
     /// Music, effect and voice calls. Returns false for calls it does not
     /// know.
-    fn sound(&mut self, class: i32, sub: i32, args: &[Value]) -> silky_vm::Result<bool> {
+    fn sound(
+        &mut self,
+        vm: &mut Vm,
+        class: i32,
+        sub: i32,
+        args: &[Value],
+    ) -> silky_vm::Result<bool> {
         let (bus, kind) = match class {
             MUSIC => (Bus::Music, Kind::Music),
             EFFECT => (Bus::Effect, Kind::Effect),
@@ -285,6 +413,8 @@ impl Runtime {
                     self.scene.music.remove(&ch);
                 }
             }
+            // Scripts poll this once a frame to wait for a sound to end.
+            (sound::PLAYING, [_]) => vm.push(self.audio.is_playing(bus, ch) as i32),
             _ => return Ok(false),
         }
         Ok(true)
@@ -305,6 +435,9 @@ impl Runtime {
         }
         let s = |i: usize| args.get(i).and_then(Value::as_str).map(str::to_string);
         let n = |i: usize| args.get(i).map(Value::int).unwrap_or(0);
+        if command == cmd::CHARACTER && matches!(sub, 0 | 1 | 3 | 4) {
+            self.character_time = self.character_time.max(n(0));
+        }
         let scene = &mut self.scene;
         match (command, sub, args.len()) {
             (cmd::SPEAKER, row, 1) if row >= 0 => scene.speaker = Some(row),
@@ -315,6 +448,11 @@ impl Runtime {
                 }
             }
             (cmd::PORTRAIT, 9, 0) => scene.portrait_visible = true,
+            // Erase the message window.
+            (cmd::PORTRAIT, 14, 0) => {
+                scene.text = None;
+                scene.speaker = None;
+            }
             (cmd::PORTRAIT, 11, 0) => scene.portrait_visible = false,
             (cmd::PICTURE, 0, 1) => {
                 scene.background = s(0);
@@ -332,8 +470,13 @@ impl Runtime {
                     scene.overlays.remove(&n(0));
                 }
             },
-            // Transitions: the state is already applied.
-            (cmd::PICTURE, 2, 0) | (cmd::PICTURE, 3, 1) => {}
+            // 2 sets up the change, 11 closes it; nothing to draw.
+            (cmd::PICTURE, 2, 0) | (cmd::PICTURE, 11, 0) => {}
+            // (time): crossfade to the new picture.
+            (cmd::PICTURE, 3, 1) => {
+                self.handled += 1;
+                return Ok(self.transition(n(0), None));
+            }
             // (time, size, name, slot)
             (cmd::CHARACTER, 0, 4) => {
                 let Some(body) = s(2) else {
@@ -354,7 +497,12 @@ impl Runtime {
                     c.face = s(2);
                 }
             }
-            (cmd::CHARACTER, 2, 0) => {}
+            // Apply: crossfade over the longest time given.
+            (cmd::CHARACTER, 2, 0) => {
+                let t = std::mem::take(&mut self.character_time);
+                self.handled += 1;
+                return Ok(self.transition(t, None));
+            }
             // (time, slot)
             (cmd::CHARACTER, 3, 2) => {
                 scene.characters.remove(&n(1));
@@ -459,7 +607,13 @@ impl Host for Runtime {
                     self.handled += 1;
                     return Ok(Flow::Continue);
                 }
-                if matches!(class, MUSIC | EFFECT | VOICE) && self.sound(class, sub, &args)? {
+                if matches!(class, SCREEN | UI | SHAKE) {
+                    if let Some(flow) = self.screen(vm, class, sub, &args) {
+                        self.handled += 1;
+                        return Ok(flow);
+                    }
+                }
+                if matches!(class, MUSIC | EFFECT | VOICE) && self.sound(vm, class, sub, &args)? {
                     self.handled += 1;
                     return Ok(Flow::Continue);
                 }

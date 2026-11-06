@@ -158,6 +158,7 @@ fn snap(
     let last = lines.iter().copied().max().unwrap_or(0);
     let mut line_no = 0u64;
     let mut title_saved = false;
+    let mut polls = 0u64;
     loop {
         match vm.run(&mut rt, 50_000_000)? {
             Stop::Yield => match rt.pause.take() {
@@ -194,6 +195,15 @@ fn snap(
                         break;
                     }
                     line_no += 1;
+                }
+                // Headless: transitions and waits end at once; input polls
+                // see a click now and then so wait-for-click loops end.
+                Some(Pause::Transition(_)) => {}
+                Some(Pause::Frame) => {
+                    polls += 1;
+                    if polls % 600 == 0 {
+                        rt.clicked = true;
+                    }
                 }
                 Some(Pause::Choice) => {
                     println!("select [{}] -> {}", rt.choices.join(" | "), choose);
