@@ -76,6 +76,7 @@ pub mod question {
     pub const OVERWRITE: usize = 5;
     pub const DELETE_ALL: usize = 6;
     pub const JUMP: usize = 7;
+    pub const SCENE_SELECT: usize = 8;
 }
 
 /// Rows the save screen shows at once, entries the backlog shows.
@@ -85,25 +86,25 @@ pub const LOG_ROWS: usize = 3;
 /// A cell column of a sheet: left, top, width, height, and the distance
 /// between rows (one row per button state).
 #[derive(Clone, Copy)]
-struct Cells {
-    x: u32,
-    y: u32,
-    w: u32,
-    h: u32,
-    pitch: u32,
+pub(crate) struct Cells {
+    pub x: u32,
+    pub y: u32,
+    pub w: u32,
+    pub h: u32,
+    pub pitch: u32,
 }
 
 impl Cells {
-    const fn new(x: u32, y: u32, w: u32, h: u32, pitch: u32) -> Self {
+    pub const fn new(x: u32, y: u32, w: u32, h: u32, pitch: u32) -> Self {
         Self { x, y, w, h, pitch }
     }
 
-    fn part(self, row: u32) -> (u32, u32, u32, u32) {
+    pub fn part(self, row: u32) -> (u32, u32, u32, u32) {
         (self.x, self.y + self.pitch * row, self.w, self.h)
     }
 
     /// Draws row `row` centred on an area.
-    fn draw(self, canvas: &mut Canvas, sheet: &Image, row: u32, a: &Area) {
+    pub fn draw(self, canvas: &mut Canvas, sheet: &Image, row: u32, a: &Area) {
         let x = a.left + (a.width() as i32 - self.w as i32) / 2;
         let y = a.top + (a.height() as i32 - self.h as i32) / 2;
         canvas.draw_part(sheet, self.part(row), x, y, false, 255);
@@ -138,11 +139,11 @@ const ROW_LABEL_X: (f32, f32) = (160.0, 280.0);
 /// Scroll bar tracks, measured on the backgrounds.
 const SL_TRACK: (i32, i32, i32, i32) = (1008, 121, 26, 511);
 const LOG_TRACK: (i32, i32, i32, i32) = (1069, 121, 26, 511);
-const THUMB_COLOR: [u8; 4] = [18, 112, 190, 255];
+pub(crate) const THUMB_COLOR: [u8; 4] = [18, 112, 190, 255];
 /// Help line at the bottom of the save screen.
 const HELP_POS: (f32, f32) = (96.0, 694.0);
 const HELP_SIZE: f32 = 17.0;
-const INK: [u8; 4] = [34, 74, 120, 255];
+pub(crate) const INK: [u8; 4] = [34, 74, 120, 255];
 
 // `log_p_<lang>.akb`.
 const LOG_VOICE: Cells = Cells::new(0, 0, 74, 77, 79);
@@ -298,6 +299,8 @@ pub enum Action {
     Jump(usize),
     Title,
     Quit,
+    /// Replay a scene of the scene mode.
+    Scene(usize),
 }
 
 impl Action {
@@ -311,6 +314,7 @@ impl Action {
             Action::Jump(_) => question::JUMP,
             Action::Title => question::TITLE,
             Action::Quit => question::QUIT,
+            Action::Scene(_) => question::SCENE_SELECT,
         }
     }
 }
@@ -325,6 +329,8 @@ pub struct Dialog {
 pub enum Screen {
     SaveLoad(SaveLoad),
     Backlog(Backlog),
+    Settings(crate::menus::SettingsScreen),
+    Extras(crate::menus::ExtrasScreen),
 }
 
 /// Layouts of the screens, loaded once per game.
@@ -336,7 +342,7 @@ pub struct Screens {
     help: Option<MapFile>,
 }
 
-fn area_file(assets: &Assets, name: &str) -> Vec<Area> {
+pub(crate) fn area_file(assets: &Assets, name: &str) -> Vec<Area> {
     assets
         .data(name)
         .ok()
@@ -351,7 +357,7 @@ fn find(areas: &[Area], x: i32, y: i32) -> Option<Button> {
         .map(|a| Button::Screen(a.id))
 }
 
-fn area(areas: &[Area], id: i32) -> Option<&Area> {
+pub(crate) fn area(areas: &[Area], id: i32) -> Option<&Area> {
     areas.iter().find(|a| a.id == id)
 }
 
@@ -802,7 +808,7 @@ fn draw_digits(canvas: &mut Canvas, sheet: &Image, s: &str, right: i32, y: i32) 
     }
 }
 
-fn draw_scroll_thumb(
+pub(crate) fn draw_scroll_thumb(
     canvas: &mut Canvas,
     track: (i32, i32, i32, i32),
     pos: usize,
@@ -868,7 +874,7 @@ fn first_line(tr: &TextRenderer, text: &str, size: f32, width: f32) -> String {
 }
 
 /// Fills a `%02u` or `%03u` in a help line.
-fn format_number(f: &str, n: u32) -> String {
+pub(crate) fn format_number(f: &str, n: u32) -> String {
     f.replace("%02u", &format!("{n:02}"))
         .replace("%03u", &format!("{n:03}"))
 }

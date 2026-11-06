@@ -84,13 +84,34 @@ struct Track {
     fade: Option<f32>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct State {
     tracks: HashMap<(Bus, i32), Track>,
+    /// Volume of each bus (music, effects, voice), 0..1.
+    volume: [f32; 3],
     /// Channels waiting for a sound decoded in the background, with the
     /// token of that request.
     pending: HashMap<(Bus, i32), u64>,
     next_token: u64,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            tracks: HashMap::new(),
+            volume: [1.0; 3],
+            pending: HashMap::new(),
+            next_token: 0,
+        }
+    }
+}
+
+fn bus_index(bus: Bus) -> usize {
+    match bus {
+        Bus::Music => 0,
+        Bus::Effect => 1,
+        Bus::Voice => 2,
+    }
 }
 
 /// Shared handle: the runtime controls it, the audio callback reads it.
@@ -128,6 +149,22 @@ impl Mixer {
         Some(f(&mut guard))
     }
 
+    /// Sets the volume of a bus (0..1), also for what plays now.
+    pub fn set_volume(&self, bus: Bus, volume: f32) {
+        self.with(|s| s.volume[bus_index(bus)] = volume.clamp(0.0, 1.0));
+    }
+
+    /// Position and length of a track in seconds.
+    pub fn position(&self, bus: Bus, channel: i32) -> Option<(f64, f64)> {
+        self.with(|s| {
+            s.tracks.get(&(bus, channel)).map(|t| {
+                let rate = t.pcm.rate.max(1) as f64;
+                (t.pos / rate, t.pcm.frames.len() as f64 / rate)
+            })
+        })
+        .flatten()
+    }
+
     /// Starts a track on a channel, replacing what played there.
     pub fn play(&self, bus: Bus, channel: i32, pcm: Arc<Pcm>, looping: bool) {
         self.with(|s| {
@@ -153,6 +190,7 @@ impl Mixer {
         bus: Bus,
         channel: i32,
         looping: bool,
+        gain: f32,
         decode: impl FnOnce() -> Result<Arc<Pcm>> + Send + 'static,
     ) {
         let Some(token) = self.with(|s| {
@@ -175,14 +213,21 @@ impl Mixer {
                                 pcm,
                                 pos: 0.0,
                                 looping,
-                                gain: 1.0,
+                                gain,
                                 fade: None,
                             },
                         );
                     }
                 });
             }
-            Err(e) => eprintln!("sound: {e}"),
+            Err(e) => {
+                mixer.with(|s| {
+                    if s.pending.get(&(bus, channel)) == Some(&token) {
+                        s.pending.remove(&(bus, channel));
+                    }
+                });
+                eprintln!("sound: {e}");
+            }
         });
     }
 
@@ -225,7 +270,9 @@ impl Mixer {
         out.fill(0.0);
         let rate = self.rate as f64;
         self.with(|s| {
-            s.tracks.retain(|_, t| {
+            let volume = s.volume;
+            s.tracks.retain(|key, t| {
+                let bus_gain = volume[bus_index(key.0)];
                 let step = t.pcm.rate as f64 / rate;
                 let n = t.pcm.frames.len();
                 for frame in out.chunks_exact_mut(channels.max(1)) {
@@ -236,8 +283,9 @@ impl Mixer {
                     let j = (i + 1).min(n - 1);
                     let k = (t.pos - i as f64) as f32;
                     let (a, b) = (t.pcm.frames[i], t.pcm.frames[j]);
-                    let l = (a[0] + (b[0] - a[0]) * k) * t.gain;
-                    let r = (a[1] + (b[1] - a[1]) * k) * t.gain;
+                    let g = t.gain * bus_gain;
+                    let l = (a[0] + (b[0] - a[0]) * k) * g;
+                    let r = (a[1] + (b[1] - a[1]) * k) * g;
                     match frame {
                         [m] => *m += (l + r) * 0.5,
                         [fl, fr, ..] => {

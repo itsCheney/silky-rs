@@ -8,7 +8,7 @@ use silky_format::mes::Script;
 use crate::{Error, Result};
 
 /// Text and art language of the international build.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum Language {
     #[default]
     English,

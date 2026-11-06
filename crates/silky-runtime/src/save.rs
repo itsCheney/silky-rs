@@ -67,6 +67,11 @@ impl Saves {
         Self { dir: dir.into() }
     }
 
+    /// The save folder.
+    pub fn dir(&self) -> &std::path::Path {
+        &self.dir
+    }
+
     fn path(&self, slot: &str) -> PathBuf {
         self.dir.join(format!("{slot}.json"))
     }
@@ -149,6 +154,7 @@ impl Saves {
             .filter_map(|e| {
                 let name = e.file_name().into_string().ok()?;
                 let slot = name.strip_suffix(".json")?.to_string();
+                Kind::of(&slot)?;
                 let time = e.metadata().and_then(|m| m.modified()).ok()?;
                 Some((time, slot))
             })

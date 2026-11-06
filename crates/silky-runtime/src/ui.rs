@@ -95,6 +95,8 @@ pub struct Ui {
     pub has_saves: bool,
     /// Options of a pending selection, as shown.
     pub choices: Vec<String>,
+    /// There is a selection to go back to.
+    pub previous_choice: bool,
 }
 
 /// Button state, as the row of the sprite sheet.
@@ -124,7 +126,7 @@ impl Ui {
         match b {
             Button::Title(title::CONTINUE | title::LOAD) => self.has_saves,
             Button::Bar(bar::LOAD | bar::QUICK_LOAD) => self.has_saves,
-            Button::Bar(bar::PREVIOUS_CHOICE) => false,
+            Button::Bar(bar::PREVIOUS_CHOICE) => self.previous_choice,
             _ => true,
         }
     }

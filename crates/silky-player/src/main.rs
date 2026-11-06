@@ -311,7 +311,10 @@ impl ApplicationHandler for App {
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::CloseRequested => {
+                self.session.flush_system();
+                event_loop.exit();
+            }
             WindowEvent::RedrawRequested => {
                 if let Err(e) = self.redraw() {
                     self.fail(event_loop, e);
@@ -336,10 +339,7 @@ impl ApplicationHandler for App {
                         Ok(())
                     }
                     (MouseButton::Left, ElementState::Released) => self.session.pointer_up(x, y),
-                    (MouseButton::Right, ElementState::Released) => {
-                        self.session.secondary_click();
-                        Ok(())
-                    }
+                    (MouseButton::Right, ElementState::Released) => self.session.secondary_click(),
                     _ => Ok(()),
                 };
                 self.after_input(event_loop, r);
@@ -359,10 +359,7 @@ impl ApplicationHandler for App {
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
                 let r = match event.logical_key {
                     Key::Named(NamedKey::Enter | NamedKey::Space) => self.session.proceed(),
-                    Key::Named(NamedKey::Escape) => {
-                        self.session.back();
-                        Ok(())
-                    }
+                    Key::Named(NamedKey::Escape) => self.session.back().map(|_| ()),
                     _ => Ok(()),
                 };
                 self.after_input(event_loop, r);

@@ -210,7 +210,10 @@ fn snap(
                     let pick = choose.min(rt.choices.len().saturating_sub(1));
                     rt.answer_choice(&mut vm, pick);
                 }
-                _ => {}
+                // Headless: leave extras screens, movies end at once.
+                Some(Pause::Extras(_)) => rt.answer_extras(&mut vm, -1),
+                Some(Pause::Movie) => rt.answer_movie(&mut vm),
+                None => {}
             },
             Stop::Options => {
                 rt.begin_options(vm.options().len());

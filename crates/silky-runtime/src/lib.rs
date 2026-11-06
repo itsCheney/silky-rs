@@ -12,17 +12,21 @@
 
 pub mod assets;
 pub mod audio;
+pub mod game_tables;
 mod host;
+pub mod menus;
+pub mod movie;
 pub mod render;
 pub mod save;
 pub mod scene;
 pub mod screens;
 pub mod session;
+pub mod system;
 pub mod text;
 pub mod ui;
 
 pub use assets::{Assets, Language};
-pub use host::{Config, Pause, Runtime, SaveState, Transition};
+pub use host::{Config, Extras, Pause, Runtime, SaveState, Transition};
 pub use scene::Scene;
 pub use session::{Session, State};
 

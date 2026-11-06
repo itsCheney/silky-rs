@@ -245,6 +245,8 @@ pub struct Renderer {
     text: Option<TextRenderer>,
     language: Language,
     characters: HashMap<(String, Option<String>), Arc<Image>>,
+    /// Message window colour (RGB, 0..1) and opacity (settings).
+    pub window: ([f32; 3], f32),
 }
 
 impl Renderer {
@@ -260,6 +262,7 @@ impl Renderer {
             text,
             language,
             characters: HashMap::new(),
+            window: ([0.0; 3], WINDOW_OPACITY as f32 / 255.0),
         }
     }
 
@@ -306,6 +309,46 @@ impl Renderer {
         self.text.as_ref()
     }
 
+    /// Switches the language of nameplates and text spacing.
+    pub fn set_language(&mut self, language: Language) {
+        self.language = language;
+        if let Some(t) = &mut self.text {
+            t.wide_advance = (language != Language::English).then_some(TEXT_WIDE_ADVANCE);
+        }
+    }
+
+    /// Draws the message text of the scene, only its first `limit`
+    /// characters if given (the layout stays that of the whole text).
+    pub fn draw_text(&self, canvas: &mut Canvas, scene: &Scene, limit: Option<usize>) {
+        if scene.cover.is_some() {
+            return;
+        }
+        self.draw_text_at(canvas, scene, limit, scene.shake);
+    }
+
+    fn draw_text_at(
+        &self,
+        canvas: &mut Canvas,
+        scene: &Scene,
+        limit: Option<usize>,
+        shift: (i32, i32),
+    ) {
+        let (Some(text), Some(tr)) = (&scene.text, &self.text) else {
+            return;
+        };
+        let mut left = limit.unwrap_or(usize::MAX);
+        for (i, line) in tr.wrap(text, TEXT_SIZE, TEXT_WIDTH).iter().enumerate() {
+            if left == 0 {
+                break;
+            }
+            let shown: String = line.chars().take(left).collect();
+            left = left.saturating_sub(line.chars().count());
+            let y = TEXT_BASELINE + TEXT_LINE * i as f32 + shift.1 as f32;
+            let x = TEXT_LEFT + shift.0 as f32;
+            tr.draw_line(canvas, &shown, x, y, TEXT_SIZE, [255, 255, 255, 255]);
+        }
+    }
+
     /// Renders the scene with the message window, without engine-drawn
     /// buttons (see [`crate::ui`]).
     pub fn render(&mut self, scene: &Scene, assets: &mut Assets) -> Result<Canvas> {
@@ -319,6 +362,19 @@ impl Renderer {
         scene: &Scene,
         assets: &mut Assets,
         window: bool,
+    ) -> Result<Canvas> {
+        self.render_parts(scene, assets, window, true)
+    }
+
+    /// Renders the scene; with `text` false the message window is drawn
+    /// empty and [`Renderer::draw_text`] puts the text on later (text
+    /// that appears letter by letter).
+    pub fn render_parts(
+        &mut self,
+        scene: &Scene,
+        assets: &mut Assets,
+        window: bool,
+        text: bool,
     ) -> Result<Canvas> {
         let mut canvas = Canvas::new(SCREEN_WIDTH, SCREEN_HEIGHT);
         if let Some(bg) = &scene.background {
@@ -350,10 +406,17 @@ impl Renderer {
             canvas.draw(&img, 0, 0, false);
         }
 
-        if let Some(text) = scene.text.as_ref().filter(|_| window) {
+        if scene.text.is_some() && window {
             let parts = assets.image("message_p.akb")?;
+            let (color, opacity) = self.window;
+            let alpha = (opacity.clamp(0.0, 1.0) * 255.0) as u8;
             for part in [WINDOW_BAND, WINDOW_TEXTURE] {
-                canvas.draw_part(&parts, part, 0, WINDOW_TOP, false, WINDOW_OPACITY);
+                canvas.draw_part(&parts, part, 0, WINDOW_TOP, false, alpha);
+            }
+            if color != [0.0; 3] {
+                let rgb = color.map(|c| (c.clamp(0.0, 1.0) * 255.0) as u8);
+                let (_, _, w, h) = WINDOW_BAND;
+                canvas.fill(0, WINDOW_TOP, w, h, [rgb[0], rgb[1], rgb[2], alpha / 2]);
             }
             if let (true, Some((body, face))) = (scene.portrait_visible, &scene.portrait) {
                 let img = self.character(assets, body, face.as_deref())?;
@@ -366,18 +429,9 @@ impl Renderer {
                 let (x, y) = NAMEPLATE_POS;
                 canvas.draw_part(&sheet, (0, h * row as u32, w, h), x, y, false, 255);
             }
-            if let Some(tr) = &self.text {
-                for (i, line) in tr.wrap(text, TEXT_SIZE, TEXT_WIDTH).iter().enumerate() {
-                    let y = TEXT_BASELINE + TEXT_LINE * i as f32;
-                    tr.draw_line(
-                        &mut canvas,
-                        line,
-                        TEXT_LEFT,
-                        y,
-                        TEXT_SIZE,
-                        [255, 255, 255, 255],
-                    );
-                }
+            if text {
+                // Shaken with the rest below.
+                self.draw_text_at(&mut canvas, scene, None, (0, 0));
             }
         }
         if let Some(c) = scene.cover {

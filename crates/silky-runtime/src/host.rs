@@ -18,6 +18,7 @@ const SHAKE: i32 = 3;
 const SPRITE: i32 = 19;
 const SCREEN: i32 = 20;
 const UI: i32 = 26;
+const MOVIE: i32 = 23;
 
 /// Screen calls (class 20). Times are in frames of 1/60 s (provisional).
 mod screen {
@@ -132,6 +133,20 @@ pub enum Pause {
     Transition(Transition),
     /// The script polls input once per frame ([`Runtime::clicked`]).
     Frame,
+    /// An extras screen is up (game commands 30, 31, 32); answer with
+    /// [`Runtime::answer_extras`].
+    Extras(Extras),
+    /// A movie plays (`Movie.2`); the frontend shows it, then runs the
+    /// scripts again.
+    Movie,
+}
+
+/// The three extras screens of the title menu.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Extras {
+    Gallery,
+    Scenes,
+    Music,
 }
 
 /// How the last scene change is shown.
@@ -141,6 +156,9 @@ pub struct Transition {
     /// Rule mask number (`NN.bin`), or `None` for a crossfade.
     pub rule: Option<u32>,
 }
+
+/// Mixer channel of movie sound.
+const MOVIE_AUDIO: i32 = 99;
 
 pub struct Runtime {
     pub assets: Assets,
@@ -168,6 +186,14 @@ pub struct Runtime {
     pub audio: Mixer,
     /// Voice file of the current message, for the backlog.
     pub voice: Option<String>,
+    /// Settings and what was seen, kept across saves.
+    pub system: crate::system::SystemData,
+    /// Set when the system data changed and should be stored.
+    pub system_changed: bool,
+    /// Whether the current message was read before.
+    pub read_before: bool,
+    /// Movie file set up by `Movie.0`, played by `Movie.2`.
+    pub movie: Option<String>,
 }
 
 fn host_error(msg: impl Into<String>) -> silky_vm::Error {
@@ -192,6 +218,10 @@ impl Runtime {
             character_time: 0,
             audio,
             voice: None,
+            system: Default::default(),
+            system_changed: false,
+            read_before: false,
+            movie: None,
         }
     }
 
@@ -275,6 +305,80 @@ impl Runtime {
         self.clicked = false;
     }
 
+    /// Returns the result of an extras screen to the script: -1 to leave,
+    /// or the scene to replay.
+    pub fn answer_extras(&mut self, vm: &mut Vm, result: i32) {
+        vm.push(result);
+    }
+
+    /// Returns from a movie.
+    pub fn answer_movie(&mut self, vm: &mut Vm) {
+        self.audio.stop(Bus::Music, MOVIE_AUDIO);
+        vm.push(0);
+    }
+
+    /// Opens the movie set up with `Movie.0` and starts its sound.
+    pub fn open_movie(&mut self) -> crate::Result<crate::movie::Movie> {
+        let name = self
+            .movie
+            .clone()
+            .ok_or_else(|| crate::Error::Invalid("no movie set up".into()))?;
+        let file = self.assets.read(Kind::Movie, &name)?;
+        let stream = Arc::new(crate::movie::mpeg_stream(&file)?);
+        let movie = crate::movie::Movie::open(stream.clone())?;
+        if self.audio.enabled() {
+            self.audio
+                .play_later(Bus::Music, MOVIE_AUDIO, false, 1.0, move || {
+                    crate::movie::decode_audio(stream).map(Arc::new)
+                });
+        }
+        Ok(movie)
+    }
+
+    /// Position of the movie sound in ms, while it plays; `Some(None)`
+    /// while it still decodes.
+    pub fn movie_clock(&self) -> Option<Option<f64>> {
+        match self.audio.position(Bus::Music, MOVIE_AUDIO) {
+            Some((pos, _)) => Some(Some(pos * 1000.0)),
+            None if self.audio.is_playing(Bus::Music, MOVIE_AUDIO) => Some(None),
+            None => None,
+        }
+    }
+
+    /// Applies the volume settings to the mixer.
+    pub fn apply_volumes(&self) {
+        let st = &self.system.settings;
+        let master = if st.master_on { st.master } else { 0.0 };
+        let v = |on: bool, x: f32| if on { x * master } else { 0.0 };
+        self.audio.set_volume(Bus::Music, v(st.music_on, st.music));
+        self.audio
+            .set_volume(Bus::Effect, v(st.effects_on, st.effects));
+        self.audio.set_volume(Bus::Voice, v(st.voice_on, st.voice));
+    }
+
+    /// Plays a music track from the music room, looping.
+    pub fn play_music(&mut self, file: &str) -> crate::Result<()> {
+        self.audio.stop_bus(Bus::Music);
+        self.play(Bus::Music, Kind::Music, 0, file)
+    }
+
+    pub fn stop_music(&mut self) {
+        self.audio.stop_bus(Bus::Music);
+    }
+
+    /// Re-reads the current message in the configured language.
+    pub fn set_language(&mut self, language: Language) {
+        self.config.language = language;
+        let section = language.map_section();
+        if let (Some(index), Some((_, map))) = (self.last_text, &self.text_table) {
+            if self.scene.text.is_some() {
+                if let Some(t) = map.line(section, index) {
+                    self.scene.text = Some(t.to_string());
+                }
+            }
+        }
+    }
+
     /// Plays a voice line again (backlog), cutting the one playing.
     pub fn replay_voice(&mut self, file: &str) -> crate::Result<()> {
         self.audio.stop_bus(Bus::Voice);
@@ -311,7 +415,8 @@ impl Runtime {
 
     /// Pauses for a transition of `frames`, or goes on at once.
     fn transition(&mut self, frames: i32, rule: Option<u32>) -> Flow {
-        let ms = frames_ms(frames);
+        let scale = self.system.settings.effect_scale();
+        let ms = (frames_ms(frames) as f32 * scale) as u32;
         if ms == 0 {
             return Flow::Continue;
         }
@@ -383,13 +488,26 @@ impl Runtime {
         }
         let key = file.to_ascii_lowercase();
         let data = self.assets.read(kind, file)?;
-        self.audio.play_later(bus, ch, bus == Bus::Music, move || {
-            Ok(Arc::new(if key.ends_with(".ogg") {
-                Pcm::from_ogg(&data)?
-            } else {
-                Pcm::from_wav(&data)?
-            }))
-        });
+        let gain = match bus {
+            Bus::Voice => {
+                let st = &self.system.settings;
+                let g = crate::system::Settings::voice_group_of(file);
+                if st.voice_group_on[g] {
+                    st.voice_group[g]
+                } else {
+                    0.0
+                }
+            }
+            _ => 1.0,
+        };
+        self.audio
+            .play_later(bus, ch, bus == Bus::Music, gain, move || {
+                Ok(Arc::new(if key.ends_with(".ogg") {
+                    Pcm::from_ogg(&data)?
+                } else {
+                    Pcm::from_wav(&data)?
+                }))
+            });
         Ok(())
     }
 
@@ -417,6 +535,9 @@ impl Runtime {
             (sound::PLAY, [_, Value::Str(file)]) => {
                 if bus == Bus::Music {
                     self.scene.music.insert(ch, file.clone());
+                    if self.system.music.insert(file.to_ascii_lowercase()) {
+                        self.system_changed = true;
+                    }
                 }
                 self.play(bus, kind, ch, file)?;
             }
@@ -476,6 +597,12 @@ impl Runtime {
             (cmd::PORTRAIT, 11, 0) => scene.portrait_visible = false,
             (cmd::PICTURE, 0, 1) => {
                 scene.background = s(0);
+                if let Some(name) = &scene.background {
+                    self.system
+                        .seen
+                        .insert(crate::assets::with_ext(&name.to_ascii_lowercase()));
+                    self.system_changed = true;
+                }
                 scene.overlays.clear();
                 // Provisional: the title picture sits in a sprite layer;
                 // the first background of the game replaces it.
@@ -484,6 +611,10 @@ impl Runtime {
             // (slot, parameter, name)
             (cmd::PICTURE, 1, 3) => match s(2).filter(|v| !v.is_empty()) {
                 Some(name) => {
+                    self.system
+                        .seen
+                        .insert(crate::assets::with_ext(&name.to_ascii_lowercase()));
+                    self.system_changed = true;
                     scene.overlays.insert(n(0), name);
                 }
                 None => {
@@ -562,7 +693,27 @@ impl Runtime {
                     .ok_or_else(|| host_error(format!("no text line {index}")))?;
                 scene.text = Some(text.to_string());
                 self.last_text = Some(index);
+                let key = format!(
+                    "{}:{index}",
+                    self.text_table
+                        .as_ref()
+                        .map_or("", |t| t.0.as_str())
+                        .to_ascii_lowercase()
+                );
+                self.read_before = !self.system.read.insert(key);
+                self.system_changed |= !self.read_before;
                 self.pause = Some(Pause::Text { index });
+                self.handled += 1;
+                return Ok(Flow::Yield);
+            }
+            // Extras screens; the result is pushed by
+            // [`Runtime::answer_extras`].
+            (30..=32, _, _) => {
+                self.pause = Some(Pause::Extras(match command {
+                    30 => Extras::Gallery,
+                    31 => Extras::Scenes,
+                    _ => Extras::Music,
+                }));
                 self.handled += 1;
                 return Ok(Flow::Yield);
             }
@@ -633,6 +784,33 @@ impl Host for Runtime {
                         return Ok(flow);
                     }
                 }
+                if class == MOVIE {
+                    match (sub, args.as_slice()) {
+                        // (0, name): set up a movie.
+                        (0, [_, Value::Str(name)]) => {
+                            self.movie = Some(name.clone());
+                            self.handled += 1;
+                            return Ok(Flow::Continue);
+                        }
+                        // Play it; returns 0 when done.
+                        (2, []) => {
+                            self.handled += 1;
+                            if self.movie.is_some() {
+                                self.pause = Some(Pause::Movie);
+                                return Ok(Flow::Yield);
+                            }
+                            vm.push(0);
+                            return Ok(Flow::Continue);
+                        }
+                        // Close.
+                        (1, []) => {
+                            self.movie = None;
+                            self.handled += 1;
+                            return Ok(Flow::Continue);
+                        }
+                        _ => {}
+                    }
+                }
                 if matches!(class, MUSIC | EFFECT | VOICE) && self.sound(vm, class, sub, &args)? {
                     self.handled += 1;
                     return Ok(Flow::Continue);
@@ -648,8 +826,11 @@ impl Host for Runtime {
     fn message(&mut self, _vm: &mut Vm, _number: u32) -> silky_vm::Result<Flow> {
         self.scene.speaker = None;
         self.voice = None;
-        // A new message cuts the voice of the last one.
-        self.audio.stop_bus(Bus::Voice);
+        // A new message cuts the voice of the last one, unless the player
+        // turned that off.
+        if self.system.settings.cut_voice {
+            self.audio.stop_bus(Bus::Voice);
+        }
         Ok(Flow::Continue)
     }
 }

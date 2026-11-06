@@ -3,7 +3,7 @@
 //! clock. The desktop player and a mobile embedding only forward input and
 //! present [`Session::frame`].
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use silky_format::akb::Image;
@@ -12,15 +12,19 @@ use silky_format::game::Game;
 use silky_format::mes::Profile;
 use silky_vm::{Stop, Vm};
 
+use crate::audio::Bus;
+use crate::menus::{self, extras_ids, ids as set_ids, ExtrasScreen, Menus, Page, SettingsScreen};
+use crate::movie::Movie;
 use crate::render::{Canvas, Renderer};
 use crate::save::{self, Saves};
 use crate::screens::{
     dialog_ids, log_ids, save_ids, Action, Backlog, Dialog, Item, LogEntry, Mode, SaveLoad, Screen,
     Screens, LOG_ROWS, SAVE_ROWS,
 };
+use crate::system::{RightClick, Settings, SystemData};
 use crate::text::TextRenderer;
 use crate::ui::{bar, title, Button, Layout, Ui};
-use crate::{Assets, Config, Error, Pause, Result, Runtime, SaveState};
+use crate::{Assets, Config, Error, Extras, Language, Pause, Result, Runtime, SaveState};
 
 /// What the game waits for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +37,10 @@ pub enum State {
     Choice,
     /// A transition or a timed wait is running; [`Session::tick`] ends it.
     Busy,
+    /// An extras screen of the title menu is up.
+    Extras,
+    /// A movie plays; a click ends it.
+    Movie,
     /// The scripts ended, or the player asked to quit.
     Ended,
 }
@@ -41,11 +49,10 @@ pub enum State {
 /// script that never stops.
 const STEP_BUDGET: u64 = 50_000_000;
 const MAX_BUDGETS: u32 = 20;
-/// Skip mode: time per message.
-const SKIP_MS: u64 = 60;
-/// Auto mode: time per message, plus per character.
-const AUTO_BASE_MS: u64 = 1500;
-const AUTO_CHAR_MS: u64 = 60;
+/// Time between writes of changed system data.
+const SYSTEM_STORE_MS: u64 = 3000;
+/// Extra time after punctuation (in characters) with the pause setting.
+const PUNCTUATION_PAUSE: u64 = 6;
 /// Messages kept for the backlog.
 const LOG_MAX: usize = 300;
 
@@ -76,12 +83,34 @@ pub struct Session {
     log: Vec<LogEntry>,
     /// Marked voices still to play from the backlog.
     voice_queue: VecDeque<String>,
-    /// Questions the player asked not to see again.
-    dont_ask: HashSet<usize>,
+    menus: Menus,
+    /// Movie playing.
+    movie: Option<MoviePlay>,
+    /// Messages shown since the start or the last load (the backlog
+    /// keeps only the last [`LOG_MAX`]).
+    logged: usize,
+    /// Places to go back to with "previous choice": [`Session::logged`]
+    /// and the state of the message before each selection.
+    choice_points: Vec<(usize, SaveState)>,
+    /// Skip and auto modes as they were when the last selection came up.
+    modes_at_choice: (bool, bool),
+    /// Skip runs to the next selection, through unread text too.
+    skip_to_choice: bool,
+    /// The player clicked while the message was still appearing.
+    reveal_all: bool,
+    /// Characters of the message drawn; `None` for all.
+    shown_chars: Option<usize>,
+    /// Clock time of the last system data write.
+    system_stored: u64,
     /// Thumbnail of the game as it was when a screen opened.
     thumb: Option<Image>,
     /// The backlog plays the marked voices one after another.
     playing_marked: bool,
+}
+
+struct MoviePlay {
+    movie: Movie,
+    ms: f64,
 }
 
 struct Busy {
@@ -109,8 +138,11 @@ impl Session {
         let assets = Assets::new(game);
         let layout = Layout::load(&assets, config.language)?;
         let screens = Screens::load(&assets, config.language);
-        let renderer = Renderer::new(text, config.language);
+        let menus = Menus::load(&assets, config.language);
+        let mut renderer = Renderer::new(text, config.language);
         let rt = Runtime::new(assets, config);
+        let st = &rt.system.settings;
+        renderer.window = (st.window_color, st.window_opacity);
         let mut s = Self {
             vm: Vm::new(Profile::default()),
             rt,
@@ -130,19 +162,77 @@ impl Session {
             dialog: None,
             log: Vec::new(),
             voice_queue: VecDeque::new(),
-            dont_ask: HashSet::new(),
             thumb: None,
             playing_marked: false,
+            menus,
+            movie: None,
+            logged: 0,
+            choice_points: Vec::new(),
+            modes_at_choice: (false, false),
+            skip_to_choice: false,
+            reveal_all: false,
+            shown_chars: None,
+            system_stored: 0,
         };
         s.restart()?;
         Ok(s)
     }
 
-    /// Where to keep save files. Without one, saving does nothing.
+    /// Where to keep save files and system data (`system.json`: settings
+    /// and what was seen). Without one, nothing is kept.
     pub fn set_saves(&mut self, saves: Saves) {
         self.ui.has_saves = !saves.list().is_empty();
+        let mut data = SystemData::load(saves.dir());
+        let seen = std::mem::take(&mut self.rt.system);
+        data.seen.extend(seen.seen);
+        data.music.extend(seen.music);
+        data.read.extend(seen.read);
+        self.rt.system = data;
         self.saves = Some(saves);
+        let old = Settings {
+            language: Some(self.rt.config.language),
+            ..self.rt.system.settings.clone()
+        };
+        self.settings_changed(old);
+        self.rt.system_changed = false;
+    }
+
+    /// Writes changed system data now (call before quitting).
+    pub fn flush_system(&mut self) {
+        if !self.rt.system_changed {
+            return;
+        }
+        if let Some(saves) = &self.saves {
+            if let Err(e) = self.rt.system.store(saves.dir()) {
+                eprintln!("system data: {e}");
+            }
+        }
+        self.rt.system_changed = false;
+        self.system_stored = self.ui.clock;
+    }
+
+    /// Applies changed settings: sound, window, language.
+    fn settings_changed(&mut self, old: Settings) {
+        let st = self.rt.system.settings.clone();
+        self.rt.system_changed = true;
+        self.rt.apply_volumes();
+        self.renderer.window = (st.window_color, st.window_opacity);
+        if let Some(language) = st.language.filter(|l| Some(*l) != old.language) {
+            self.change_language(language);
+        }
+        self.base = None;
         self.frame = None;
+    }
+
+    fn change_language(&mut self, language: Language) {
+        let Ok(layout) = Layout::load(&self.rt.assets, language) else {
+            return;
+        };
+        self.layout = layout;
+        self.rt.set_language(language);
+        self.screens = Screens::load(&self.rt.assets, language);
+        self.menus = Menus::load(&self.rt.assets, language);
+        self.renderer.set_language(language);
     }
 
     /// Saves the shown message to `slot` (see [`save::QUICK`]).
@@ -199,6 +289,8 @@ impl Session {
         }
         let file = saves.read(slot)?;
         self.log.clear();
+        self.logged = 0;
+        self.choice_points.clear();
         self.restore(file.state)
     }
 
@@ -208,6 +300,7 @@ impl Session {
         self.rt.load_state(&mut self.vm, state)?;
         if self.log.is_empty() {
             if let Some(text) = &self.rt.scene.text {
+                self.logged += 1;
                 self.log.push(LogEntry {
                     speaker: self.rt.scene.speaker,
                     text: text.clone(),
@@ -228,8 +321,13 @@ impl Session {
         };
         self.state = State::Text;
         self.shown_ms = 0;
+        self.reveal_all = true;
+        self.shown_chars = None;
+        self.skip_to_choice = false;
+        self.movie = None;
         self.base = None;
         self.frame = None;
+        self.update_previous_choice();
         Ok(())
     }
 
@@ -258,7 +356,11 @@ impl Session {
         self.screen = None;
         self.dialog = None;
         self.log.clear();
+        self.logged = 0;
+        self.choice_points.clear();
         self.voice_queue.clear();
+        self.movie = None;
+        self.skip_to_choice = false;
         self.ui = Ui {
             has_saves: self.ui.has_saves,
             ..Ui::default()
@@ -278,6 +380,7 @@ impl Session {
                             if self.log.len() >= LOG_MAX {
                                 self.log.remove(0);
                             }
+                            self.logged += 1;
                             self.log.push(LogEntry {
                                 speaker: self.rt.scene.speaker,
                                 text: text.clone(),
@@ -289,9 +392,12 @@ impl Session {
                         self.state = State::Text;
                         self.ui.waiting = true;
                         self.shown_ms = 0;
+                        self.reveal_all = false;
+                        self.shown_chars = self.revealed();
                         break;
                     }
                     Some(Pause::Title) => {
+                        self.skip_to_choice = false;
                         self.state = State::Title;
                         self.ui.title = Some(false);
                         self.ui.auto = false;
@@ -323,14 +429,44 @@ impl Session {
                         break;
                     }
                     Some(Pause::Choice) => {
-                        self.auto_save();
+                        if self.rt.system.settings.auto_save_at_choices {
+                            self.auto_save();
+                        }
+                        let len = self.logged;
+                        self.choice_points.retain(|p| p.0 < len);
+                        if let Some(e) = self.log.last() {
+                            self.choice_points.push((len, e.state.clone()));
+                        }
                         self.ui.choices = self.rt.choices.clone();
                         self.ui.waiting = false;
                         self.state = State::Choice;
+                        self.modes_at_choice = (self.ui.skip && !self.skip_to_choice, self.ui.auto);
+                        self.skip_to_choice = false;
                         self.ui.skip = false;
                         self.ui.auto = false;
                         break;
                     }
+                    Some(Pause::Extras(kind)) => {
+                        self.ui.title = None;
+                        self.ui.skip = false;
+                        self.ui.auto = false;
+                        self.ui.hover = None;
+                        self.screen = Some(Screen::Extras(ExtrasScreen::new(kind)));
+                        self.state = State::Extras;
+                        break;
+                    }
+                    Some(Pause::Movie) => match self.rt.open_movie() {
+                        Ok(movie) => {
+                            self.movie = Some(MoviePlay { movie, ms: 0.0 });
+                            self.state = State::Movie;
+                            break;
+                        }
+                        Err(e) => {
+                            let name = self.rt.movie.clone().unwrap_or_default();
+                            self.rt.note_unhandled(format!("movie {name}: {e}"));
+                            self.rt.answer_movie(&mut self.vm);
+                        }
+                    },
                     None => {}
                 },
                 Stop::Options => {
@@ -354,7 +490,71 @@ impl Session {
         }
         self.base = None;
         self.frame = None;
+        self.update_previous_choice();
         Ok(())
+    }
+
+    fn update_previous_choice(&mut self) {
+        let len = self.logged;
+        self.ui.previous_choice = self.choice_points.iter().any(|p| p.0 < len)
+            && matches!(self.state, State::Text | State::Choice);
+    }
+
+    /// Goes back to the message before the last selection (before the one
+    /// that is up, at a selection).
+    fn previous_choice(&mut self) -> Result<()> {
+        let len = self.logged;
+        self.choice_points.retain(|p| p.0 < len);
+        let Some((n, state)) = self.choice_points.last().cloned() else {
+            return Ok(());
+        };
+        self.truncate_log(self.log.len() - (len - n).min(self.log.len()));
+        self.restore(state)
+    }
+
+    /// Keeps the first `keep` backlog entries.
+    fn truncate_log(&mut self, keep: usize) {
+        self.logged -= self.log.len().saturating_sub(keep);
+        self.log.truncate(keep);
+    }
+
+    /// Characters of the message shown so far, `None` once all are.
+    fn revealed(&self) -> Option<usize> {
+        let text = self.rt.scene.text.as_deref()?;
+        let st = &self.rt.system.settings;
+        if !st.typewriter || self.reveal_all || self.ui.skip {
+            return None;
+        }
+        let per = st.char_ms();
+        let mut t = 0;
+        for (i, c) in text.chars().filter(|&c| c != '\n').enumerate() {
+            t += per;
+            if st.punctuation_pause && is_pause_punctuation(c) {
+                t += per * PUNCTUATION_PAUSE;
+            }
+            if t > self.shown_ms {
+                return Some(i);
+            }
+        }
+        None
+    }
+
+    /// Time the whole message takes to appear.
+    fn reveal_ms(&self) -> u64 {
+        let st = &self.rt.system.settings;
+        let Some(text) = self.rt.scene.text.as_deref() else {
+            return 0;
+        };
+        if !st.typewriter || self.reveal_all {
+            return 0;
+        }
+        text.chars()
+            .filter(|&c| c != '\n')
+            .map(|c| {
+                let pause = st.punctuation_pause && is_pause_punctuation(c);
+                st.char_ms() * if pause { 1 + PUNCTUATION_PAUSE } else { 1 }
+            })
+            .sum()
     }
 
     /// Rule mask `NN.bin`, cached; `None` if the game has none.
@@ -376,6 +576,12 @@ impl Session {
 
     /// Goes on from the current message.
     fn advance(&mut self) -> Result<()> {
+        if self.state == State::Text && self.shown_chars.is_some() {
+            self.reveal_all = true;
+            self.shown_chars = None;
+            self.frame = None;
+            return Ok(());
+        }
         if self.state == State::Text {
             self.ui.waiting = false;
             self.run()?;
@@ -385,6 +591,14 @@ impl Session {
 
     /// Pointer moved to (x, y) in screen pixels.
     pub fn pointer_move(&mut self, x: i32, y: i32) {
+        if let Some(Screen::Settings(SettingsScreen {
+            dragging: Some(id), ..
+        })) = &self.screen
+        {
+            let id = *id;
+            self.drag_settings(id, x, y);
+            return;
+        }
         let hover = self.hit(x, y);
         if hover != self.ui.hover {
             self.ui.hover = hover;
@@ -396,12 +610,64 @@ impl Session {
     pub fn pointer_down(&mut self, x: i32, y: i32) {
         self.ui.pressed = self.hit(x, y);
         self.frame = None;
+        if let (Some(Screen::Settings(s)), Some(Button::Screen(id))) =
+            (&mut self.screen, self.ui.pressed)
+        {
+            if menus::is_slider(s.page, id) || id == set_ids::SCROLL {
+                s.dragging = Some(id);
+                self.drag_settings(id, x, y);
+            }
+        }
+    }
+
+    /// A slider or the scroll bar of the settings screen follows the
+    /// pointer.
+    fn drag_settings(&mut self, id: i32, x: i32, y: i32) {
+        let Some(Screen::Settings(s)) = &mut self.screen else {
+            return;
+        };
+        self.frame = None;
+        if id == set_ids::SCROLL {
+            let max = self.menus.max_scroll(&mut self.rt.assets, s.page);
+            let (_, ty, _, th) = menus::SETTINGS_TRACK;
+            let f = ((y - ty) as f32 / th as f32).clamp(0.0, 1.0);
+            s.scroll = (f * max as f32).round() as i32;
+            return;
+        }
+        let Some(a) = self.menus.settings_area(s, id) else {
+            return;
+        };
+        let page = s.page;
+        let old = self.rt.system.settings.clone();
+        if menus::apply(
+            &mut self.rt.system.settings,
+            page,
+            id,
+            menus::slider_value(&a, x),
+        ) {
+            self.settings_changed(old);
+        }
     }
 
     /// Primary button released at (x, y): a click.
     pub fn pointer_up(&mut self, x: i32, y: i32) -> Result<()> {
         let pressed = self.ui.pressed.take();
         self.frame = None;
+        if let Some(Screen::Settings(s)) = &mut self.screen {
+            if s.dragging.take().is_some() {
+                return Ok(());
+            }
+        }
+        if self.state == State::Movie {
+            return self.end_movie();
+        }
+        if let Some(Screen::Extras(e)) = &mut self.screen {
+            if let Some((entry, pos)) = e.view {
+                e.view = ExtrasScreen::next_picture(&self.rt.system, entry, Some(pos))
+                    .map(|p| (entry, p));
+                return Ok(());
+            }
+        }
         let hit = self.hit(x, y);
         if hit.is_some() && hit != pressed {
             return Ok(());
@@ -439,6 +705,7 @@ impl Session {
                 if self.ui.auto || self.ui.skip {
                     self.ui.auto = false;
                     self.ui.skip = false;
+                    self.skip_to_choice = false;
                     Ok(())
                 } else {
                     self.advance()
@@ -448,31 +715,85 @@ impl Session {
         }
     }
 
-    /// Secondary click: closes a dialog or screen, else hides or shows
-    /// the message window.
-    pub fn secondary_click(&mut self) {
-        if self.back() {
-            return;
+    /// Secondary click: closes a dialog or screen, else does what the
+    /// settings say (hide the message window by default).
+    pub fn secondary_click(&mut self) -> Result<()> {
+        if self.back()? || self.state != State::Text {
+            return Ok(());
         }
-        if self.state == State::Text {
-            self.ui.window_hidden = !self.ui.window_hidden;
+        self.frame = None;
+        if self.ui.window_hidden {
+            self.ui.window_hidden = false;
             self.base = None;
-            self.frame = None;
+            return Ok(());
         }
+        match self.rt.system.settings.right_click {
+            RightClick::HideWindow => {
+                self.ui.window_hidden = true;
+                self.base = None;
+            }
+            RightClick::Settings => self.open_settings(),
+            RightClick::Skip => self.press(Button::Bar(bar::SKIP))?,
+            RightClick::Auto => self.press(Button::Bar(bar::AUTO))?,
+            RightClick::Load => self.open_save_load(Mode::Load),
+            RightClick::Save => self.open_save_load(Mode::Save),
+        }
+        Ok(())
     }
 
-    /// Closes the dialog or screen that is up (Escape, right click).
-    /// Returns false if there was none.
-    pub fn back(&mut self) -> bool {
+    /// Closes the dialog or screen that is up, or ends a movie (Escape,
+    /// right click). Returns false if there was none.
+    pub fn back(&mut self) -> Result<bool> {
         if self.dialog.take().is_some() {
             self.frame = None;
-            return true;
+            return Ok(true);
         }
-        if self.screen.is_some() {
-            self.close_screen();
-            return true;
+        if self.state == State::Movie {
+            self.end_movie()?;
+            return Ok(true);
         }
-        false
+        match &mut self.screen {
+            Some(Screen::Extras(e)) if e.view.is_some() => {
+                e.view = None;
+                self.frame = None;
+            }
+            Some(Screen::Extras(_)) => self.leave_extras(-1)?,
+            Some(_) => self.close_screen(),
+            None => return Ok(false),
+        }
+        Ok(true)
+    }
+
+    fn end_movie(&mut self) -> Result<()> {
+        if self.movie.take().is_some() {
+            self.rt.answer_movie(&mut self.vm);
+            self.state = State::Busy;
+            self.run()?;
+        }
+        Ok(())
+    }
+
+    /// Leaves an extras screen with `result` for the script: -1 back to
+    /// the title, or a scene to replay.
+    fn leave_extras(&mut self, result: i32) -> Result<()> {
+        self.rt.stop_music();
+        self.screen = None;
+        self.ui.hover = None;
+        self.frame = None;
+        if result >= 0 {
+            // The scene mode script plays a scene when this is set.
+            self.vm.set_g(19, 1);
+        }
+        self.rt.answer_extras(&mut self.vm, result);
+        self.state = State::Busy;
+        self.run()
+    }
+
+    fn open_settings(&mut self) {
+        self.screen = Some(Screen::Settings(SettingsScreen::new()));
+        self.ui.skip = false;
+        self.ui.hover = None;
+        self.frame = None;
     }
 
     /// Mouse wheel: `up` towards older text. Up on a message opens the
@@ -484,6 +805,20 @@ impl Session {
         let d = if up { -1 } else { 1 };
         match &mut self.screen {
             Some(Screen::SaveLoad(s)) => s.scroll_by(d),
+            Some(Screen::Settings(s)) => {
+                let max = self.menus.max_scroll(&mut self.rt.assets, s.page);
+                s.scroll = (s.scroll + d as i32 * menus::SCROLL_STEP).clamp(0, max);
+            }
+            Some(Screen::Extras(e)) => match e.kind {
+                Extras::Music => {
+                    e.scroll = (e.scroll as isize + d).clamp(0, Menus::music_max_scroll() as isize)
+                        as usize;
+                }
+                _ if e.view.is_none() => {
+                    e.page = (e.page as isize + d).clamp(0, menus::CG_PAGES as isize - 1) as usize;
+                }
+                _ => return,
+            },
             Some(Screen::Backlog(b)) => {
                 if !up && b.top >= Backlog::max_top(self.log.len()) {
                     self.close_screen();
@@ -541,6 +876,9 @@ impl Session {
     }
 
     fn close_screen(&mut self) {
+        if matches!(self.screen, Some(Screen::Settings(_))) {
+            self.flush_system();
+        }
         self.screen = None;
         self.thumb = None;
         self.voice_queue.clear();
@@ -558,7 +896,7 @@ impl Session {
 
     /// Asks before doing something, unless the player said not to ask.
     fn ask(&mut self, action: Action) -> Result<()> {
-        if self.dont_ask.contains(&action.question()) {
+        if !self.rt.system.settings.confirm[action.question()] {
             return self.carry_out(action);
         }
         self.dialog = Some(Dialog {
@@ -576,7 +914,8 @@ impl Session {
             dialog_ids::YES => {
                 if let Some(d) = self.dialog.take() {
                     if d.dont_ask {
-                        self.dont_ask.insert(d.action.question());
+                        self.rt.system.settings.confirm[d.action.question()] = false;
+                        self.rt.system_changed = true;
                     }
                     self.carry_out(d.action)?;
                 }
@@ -626,18 +965,27 @@ impl Session {
             Action::Jump(i) => {
                 if let Some(e) = self.log.get(i) {
                     let state = e.state.clone();
-                    self.log.truncate(i + 1);
+                    self.truncate_log(i + 1);
                     self.restore(state)?;
                 }
             }
             Action::Title => self.restart()?,
-            Action::Quit => self.state = State::Ended,
+            Action::Quit => {
+                self.flush_system();
+                self.state = State::Ended;
+            }
+            Action::Scene(i) => self.leave_extras(i as i32)?,
         }
         Ok(())
     }
 
     fn press_screen(&mut self, id: i32, x: i32, y: i32) -> Result<()> {
         self.frame = None;
+        match &self.screen {
+            Some(Screen::Settings(_)) => return self.press_settings(id, x, y),
+            Some(Screen::Extras(_)) => return self.press_extras(id, y),
+            _ => {}
+        }
         let mut ask = None;
         let mut close = false;
         match &mut self.screen {
@@ -756,13 +1104,117 @@ impl Session {
                     _ => {}
                 }
             }
-            None => {}
+            Some(Screen::Settings(_) | Screen::Extras(_)) | None => {}
         }
         if close {
             self.close_screen();
         }
         if let Some(action) = ask {
             self.ask(action)?;
+        }
+        Ok(())
+    }
+
+    fn press_settings(&mut self, id: i32, x: i32, y: i32) -> Result<()> {
+        let Some(Screen::Settings(s)) = &mut self.screen else {
+            return Ok(());
+        };
+        let max = self.menus.max_scroll(&mut self.rt.assets, s.page);
+        match id {
+            set_ids::UP => s.scroll = (s.scroll - menus::SCROLL_STEP).max(0),
+            set_ids::DOWN => s.scroll = (s.scroll + menus::SCROLL_STEP).min(max),
+            set_ids::SCROLL => {
+                if let Some(f) = self.menus.settings_track(x, y) {
+                    s.scroll = (f * max as f32).round() as i32;
+                }
+            }
+            set_ids::SYSTEM_TAB | set_ids::SOUND_TAB => {
+                s.page = if id == set_ids::SYSTEM_TAB {
+                    Page::System
+                } else {
+                    Page::Sound
+                };
+                s.scroll = 0;
+            }
+            set_ids::RESET => {
+                let page = s.page;
+                let old = self.rt.system.settings.clone();
+                menus::reset(&mut self.rt.system.settings, page);
+                self.settings_changed(old);
+            }
+            set_ids::BACK => self.close_screen(),
+            menus::AUTO_MODE if s.page == Page::System => {
+                self.ui.auto = !self.ui.auto;
+                self.ui.skip = false;
+                self.shown_ms = 0;
+            }
+            _ => {
+                let page = s.page;
+                let value = self
+                    .menus
+                    .settings_area(s, id)
+                    .map_or(0.0, |a| menus::slider_value(&a, x));
+                let old = self.rt.system.settings.clone();
+                if menus::apply(&mut self.rt.system.settings, page, id, value) {
+                    self.settings_changed(old);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn press_extras(&mut self, id: i32, y: i32) -> Result<()> {
+        use crate::game_tables::MUSIC;
+        use extras_ids::*;
+        let Some(Screen::Extras(s)) = &mut self.screen else {
+            return Ok(());
+        };
+        match id {
+            _ if (MODE..MODE + 3).contains(&id) => {
+                let kind = [Extras::Gallery, Extras::Scenes, Extras::Music][(id - MODE) as usize];
+                if kind != s.kind {
+                    self.rt.stop_music();
+                    *s = ExtrasScreen::new(kind);
+                }
+            }
+            BACK => return self.leave_extras(-1),
+            PREVIOUS if s.kind == Extras::Music => s.scroll = s.scroll.saturating_sub(1),
+            NEXT if s.kind == Extras::Music => {
+                s.scroll = (s.scroll + 1).min(Menus::music_max_scroll());
+            }
+            PREVIOUS => s.page = s.page.saturating_sub(1),
+            NEXT => s.page = (s.page + 1).min(menus::CG_PAGES - 1),
+            SCROLL if s.kind == Extras::Music => {
+                if let Some(a) = crate::screens::area(self.menus.areas(Extras::Music), SCROLL) {
+                    let f = ((y - a.top) as f32 / a.height().max(1) as f32).clamp(0.0, 1.0);
+                    s.scroll = (f * Menus::music_max_scroll() as f32).round() as usize;
+                }
+            }
+            _ if (PAGE..PAGE + menus::CG_PAGES as i32).contains(&id) => {
+                s.page = (id - PAGE) as usize;
+            }
+            _ if (ITEM..PREVIOUS).contains(&id) => {
+                let Some(item) = Menus::item(s, (id - ITEM) as usize) else {
+                    return Ok(());
+                };
+                match s.kind {
+                    Extras::Gallery => {
+                        s.view = ExtrasScreen::next_picture(&self.rt.system, item, None)
+                            .map(|p| (item, p));
+                    }
+                    Extras::Scenes => return self.ask(Action::Scene(item)),
+                    Extras::Music => {
+                        if s.playing == Some(item) {
+                            s.playing = None;
+                            self.rt.stop_music();
+                        } else {
+                            s.playing = Some(item);
+                            self.rt.play_music(MUSIC[item])?;
+                        }
+                    }
+                }
+            }
+            _ => {}
         }
         Ok(())
     }
@@ -782,6 +1234,7 @@ impl Session {
         match b {
             Button::Title(i) => match i {
                 title::EXTRAS => self.ui.title = Some(true),
+                title::SETTINGS => self.open_settings(),
                 title::CONTINUE => self.load_latest()?,
                 title::LOAD => self.open_save_load(Mode::Load),
                 title::BACK => self.ui.title = Some(false),
@@ -797,6 +1250,10 @@ impl Session {
             },
             Button::Choice(i) => {
                 self.ui.choices.clear();
+                let (skip, auto) = self.modes_at_choice;
+                let st = &self.rt.system.settings;
+                self.ui.skip = skip && st.keep_skip_after_choices;
+                self.ui.auto = auto && st.keep_auto_after_choices;
                 self.rt.answer_choice(&mut self.vm, i);
                 self.run()?;
             }
@@ -808,8 +1265,16 @@ impl Session {
                 }
                 bar::SKIP => {
                     self.ui.skip = !self.ui.skip;
+                    self.skip_to_choice = false;
                     self.ui.auto = false;
                 }
+                bar::NEXT_CHOICE => {
+                    self.ui.skip = true;
+                    self.skip_to_choice = true;
+                    self.ui.auto = false;
+                }
+                bar::PREVIOUS_CHOICE => self.previous_choice()?,
+                bar::CONFIG => self.open_settings(),
                 bar::HIDE | bar::CLOSE => {
                     self.ui.window_hidden = true;
                     self.base = None;
@@ -838,9 +1303,11 @@ impl Session {
         match &self.screen {
             Some(Screen::SaveLoad(s)) => return self.screens.hit_save_load(s, x, y),
             Some(Screen::Backlog(b)) => return self.screens.hit_backlog(b, &self.log, x, y),
+            Some(Screen::Settings(s)) => return self.menus.hit_settings(s, x, y).map(|h| h.0),
+            Some(Screen::Extras(e)) => return self.menus.hit_extras(e, &self.rt.system, x, y),
             None => {}
         }
-        if self.state == State::Busy {
+        if matches!(self.state, State::Busy | State::Movie | State::Extras) {
             return None;
         }
         let text_shown =
@@ -860,6 +1327,33 @@ impl Session {
                     self.playing_marked = false;
                     self.frame = None;
                 }
+            }
+        }
+        if self.rt.system_changed && self.ui.clock >= self.system_stored + SYSTEM_STORE_MS {
+            self.flush_system();
+        }
+        if let Some(p) = &mut self.movie {
+            match self.rt.movie_clock() {
+                Some(Some(t)) => p.ms = t,
+                Some(None) => {}
+                None => p.ms += ms as f64,
+            }
+            let changed = p.movie.seek_forward(p.ms);
+            if p.movie.ended {
+                self.end_movie()?;
+                return Ok(true);
+            }
+            if changed {
+                self.frame = None;
+            }
+            return Ok(self.frame.is_none());
+        }
+        if let Some(Screen::Extras(e)) = &mut self.screen {
+            if e.playing.is_some() && before / 250 != self.ui.clock / 250 {
+                if !self.rt.audio.is_playing(Bus::Music, 0) {
+                    e.playing = None;
+                }
+                self.frame = None;
             }
         }
         if self.screen.is_some() || self.dialog.is_some() {
@@ -887,7 +1381,26 @@ impl Session {
             self.frame = None;
             return Ok(true);
         }
+        if self.state == State::Text {
+            let shown = self.revealed();
+            if shown != self.shown_chars {
+                self.shown_chars = shown;
+                self.frame = None;
+            }
+        }
+        let st = &self.rt.system.settings;
+        if self.state == State::Text
+            && self.ui.skip
+            && !self.skip_to_choice
+            && st.skip_read_only
+            && !self.rt.read_before
+        {
+            // Unread text: skipping stops here.
+            self.ui.skip = false;
+            self.frame = None;
+        }
         if self.state == State::Text && !self.ui.window_hidden {
+            let st = &self.rt.system.settings;
             let chars = self
                 .rt
                 .scene
@@ -895,9 +1408,9 @@ impl Session {
                 .as_deref()
                 .map_or(0, |t| t.chars().count()) as u64;
             let due = if self.ui.skip {
-                Some(SKIP_MS)
+                Some(st.skip_ms())
             } else if self.ui.auto {
-                Some(AUTO_BASE_MS + AUTO_CHAR_MS * chars)
+                Some(self.reveal_ms() + st.auto_ms(chars))
             } else {
                 None
             };
@@ -940,10 +1453,37 @@ impl Session {
                             self.playing_marked,
                             text,
                         )?,
+                        Screen::Settings(s) => {
+                            let max = self.menus.max_scroll(assets, s.page);
+                            self.menus.draw_settings(
+                                &mut c,
+                                assets,
+                                &self.ui,
+                                s,
+                                &self.rt.system,
+                                max,
+                                text,
+                            )?
+                        }
+                        Screen::Extras(e) => {
+                            let pos = self.rt.audio.position(Bus::Music, 0);
+                            self.menus.draw_extras(
+                                &mut c,
+                                assets,
+                                &self.ui,
+                                e,
+                                &self.rt.system,
+                                pos,
+                                text,
+                            )?
+                        }
                     }
                     c
                 }
-                None => self.game_frame()?,
+                None => match &self.movie {
+                    Some(p) => movie_frame(&p.movie),
+                    None => self.game_frame()?,
+                },
             };
             if let Some(d) = &self.dialog {
                 self.screens
@@ -957,12 +1497,13 @@ impl Session {
     /// The game with its interface.
     fn game_frame(&mut self) -> Result<Canvas> {
         {
+            let window = !self.ui.window_hidden && self.state != State::Title;
             if self.base.is_none() {
-                let window = !self.ui.window_hidden;
-                self.base = Some(self.renderer.render_scene(
+                self.base = Some(self.renderer.render_parts(
                     &self.rt.scene,
                     &mut self.rt.assets,
-                    window && self.state != State::Title,
+                    window,
+                    false,
                 )?);
             }
             let mut frame = match &self.busy {
@@ -980,6 +1521,10 @@ impl Session {
                 ),
                 _ => self.base.clone().unwrap(),
             };
+            if window {
+                self.renderer
+                    .draw_text(&mut frame, &self.rt.scene, self.shown_chars);
+            }
             let text_shown =
                 matches!(self.state, State::Text | State::Choice) && self.rt.scene.text.is_some();
             self.layout.draw(
@@ -992,6 +1537,35 @@ impl Session {
             Ok(frame)
         }
     }
+}
+
+/// The movie picture scaled to fit the screen, on black.
+fn movie_frame(m: &Movie) -> Canvas {
+    let mut c = Canvas::new(crate::SCREEN_WIDTH, crate::SCREEN_HEIGHT);
+    c.fill(0, 0, c.width, c.height, [0, 0, 0, 255]);
+    let img = Image {
+        width: m.width,
+        height: m.height,
+        rgba: m.rgba.clone(),
+    };
+    let scale = (c.width as f32 / m.width as f32).min(c.height as f32 / m.height as f32);
+    let x = (c.width as f32 - m.width as f32 * scale) / 2.0;
+    let y = (c.height as f32 - m.height as f32 * scale) / 2.0;
+    if (scale - 1.0).abs() < 1e-3 {
+        c.draw(&img, x as i32, y as i32, false);
+    } else {
+        c.draw_scaled(&img, x, y, scale);
+    }
+    c
+}
+
+/// Punctuation followed by a short pause when text appears letter by
+/// letter.
+fn is_pause_punctuation(c: char) -> bool {
+    matches!(
+        c,
+        '。' | '、' | '，' | '！' | '？' | '…' | '．' | '.' | ',' | '!' | '?'
+    )
 }
 
 fn vm_error(e: silky_vm::Error) -> Error {
