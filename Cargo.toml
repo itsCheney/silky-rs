@@ -1,0 +1,18 @@
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+rust-version = "1.85"
+repository = "https://github.com/itsCheney/silky-rs"
+
+[workspace.dependencies]
+silky-format = { path = "crates/silky-format" }
+anyhow = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+encoding_rs = "0.8"
+png = "0.17"
+thiserror = "2"

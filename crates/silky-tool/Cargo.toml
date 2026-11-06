@@ -1,0 +1,18 @@
+[package]
+name = "silky-tool"
+description = "Command line tool to inspect Silky's engine game files"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "silky-tool"
+path = "src/main.rs"
+
+[dependencies]
+silky-format.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+png.workspace = true
