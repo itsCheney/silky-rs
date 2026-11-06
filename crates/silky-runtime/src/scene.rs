@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 /// A standing character (game command 13).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Character {
     /// Body image; a 2048 x 2048 canvas in this game.
     pub body: String,
@@ -14,7 +14,8 @@ pub struct Character {
     pub scale: i32,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct Scene {
     /// Background or event picture (game command 12, sub 0).
     pub background: Option<String>,
@@ -33,6 +34,8 @@ pub struct Scene {
     /// Speaker of the current line: row of the nameplate sheet (command
     /// 11). Cleared at every message.
     pub speaker: Option<i32>,
+    /// Music playing, by channel, so a loaded save can start it again.
+    pub music: BTreeMap<i32, String>,
     /// Current message text.
     pub text: Option<String>,
 }

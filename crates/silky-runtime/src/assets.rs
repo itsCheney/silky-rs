@@ -71,6 +71,14 @@ impl Assets {
         Ok(self.game.set(Kind::Data).read(name)?)
     }
 
+    /// A file from the archives of `kind`.
+    pub fn read(&self, kind: Kind, name: &str) -> Result<Vec<u8>> {
+        self.game
+            .set(kind)
+            .read(name)
+            .map_err(|_| Error::Missing(name.to_string()))
+    }
+
     /// Whether a file exists in the archives of `kind`.
     pub fn exists(&self, kind: Kind, name: &str) -> bool {
         self.game.set(kind).find(name).is_some()

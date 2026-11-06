@@ -2,7 +2,7 @@ use std::fmt;
 
 /// A script value. Variables of the value banks, locals and the stack hold
 /// either an integer or a string.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Value {
     Int(i32),
     Str(String),

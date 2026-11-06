@@ -13,6 +13,7 @@ pub mod lzss;
 pub mod map;
 pub mod mes;
 pub mod vsd;
+pub mod wav;
 
 pub use error::{Error, Result};
 

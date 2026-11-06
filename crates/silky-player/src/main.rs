@@ -12,7 +12,9 @@ use std::time::{Duration, Instant};
 use anyhow::{Context as _, Result};
 use clap::Parser;
 use silky_format::game::Game;
+use silky_runtime::audio::Mixer;
 use silky_runtime::render::Canvas;
+use silky_runtime::save::Saves;
 use silky_runtime::text::TextRenderer;
 use silky_runtime::{Config, Language, Session, State, SCREEN_HEIGHT, SCREEN_WIDTH};
 use winit::application::ApplicationHandler;
@@ -37,6 +39,29 @@ struct Cli {
     /// Script to start with.
     #[arg(long, default_value = "start.mes")]
     start: String,
+    /// Folder for save files. Default: a folder named after the game
+    /// folder in the user's data folder.
+    #[arg(long)]
+    saves: Option<PathBuf>,
+}
+
+/// `%APPDATA%\silky-rs\<game>` on Windows, `~/Library/Application
+/// Support/silky-rs/<game>` on macOS, `$XDG_DATA_HOME/silky-rs/<game>`
+/// (or `~/.local/share/...`) elsewhere.
+fn default_save_dir(game: &std::path::Path) -> Option<PathBuf> {
+    let env = |k: &str| std::env::var_os(k).map(PathBuf::from);
+    let base = if cfg!(windows) {
+        env("APPDATA")?
+    } else if cfg!(target_os = "macos") {
+        env("HOME")?.join("Library/Application Support")
+    } else {
+        env("XDG_DATA_HOME").or_else(|| env("HOME").map(|h| h.join(".local/share")))?
+    };
+    let name = std::fs::canonicalize(game)
+        .ok()
+        .and_then(|p| p.file_name().map(|n| n.to_owned()))
+        .unwrap_or_else(|| "game".into());
+    Some(base.join("silky-rs").join(name))
 }
 
 /// Fonts the game names in its settings, by language, then common
@@ -92,11 +117,21 @@ fn main() -> Result<()> {
     let game = Game::open(&cli.game)
         .with_context(|| format!("cannot open game folder {}", cli.game.display()))?;
     let text = load_fonts(&cli, language)?;
+    // Keep the stream alive for the whole run.
+    let audio = start_audio();
     let config = Config {
         language,
+        audio: audio
+            .as_ref()
+            .map(|a| a.1.clone())
+            .unwrap_or_else(Mixer::disabled),
         ..Config::default()
     };
-    let session = Session::new(game, config, text, &cli.start)?;
+    let mut session = Session::new(game, config, text, &cli.start)?;
+    match cli.saves.clone().or_else(|| default_save_dir(&cli.game)) {
+        Some(dir) => session.set_saves(Saves::new(dir)),
+        None => eprintln!("no folder for save files: saving is off (pass --saves)"),
+    }
     let event_loop = EventLoop::new()?;
     let mut app = App {
         session,
@@ -109,6 +144,68 @@ fn main() -> Result<()> {
     match app.error {
         Some(e) => Err(e),
         None => Ok(()),
+    }
+}
+
+/// Opens the default output device and feeds it from a mixer.
+fn start_audio() -> Option<(cpal::Stream, Mixer)> {
+    use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+    use cpal::SampleFormat;
+    let device = cpal::default_host().default_output_device()?;
+    let supported = match device.default_output_config() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("no sound: {e}");
+            return None;
+        }
+    };
+    let format = supported.sample_format();
+    let config: cpal::StreamConfig = supported.into();
+    let channels = config.channels as usize;
+    let mixer = Mixer::new(config.sample_rate.0);
+    let m = mixer.clone();
+    let err = |e| eprintln!("sound: {e}");
+    let stream = match format {
+        SampleFormat::F32 => device.build_output_stream(
+            &config,
+            move |out: &mut [f32], _| m.fill(out, channels),
+            err,
+            None,
+        ),
+        SampleFormat::I16 => {
+            let mut buf = Vec::new();
+            device.build_output_stream(
+                &config,
+                move |out: &mut [i16], _| {
+                    buf.resize(out.len(), 0.0);
+                    m.fill(&mut buf, channels);
+                    for (o, v) in out.iter_mut().zip(&buf) {
+                        *o = (v * 32767.0) as i16;
+                    }
+                },
+                err,
+                None,
+            )
+        }
+        other => {
+            eprintln!("no sound: sample format {other:?}");
+            return None;
+        }
+    };
+    match stream.and_then(|s| {
+        s.play()
+            .map(|_| s)
+            .map_err(|e| cpal::BuildStreamError::BackendSpecific {
+                err: cpal::BackendSpecificError {
+                    description: e.to_string(),
+                },
+            })
+    }) {
+        Ok(s) => Some((s, mixer)),
+        Err(e) => {
+            eprintln!("no sound: {e}");
+            None
+        }
     }
 }
 

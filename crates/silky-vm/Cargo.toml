@@ -9,4 +9,5 @@ repository.workspace = true
 
 [dependencies]
 silky-format.workspace = true
+serde.workspace = true
 thiserror.workspace = true

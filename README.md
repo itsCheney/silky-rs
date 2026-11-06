@@ -19,10 +19,12 @@ Early. What works today:
 - First engine functions and a software renderer: backgrounds, event pictures with their difference pictures, standing characters with expressions, the message window with its name plate, portrait and text, localized file names, the title picture.
 - The engine-drawn interface: title menu buttons (layout taken from the executable, per language), the button bar and icons of the message window (`mes_o.area`), the click-wait indicator, and selections (`Game.20`).
 - A desktop player: click or Enter to go on, right click to hide the window, auto and skip modes, the title menu and selections.
+- Sound: music (looping at the `smpl` loop points of the WAV files), sound effects and voices, mixed in software; the desktop player plays them with cpal.
+- Saves: quick save and quick load, Save into a new slot, and Continue / Load on the title menu, which open the newest save (there is no save screen yet). Saves are this runtime's own JSON files.
 
 On ふゆから、くるる。 all 56 scripts (7.9 million instructions) decode with every jump landing on an instruction, and all 3,255 images decode. Headless, the VM boots `start.mes` through the logo, caution and title scripts, and plays the story from `fk001.mes` on with its text in all three languages.
 
-Not done yet: close-up insets, transitions and effects, sound, movies, the backlog, saves and flags, configuration, and the engine screens behind Continue, Load, Settings and most window buttons (clicking them is counted as not carried out). `silky-run snap` lists every engine call the runtime does not carry out yet.
+Not done yet: close-up insets, transitions and effects, timed waits, movies, the backlog, configuration, the save and load screens, and the engine screens behind Settings and the remaining window buttons (clicking them is counted as not carried out). `silky-run snap` lists every engine call the runtime does not carry out yet.
 
 Compared with screenshots of the original (Windows, Simplified Chinese): the message window, name plate, window portrait, the position and pitch of Chinese text, and the size and position of standing characters. Still provisional: English text metrics, the line pitch of two-line messages, the wrap width, and where selections sit on screen.
 
@@ -47,7 +49,7 @@ silky-player <game folder> --lang 1        # Simplified Chinese
 silky-player <game folder> --font msyh.ttc --font arial.ttf
 ```
 
-Without `--font` the player looks for the fonts the game names (Arial, Microsoft YaHei, Microsoft JhengHei in the Windows fonts folder), then common fonts on macOS and Linux. Left click, Enter or Space goes on; right click hides the message window.
+Saves go to `%APPDATA%\silky-rs\<game folder name>` on Windows (`~/Library/Application Support/silky-rs/...` on macOS, `~/.local/share/silky-rs/...` elsewhere); `--saves <folder>` picks another. Without `--font` the player looks for the fonts the game names (Arial, Microsoft YaHei, Microsoft JhengHei in the Windows fonts folder), then common fonts on macOS and Linux. Left click, Enter or Space goes on; right click hides the message window.
 
 ## Building
 

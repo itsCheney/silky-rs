@@ -11,4 +11,7 @@ repository.workspace = true
 silky-format.workspace = true
 silky-vm.workspace = true
 fontdue.workspace = true
+lewton.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true

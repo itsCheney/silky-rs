@@ -8,6 +8,7 @@ use silky_format::mes::Profile;
 use silky_vm::{Stop, Vm};
 
 use crate::render::{Canvas, Renderer};
+use crate::save::{self, Saves};
 use crate::text::TextRenderer;
 use crate::ui::{bar, title, Button, Layout, Ui};
 use crate::{Assets, Config, Error, Pause, Result, Runtime};
@@ -48,6 +49,7 @@ pub struct Session {
     frame: Option<Canvas>,
     /// Time the current message has been shown.
     shown_ms: u64,
+    saves: Option<Saves>,
 }
 
 impl Session {
@@ -74,9 +76,64 @@ impl Session {
             base: None,
             frame: None,
             shown_ms: 0,
+            saves: None,
         };
         s.restart()?;
         Ok(s)
+    }
+
+    /// Where to keep save files. Without one, saving does nothing.
+    pub fn set_saves(&mut self, saves: Saves) {
+        self.ui.has_saves = !saves.list().is_empty();
+        self.saves = Some(saves);
+        self.frame = None;
+    }
+
+    /// Saves the shown message to `slot` (see [`save::QUICK`]).
+    pub fn save(&mut self, slot: &str) -> Result<()> {
+        let Some(saves) = &self.saves else {
+            return Ok(());
+        };
+        if self.state != State::Text {
+            return Ok(());
+        }
+        saves.write(slot, self.rt.save_state(&self.vm))?;
+        self.ui.has_saves = true;
+        Ok(())
+    }
+
+    /// Loads a save and shows its message.
+    pub fn load(&mut self, slot: &str) -> Result<()> {
+        let Some(saves) = &self.saves else {
+            return Ok(());
+        };
+        if !saves.list().iter().any(|s| s == slot) {
+            return Ok(());
+        }
+        let file = saves.read(slot)?;
+        self.rt.load_state(&mut self.vm, file.state)?;
+        self.ui = Ui {
+            has_saves: true,
+            waiting: true,
+            ..Ui::default()
+        };
+        self.state = State::Text;
+        self.shown_ms = 0;
+        self.base = None;
+        self.frame = None;
+        Ok(())
+    }
+
+    /// Loads the newest save, if any.
+    pub fn load_latest(&mut self) -> Result<()> {
+        let latest = self
+            .saves
+            .as_ref()
+            .and_then(|s| s.list().into_iter().next());
+        match latest {
+            Some(slot) => self.load(&slot),
+            None => Ok(()),
+        }
     }
 
     pub fn state(&self) -> State {
@@ -226,6 +283,8 @@ impl Session {
         match b {
             Button::Title(i) => match i {
                 title::EXTRAS => self.ui.title = Some(true),
+                // No save screen yet: both load the newest save.
+                title::CONTINUE | title::LOAD => self.load_latest()?,
                 title::BACK => self.ui.title = Some(false),
                 i => {
                     if let Some(result) = title::result(i) {
@@ -257,6 +316,16 @@ impl Session {
                     self.base = None;
                 }
                 bar::TITLE => self.restart()?,
+                bar::QUICK_SAVE => self.save(save::QUICK)?,
+                bar::QUICK_LOAD => self.load(save::QUICK)?,
+                // No save screen yet: Save takes a new slot, Load the
+                // newest save.
+                bar::SAVE => {
+                    if let Some(slot) = self.saves.as_ref().map(Saves::next_slot) {
+                        self.save(&slot)?;
+                    }
+                }
+                bar::LOAD => self.load_latest()?,
                 bar::QUIT => self.state = State::Ended,
                 id => self
                     .rt

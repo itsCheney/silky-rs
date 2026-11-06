@@ -11,15 +11,17 @@
 //! [`Runtime::unhandled`], never silently treated as done.
 
 pub mod assets;
+pub mod audio;
 mod host;
 pub mod render;
+pub mod save;
 pub mod scene;
 pub mod session;
 pub mod text;
 pub mod ui;
 
 pub use assets::{Assets, Language};
-pub use host::{Config, Pause, Runtime};
+pub use host::{Config, Pause, Runtime, SaveState};
 pub use scene::Scene;
 pub use session::{Session, State};
 

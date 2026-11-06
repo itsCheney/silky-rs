@@ -5,10 +5,31 @@ use silky_format::map::MapFile;
 use silky_vm::native::{self, script, GAME, SCRIPT};
 use silky_vm::{Flow, Host, Value, Vm};
 
+use std::sync::Arc;
+
 use crate::assets::{localized_name, Assets, Language};
+use crate::audio::{Bus, Mixer, Pcm};
 use crate::scene::{Character, Scene};
 
+const MUSIC: i32 = 15;
+const EFFECT: i32 = 16;
+const VOICE: i32 = 18;
 const SPRITE: i32 = 19;
+
+/// Sound calls, the same for the music, effect and voice classes.
+mod sound {
+    /// `(count)`: number of channels.
+    pub const CHANNELS: i32 = 0;
+    /// `(channel, file)`: play; music loops.
+    pub const PLAY: i32 = 1;
+    /// `(channel)`: stop.
+    pub const STOP: i32 = 2;
+    /// `(channel, file)` on the voice class: play a voice line.
+    pub const VOICE_PLAY: i32 = 5;
+    /// `(channel, time)`: fade out and stop. Time is taken as 1/60 s
+    /// units (provisional: `music_fade` passes 60).
+    pub const FADE_OUT: i32 = 3;
+}
 
 /// Game commands (class 29) this runtime knows.
 mod cmd {
@@ -32,6 +53,16 @@ mod cmd {
     pub const LOCALIZE: i32 = 223;
 }
 
+/// What a save file holds besides its header.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SaveState {
+    pub vm: silky_vm::Snapshot,
+    pub scene: Scene,
+    /// Name of the `.map` table in use.
+    pub text_table: Option<String>,
+    pub last_text: Option<usize>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub language: Language,
@@ -39,6 +70,8 @@ pub struct Config {
     /// headless runner): 1 start, 5 quit, 257 CG mode, 258 scene mode,
     /// 259 music mode.
     pub title_choice: i32,
+    /// Sound output ([`Mixer::new`] in a frontend that plays sound).
+    pub audio: Mixer,
 }
 
 impl Default for Config {
@@ -46,6 +79,7 @@ impl Default for Config {
         Self {
             language: Language::English,
             title_choice: 1,
+            audio: Mixer::disabled(),
         }
     }
 }
@@ -79,6 +113,8 @@ pub struct Runtime {
     option_count: usize,
     /// Labels of the selection that is up.
     pub choices: Vec<String>,
+    /// Sound output; disabled unless the frontend plays sound.
+    pub audio: Mixer,
 }
 
 fn host_error(msg: impl Into<String>) -> silky_vm::Error {
@@ -87,6 +123,7 @@ fn host_error(msg: impl Into<String>) -> silky_vm::Error {
 
 impl Runtime {
     pub fn new(assets: Assets, config: Config) -> Self {
+        let audio = config.audio.clone();
         Self {
             assets,
             scene: Scene::default(),
@@ -98,6 +135,7 @@ impl Runtime {
             last_text: None,
             option_count: 0,
             choices: Vec::new(),
+            audio,
         }
     }
 
@@ -121,8 +159,56 @@ impl Runtime {
         vm.push(index as i32 + 1);
     }
 
+    /// Game state for a save file: interpreter, scene and text table. Take
+    /// it while a message is shown ([`Pause::Text`]).
+    pub fn save_state(&self, vm: &Vm) -> SaveState {
+        SaveState {
+            vm: vm.snapshot(),
+            scene: self.scene.clone(),
+            text_table: self.text_table.as_ref().map(|t| t.0.clone()),
+            last_text: self.last_text,
+        }
+    }
+
+    /// Puts back a state from [`Runtime::save_state`]. The game goes on
+    /// from the message that was shown.
+    pub fn load_state(&mut self, vm: &mut Vm, state: SaveState) -> crate::Result<()> {
+        let assets = &self.assets;
+        vm.restore_snapshot(state.vm, &mut |name| {
+            assets
+                .script(name)
+                .map_err(|e| silky_vm::Error::Host(e.to_string()))
+        })
+        .map_err(|e| crate::Error::Invalid(e.to_string()))?;
+        self.text_table = match state.text_table {
+            Some(name) => {
+                let map = MapFile::parse(&self.assets.data(&name)?)?;
+                Some((name, map))
+            }
+            None => None,
+        };
+        self.scene = state.scene;
+        self.last_text = state.last_text;
+        self.stop_sound();
+        for (ch, file) in self.scene.music.clone() {
+            self.play(Bus::Music, Kind::Music, ch, &file)?;
+        }
+        self.pause = None;
+        self.option_count = 0;
+        self.choices.clear();
+        Ok(())
+    }
+
+    /// Stops all sound.
+    pub fn stop_sound(&mut self) {
+        for bus in [Bus::Music, Bus::Effect, Bus::Voice] {
+            self.audio.stop_bus(bus);
+        }
+    }
+
     /// Clears the scene and script state for a fresh start.
     pub fn reset(&mut self) {
+        self.stop_sound();
         self.scene = Scene::default();
         self.text_table = None;
         self.pause = None;
@@ -147,6 +233,61 @@ impl Runtime {
         if native::returns_value(class, sub) {
             vm.push(0);
         }
+    }
+
+    /// Starts a sound, decoded on another thread. Music loops.
+    fn play(&mut self, bus: Bus, kind: Kind, ch: i32, file: &str) -> crate::Result<()> {
+        if !self.audio.enabled() {
+            return Ok(());
+        }
+        let key = file.to_ascii_lowercase();
+        let data = self.assets.read(kind, file)?;
+        self.audio.play_later(bus, ch, bus == Bus::Music, move || {
+            Ok(Arc::new(if key.ends_with(".ogg") {
+                Pcm::from_ogg(&data)?
+            } else {
+                Pcm::from_wav(&data)?
+            }))
+        });
+        Ok(())
+    }
+
+    /// Music, effect and voice calls. Returns false for calls it does not
+    /// know.
+    fn sound(&mut self, class: i32, sub: i32, args: &[Value]) -> silky_vm::Result<bool> {
+        let (bus, kind) = match class {
+            MUSIC => (Bus::Music, Kind::Music),
+            EFFECT => (Bus::Effect, Kind::Effect),
+            _ => (Bus::Voice, Kind::Voice),
+        };
+        let ch = args.first().map(Value::int).unwrap_or(0);
+        match (sub, args) {
+            (sound::CHANNELS, [_]) => {}
+            (sound::VOICE_PLAY, [_, Value::Str(file)]) if bus == Bus::Voice => {
+                self.play(bus, kind, ch, file)?;
+            }
+            (sound::PLAY, [_, Value::Str(file)]) => {
+                if bus == Bus::Music {
+                    self.scene.music.insert(ch, file.clone());
+                }
+                self.play(bus, kind, ch, file)?;
+            }
+            (sound::STOP, [_]) => {
+                self.audio.stop(bus, ch);
+                if bus == Bus::Music {
+                    self.scene.music.remove(&ch);
+                }
+            }
+            (sound::FADE_OUT, [_, t]) => {
+                self.audio
+                    .fade_out(bus, ch, (t.int().max(0) as u32) * 1000 / 60);
+                if bus == Bus::Music {
+                    self.scene.music.remove(&ch);
+                }
+            }
+            _ => return Ok(false),
+        }
+        Ok(true)
     }
 
     fn game(&mut self, vm: &mut Vm) -> silky_vm::Result<Flow> {
@@ -318,6 +459,10 @@ impl Host for Runtime {
                     self.handled += 1;
                     return Ok(Flow::Continue);
                 }
+                if matches!(class, MUSIC | EFFECT | VOICE) && self.sound(class, sub, &args)? {
+                    self.handled += 1;
+                    return Ok(Flow::Continue);
+                }
                 let name = native::class_name(class).unwrap_or("?");
                 self.skip(format!("{name}.{sub}"), vm, class, sub);
                 Ok(Flow::Continue)
@@ -328,6 +473,8 @@ impl Host for Runtime {
     /// Start of a message: the speaker is set again for each line.
     fn message(&mut self, _vm: &mut Vm, _number: u32) -> silky_vm::Result<Flow> {
         self.scene.speaker = None;
+        // A new message cuts the voice of the last one.
+        self.audio.stop_bus(Bus::Voice);
         Ok(Flow::Continue)
     }
 }

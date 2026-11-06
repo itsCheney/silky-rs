@@ -98,7 +98,7 @@ pub struct Function {
     pub argc: u32,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 enum ContextKind {
     /// Saved by `call`; `fret` also drops the locals frame.
     Function,
@@ -116,12 +116,35 @@ struct Context {
 }
 
 /// Source position from the debug opcodes `fe` / `ff`.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SourcePos {
     /// Macro being expanded and its file, if inside a macro.
     pub call: Option<(String, String, i32)>,
     /// Line of the script source.
     pub line: i32,
+}
+
+/// Interpreter state as plain data, for save files. Scripts are named and
+/// loaded again on restore.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Snapshot {
+    current: Option<String>,
+    pc: u32,
+    stack: Vec<Value>,
+    statement_base: usize,
+    bytes: Vec<u8>,
+    words: Vec<u16>,
+    raw: Vec<u8>,
+    g: Vec<Value>,
+    h: Vec<Value>,
+    locals: Vec<Vec<Value>>,
+    /// (number, script, entry, argument count)
+    functions: Vec<(i32, String, u32, u32)>,
+    /// (script, pc, kind)
+    contexts: Vec<(String, u32, ContextKind)>,
+    options: Vec<(u32, Value)>,
+    rng: u32,
+    source: SourcePos,
 }
 
 pub struct Vm {
@@ -214,6 +237,94 @@ impl Vm {
     /// Selection options recorded since the last choice: (body offset, value).
     pub fn options(&self) -> &[(u32, Value)] {
         &self.options
+    }
+
+    /// The interpreter state, to be stored in a save file.
+    pub fn snapshot(&self) -> Snapshot {
+        let mut functions: Vec<_> = self
+            .functions
+            .iter()
+            .map(|(&n, f)| (n, f.script.name.clone(), f.entry, f.argc))
+            .collect();
+        functions.sort_by_key(|f| f.0);
+        Snapshot {
+            current: self.current.as_ref().map(|c| c.name.clone()),
+            pc: self.pc,
+            stack: self.stack.clone(),
+            statement_base: self.statement_base,
+            bytes: self.bytes.clone(),
+            words: self.words.clone(),
+            raw: self.raw.clone(),
+            g: self.g.clone(),
+            h: self.h.clone(),
+            locals: self.locals.clone(),
+            functions,
+            contexts: self
+                .contexts
+                .iter()
+                .map(|c| (c.script.name.clone(), c.pc, c.kind))
+                .collect(),
+            options: self.options.clone(),
+            rng: self.rng,
+            source: self.source.clone(),
+        }
+    }
+
+    /// Puts back a state from [`Vm::snapshot`]; `load` reads a script by
+    /// name. Each script is loaded once.
+    pub fn restore_snapshot(
+        &mut self,
+        snap: Snapshot,
+        load: &mut dyn FnMut(&str) -> Result<Script>,
+    ) -> Result<()> {
+        let mut cache: HashMap<String, Arc<Loaded>> = HashMap::new();
+        let mut get = |name: &str| -> Result<Arc<Loaded>> {
+            if let Some(l) = cache.get(name) {
+                return Ok(l.clone());
+            }
+            let l = Arc::new(Loaded {
+                name: name.to_string(),
+                script: load(name)?,
+            });
+            cache.insert(name.to_string(), l.clone());
+            Ok(l)
+        };
+        let current = snap.current.as_deref().map(&mut get).transpose()?;
+        let mut functions = HashMap::new();
+        for (n, script, entry, argc) in snap.functions {
+            functions.insert(
+                n,
+                Function {
+                    script: get(&script)?,
+                    entry,
+                    argc,
+                },
+            );
+        }
+        let mut contexts = Vec::new();
+        for (script, pc, kind) in snap.contexts {
+            contexts.push(Context {
+                script: get(&script)?,
+                pc,
+                kind,
+            });
+        }
+        self.current = current;
+        self.pc = snap.pc;
+        self.stack = snap.stack;
+        self.statement_base = snap.statement_base;
+        self.bytes = snap.bytes;
+        self.words = snap.words;
+        self.raw = snap.raw;
+        self.g = snap.g;
+        self.h = snap.h;
+        self.locals = snap.locals;
+        self.functions = functions;
+        self.contexts = contexts;
+        self.options = snap.options;
+        self.rng = snap.rng;
+        self.source = snap.source;
+        Ok(())
     }
 
     /// Runs every option body in list order, then goes on after the list.
@@ -786,6 +897,30 @@ mod tests {
         code[o2u + 1..o2u + 5].copy_from_slice(&end.to_be_bytes());
 
         (code, end)
+    }
+
+    #[test]
+    fn snapshot_round_trip() {
+        let (code, _) = option_code();
+        let mut vm = Vm::new(Profile::default());
+        vm.jump_script("TEST", Asm(code.clone()).script());
+        let mut log = Log::default();
+        assert_eq!(vm.run(&mut log, 100).unwrap(), Stop::Yield);
+        vm.set_g(7, 42);
+        let snap = vm.snapshot();
+        let mut other = Vm::new(Profile::default());
+        let mut loads = 0;
+        other
+            .restore_snapshot(snap, &mut |name| {
+                assert_eq!(name, "TEST");
+                loads += 1;
+                Ok(Asm(code.clone()).script())
+            })
+            .unwrap();
+        assert_eq!(loads, 1);
+        assert_eq!(other.var_g(7), Value::Int(42));
+        assert_eq!(other.pc(), vm.pc());
+        assert_eq!(other.run(&mut log, 100).unwrap(), Stop::Options);
     }
 
     #[test]
