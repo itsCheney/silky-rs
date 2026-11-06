@@ -3,7 +3,10 @@
 //! ```text
 //! "AKB " or "AKB+"
 //! u16 width, u16 height
-//! u32 flags            0x40000000: 24 bpp (else 32), 0x80000000: has alpha
+//! u32 flags            0x40000000: 24 bpp (else 32), 0x80000000: alpha flag
+//!                      (32 bpp images carry alpha either way: interface
+//!                      sheets of きまぐれテンプテーション2 such as
+//!                      `log_p.akb` have it without the flag)
 //! [u8; 4] background   BGR(A) fill colour, 0 means transparent black
 //! i32 left, top, right, bottom   rectangle that the pixel data covers
 //! "AKB+" only: [u8; 32] base image name (NUL padded)
@@ -20,6 +23,7 @@ use crate::lzss;
 
 const FORMAT: &str = "AKB";
 const FLAG_24BPP: u32 = 0x4000_0000;
+#[cfg(test)]
 const FLAG_ALPHA: u32 = 0x8000_0000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,7 +96,7 @@ impl Header {
     }
 
     pub fn has_alpha(&self) -> bool {
-        self.bytes_per_pixel() == 4 && self.flags & FLAG_ALPHA != 0
+        self.bytes_per_pixel() == 4
     }
 }
 

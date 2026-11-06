@@ -176,7 +176,7 @@ impl Renderer {
         self.language = language;
         let wide = self.text_layout.wide_advance;
         if let Some(t) = &mut self.text {
-            t.wide_advance = (language != Language::English).then_some(wide);
+            t.set_wide_advance((language != Language::English).then_some(wide));
         }
     }
 

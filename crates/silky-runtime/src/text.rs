@@ -14,8 +14,9 @@ pub struct TextRenderer {
     fonts: Vec<Font>,
     /// Pen advance of CJK characters (and the punctuation used with them),
     /// as a multiple of the text size. `None` uses the font's own advance;
-    /// set it for Chinese text only.
-    pub wide_advance: Option<f32>,
+    /// set it for Chinese text only. A screen with its own spacing changes
+    /// it for a while with [`TextRenderer::with_wide_advance`].
+    wide_advance: std::cell::Cell<Option<f32>>,
 }
 
 impl TextRenderer {
@@ -34,8 +35,22 @@ impl TextRenderer {
         }
         Ok(Self {
             fonts,
-            wide_advance: None,
+            wide_advance: Default::default(),
         })
+    }
+
+    pub fn set_wide_advance(&mut self, k: Option<f32>) {
+        self.wide_advance.set(k);
+    }
+
+    /// Runs `f` with CJK characters `k` times the size apart (if the text
+    /// uses a fixed CJK advance at all).
+    pub fn with_wide_advance<R>(&self, k: f32, f: impl FnOnce(&Self) -> R) -> R {
+        let old = self.wide_advance.get();
+        self.wide_advance.set(old.map(|_| k));
+        let r = f(self);
+        self.wide_advance.set(old);
+        r
     }
 
     fn font_for(&self, c: char) -> &Font {
@@ -46,7 +61,7 @@ impl TextRenderer {
     }
 
     fn advance(&self, c: char, size: f32) -> f32 {
-        match self.wide_advance {
+        match self.wide_advance.get() {
             Some(k) if takes_cell(c) => size * k,
             _ => self.font_for(c).metrics(c, size).advance_width,
         }
@@ -100,6 +115,35 @@ impl TextRenderer {
                 (0.0, 0.0, color),
             ],
         );
+    }
+
+    /// Draws one line with a one-pixel outline all round.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_outlined(
+        &self,
+        canvas: &mut Canvas,
+        line: &str,
+        x: f32,
+        y: f32,
+        size: f32,
+        color: [u8; 4],
+        outline: [u8; 4],
+    ) {
+        let mut layers: Vec<(f32, f32, [u8; 4])> = [
+            (-1.0, -1.0),
+            (0.0, -1.0),
+            (1.0, -1.0),
+            (-1.0, 0.0),
+            (1.0, 0.0),
+            (-1.0, 1.0),
+            (0.0, 1.0),
+            (1.0, 1.0),
+        ]
+        .iter()
+        .map(|&(dx, dy)| (dx, dy, outline))
+        .collect();
+        layers.push((0.0, 0.0, color));
+        self.draw_layers(canvas, line, x, y, size, &layers);
     }
 
     /// Draws one line without an outline, for text on light screens.

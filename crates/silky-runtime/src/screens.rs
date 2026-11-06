@@ -145,6 +145,28 @@ const HELP_POS: (f32, f32) = (96.0, 694.0);
 const HELP_SIZE: f32 = 17.0;
 pub(crate) const INK: [u8; 4] = [34, 74, 120, 255];
 
+// きまぐれテンプテーション2's `log_p.akb`: hearts with four state rows.
+const K_LOG_VOICE: Cells = Cells::new(0, 0, 114, 102, 103);
+const K_LOG_PLAY: Cells = Cells::new(114, 0, 114, 102, 103);
+const K_LOG_PAGE_UP: Cells = Cells::new(228, 0, 108, 71, 72);
+const K_LOG_PAGE_DOWN: Cells = Cells::new(336, 0, 108, 71, 72);
+/// Up arrows in rows 0..4, down arrows in rows 4..8.
+const K_LOG_ARROW: Cells = Cells::new(444, 0, 48, 47, 47);
+/// Scroll thumb: normal, hover, pressed.
+const K_LOG_GEM: Cells = Cells::new(494, 1, 43, 62, 64);
+const K_LOG_BACK: Cells = Cells::new(540, 0, 128, 71, 72);
+const K_LOG_JUMP: Cells = Cells::new(670, 0, 64, 67, 68);
+/// Rows: empty, hover, pressed, marked.
+const K_LOG_CHECK: Cells = Cells::new(734, 0, 32, 32, 32);
+/// The scroll area of `backlog00.area`.
+const K_LOG_TRACK: (i32, i32, i32, i32) = (1087, 68, 45, 561);
+const K_LOG_TEXT_SIZE: f32 = 18.0;
+const K_LOG_ADVANCE: f32 = 18.2;
+const K_LOG_TEXT_LEFT: f32 = 15.0;
+const K_LOG_BASELINE: f32 = 41.0;
+/// Not measured (no screenshot of a long entry).
+const K_LOG_LINE: f32 = 30.0;
+
 // `log_p_<lang>.akb`.
 const LOG_VOICE: Cells = Cells::new(0, 0, 74, 77, 79);
 const LOG_PLAY: Cells = Cells::new(75, 0, 100, 103, 103);
@@ -265,6 +287,8 @@ impl SaveLoad {
 #[derive(Clone)]
 pub struct LogEntry {
     pub speaker: Option<i32>,
+    /// Speaker given by name (きまぐれテンプテーション2).
+    pub speaker_name: Option<String>,
     pub text: String,
     pub voice: Option<String>,
     /// Game state at this message, to go back to it.
@@ -340,6 +364,8 @@ pub struct Screens {
     backlog: Vec<Area>,
     dialog: Vec<Area>,
     help: Option<MapFile>,
+    /// きまぐれテンプテーション2: its own backlog look.
+    kimaten2: bool,
 }
 
 pub(crate) fn area_file(assets: &Assets, name: &str) -> Vec<Area> {
@@ -364,15 +390,20 @@ pub(crate) fn area(areas: &[Area], id: i32) -> Option<&Area> {
 impl Screens {
     pub fn load(assets: &Assets, language: Language) -> Self {
         let mut backlog = area_file(assets, "backlog00.area");
-        // Each entry has two rectangles under one id: text, then voice.
-        let mut seen = Vec::new();
-        for a in &mut backlog {
-            if a.id < log_ids::CHECK {
-                if seen.contains(&a.id) {
-                    a.id += log_ids::VOICE;
+        // Each entry has two rectangles under one id: the text, and the
+        // narrower voice button (after the text in ふゆから、くるる。,
+        // before it in きまぐれテンプテーション2).
+        for id in 0..log_ids::CHECK {
+            let pair: Vec<usize> = (0..backlog.len())
+                .filter(|&i| backlog[i].id == id)
+                .collect();
+            if let [i, j] = pair[..] {
+                let voice = if backlog[i].width() < backlog[j].width() {
+                    i
                 } else {
-                    seen.push(a.id);
-                }
+                    j
+                };
+                backlog[voice].id += log_ids::VOICE;
             }
         }
         Self {
@@ -380,6 +411,7 @@ impl Screens {
             save_load: area_file(assets, "saveload.area"),
             backlog,
             dialog: area_file(assets, "dialog.area"),
+            kimaten2: assets.game().title == silky_format::game::Title::Kimaten2,
             help: assets
                 .data("saveloadhelp.map")
                 .ok()
@@ -619,6 +651,9 @@ impl Screens {
         text: Option<&TextRenderer>,
     ) -> Result<()> {
         use log_ids::*;
+        if self.kimaten2 {
+            return self.draw_backlog_kimaten2(canvas, assets, ui, b, log, playing, text);
+        }
         canvas.draw(&*self.sheet(assets, "log_bg.akb")?, 0, 0, false);
         let sheet = self.sheet(assets, "log_p.akb")?;
         let nameplate = self.sheet(assets, "nameplate.akb")?;
@@ -686,14 +721,121 @@ impl Screens {
                 LOG_JUMP.draw(canvas, &sheet, state(JUMP + i, false), a);
             }
         }
-        draw_scroll_thumb(canvas, LOG_TRACK, b.top, log.len(), LOG_ROWS);
+        draw_scroll_thumb(canvas, self.log_track(), b.top, log.len(), LOG_ROWS);
+        Ok(())
+    }
+
+    fn log_track(&self) -> (i32, i32, i32, i32) {
+        match self.kimaten2 {
+            true => K_LOG_TRACK,
+            false => LOG_TRACK,
+        }
+    }
+
+    /// The backlog of きまぐれテンプテーション2: `logbg.akb` and the heart
+    /// buttons of `log_p.akb`, white text with a dark edge (measured on a
+    /// PC screenshot of the Chinese patch). The speaker's name goes on a
+    /// line of its own above the text (not seen on a screenshot yet).
+    #[allow(clippy::too_many_arguments)]
+    fn draw_backlog_kimaten2(
+        &self,
+        canvas: &mut Canvas,
+        assets: &mut Assets,
+        ui: &Ui,
+        b: &Backlog,
+        log: &[LogEntry],
+        playing: bool,
+        text: Option<&TextRenderer>,
+    ) -> Result<()> {
+        use log_ids::*;
+        canvas.draw(&*assets.image("logbg.akb")?, 0, 0, false);
+        let sheet = assets.image("log_p.akb")?;
+        let state = |id: i32, active: bool| {
+            let btn = Button::Screen(id);
+            ui.state(btn, Self::backlog_enabled(b, log, id), active) as u32
+        };
+        for a in &self.backlog {
+            let id = a.id;
+            match id {
+                UP => K_LOG_ARROW.draw(canvas, &sheet, state(id, false), a),
+                DOWN => K_LOG_ARROW.draw(canvas, &sheet, 4 + state(id, false), a),
+                PAGE_UP => K_LOG_PAGE_UP.draw(canvas, &sheet, state(id, false), a),
+                PAGE_DOWN => K_LOG_PAGE_DOWN.draw(canvas, &sheet, state(id, false), a),
+                PLAY_MARKED => K_LOG_PLAY.draw(canvas, &sheet, state(id, playing), a),
+                BACK => K_LOG_BACK.draw(canvas, &sheet, state(id, false), a),
+                _ => {}
+            }
+        }
+        for i in 0..LOG_ROWS as i32 {
+            let Some(e) = log.get(b.top + i as usize) else {
+                break;
+            };
+            if let (Some(a), Some(tr)) = (area(&self.backlog, TEXT + i), text) {
+                let mut lines = Vec::new();
+                tr.with_wide_advance(K_LOG_ADVANCE / K_LOG_TEXT_SIZE, |tr| {
+                    if let Some(name) = &e.speaker_name {
+                        lines.push(name.clone());
+                    }
+                    let width = a.width() as f32 - 2.0 * K_LOG_TEXT_LEFT;
+                    lines.extend(tr.wrap(&e.text, K_LOG_TEXT_SIZE, width));
+                    let mut baseline = a.top as f32 + K_LOG_BASELINE;
+                    for line in &lines {
+                        if baseline > a.bottom as f32 {
+                            break;
+                        }
+                        tr.draw_outlined(
+                            canvas,
+                            line,
+                            a.left as f32 + K_LOG_TEXT_LEFT,
+                            baseline,
+                            K_LOG_TEXT_SIZE,
+                            [255, 255, 255, 255],
+                            [40, 30, 34, 255],
+                        );
+                        baseline += K_LOG_LINE;
+                    }
+                });
+            }
+            if e.voice.is_some() {
+                if let Some(a) = area(&self.backlog, VOICE + i) {
+                    K_LOG_VOICE.draw(canvas, &sheet, state(VOICE + i, false), a);
+                }
+                if let Some(a) = area(&self.backlog, CHECK + i) {
+                    let row = if e.marked {
+                        3
+                    } else {
+                        state(CHECK + i, false).min(2)
+                    };
+                    K_LOG_CHECK.draw(canvas, &sheet, row, a);
+                }
+            }
+            if let Some(a) = area(&self.backlog, JUMP + i) {
+                K_LOG_JUMP.draw(canvas, &sheet, state(JUMP + i, false), a);
+            }
+        }
+        // The thumb is a gem that runs down the track.
+        let (x, y, w, h) = K_LOG_TRACK;
+        let max = Backlog::max_top(log.len());
+        let travel = h - K_LOG_GEM.h as i32;
+        let top = y + if max == 0 {
+            travel
+        } else {
+            travel * b.top as i32 / max as i32
+        };
+        let row = match ui.pressed {
+            Some(Button::Screen(SCROLL)) => 2,
+            _ if ui.hover == Some(Button::Screen(SCROLL)) => 1,
+            _ => 0,
+        };
+        let left = x + (w - K_LOG_GEM.w as i32) / 2;
+        canvas.draw_part(&sheet, K_LOG_GEM.part(row), left, top, false, 255);
         Ok(())
     }
 
     /// Position on a scroll bar track as a fraction, if (x, y) is on it.
     pub fn scroll_fraction(&self, backlog: bool, x: i32, y: i32) -> Option<f32> {
         let (areas, id, track) = if backlog {
-            (&self.backlog, log_ids::SCROLL, LOG_TRACK)
+            (&self.backlog, log_ids::SCROLL, self.log_track())
         } else {
             (&self.save_load, save_ids::SCROLL, SL_TRACK)
         };
