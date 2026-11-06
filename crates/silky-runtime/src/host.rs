@@ -166,6 +166,8 @@ pub struct Runtime {
     character_time: i32,
     /// Sound output; disabled unless the frontend plays sound.
     pub audio: Mixer,
+    /// Voice file of the current message, for the backlog.
+    pub voice: Option<String>,
 }
 
 fn host_error(msg: impl Into<String>) -> silky_vm::Error {
@@ -189,6 +191,7 @@ impl Runtime {
             clicked: false,
             character_time: 0,
             audio,
+            voice: None,
         }
     }
 
@@ -270,6 +273,22 @@ impl Runtime {
         self.choices.clear();
         self.character_time = 0;
         self.clicked = false;
+    }
+
+    /// Plays a voice line again (backlog), cutting the one playing.
+    pub fn replay_voice(&mut self, file: &str) -> crate::Result<()> {
+        self.audio.stop_bus(Bus::Voice);
+        self.play(Bus::Voice, Kind::Voice, 0, file)
+    }
+
+    /// Stops the voice.
+    pub fn stop_sound_voice(&mut self) {
+        self.audio.stop_bus(Bus::Voice);
+    }
+
+    /// Whether a voice line is playing.
+    pub fn voice_playing(&self) -> bool {
+        self.audio.is_playing(Bus::Voice, 0)
     }
 
     /// Counts a player action the runtime does not carry out yet.
@@ -392,6 +411,7 @@ impl Runtime {
         match (sub, args) {
             (sound::CHANNELS, [_]) => {}
             (sound::VOICE_PLAY, [_, Value::Str(file)]) if bus == Bus::Voice => {
+                self.voice = Some(file.clone());
                 self.play(bus, kind, ch, file)?;
             }
             (sound::PLAY, [_, Value::Str(file)]) => {
@@ -627,6 +647,7 @@ impl Host for Runtime {
     /// Start of a message: the speaker is set again for each line.
     fn message(&mut self, _vm: &mut Vm, _number: u32) -> silky_vm::Result<Flow> {
         self.scene.speaker = None;
+        self.voice = None;
         // A new message cuts the voice of the last one.
         self.audio.stop_bus(Bus::Voice);
         Ok(Flow::Continue)

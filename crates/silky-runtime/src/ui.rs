@@ -22,6 +22,10 @@ pub enum Button {
     Bar(i32),
     /// Option of a selection.
     Choice(usize),
+    /// Element of an engine screen (save/load, backlog), by area id.
+    Screen(i32),
+    /// Yes, no or "do not ask again" of a dialog, by `dialog.area` id.
+    Dialog(i32),
 }
 
 /// Title menu entries: 0..6 on the main menu, 6..10 on the extras menu.
@@ -95,7 +99,7 @@ pub struct Ui {
 
 /// Button state, as the row of the sprite sheet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum State {
+pub(crate) enum State {
     Normal = 0,
     Hover = 1,
     Pressed = 2,
@@ -103,7 +107,7 @@ enum State {
 }
 
 impl Ui {
-    fn state(&self, b: Button, enabled: bool, active: bool) -> State {
+    pub(crate) fn state(&self, b: Button, enabled: bool, active: bool) -> State {
         if !enabled {
             State::Disabled
         } else if self.pressed == Some(b) || active {

@@ -18,14 +18,15 @@ Early. What works today:
 - The script VM: stack, variable banks, functions, script calls and selections. Engine functions go to a host.
 - First engine functions and a software renderer: backgrounds, event pictures with their difference pictures, standing characters with expressions, the message window with its name plate, portrait and text, localized file names, the title picture.
 - The engine-drawn interface: title menu buttons (layout taken from the executable, per language), the button bar and icons of the message window (`mes_o.area`), the click-wait indicator, and selections (`Game.20`).
-- A desktop player: click or Enter to go on, right click to hide the window, auto and skip modes, the title menu and selections.
+- A desktop player: click or Enter to go on, right click to hide the window, the mouse wheel for the backlog, Escape to close a screen, auto and skip modes, the title menu and selections.
 - Sound: music (looping at the `smpl` loop points of the WAV files), sound effects and voices, mixed in software; the desktop player plays them with cpal.
 - Timing and transitions: timed waits (a click skips them), fades to and from a colour, crossfades of pictures and characters, rule wipes with the game's `NN.bin` masks, screen shake, and waits for a sound to end. Times are read as frames of 1/60 s for now.
-- Saves: quick save and quick load, Save into a new slot, and Continue / Load on the title menu, which open the newest save (there is no save screen yet). Saves are this runtime's own JSON files.
+- The save and load screen as the engine draws it (from `saveload.area` and its sheets): save, auto save and quick save tabs, thumbnails, dates, the newest-save badge, overwriting, deleting one or all saves, help lines from `saveloadhelp.map`, and the yes/no dialog with "do not ask again". An auto save is made when a selection comes up; Continue opens the newest save. Saves are this runtime's own JSON files, with a PNG thumbnail each.
+- The backlog (`backlog00.area`): the last 300 messages with their nameplates, replaying a line's voice, playing marked voices one after another, and jumping back to a message.
 
 On ふゆから、くるる。 all 56 scripts (7.9 million instructions) decode with every jump landing on an instruction, and all 3,255 images decode. Headless, the VM boots `start.mes` through the logo, caution and title scripts, and plays the story from `fk001.mes` on with its text in all three languages.
 
-Not done yet: close-up insets, other effects, movies, the backlog, configuration, the save and load screens, and the engine screens behind Settings and the remaining window buttons (clicking them is counted as not carried out). `silky-run snap` lists every engine call the runtime does not carry out yet.
+Not done yet: close-up insets, other effects, movies, configuration, and the engine screens behind Settings and the remaining window buttons (clicking them is counted as not carried out). `silky-run snap` lists every engine call the runtime does not carry out yet.
 
 Compared with screenshots of the original (Windows, Simplified Chinese): the message window, name plate, window portrait, the position and pitch of Chinese text, and the size and position of standing characters. Still provisional: English text metrics, the line pitch of two-line messages, the wrap width, and where selections sit on screen.
 

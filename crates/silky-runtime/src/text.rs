@@ -88,11 +88,48 @@ impl TextRenderer {
         size: f32,
         color: [u8; 4],
     ) {
-        for (dx, dy, c) in [
-            (1.0, 1.0, [0, 0, 0, 160]),
-            (-1.0, 0.0, [0, 0, 0, 90]),
-            (0.0, 0.0, color),
-        ] {
+        self.draw_layers(
+            canvas,
+            line,
+            x,
+            y,
+            size,
+            &[
+                (1.0, 1.0, [0, 0, 0, 160]),
+                (-1.0, 0.0, [0, 0, 0, 90]),
+                (0.0, 0.0, color),
+            ],
+        );
+    }
+
+    /// Draws one line without an outline, for text on light screens.
+    pub fn draw_plain(
+        &self,
+        canvas: &mut Canvas,
+        line: &str,
+        x: f32,
+        y: f32,
+        size: f32,
+        color: [u8; 4],
+    ) {
+        self.draw_layers(canvas, line, x, y, size, &[(0.0, 0.0, color)]);
+    }
+
+    /// Width of a line.
+    pub fn width(&self, line: &str, size: f32) -> f32 {
+        line.chars().map(|c| self.advance(c, size)).sum()
+    }
+
+    fn draw_layers(
+        &self,
+        canvas: &mut Canvas,
+        line: &str,
+        x: f32,
+        y: f32,
+        size: f32,
+        layers: &[(f32, f32, [u8; 4])],
+    ) {
+        for &(dx, dy, c) in layers {
             let mut pen = x + dx;
             for ch in line.chars() {
                 let font = self.font_for(ch);

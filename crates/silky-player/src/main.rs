@@ -19,7 +19,7 @@ use silky_runtime::text::TextRenderer;
 use silky_runtime::{Config, Language, Session, State, SCREEN_HEIGHT, SCREEN_WIDTH};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition};
-use winit::event::{ElementState, MouseButton, WindowEvent};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowId};
@@ -138,6 +138,7 @@ fn main() -> Result<()> {
         view: None,
         last_tick: Instant::now(),
         cursor: (0, 0),
+        wheel: 0.0,
         error: None,
     };
     event_loop.run_app(&mut app)?;
@@ -222,6 +223,8 @@ struct App {
     last_tick: Instant,
     /// Cursor in game pixels.
     cursor: (i32, i32),
+    /// Trackpad scrolling not yet turned into wheel steps.
+    wheel: f64,
     error: Option<anyhow::Error>,
 }
 
@@ -341,9 +344,25 @@ impl ApplicationHandler for App {
                 };
                 self.after_input(event_loop, r);
             }
+            WindowEvent::MouseWheel { delta, .. } => {
+                // One step per notch, or per 40 pixels of trackpad travel.
+                self.wheel += match delta {
+                    MouseScrollDelta::LineDelta(_, y) => y.signum() as f64 * 40.0,
+                    MouseScrollDelta::PixelDelta(p) => p.y,
+                };
+                if self.wheel.abs() >= 40.0 {
+                    self.session.wheel(self.wheel > 0.0);
+                    self.wheel = 0.0;
+                    self.after_input(event_loop, Ok(()));
+                }
+            }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
                 let r = match event.logical_key {
                     Key::Named(NamedKey::Enter | NamedKey::Space) => self.session.proceed(),
+                    Key::Named(NamedKey::Escape) => {
+                        self.session.back();
+                        Ok(())
+                    }
                     _ => Ok(()),
                 };
                 self.after_input(event_loop, r);

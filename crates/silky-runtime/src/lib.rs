@@ -16,6 +16,7 @@ mod host;
 pub mod render;
 pub mod save;
 pub mod scene;
+pub mod screens;
 pub mod session;
 pub mod text;
 pub mod ui;
