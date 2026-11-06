@@ -27,10 +27,11 @@ Early. What works today:
 - The extras of the title menu: the CG gallery (`cgmode.area`, nine pages of thumbnails, click through the pictures of an entry), scene replay (`scmode.area`) and the music room (`soundmode.area`, with a progress bar). What unlocks them is kept with the settings in `system.json` in the save folder: pictures and music met in the story, and lines read. The tables of gallery pictures, scenes and tracks are taken from the executable of ふゆから、くるる。.
 - Movies (`.vsd`): MPEG-1 video and MP2 sound decoded with [pl_mpeg](https://github.com/phoboslab/pl_mpeg) (MIT, in `crates/silky-runtime/vendor`); the picture follows the sound clock, and a click ends the movie.
 - The window's previous choice button (back to the message before the last selection) and next choice button (skip to the next selection, through unread text too).
+- Close-ups and character moves, read from the engine's handlers: event pictures moved and enlarged (`Game.12` subs 4 and 5), characters that hop or shake (`Game.13` sub 7; the step length of 50 ms is a guess), change slot (sub 10) or stand off their slot position (sub 14).
 
 On ふゆから、くるる。 all 56 scripts (7.9 million instructions) decode with every jump landing on an instruction, and all 3,255 images decode. Headless, the VM boots `start.mes` through the logo, caution and title scripts, and plays the story from `fk001.mes` on with its text in all three languages.
 
-Not done yet: close-up insets and other effects. Calls seen in the story that are not carried out include `Game.12` subs 4 and 5 (they look like a camera move over an event picture) and `Game.13` subs 7 and 14 (character moves); what they do is still to be read from the executable. The "fixed window" setting is kept but changes nothing, since the window never moves here. `silky-run snap` lists every engine call the runtime does not carry out yet.
+Not done yet: other effects. The "fixed window" setting is kept but changes nothing, since the window never moves here. `silky-run snap` lists every engine call the runtime does not carry out yet.
 
 Compared with screenshots of the original (Windows, Simplified Chinese): the message window, name plate, window portrait, the position and pitch of Chinese text, and the size and position of standing characters. Still provisional: English text metrics (no English screenshots to compare with yet), the line pitch of two-line messages, the wrap width, and where selections sit on screen.
 

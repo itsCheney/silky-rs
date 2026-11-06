@@ -12,6 +12,9 @@ pub struct Character {
     pub face: Option<String>,
     /// Size in percent of the canvas (40, 50, 75, 80 in this game).
     pub scale: i32,
+    /// Shift from the slot position in pixels (command 13, sub 14).
+    #[serde(default)]
+    pub offset: (i32, i32),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -19,6 +22,11 @@ pub struct Character {
 pub struct Scene {
     /// Background or event picture (game command 12, sub 0).
     pub background: Option<String>,
+    /// Position of the background's top left corner (command 12, sub 4),
+    /// for close-ups of event pictures.
+    pub background_offset: (i32, i32),
+    /// Size of the background in percent (command 12, sub 5); 0 is 100.
+    pub background_zoom: i32,
     /// Difference pictures drawn over the background, by slot (command 12,
     /// sub 1). Cleared when a new background is loaded.
     pub overlays: BTreeMap<i32, String>,
@@ -42,4 +50,8 @@ pub struct Scene {
     pub shake: (i32, i32),
     /// Current message text.
     pub text: Option<String>,
+    /// Characters jumping or shaking now: pixels by slot (command 13,
+    /// sub 7). Not saved.
+    #[serde(skip)]
+    pub jolts: BTreeMap<i32, (i32, i32)>,
 }

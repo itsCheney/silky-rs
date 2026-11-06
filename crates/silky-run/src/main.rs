@@ -179,6 +179,7 @@ fn snap(
                     rt.answer_title(&mut vm, choice);
                 }
                 Some(Pause::Text { index }) => {
+                    rt.jolts.clear();
                     if lines.contains(&line_no) {
                         let mut frame = renderer.render(&rt.scene, &mut rt.assets)?;
                         let ui = Ui {

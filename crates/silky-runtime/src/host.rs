@@ -157,6 +157,9 @@ pub struct Transition {
     pub rule: Option<u32>,
 }
 
+/// Offsets of the four steps of a character jolt.
+pub type Jolt = [(i32, i32); 4];
+
 /// Mixer channel of movie sound.
 const MOVIE_AUDIO: i32 = 99;
 
@@ -194,6 +197,9 @@ pub struct Runtime {
     pub read_before: bool,
     /// Movie file set up by `Movie.0`, played by `Movie.2`.
     pub movie: Option<String>,
+    /// Character jolts (command 13, sub 7) for the frontend to play: slot
+    /// and four offsets.
+    pub jolts: Vec<(i32, Jolt)>,
 }
 
 fn host_error(msg: impl Into<String>) -> silky_vm::Error {
@@ -216,6 +222,7 @@ impl Runtime {
             choices: Vec::new(),
             clicked: false,
             character_time: 0,
+            jolts: Vec::new(),
             audio,
             voice: None,
             system: Default::default(),
@@ -302,6 +309,7 @@ impl Runtime {
         self.option_count = 0;
         self.choices.clear();
         self.character_time = 0;
+        self.jolts.clear();
         self.clicked = false;
     }
 
@@ -576,8 +584,11 @@ impl Runtime {
         }
         let s = |i: usize| args.get(i).and_then(Value::as_str).map(str::to_string);
         let n = |i: usize| args.get(i).map(Value::int).unwrap_or(0);
-        if command == cmd::CHARACTER && matches!(sub, 0 | 1 | 3 | 4) {
+        if command == cmd::CHARACTER && matches!(sub, 0 | 1 | 3 | 4 | 10) {
             self.character_time = self.character_time.max(n(0));
+        }
+        if command == cmd::CHARACTER && sub == 14 {
+            self.character_time = self.character_time.max(n(2));
         }
         let scene = &mut self.scene;
         match (command, sub, args.len()) {
@@ -621,6 +632,12 @@ impl Runtime {
                     scene.overlays.remove(&n(0));
                 }
             },
+            // Close-ups: the scripts give y before x (as in Sprite.0,
+            // height before width); the engine stores them as x, y and
+            // places the picture's top left corner there.
+            (cmd::PICTURE, 4, 2) => scene.background_offset = (n(1), n(0)),
+            // Size in percent; the picture grows from its top left corner.
+            (cmd::PICTURE, 5, 1) => scene.background_zoom = n(0),
             // 2 sets up the change, 11 closes it; nothing to draw.
             (cmd::PICTURE, 2, 0) | (cmd::PICTURE, 11, 0) => {}
             // (time): crossfade to the new picture.
@@ -639,8 +656,43 @@ impl Runtime {
                         body,
                         face: None,
                         scale: n(1),
+                        offset: (0, 0),
                     },
                 );
+            }
+            // (x, y, time, size, name, slot): a character shifted from
+            // its slot position.
+            (cmd::CHARACTER, 14, 6) => {
+                let Some(body) = s(4) else {
+                    return Err(host_error("character load without a name"));
+                };
+                scene.characters.insert(
+                    n(5),
+                    Character {
+                        body,
+                        face: None,
+                        scale: n(3),
+                        offset: (n(0), n(1)),
+                    },
+                );
+            }
+            // (pixels, kind, slot): a short jolt, four steps of an offset
+            // table; kind 0 hops up (0, -p/2, -p, -p/2), else it shakes
+            // sideways (-p, +p, 0, 0).
+            (cmd::CHARACTER, 7, 3) => {
+                let p = n(0);
+                let steps = if n(1) == 0 {
+                    [(0, -p / 2), (0, -p), (0, -p / 2), (0, 0)]
+                } else {
+                    [(-p, 0), (p, 0), (0, 0), (0, 0)]
+                };
+                self.jolts.push((n(2), steps));
+            }
+            // (time, new slot, slot): a character moves to another slot.
+            (cmd::CHARACTER, 10, 3) => {
+                if let Some(c) = scene.characters.remove(&n(2)) {
+                    scene.characters.insert(n(1), c);
+                }
             }
             // (time, slot, name)
             (cmd::CHARACTER, 1, 3) => {

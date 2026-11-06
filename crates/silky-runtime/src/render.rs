@@ -133,6 +133,40 @@ impl Canvas {
         }
     }
 
+    /// Draws an opaque picture enlarged by `scale` (> 1) with its top left
+    /// at (x, y), with bilinear filtering.
+    pub fn draw_zoomed(&mut self, img: &Image, x: f32, y: f32, scale: f32) {
+        if img.width == 0 || img.height == 0 {
+            return;
+        }
+        let (w, h) = (img.width as usize, img.height as usize);
+        let px = |u: usize, v: usize| &img.rgba[(v * w + u) * 4..(v * w + u) * 4 + 4];
+        for ty in 0..self.height as usize {
+            let fy = ((ty as f32 + 0.5 - y) / scale - 0.5).clamp(0.0, (h - 1) as f32);
+            if (ty as f32) < y || ty as f32 >= y + h as f32 * scale {
+                continue;
+            }
+            let (v0, wy) = (fy as usize, fy.fract());
+            let v1 = (v0 + 1).min(h - 1);
+            for tx in 0..self.width as usize {
+                if (tx as f32) < x || tx as f32 >= x + w as f32 * scale {
+                    continue;
+                }
+                let fx = ((tx as f32 + 0.5 - x) / scale - 0.5).clamp(0.0, (w - 1) as f32);
+                let (u0, wx) = (fx as usize, fx.fract());
+                let u1 = (u0 + 1).min(w - 1);
+                let (a, b, c, d) = (px(u0, v0), px(u1, v0), px(u0, v1), px(u1, v1));
+                let mut out = [0u8; 4];
+                for k in 0..4 {
+                    let top = a[k] as f32 * (1.0 - wx) + b[k] as f32 * wx;
+                    let bottom = c[k] as f32 * (1.0 - wx) + d[k] as f32 * wx;
+                    out[k] = (top * (1.0 - wy) + bottom * wy + 0.5) as u8;
+                }
+                self.blend_px(tx as i32, ty as i32, out);
+            }
+        }
+    }
+
     /// Moves the picture by (dx, dy), filling the uncovered edge with black.
     pub fn shift(&mut self, dx: i32, dy: i32) {
         let (w, h) = (self.width as i32, self.height as i32);
@@ -379,9 +413,13 @@ impl Renderer {
         let mut canvas = Canvas::new(SCREEN_WIDTH, SCREEN_HEIGHT);
         if let Some(bg) = &scene.background {
             let img = assets.image(bg)?;
-            let x = (SCREEN_WIDTH as i32 - img.width as i32) / 2;
-            let y = (SCREEN_HEIGHT as i32 - img.height as i32) / 2;
-            canvas.draw(&img, x, y, false);
+            let x = (SCREEN_WIDTH as i32 - img.width as i32) / 2 + scene.background_offset.0;
+            let y = (SCREEN_HEIGHT as i32 - img.height as i32) / 2 + scene.background_offset.1;
+            match scene.background_zoom {
+                0 | 100 => canvas.draw(&img, x, y, false),
+                z if z > 100 => canvas.draw_zoomed(&img, x as f32, y as f32, z as f32 / 100.0),
+                z => canvas.draw_scaled(&img, x as f32, y as f32, z as f32 / 100.0),
+            }
         }
         for name in scene.overlays.values() {
             let img = assets.image(name)?;
@@ -396,8 +434,10 @@ impl Renderer {
         for (slot, c) in chars {
             let img = self.character(assets, &c.body, c.face.as_deref())?;
             let s = c.scale as f32 / 100.0;
-            let x = SCREEN_WIDTH as f32 / 2.0 + slot_layout(*slot).0 - img.width as f32 * s / 2.0;
-            let y = 300.0 - 700.0 * s;
+            let jolt = scene.jolts.get(slot).copied().unwrap_or_default();
+            let x = SCREEN_WIDTH as f32 / 2.0 + slot_layout(*slot).0 - img.width as f32 * s / 2.0
+                + (c.offset.0 + jolt.0) as f32;
+            let y = 300.0 - 700.0 * s + (c.offset.1 + jolt.1) as f32;
             canvas.draw_scaled(&img, x, y, s);
         }
 
@@ -510,6 +550,16 @@ mod tests {
         assert_eq!((r.rgba[0], r.rgba[4]), (200, 0));
         let done = Canvas::blend(&from, &to, 1.0, Some(&[0, 255]));
         assert_eq!(done.rgba, to.rgba);
+    }
+
+    #[test]
+    fn zoom_keeps_corners() {
+        let mut img = solid(2, 1, [0, 0, 0, 255]);
+        img.rgba[4..8].copy_from_slice(&[200, 200, 200, 255]);
+        let mut c = Canvas::new(4, 1);
+        c.draw_zoomed(&img, 0.0, 0.0, 2.0);
+        assert_eq!((c.rgba[0], c.rgba[12]), (0, 200));
+        assert!(c.rgba[4] > 0 && c.rgba[4] < 200);
     }
 
     #[test]

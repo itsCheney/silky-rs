@@ -49,6 +49,9 @@ pub enum State {
 /// script that never stops.
 const STEP_BUDGET: u64 = 50_000_000;
 const MAX_BUDGETS: u32 = 20;
+/// Length of one step of a character jolt (a guess: the engine's step
+/// timing is not read yet).
+const JOLT_STEP_MS: u64 = 50;
 /// Time between writes of changed system data.
 const SYSTEM_STORE_MS: u64 = 3000;
 /// Extra time after punctuation (in characters) with the pause setting.
@@ -102,6 +105,8 @@ pub struct Session {
     shown_chars: Option<usize>,
     /// Clock time of the last system data write.
     system_stored: u64,
+    /// Character jolts playing: slot, offsets, start time.
+    jolts: Vec<(i32, crate::host::Jolt, u64)>,
     /// Thumbnail of the game as it was when a screen opened.
     thumb: Option<Image>,
     /// The backlog plays the marked voices one after another.
@@ -173,6 +178,7 @@ impl Session {
             reveal_all: false,
             shown_chars: None,
             system_stored: 0,
+            jolts: Vec::new(),
         };
         s.restart()?;
         Ok(s)
@@ -325,6 +331,7 @@ impl Session {
         self.shown_chars = None;
         self.skip_to_choice = false;
         self.movie = None;
+        self.jolts.clear();
         self.base = None;
         self.frame = None;
         self.update_previous_choice();
@@ -360,6 +367,7 @@ impl Session {
         self.choice_points.clear();
         self.voice_queue.clear();
         self.movie = None;
+        self.jolts.clear();
         self.skip_to_choice = false;
         self.ui = Ui {
             has_saves: self.ui.has_saves,
@@ -488,10 +496,41 @@ impl Session {
                 }
             }
         }
+        let now = self.ui.clock;
+        self.jolts.extend(
+            self.rt
+                .jolts
+                .drain(..)
+                .map(|(slot, steps)| (slot, steps, now)),
+        );
         self.base = None;
         self.frame = None;
         self.update_previous_choice();
         Ok(())
+    }
+
+    /// Moves jolting characters to their offset for the clock time.
+    fn play_jolts(&mut self) {
+        if self.jolts.is_empty() && self.rt.scene.jolts.is_empty() {
+            return;
+        }
+        let clock = self.ui.clock;
+        let mut now = std::collections::BTreeMap::new();
+        self.jolts.retain(|(slot, steps, start)| {
+            let step = ((clock - start) / JOLT_STEP_MS) as usize;
+            if let Some(&o) = steps.get(step) {
+                now.insert(*slot, o);
+                true
+            } else {
+                false
+            }
+        });
+        now.retain(|_, o| *o != (0, 0));
+        if now != self.rt.scene.jolts {
+            self.rt.scene.jolts = now;
+            self.base = None;
+            self.frame = None;
+        }
     }
 
     fn update_previous_choice(&mut self) {
@@ -1359,6 +1398,7 @@ impl Session {
         if self.screen.is_some() || self.dialog.is_some() {
             return Ok(self.frame.is_none());
         }
+        self.play_jolts();
         self.shown_ms += ms;
         if self.state == State::Busy {
             // Several short steps (input polls) may fit in one tick.
