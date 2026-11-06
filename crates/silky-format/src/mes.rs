@@ -43,10 +43,6 @@ pub enum OperandKind {
     Target,
     /// Big-endian message number.
     Message,
-    /// Big-endian 32-bit value of unknown meaning.
-    U32Be,
-    /// Little-endian 32-bit value (only in `LIBLARY.LIB`).
-    U32Le,
     /// NUL-terminated Shift-JIS string.
     Str,
     /// NUL-terminated obfuscated Shift-JIS string.
@@ -57,36 +53,106 @@ pub enum OperandKind {
 pub fn operand_kind(op: u8) -> Option<OperandKind> {
     use OperandKind::*;
     Some(match op {
-        0x00 | 0x02..=0x06 | 0x0c..=0x0f | 0x11 | 0x17 | 0x18 => None,
-        0x34 | 0x35 | 0x37..=0x39 | 0x3a..=0x3f | 0x40..=0x43 | 0xfa..=0xff => None,
-        0x01 => U32Le,
+        0x00..=0x09 | 0x0c..=0x13 | 0x17 | 0x18 => None,
+        0x32..=0x43 if op != 0x32 && op != 0x33 => None,
+        0xfa..=0xff => None,
         0x0a => CryptStr,
         0x0b | 0x33 => Str,
-        0x10 | 0x1c | 0x36 => U8,
+        0x1c => U8,
         0x14 | 0x15 | 0x16 | 0x1b => Target,
-        0x19 => Message,
-        0x1a => U32Be,
+        0x19 | 0x1a => Message,
         0x32 => Int,
         _ => return Option::None,
     })
 }
 
-/// Short mnemonic for an opcode; unknown meaning gives `op_XX`.
+/// Short mnemonic for an opcode.
+///
+/// Semantics (from the engine's interpreter; "pop" takes the top of stack):
+///
+/// | op | mnemonic | effect |
+/// | --- | --- | --- |
+/// | 00 | `ret` | return from a script call; end when nothing to return to |
+/// | 01 | `fret` | return from a script function (drops its locals) |
+/// | 02 03 | `ld.b` `ld.w` | push byte / u16 variable `[pop]` |
+/// | 04 05 | `ld.g` `ld.h` | push value variable `[pop]` of bank G / H |
+/// | 06 | `ld.l` | push local `[pop]` of the current function |
+/// | 07 08 09 | `ld.r8` `ld.r16` `ld.r32` | push from the raw area, indexed by element |
+/// | 0a 0b | `push.cs` `push.s` | push a string (0a obfuscated) |
+/// | 0c..13 | `st.*` | `index = pop; value = pop;` store, same banks as 02..09 |
+/// | 14 | `jz` | `if pop == 0 { goto target }` |
+/// | 15 | `jmp` | `goto target` |
+/// | 16 | `fdef` | `id = pop; argc = pop;` define a function whose body follows; goto target |
+/// | 17 | `call` | `id = pop;` call function `id`, popping its arguments into locals |
+/// | 18 | `native` | `id = pop;` engine function class `id` (it pops its own arguments) |
+/// | 19 | `message` | message number (G[52] = n) |
+/// | 1a | `smessage` | selection message number (G[54] = n) |
+/// | 1b | `option` | `value = pop;` record a selection option starting after this; goto target |
+/// | 1c | `text` | text output with a sub-command byte |
+/// | 32 33 | `push` `push.s` | push an int / a string |
+/// | 34..38 | `add` `sub` `mul` `div` `mod` | `b = pop; a = pop; push a op b` (add joins strings) |
+/// | 39 | `rand` | `n = pop; push random % n` |
+/// | 3a 3b | `land` `lor` | logical and / or (true is 1) |
+/// | 3c 3d | `and` `or` | bitwise |
+/// | 3e..43 | `lt` `gt` `le` `ge` `eq` `ne` | comparisons, push 1 or 0 |
+/// | fa..fd | `nop` | |
+/// | fe | `dbg.call` | `line = pop; module = pop; name = pop;` source macro call site |
+/// | ff | `dbg.line` | `line = pop;` source line |
 pub fn mnemonic(op: u8) -> String {
-    match op {
-        0x00 => "ret".into(),
-        0x0a => "str_crypt".into(),
-        0x0b => "str".into(),
-        0x14 => "jump".into(),
-        0x15 => "msg_offset".into(),
-        0x16 => "spec_offset".into(),
-        0x19 => "message".into(),
-        0x1c => "new_line".into(),
-        0x32 => "push".into(),
-        0x33 => "push_str".into(),
-        0x36 => "jump_short".into(),
-        _ => format!("op_{op:02x}"),
-    }
+    let name = match op {
+        0x00 => "ret",
+        0x01 => "fret",
+        0x02 => "ld.b",
+        0x03 => "ld.w",
+        0x04 => "ld.g",
+        0x05 => "ld.h",
+        0x06 => "ld.l",
+        0x07 => "ld.r8",
+        0x08 => "ld.r16",
+        0x09 => "ld.r32",
+        0x0a => "push.cs",
+        0x0b => "push.s",
+        0x0c => "st.b",
+        0x0d => "st.w",
+        0x0e => "st.g",
+        0x0f => "st.h",
+        0x10 => "st.l",
+        0x11 => "st.r8",
+        0x12 => "st.r16",
+        0x13 => "st.r32",
+        0x14 => "jz",
+        0x15 => "jmp",
+        0x16 => "fdef",
+        0x17 => "call",
+        0x18 => "native",
+        0x19 => "message",
+        0x1a => "smessage",
+        0x1b => "option",
+        0x1c => "text",
+        0x32 => "push",
+        0x33 => "push.s",
+        0x34 => "add",
+        0x35 => "sub",
+        0x36 => "mul",
+        0x37 => "div",
+        0x38 => "mod",
+        0x39 => "rand",
+        0x3a => "land",
+        0x3b => "lor",
+        0x3c => "and",
+        0x3d => "or",
+        0x3e => "lt",
+        0x3f => "gt",
+        0x40 => "le",
+        0x41 => "ge",
+        0x42 => "eq",
+        0x43 => "ne",
+        0xfa..=0xfd => "nop",
+        0xfe => "dbg.call",
+        0xff => "dbg.line",
+        _ => return format!("op_{op:02x}"),
+    };
+    name.to_string()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -96,7 +162,6 @@ pub enum Operand {
     Int(i32),
     Target(u32),
     Message(u32),
-    U32(u32),
     /// Shift-JIS bytes (already de-obfuscated for `CryptStr`).
     Str(Vec<u8>),
 }
@@ -215,16 +280,6 @@ pub fn decode_at(code: &[u8], offset: u32, profile: Profile) -> Result<(Instr, u
             let w = word(p)?;
             p += 4;
             Operand::Message(u32::from_be_bytes(w))
-        }
-        OperandKind::U32Be => {
-            let w = word(p)?;
-            p += 4;
-            Operand::U32(u32::from_be_bytes(w))
-        }
-        OperandKind::U32Le => {
-            let w = word(p)?;
-            p += 4;
-            Operand::U32(u32::from_le_bytes(w))
         }
         OperandKind::Str | OperandKind::CryptStr => {
             let rest = &code[p..];

@@ -217,7 +217,6 @@ fn dis(game: &Game, name: &str, profile: Profile) -> Result<()> {
             Operand::U8(v) => v.to_string(),
             Operand::Int(v) => v.to_string(),
             Operand::Target(t) => format!("@{t:06x}"),
-            Operand::U32(v) => format!("{v:#x}"),
             Operand::Str(_) => format!("{:?}", ins.text().unwrap()),
             Operand::Message(n) => n.to_string(),
         };
