@@ -26,4 +26,4 @@ jobs:
         with:
           targets: aarch64-apple-ios
       - uses: Swatinem/rust-cache@v2
-      - run: cargo check -p silky-format --target aarch64-apple-ios
+      - run: cargo check -p silky-format -p silky-vm --target aarch64-apple-ios

@@ -1,16 +1,16 @@
 //! `.MAP` text tables.
 //!
 //! In builds where the scripts carry no text, each script `X.MES` has a table
-//! `X.MAP` that maps message numbers to text, one section per language.
+//! `X.MAP` with its lines, one section per language. Scripts show a line by
+//! its position in the table (engine function 29, command 23), not by the
+//! number stored with it; the number is a global line id kept for reference.
 //!
 //! ```text
 //! u32 header_size                 = 8 * section count
 //! repeat section count: u32 offset, u32 count
-//! at each section offset, count times: u32 message number, u32 text offset
+//! at each section offset, count times: u32 line id, u32 text offset
 //! text: NUL-terminated (UTF-8 in the 2026 international build)
 //! ```
-
-use std::collections::HashMap;
 
 use crate::error::{invalid, Result};
 
@@ -18,7 +18,8 @@ const FORMAT: &str = "MAP";
 
 #[derive(Debug, Clone, Default)]
 pub struct MapFile {
-    sections: Vec<HashMap<u32, String>>,
+    /// Per section, `(line id, text)` in file order.
+    sections: Vec<Vec<(u32, String)>>,
 }
 
 impl MapFile {
@@ -37,7 +38,7 @@ impl MapFile {
         for s in 0..header_size / 8 {
             let offset = u32_at(8 * s)? as usize;
             let count = u32_at(8 * s + 4)? as usize;
-            let mut table = HashMap::with_capacity(count);
+            let mut table = Vec::with_capacity(count);
             for i in 0..count {
                 let number = u32_at(offset + 8 * i)?;
                 let text_at = u32_at(offset + 8 * i + 4)? as usize;
@@ -45,7 +46,7 @@ impl MapFile {
                     return invalid(FORMAT, format!("text {number} outside the file"));
                 };
                 let end = rest.iter().position(|&b| b == 0).unwrap_or(rest.len());
-                table.insert(number, decode_text(&rest[..end]));
+                table.push((number, decode_text(&rest[..end])));
             }
             sections.push(table);
         }
@@ -56,23 +57,35 @@ impl MapFile {
         self.sections.len()
     }
 
-    pub fn get(&self, section: usize, number: u32) -> Option<&str> {
-        self.sections.get(section)?.get(&number).map(String::as_str)
+    /// Text at `index` (file order) of a section; this is how scripts refer
+    /// to lines.
+    pub fn line(&self, section: usize, index: usize) -> Option<&str> {
+        self.sections.get(section)?.get(index).map(|e| e.1.as_str())
     }
 
-    /// Entries of a section, sorted by number.
+    /// Text with the given line id.
+    pub fn get(&self, section: usize, number: u32) -> Option<&str> {
+        self.sections
+            .get(section)?
+            .iter()
+            .find(|e| e.0 == number)
+            .map(|e| e.1.as_str())
+    }
+
+    /// Entries of a section in file order.
     pub fn entries(&self, section: usize) -> Vec<(u32, &str)> {
-        let mut v: Vec<(u32, &str)> = self
-            .sections
+        self.sections
             .get(section)
-            .map(|t| t.iter().map(|(&n, s)| (n, s.as_str())).collect())
-            .unwrap_or_default();
-        v.sort_by_key(|e| e.0);
-        v
+            .map(|t| t.iter().map(|(n, s)| (*n, s.as_str())).collect())
+            .unwrap_or_default()
     }
 
     pub fn len(&self, section: usize) -> usize {
-        self.sections.get(section).map_or(0, HashMap::len)
+        self.sections.get(section).map_or(0, Vec::len)
+    }
+
+    pub fn is_empty(&self, section: usize) -> bool {
+        self.len(section) == 0
     }
 }
 
@@ -113,13 +126,16 @@ mod tests {
     #[test]
     fn round_trip() {
         let data = build(&[
-            vec![(1, "Hello"), (2, "World")],
-            vec![(1, "你好"), (2, "世界")],
+            vec![(7, "Hello"), (3, "World")],
+            vec![(7, "你好"), (3, "世界")],
         ]);
         let map = MapFile::parse(&data).unwrap();
         assert_eq!(map.section_count(), 2);
-        assert_eq!(map.get(0, 2), Some("World"));
-        assert_eq!(map.get(1, 1), Some("你好"));
-        assert_eq!(map.get(1, 3), None);
+        assert_eq!(map.get(0, 3), Some("World"));
+        assert_eq!(map.get(1, 7), Some("你好"));
+        assert_eq!(map.get(1, 4), None);
+        assert_eq!(map.line(0, 0), Some("Hello"));
+        assert_eq!(map.line(1, 1), Some("世界"));
+        assert_eq!(map.line(1, 2), None);
     }
 }

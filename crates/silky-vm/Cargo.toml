@@ -1,0 +1,12 @@
+[package]
+name = "silky-vm"
+description = "Byte code interpreter for Silky's engine scripts (.MES and LIBLARY.LIB)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+silky-format.workspace = true
+thiserror.workspace = true

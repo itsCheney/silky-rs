@@ -267,6 +267,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "silky-run"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "silky-format",
+ "silky-vm",
+]
+
+[[package]]
 name = "silky-tool"
 version = "0.1.0"
 dependencies = [
@@ -274,6 +284,14 @@ dependencies = [
  "clap",
  "png",
  "silky-format",
+]
+
+[[package]]
+name = "silky-vm"
+version = "0.1.0"
+dependencies = [
+ "silky-format",
+ "thiserror",
 ]
 
 [[package]]

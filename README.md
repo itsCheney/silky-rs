@@ -15,19 +15,22 @@ Early. What works today:
 - `.MAP` text tables (one section per language).
 - `.MES` scripts and `LIBLARY.LIB`: header, offset tables and the full byte code decoder.
 - `.VSD` movie containers (an MPEG-1 program stream inside).
+- The script VM: stack, variable banks, functions, script calls and selections. Engine functions go to a host.
 
-On ふゆから、くるる。 all 56 scripts (7.9 million instructions) decode with every jump landing on an instruction, and all 3,255 images decode.
+On ふゆから、くるる。 all 56 scripts (7.9 million instructions) decode with every jump landing on an instruction, and all 3,255 images decode. Headless, the VM boots `start.mes` through the logo, caution and title scripts, and plays the story from `fk001.mes` on with its text in all three languages.
 
-Not done yet: the script VM, the engine functions the scripts call, rendering, sound, movies, saves, and the desktop player.
+Not done yet: the engine functions themselves (images, text window, sound, movies, saves), rendering and the desktop player.
 
 ## Layout
 
 | Crate | What it is |
 | --- | --- |
 | `silky-format` | File formats. No platform code. |
+| `silky-vm` | Byte code interpreter. Engine functions are handed to a host. |
 | `silky-tool` | Command line tool to inspect a game folder. |
+| `silky-run` | Headless runner. Today it runs the scripts and logs every engine call. |
 
-Planned: `silky-vm` (byte code interpreter), `silky-runtime` (engine functions, scene, text, sound), `silky-player` (desktop player: winit, wgpu, cpal) and `silky-run` (headless runner for tests).
+Planned: `silky-runtime` (engine functions, scene, text, sound) and `silky-player` (desktop player: winit, wgpu, cpal).
 
 ## Building
 
@@ -49,6 +52,16 @@ silky-tool akb   <game folder> TITLE_BG_01.AKB title.png
 silky-tool ls      <file.arc>
 silky-tool extract <file.arc> <out folder>
 ```
+
+## silky-run
+
+```sh
+silky-run trace <game folder>                        # boot log until the title menu
+silky-run trace <game folder> --result 29.110=1      # pick "Start" on the title menu
+silky-run trace <game folder> --result 29.110=1 --text-only --lang 1 --max-calls 50000
+```
+
+`trace` performs no engine function; it logs each call with its arguments. Calls whose result the scripts use return 0 unless `--result CLASS.SUB=VALUE` says otherwise. Selections take `--choose` (default the first option). `--lang` picks the text section of the `.MAP` tables (0 English, 1 Simplified Chinese, 2 Traditional Chinese in this build).
 
 ## Rules for this project
 

@@ -1,0 +1,18 @@
+[package]
+name = "silky-run"
+description = "Headless runner for Silky's engine games: runs the scripts and logs engine calls"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "silky-run"
+path = "src/main.rs"
+
+[dependencies]
+silky-format.workspace = true
+silky-vm.workspace = true
+anyhow.workspace = true
+clap.workspace = true

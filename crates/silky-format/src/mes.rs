@@ -8,9 +8,9 @@
 //! ```
 //!
 //! The byte code is a stack machine. Each instruction is one opcode byte and
-//! a fixed operand (see [`operand_kind`]). Function calls into the engine are
-//! made by name: the script pushes the function name and its module
-//! (`"msg"`, `"main.inc"`) as strings before the call opcodes.
+//! a fixed operand (see [`operand_kind`]). Engine functions are called by
+//! number (opcode 0x18). The macro names seen in the code (`"msg"`,
+//! `"main.inc"`) are debug information for opcode 0xfe only.
 
 use crate::error::{invalid, Result};
 
