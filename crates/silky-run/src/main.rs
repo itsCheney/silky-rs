@@ -88,6 +88,10 @@ enum Command {
         /// comes back to the title (an ending).
         #[arg(long, value_delimiter = ',')]
         path: Vec<usize>,
+        /// Height of the saved frames in pixels. The game is laid out in
+        /// 1280 x 720; pictures are scaled up and text is drawn at this size.
+        #[arg(long, default_value_t = 1080)]
+        height: u32,
     },
 }
 
@@ -129,15 +133,17 @@ fn main() -> Result<()> {
             font,
             choose,
             path,
+            height,
         } => {
             let game = Game::open(&game)
                 .with_context(|| format!("cannot open game folder {}", game.display()))?;
             let language = pick_language(&silky_runtime::assets::languages(&game), lang)?;
-            snap(game, &out, &lines, language, &font, choose, &path)
+            snap(game, &out, &lines, language, &font, choose, &path, height)
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn snap(
     game: Game,
     out: &std::path::Path,
@@ -146,6 +152,7 @@ fn snap(
     fonts: &[PathBuf],
     choose: usize,
     path: &[usize],
+    height: u32,
 ) -> Result<()> {
     use silky_runtime::render::Renderer;
     use silky_runtime::text::TextRenderer;
@@ -164,6 +171,7 @@ fn snap(
         Some(TextRenderer::new(&files)?)
     };
     let mut renderer = Renderer::new(text, language);
+    renderer.scale = (height as f32 / silky_runtime::SCREEN_HEIGHT as f32).max(1.0);
     let config = Config {
         language,
         ..Config::default()
@@ -295,7 +303,9 @@ fn snap(
     Ok(())
 }
 
+/// Writes a frame at its output size (see `Canvas::present`).
 fn write_png(path: &std::path::Path, frame: &silky_runtime::render::Canvas) -> Result<()> {
+    let frame = &frame.present();
     let file = std::io::BufWriter::new(std::fs::File::create(path)?);
     let mut enc = png::Encoder::new(file, frame.width, frame.height);
     enc.set_color(png::ColorType::Rgba);

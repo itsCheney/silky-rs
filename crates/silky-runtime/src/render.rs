@@ -14,231 +14,7 @@ use crate::scene::Scene;
 use crate::text::TextRenderer;
 use crate::{Result, SCREEN_HEIGHT, SCREEN_WIDTH};
 
-/// An RGBA8 frame.
-#[derive(Clone)]
-pub struct Canvas {
-    pub width: u32,
-    pub height: u32,
-    pub rgba: Vec<u8>,
-}
-
-impl Canvas {
-    pub fn new(width: u32, height: u32) -> Self {
-        let mut rgba = vec![0u8; (width * height * 4) as usize];
-        for px in rgba.chunks_exact_mut(4) {
-            px[3] = 255;
-        }
-        Self {
-            width,
-            height,
-            rgba,
-        }
-    }
-
-    fn blend_px(&mut self, x: i32, y: i32, src: [u8; 4]) {
-        if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 || src[3] == 0 {
-            return;
-        }
-        let i = ((y as u32 * self.width + x as u32) * 4) as usize;
-        let d = &mut self.rgba[i..i + 4];
-        let a = src[3] as u32;
-        for k in 0..3 {
-            d[k] = ((src[k] as u32 * a + d[k] as u32 * (255 - a) + 127) / 255) as u8;
-        }
-        d[3] = 255;
-    }
-
-    /// Draws an image at (x, y), 1:1. Pure green (0, 255, 0) counts as
-    /// transparent when `green_key` is set, as in event difference pictures.
-    pub fn draw(&mut self, img: &Image, x: i32, y: i32, green_key: bool) {
-        self.draw_part(img, (0, 0, img.width, img.height), x, y, green_key, 255);
-    }
-
-    /// Draws the rectangle (left, top, width, height) of an image at (x, y),
-    /// with its alpha scaled by `opacity` (255 = as stored).
-    pub fn draw_part(
-        &mut self,
-        img: &Image,
-        part: (u32, u32, u32, u32),
-        x: i32,
-        y: i32,
-        green_key: bool,
-        opacity: u8,
-    ) {
-        let (pl, pt, pw, ph) = part;
-        for row in 0..ph.min(img.height.saturating_sub(pt)) {
-            let dy = y + row as i32;
-            if dy < 0 || dy >= self.height as i32 {
-                continue;
-            }
-            for col in 0..pw.min(img.width.saturating_sub(pl)) {
-                let i = (((pt + row) * img.width + pl + col) * 4) as usize;
-                let s = &img.rgba[i..i + 4];
-                if green_key && s[0] == 0 && s[1] == 255 && s[2] == 0 {
-                    continue;
-                }
-                let a = (s[3] as u32 * opacity as u32 + 127) / 255;
-                self.blend_px(x + col as i32, dy, [s[0], s[1], s[2], a as u8]);
-            }
-        }
-    }
-
-    /// Draws an image scaled by `scale` with its top left at (x, y),
-    /// averaging the source pixels under each target pixel.
-    pub fn draw_scaled(&mut self, img: &Image, x: f32, y: f32, scale: f32) {
-        let dw = (img.width as f32 * scale).round() as i32;
-        let dh = (img.height as f32 * scale).round() as i32;
-        let (x0, y0) = (x.round() as i32, y.round() as i32);
-        let inv = 1.0 / scale;
-        let taps = (inv.ceil() as u32).clamp(1, 4);
-        for ty in 0..dh {
-            let sy = y0 + ty;
-            if sy < 0 || sy >= self.height as i32 {
-                continue;
-            }
-            for tx in 0..dw {
-                let sx = x0 + tx;
-                if sx < 0 || sx >= self.width as i32 {
-                    continue;
-                }
-                let mut acc = [0u32; 4];
-                let mut n = 0;
-                for j in 0..taps {
-                    for i in 0..taps {
-                        let u = ((tx as f32 + (i as f32 + 0.5) / taps as f32) * inv) as u32;
-                        let v = ((ty as f32 + (j as f32 + 0.5) / taps as f32) * inv) as u32;
-                        if u >= img.width || v >= img.height {
-                            continue;
-                        }
-                        let k = ((v * img.width + u) * 4) as usize;
-                        let a = img.rgba[k + 3] as u32;
-                        for (sum, &v) in acc.iter_mut().zip(&img.rgba[k..k + 3]) {
-                            *sum += v as u32 * a;
-                        }
-                        acc[3] += a;
-                        n += 1;
-                    }
-                }
-                if n == 0 || acc[3] == 0 {
-                    continue;
-                }
-                let px = [
-                    (acc[0] / acc[3]) as u8,
-                    (acc[1] / acc[3]) as u8,
-                    (acc[2] / acc[3]) as u8,
-                    (acc[3] / n) as u8,
-                ];
-                self.blend_px(sx, sy, px);
-            }
-        }
-    }
-
-    /// Draws an opaque picture enlarged by `scale` (> 1) with its top left
-    /// at (x, y), with bilinear filtering.
-    pub fn draw_zoomed(&mut self, img: &Image, x: f32, y: f32, scale: f32) {
-        if img.width == 0 || img.height == 0 {
-            return;
-        }
-        let (w, h) = (img.width as usize, img.height as usize);
-        let px = |u: usize, v: usize| &img.rgba[(v * w + u) * 4..(v * w + u) * 4 + 4];
-        for ty in 0..self.height as usize {
-            let fy = ((ty as f32 + 0.5 - y) / scale - 0.5).clamp(0.0, (h - 1) as f32);
-            if (ty as f32) < y || ty as f32 >= y + h as f32 * scale {
-                continue;
-            }
-            let (v0, wy) = (fy as usize, fy.fract());
-            let v1 = (v0 + 1).min(h - 1);
-            for tx in 0..self.width as usize {
-                if (tx as f32) < x || tx as f32 >= x + w as f32 * scale {
-                    continue;
-                }
-                let fx = ((tx as f32 + 0.5 - x) / scale - 0.5).clamp(0.0, (w - 1) as f32);
-                let (u0, wx) = (fx as usize, fx.fract());
-                let u1 = (u0 + 1).min(w - 1);
-                let (a, b, c, d) = (px(u0, v0), px(u1, v0), px(u0, v1), px(u1, v1));
-                let mut out = [0u8; 4];
-                for k in 0..4 {
-                    let top = a[k] as f32 * (1.0 - wx) + b[k] as f32 * wx;
-                    let bottom = c[k] as f32 * (1.0 - wx) + d[k] as f32 * wx;
-                    out[k] = (top * (1.0 - wy) + bottom * wy + 0.5) as u8;
-                }
-                self.blend_px(tx as i32, ty as i32, out);
-            }
-        }
-    }
-
-    /// Moves the picture by (dx, dy), filling the uncovered edge with black.
-    pub fn shift(&mut self, dx: i32, dy: i32) {
-        let (w, h) = (self.width as i32, self.height as i32);
-        let src = std::mem::replace(&mut self.rgba, Canvas::new(self.width, self.height).rgba);
-        for y in 0..h {
-            let sy = y - dy;
-            if sy < 0 || sy >= h {
-                continue;
-            }
-            for x in 0..w {
-                let sx = x - dx;
-                if sx < 0 || sx >= w {
-                    continue;
-                }
-                let (d, s) = (((y * w + x) * 4) as usize, ((sy * w + sx) * 4) as usize);
-                self.rgba[d..d + 4].copy_from_slice(&src[s..s + 4]);
-            }
-        }
-    }
-
-    /// Mixes two frames of the same size: `t` from 0 (all `from`) to 1
-    /// (all `to`). With a rule mask (one byte per pixel), pixels change in
-    /// the order of their mask value, with a soft edge.
-    pub fn blend(from: &Canvas, to: &Canvas, t: f32, rule: Option<&[u8]>) -> Canvas {
-        const EDGE: f32 = 32.0;
-        let t = t.clamp(0.0, 1.0);
-        let mut out = to.clone();
-        let n = (to.width * to.height) as usize;
-        let rule = rule.filter(|r| r.len() >= n);
-        for i in 0..n {
-            let a = match rule {
-                Some(r) => ((t * (255.0 + EDGE) - r[i] as f32) / EDGE).clamp(0.0, 1.0),
-                None => t,
-            };
-            if a >= 1.0 {
-                continue;
-            }
-            for k in 0..3 {
-                let (f, g) = (from.rgba[i * 4 + k] as f32, to.rgba[i * 4 + k] as f32);
-                out.rgba[i * 4 + k] = (f + (g - f) * a).round() as u8;
-            }
-        }
-        out
-    }
-
-    /// Fills a rectangle with a colour (alpha blended).
-    pub fn fill(&mut self, x: i32, y: i32, w: u32, h: u32, color: [u8; 4]) {
-        for row in 0..h as i32 {
-            for col in 0..w as i32 {
-                self.blend_px(x + col, y + row, color);
-            }
-        }
-    }
-
-    /// Blends a coverage mask (a glyph) in `color`.
-    pub fn blend_mask(&mut self, x: i32, y: i32, w: usize, h: usize, mask: &[u8], color: [u8; 4]) {
-        for row in 0..h {
-            for col in 0..w {
-                let cov = mask[row * w + col] as u32;
-                if cov == 0 {
-                    continue;
-                }
-                let a = (cov * color[3] as u32 / 255) as u8;
-                self.blend_px(
-                    x + col as i32,
-                    y + row as i32,
-                    [color[0], color[1], color[2], a],
-                );
-            }
-        }
-    }
-}
+pub use crate::canvas::Canvas;
 
 /// Horizontal offset of a character slot from the screen centre, and its
 /// stacking order (higher is drawn later), from the engine's slot table.
@@ -281,6 +57,8 @@ pub struct Renderer {
     characters: HashMap<(String, Option<String>), Arc<Image>>,
     /// Message window colour (RGB, 0..1) and opacity (settings).
     pub window: ([f32; 3], f32),
+    /// Output pixels per game pixel, for text (see [`Canvas::present`]).
+    pub scale: f32,
 }
 
 impl Renderer {
@@ -297,6 +75,7 @@ impl Renderer {
             language,
             characters: HashMap::new(),
             window: ([0.0; 3], WINDOW_OPACITY as f32 / 255.0),
+            scale: 1.0,
         }
     }
 
@@ -318,11 +97,7 @@ impl Renderer {
         let img = match face {
             Some(face) => {
                 let face = assets.image(face)?;
-                let mut canvas = Canvas {
-                    width: body.width,
-                    height: body.height,
-                    rgba: body.rgba.clone(),
-                };
+                let mut canvas = Canvas::from_rgba(body.width, body.height, body.rgba.clone());
                 overlay_rgba(&mut canvas, &face);
                 Arc::new(Image {
                     width: canvas.width,
@@ -410,7 +185,7 @@ impl Renderer {
         window: bool,
         text: bool,
     ) -> Result<Canvas> {
-        let mut canvas = Canvas::new(SCREEN_WIDTH, SCREEN_HEIGHT);
+        let mut canvas = Canvas::with_scale(SCREEN_WIDTH, SCREEN_HEIGHT, self.scale);
         if let Some(bg) = &scene.background {
             let img = assets.image(bg)?;
             let x = (SCREEN_WIDTH as i32 - img.width as i32) / 2 + scene.background_offset.0;
@@ -572,11 +347,7 @@ mod tests {
 
     #[test]
     fn face_over_body() {
-        let mut body = Canvas {
-            width: 1,
-            height: 1,
-            rgba: vec![10, 10, 10, 255],
-        };
+        let mut body = Canvas::from_rgba(1, 1, vec![10, 10, 10, 255]);
         overlay_rgba(&mut body, &solid(1, 1, [250, 0, 0, 255]));
         assert_eq!(body.rgba, [250, 0, 0, 255]);
     }

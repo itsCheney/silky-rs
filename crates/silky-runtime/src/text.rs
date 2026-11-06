@@ -129,14 +129,24 @@ impl TextRenderer {
         size: f32,
         layers: &[(f32, f32, [u8; 4])],
     ) {
+        // Positions stay in game pixels; on a canvas with an output scale
+        // the glyphs are rasterized at output size.
+        let s = canvas.scale();
         for &(dx, dy, c) in layers {
             let mut pen = x + dx;
             for ch in line.chars() {
                 let font = self.font_for(ch);
-                let (m, bitmap) = font.rasterize(ch, size);
-                let gx = pen.round() as i32 + m.xmin;
-                let gy = (y + dy).round() as i32 - m.height as i32 - m.ymin;
-                canvas.blend_mask(gx, gy, m.width, m.height, &bitmap, c);
+                if s > 1.0 {
+                    let (m, bitmap) = font.rasterize(ch, size * s);
+                    let gx = (pen * s).round() as i32 + m.xmin;
+                    let gy = ((y + dy) * s).round() as i32 - m.height as i32 - m.ymin;
+                    canvas.blend_mask_sharp(gx, gy, m.width, m.height, &bitmap, c);
+                } else {
+                    let (m, bitmap) = font.rasterize(ch, size);
+                    let gx = pen.round() as i32 + m.xmin;
+                    let gy = (y + dy).round() as i32 - m.height as i32 - m.ymin;
+                    canvas.blend_mask(gx, gy, m.width, m.height, &bitmap, c);
+                }
                 pen += self.advance(ch, size);
             }
         }

@@ -266,6 +266,7 @@ impl App {
             .resize(w, h)
             .map_err(|e| anyhow::anyhow!("{e}"))?;
         view.rect = letterbox(size.width, size.height);
+        self.session.set_output_height(view.rect.3);
         let frame = self.session.frame()?;
         let mut buf = view
             .surface

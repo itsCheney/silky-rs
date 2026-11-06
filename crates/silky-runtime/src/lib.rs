@@ -12,6 +12,7 @@
 
 pub mod assets;
 pub mod audio;
+pub mod canvas;
 pub mod game_tables;
 mod host;
 pub mod menus;

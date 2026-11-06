@@ -1468,12 +1468,27 @@ impl Session {
         Ok(self.frame.is_none())
     }
 
-    /// The current frame, 1280 x 720 RGBA.
+    /// Sets the height of the frames in output pixels (the game is laid
+    /// out in 1280 x 720; pictures are scaled up, text is drawn at this
+    /// size). Below 720 the frames stay at 720.
+    pub fn set_output_height(&mut self, height: u32) {
+        let scale = (height as f32 / crate::SCREEN_HEIGHT as f32).max(1.0);
+        if (scale - self.renderer.scale).abs() > 1e-3 {
+            self.renderer.scale = scale;
+            self.base = None;
+            self.frame = None;
+        }
+    }
+
+    /// The current frame at output size (see
+    /// [`Session::set_output_height`]), RGBA.
     pub fn frame(&mut self) -> Result<&Canvas> {
         if self.frame.is_none() {
+            let scale = self.renderer.scale;
             let mut frame = match &self.screen {
                 Some(screen) => {
-                    let mut c = Canvas::new(crate::SCREEN_WIDTH, crate::SCREEN_HEIGHT);
+                    let mut c =
+                        Canvas::with_scale(crate::SCREEN_WIDTH, crate::SCREEN_HEIGHT, scale);
                     let text = self.renderer.text();
                     let assets = &mut self.rt.assets;
                     match screen {
@@ -1522,7 +1537,7 @@ impl Session {
                     c
                 }
                 None => match &self.movie {
-                    Some(p) => movie_frame(&p.movie),
+                    Some(p) => movie_frame(&p.movie, scale),
                     None => self.game_frame()?,
                 },
             };
@@ -1530,7 +1545,7 @@ impl Session {
                 self.screens
                     .draw_dialog(&mut frame, &mut self.rt.assets, &self.ui, d)?;
             }
-            self.frame = Some(frame);
+            self.frame = Some(frame.present());
         }
         Ok(self.frame.as_ref().unwrap())
     }
@@ -1581,8 +1596,8 @@ impl Session {
 }
 
 /// The movie picture scaled to fit the screen, on black.
-fn movie_frame(m: &Movie) -> Canvas {
-    let mut c = Canvas::new(crate::SCREEN_WIDTH, crate::SCREEN_HEIGHT);
+fn movie_frame(m: &Movie, scale: f32) -> Canvas {
+    let mut c = Canvas::with_scale(crate::SCREEN_WIDTH, crate::SCREEN_HEIGHT, scale);
     c.fill(0, 0, c.width, c.height, [0, 0, 0, 255]);
     let img = Image {
         width: m.width,
