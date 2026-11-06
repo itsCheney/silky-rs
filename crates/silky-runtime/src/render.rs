@@ -257,7 +257,24 @@ impl Renderer {
         Ok(img)
     }
 
+    pub fn text(&self) -> Option<&TextRenderer> {
+        self.text.as_ref()
+    }
+
+    /// Renders the scene with the message window, without engine-drawn
+    /// buttons (see [`crate::ui`]).
     pub fn render(&mut self, scene: &Scene, assets: &mut Assets) -> Result<Canvas> {
+        self.render_scene(scene, assets, true)
+    }
+
+    /// Renders the scene; `window` is false while the player hides the
+    /// message window.
+    pub fn render_scene(
+        &mut self,
+        scene: &Scene,
+        assets: &mut Assets,
+        window: bool,
+    ) -> Result<Canvas> {
         let mut canvas = Canvas::new(SCREEN_WIDTH, SCREEN_HEIGHT);
         if let Some(bg) = &scene.background {
             let img = assets.image(bg)?;
@@ -288,7 +305,7 @@ impl Renderer {
             canvas.draw(&img, 0, 0, false);
         }
 
-        if let Some(text) = &scene.text {
+        if let Some(text) = scene.text.as_ref().filter(|_| window) {
             let parts = assets.image("message_p.akb")?;
             for part in [WINDOW_BAND, WINDOW_TEXTURE] {
                 canvas.draw_part(&parts, part, 0, WINDOW_TOP, false, WINDOW_OPACITY);

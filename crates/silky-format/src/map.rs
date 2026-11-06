@@ -63,6 +63,12 @@ impl MapFile {
         self.sections.get(section)?.get(index).map(|e| e.1.as_str())
     }
 
+    /// Line id and text at a position.
+    pub fn entry(&self, section: usize, index: usize) -> Option<(u32, &str)> {
+        let (id, text) = self.sections.get(section)?.get(index)?;
+        Some((*id, text.as_str()))
+    }
+
     /// Text with the given line id.
     pub fn get(&self, section: usize, number: u32) -> Option<&str> {
         self.sections

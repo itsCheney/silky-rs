@@ -216,6 +216,29 @@ impl Vm {
         &self.options
     }
 
+    /// Runs every option body in list order, then goes on after the list.
+    /// In the 2014+ engine the bodies only register their labels (for
+    /// example `H[40 + i] = text line`); the selection itself is an engine
+    /// call that follows the list.
+    pub fn run_all_options(&mut self) -> Result<()> {
+        let entries: Vec<u32> = self.options.iter().map(|o| o.0).collect();
+        let Some((&first, rest)) = entries.split_first() else {
+            return Err(Error::NoOption(0));
+        };
+        let cur = self.current.clone().ok_or(Error::NoScript)?;
+        let after = self.pc;
+        for pc in std::iter::once(after).chain(rest.iter().rev().copied()) {
+            self.contexts.push(Context {
+                script: cur.clone(),
+                pc,
+                kind: ContextKind::Option,
+            });
+        }
+        self.pc = first;
+        self.options.clear();
+        Ok(())
+    }
+
     /// Runs the body of option `index`; its `ret` comes back to the
     /// instruction after the option list.
     pub fn choose(&mut self, index: usize) -> Result<()> {
@@ -746,10 +769,9 @@ mod tests {
         assert_eq!(log.calls, [(9, vec![Value::Int(20), Value::Int(10)])]);
     }
 
-    #[test]
-    fn options_and_messages() {
-        // message 5; option 0 { G[1] = 100; ret } option 1 { G[1] = 200; ret }
-        // native 3; ret
+    /// message 5; option 0 { G[1] = 100; ret } option 1 { G[1] = 200; ret }
+    /// native 3; ret
+    fn option_code() -> (Vec<u8>, u32) {
         let a = Asm::default().jump(0x19, 5).push(0);
         let o1 = a.here();
         let a = a.jump(0x1b, 0).push(100).push(1).op(0x0e).op(0x00);
@@ -763,6 +785,28 @@ mod tests {
         code[o1 as usize + 1..o1 as usize + 5].copy_from_slice(&next.to_be_bytes());
         code[o2u + 1..o2u + 5].copy_from_slice(&end.to_be_bytes());
 
+        (code, end)
+    }
+
+    #[test]
+    fn all_option_bodies_run_in_order() {
+        let mut vm = Vm::new(Profile::default());
+        vm.jump_script("TEST", Asm(option_code().0).script());
+        let mut log = Log::default();
+        assert_eq!(vm.run(&mut log, 100).unwrap(), Stop::Yield);
+        assert_eq!(vm.run(&mut log, 100).unwrap(), Stop::Options);
+        vm.run_all_options().unwrap();
+        assert_eq!(vm.run(&mut log, 100).unwrap(), Stop::Ended);
+        // Both bodies ran, the second last, then the code after the list.
+        assert_eq!(vm.var_g(1), Value::Int(200));
+        assert_eq!(log.calls.len(), 1);
+    }
+
+    #[test]
+    fn options_and_messages() {
+        // message 5; option 0 { G[1] = 100; ret } option 1 { G[1] = 200; ret }
+        // native 3; ret
+        let (code, end) = option_code();
         let mut vm = Vm::new(Profile::default());
         vm.jump_script("TEST", Asm(code).script());
         let mut log = Log::default();

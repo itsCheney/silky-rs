@@ -32,7 +32,7 @@ enum Command {
         /// Text language: section of the MAP tables (0 = first).
         #[arg(long, default_value_t = 0)]
         lang: usize,
-        /// Option to take at every selection.
+        /// Option to take at every selection (from 0).
         #[arg(long, default_value_t = 0)]
         choose: usize,
         /// Stop after this many engine calls.
@@ -130,6 +130,7 @@ fn snap(
 ) -> Result<()> {
     use silky_runtime::render::Renderer;
     use silky_runtime::text::TextRenderer;
+    use silky_runtime::ui::{Layout, Ui};
     use silky_runtime::{Assets, Config, Language, Pause, Runtime};
 
     std::fs::create_dir_all(out)?;
@@ -149,7 +150,9 @@ fn snap(
         language,
         ..Config::default()
     };
-    let mut rt = Runtime::new(Assets::new(game), config);
+    let assets = Assets::new(game);
+    let layout = Layout::load(&assets, language)?;
+    let mut rt = Runtime::new(assets, config);
     let mut vm = Vm::new(Profile::default());
     rt.boot(&mut vm, "start.mes")?;
     let last = lines.iter().copied().max().unwrap_or(0);
@@ -158,16 +161,30 @@ fn snap(
     loop {
         match vm.run(&mut rt, 50_000_000)? {
             Stop::Yield => match rt.pause.take() {
-                Some(Pause::Title) if !title_saved => {
-                    let frame = renderer.render(&rt.scene, &mut rt.assets)?;
-                    let path = out.join("title.png");
-                    write_png(&path, &frame)?;
-                    println!("{}", path.display());
-                    title_saved = true;
+                Some(Pause::Title) => {
+                    if !title_saved {
+                        let mut frame = renderer.render_scene(&rt.scene, &mut rt.assets, false)?;
+                        let ui = Ui {
+                            title: Some(false),
+                            ..Ui::default()
+                        };
+                        layout.draw(&mut frame, &mut rt.assets, &ui, false, None)?;
+                        let path = out.join("title.png");
+                        write_png(&path, &frame)?;
+                        println!("{}", path.display());
+                        title_saved = true;
+                    }
+                    let choice = rt.config.title_choice;
+                    rt.answer_title(&mut vm, choice);
                 }
                 Some(Pause::Text { index }) => {
                     if lines.contains(&line_no) {
-                        let frame = renderer.render(&rt.scene, &mut rt.assets)?;
+                        let mut frame = renderer.render(&rt.scene, &mut rt.assets)?;
+                        let ui = Ui {
+                            waiting: true,
+                            ..Ui::default()
+                        };
+                        layout.draw(&mut frame, &mut rt.assets, &ui, true, None)?;
                         let script = vm.script_name().unwrap_or("x").replace('.', "_");
                         let path = out.join(format!("line{line_no:05}-{script}-{index}.png"));
                         write_png(&path, &frame)?;
@@ -178,9 +195,17 @@ fn snap(
                     }
                     line_no += 1;
                 }
+                Some(Pause::Choice) => {
+                    println!("select [{}] -> {}", rt.choices.join(" | "), choose);
+                    let pick = choose.min(rt.choices.len().saturating_sub(1));
+                    rt.answer_choice(&mut vm, pick);
+                }
                 _ => {}
             },
-            Stop::Options => vm.choose(choose.min(vm.options().len() - 1))?,
+            Stop::Options => {
+                rt.begin_options(vm.options().len());
+                vm.run_all_options()?;
+            }
             Stop::Ended => break,
             Stop::Budget => anyhow::bail!("no message line within the step budget"),
         }
@@ -231,7 +256,7 @@ struct TraceOptions {
 }
 
 fn trace(game: Game, profile: Profile, start: &str, options: TraceOptions) -> Result<()> {
-    let (choose, max_calls) = (options.choose, options.max_calls);
+    let max_calls = options.max_calls;
     let mut vm = Vm::new(profile);
     vm.jump_script(start, load_script(&game, start)?);
     let mut host = TraceHost {
@@ -245,10 +270,10 @@ fn trace(game: Game, profile: Profile, start: &str, options: TraceOptions) -> Re
         match stop {
             Stop::Yield => {}
             Stop::Options => {
-                let options: Vec<String> = vm.options().iter().map(|o| o.1.to_string()).collect();
-                println!("select [{}] -> {}", options.join(", "), choose);
-                let pick = choose.min(vm.options().len() - 1);
-                vm.choose(pick)?;
+                // The option bodies register labels; the selection itself
+                // is Game.20, answered with --choose.
+                println!("options: {}", vm.options().len());
+                vm.run_all_options()?;
             }
             Stop::Ended => {
                 println!("end of script after {} instructions", vm.steps);
@@ -289,6 +314,9 @@ impl TraceHost {
     fn result(&self, vm: &mut Vm, class: i32, sub: i32) {
         if let Some(&v) = self.options.results.get(&(class, sub)) {
             vm.push(v);
+        } else if (class, sub) == (GAME, 20) {
+            println!("select -> option {}", self.options.choose);
+            vm.push(self.options.choose as i32 + 1);
         } else if native::returns_value(class, sub) {
             vm.push(0);
         }

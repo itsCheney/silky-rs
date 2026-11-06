@@ -16,13 +16,15 @@ Early. What works today:
 - `.MES` scripts and `LIBLARY.LIB`: header, offset tables and the full byte code decoder.
 - `.VSD` movie containers (an MPEG-1 program stream inside).
 - The script VM: stack, variable banks, functions, script calls and selections. Engine functions go to a host.
-- First engine functions and a software renderer: backgrounds, event pictures with their difference pictures, standing characters with expressions, the message window and its text, localized file names, the title picture.
+- First engine functions and a software renderer: backgrounds, event pictures with their difference pictures, standing characters with expressions, the message window with its name plate, portrait and text, localized file names, the title picture.
+- The engine-drawn interface: title menu buttons (layout taken from the executable, per language), the button bar and icons of the message window (`mes_o.area`), the click-wait indicator, and selections (`Game.20`).
+- A desktop player: click or Enter to go on, right click to hide the window, auto and skip modes, the title menu and selections.
 
 On ふゆから、くるる。 all 56 scripts (7.9 million instructions) decode with every jump landing on an instruction, and all 3,255 images decode. Headless, the VM boots `start.mes` through the logo, caution and title scripts, and plays the story from `fk001.mes` on with its text in all three languages.
 
-Not done yet: the title menu buttons, the button bar and icons of the message window, close-up insets, transitions and effects, sound, movies, the backlog, saves, configuration, and the desktop player. `silky-run snap` lists every engine call the runtime does not carry out yet.
+Not done yet: close-up insets, transitions and effects, sound, movies, the backlog, saves and flags, configuration, and the engine screens behind Continue, Load, Settings and most window buttons (clicking them is counted as not carried out). `silky-run snap` lists every engine call the runtime does not carry out yet.
 
-Compared with screenshots of the original (Windows, Simplified Chinese): the message window, name plate, window portrait, the position and pitch of Chinese text, and the size and position of standing characters. Still provisional: English text metrics, the line pitch of two-line messages, and the wrap width.
+Compared with screenshots of the original (Windows, Simplified Chinese): the message window, name plate, window portrait, the position and pitch of Chinese text, and the size and position of standing characters. Still provisional: English text metrics, the line pitch of two-line messages, the wrap width, and where selections sit on screen.
 
 ## Layout
 
@@ -32,9 +34,20 @@ Compared with screenshots of the original (Windows, Simplified Chinese): the mes
 | `silky-vm` | Byte code interpreter. Engine functions are handed to a host. |
 | `silky-runtime` | Engine functions on a scene model, and a software renderer. No platform code. |
 | `silky-tool` | Command line tool to inspect a game folder. |
-| `silky-run` | Headless runner. Today it runs the scripts and logs every engine call. |
+| `silky-run` | Headless runner: logs engine calls, or saves frames as PNG. |
+| `silky-player` | Desktop player (winit; frames drawn in software). |
 
-Planned: `silky-player` (desktop player: winit, wgpu, cpal).
+`silky-runtime::Session` holds a running game (interpreter, runtime, renderer, interface) and takes pointer, key and clock input; the desktop player and future embeddings only forward input and show its frames.
+
+## silky-player
+
+```sh
+silky-player <game folder>                 # English
+silky-player <game folder> --lang 1        # Simplified Chinese
+silky-player <game folder> --font msyh.ttc --font arial.ttf
+```
+
+Without `--font` the player looks for the fonts the game names (Arial, Microsoft YaHei, Microsoft JhengHei in the Windows fonts folder), then common fonts on macOS and Linux. Left click, Enter or Space goes on; right click hides the message window.
 
 ## Building
 
@@ -72,7 +85,7 @@ silky-run snap <game folder> --lang 1 --font msyh.ttc --lines 170
 
 `snap` runs the game with `silky-runtime` and saves PNG frames of the title screen and of the listed message lines (counted from the first line of the game). Fonts are not part of the game files: pass one or more with `--font`, in fallback order; without a font the text is left out.
 
-`trace` performs no engine function; it logs each call with its arguments. Calls whose result the scripts use return 0 unless `--result CLASS.SUB=VALUE` says otherwise. Selections take `--choose` (default the first option). `--lang` picks the text section of the `.MAP` tables (0 English, 1 Simplified Chinese, 2 Traditional Chinese in this build).
+`trace` performs no engine function; it logs each call with its arguments. Calls whose result the scripts use return 0 unless `--result CLASS.SUB=VALUE` says otherwise. Selections (`Game.20`) take `--choose`, counted from 0 (default the first option). `--lang` picks the text section of the `.MAP` tables (0 English, 1 Simplified Chinese, 2 Traditional Chinese in this build).
 
 ## Rules for this project
 

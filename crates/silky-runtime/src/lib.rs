@@ -14,11 +14,14 @@ pub mod assets;
 mod host;
 pub mod render;
 pub mod scene;
+pub mod session;
 pub mod text;
+pub mod ui;
 
 pub use assets::{Assets, Language};
 pub use host::{Config, Pause, Runtime};
 pub use scene::Scene;
+pub use session::{Session, State};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

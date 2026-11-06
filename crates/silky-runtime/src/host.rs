@@ -20,6 +20,10 @@ mod cmd {
     pub const PICTURE: i32 = 12;
     /// Standing characters: 0 load, 1 face, 2 apply, 3 remove, 4 remove all.
     pub const CHARACTER: i32 = 13;
+    /// Selection: `Game.20(question line, 9)` shows the options whose
+    /// labels the option bodies put in `H[40 + i]`; returns the option
+    /// picked, from 1.
+    pub const SELECT: i32 = 20;
     /// Story text: 2 load a `.map` table, 0 show a line.
     pub const TEXT: i32 = 23;
     /// Title menu; returns the item picked.
@@ -31,7 +35,8 @@ mod cmd {
 #[derive(Debug, Clone)]
 pub struct Config {
     pub language: Language,
-    /// Result of the title menu: 1 start, 257 CG mode, 258 scene mode,
+    /// Title menu result for frontends that do not show the menu (the
+    /// headless runner): 1 start, 5 quit, 257 CG mode, 258 scene mode,
     /// 259 music mode.
     pub title_choice: i32,
 }
@@ -50,8 +55,11 @@ impl Default for Config {
 pub enum Pause {
     /// A message line is shown; the original waits for a click here.
     Text { index: usize },
-    /// The title screen is up.
+    /// The title menu is up; answer with [`Runtime::answer_title`].
     Title,
+    /// A selection is up ([`Runtime::choices`]); answer with
+    /// [`Runtime::answer_choice`].
+    Choice,
 }
 
 pub struct Runtime {
@@ -65,6 +73,12 @@ pub struct Runtime {
     pub unhandled: BTreeMap<String, u64>,
     /// Engine calls carried out.
     pub handled: u64,
+    /// Position of the last text line shown in its table.
+    last_text: Option<usize>,
+    /// Number of options whose bodies ran before the next selection.
+    option_count: usize,
+    /// Labels of the selection that is up.
+    pub choices: Vec<String>,
 }
 
 fn host_error(msg: impl Into<String>) -> silky_vm::Error {
@@ -81,6 +95,9 @@ impl Runtime {
             pause: None,
             unhandled: BTreeMap::new(),
             handled: 0,
+            last_text: None,
+            option_count: 0,
+            choices: Vec::new(),
         }
     }
 
@@ -88,6 +105,41 @@ impl Runtime {
     pub fn boot(&self, vm: &mut Vm, start: &str) -> crate::Result<()> {
         vm.jump_script(start, self.assets.script(start)?);
         Ok(())
+    }
+
+    /// Notes that the option bodies of a list are about to run (see
+    /// [`Vm::run_all_options`]); the selection call that follows shows
+    /// that many options.
+    pub fn begin_options(&mut self, count: usize) {
+        self.option_count = count;
+    }
+
+    /// Returns the option picked (from 0) to the script; call after
+    /// [`Pause::Choice`].
+    pub fn answer_choice(&mut self, vm: &mut Vm, index: usize) {
+        self.choices.clear();
+        vm.push(index as i32 + 1);
+    }
+
+    /// Clears the scene and script state for a fresh start.
+    pub fn reset(&mut self) {
+        self.scene = Scene::default();
+        self.text_table = None;
+        self.pause = None;
+        self.last_text = None;
+        self.option_count = 0;
+        self.choices.clear();
+    }
+
+    /// Counts a player action the runtime does not carry out yet.
+    pub fn note_unhandled(&mut self, what: String) {
+        *self.unhandled.entry(what).or_default() += 1;
+    }
+
+    /// Returns the title menu result to the script; call after
+    /// [`Pause::Title`], before running the interpreter again.
+    pub fn answer_title(&mut self, vm: &mut Vm, result: i32) {
+        vm.push(result);
     }
 
     fn skip(&mut self, name: String, vm: &mut Vm, class: i32, sub: i32) {
@@ -167,6 +219,24 @@ impl Runtime {
                 scene.characters.remove(&n(1));
             }
             (cmd::CHARACTER, 4, 1) => scene.characters.clear(),
+            (cmd::SELECT, _, 1) => {
+                let section = self.config.language.map_section();
+                let map = self.text_table.as_ref().map(|t| &t.1);
+                let line = |pos: i32| {
+                    map.and_then(|m| m.line(section, pos.max(0) as usize))
+                        .map(str::to_string)
+                };
+                if let Some(q) = line(n(0)) {
+                    scene.text = Some(q);
+                }
+                self.choices = (0..self.option_count)
+                    .map(|i| line(vm.var_h(40 + i).int()).unwrap_or_else(|| format!("{}", i + 1)))
+                    .collect();
+                self.option_count = 0;
+                self.pause = Some(Pause::Choice);
+                self.handled += 1;
+                return Ok(Flow::Yield);
+            }
             (cmd::TEXT, 2, 1) => {
                 let name = s(0).ok_or_else(|| host_error("text table without a name"))?;
                 let map = MapFile::parse(&self.assets.data(&name)?)?;
@@ -182,12 +252,14 @@ impl Runtime {
                     .and_then(|(_, m)| m.line(section, index))
                     .ok_or_else(|| host_error(format!("no text line {index}")))?;
                 scene.text = Some(text.to_string());
+                self.last_text = Some(index);
                 self.pause = Some(Pause::Text { index });
                 self.handled += 1;
                 return Ok(Flow::Yield);
             }
+            // The result is pushed by [`Runtime::answer_title`] once the
+            // player picks an entry.
             (cmd::TITLE, _, _) => {
-                vm.push(self.config.title_choice);
                 self.pause = Some(Pause::Title);
                 self.handled += 1;
                 return Ok(Flow::Yield);

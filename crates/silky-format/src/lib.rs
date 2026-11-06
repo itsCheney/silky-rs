@@ -6,6 +6,7 @@
 
 pub mod akb;
 pub mod arc;
+pub mod area;
 pub mod error;
 pub mod game;
 pub mod lzss;

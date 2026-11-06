@@ -17,6 +17,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace
       - run: cargo build --release --workspace
+      - name: Upload Windows binaries
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: silky-rs-windows
+          path: |
+            target/release/silky-player.exe
+            target/release/silky-run.exe
+            target/release/silky-tool.exe
 
   ios-check:
     runs-on: macos-latest

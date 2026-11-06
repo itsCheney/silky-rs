@@ -1,0 +1,20 @@
+[package]
+name = "silky-player"
+description = "Desktop player for Silky's engine games"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "silky-player"
+path = "src/main.rs"
+
+[dependencies]
+silky-format.workspace = true
+silky-runtime.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+softbuffer = "0.4"
+winit = "0.30"
