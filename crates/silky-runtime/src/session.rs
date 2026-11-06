@@ -738,6 +738,12 @@ impl Session {
             self.base = None;
             return Ok(());
         }
+        // A click beside the open side menu closes it.
+        if self.ui.side_menu && !matches!(hit, Some(Button::Bar(_))) {
+            self.ui.side_menu = false;
+            self.frame = None;
+            return Ok(());
+        }
         match hit {
             Some(b) if !self.ui.enabled(b) => Ok(()),
             Some(b) => self.press(b),
@@ -785,6 +791,10 @@ impl Session {
     /// right click). Returns false if there was none.
     pub fn back(&mut self) -> Result<bool> {
         if self.dialog.take().is_some() {
+            self.frame = None;
+            return Ok(true);
+        }
+        if std::mem::take(&mut self.ui.side_menu) {
             self.frame = None;
             return Ok(true);
         }
@@ -1271,6 +1281,10 @@ impl Session {
     }
 
     fn press(&mut self, b: Button) -> Result<()> {
+        // Any button but the side menu's own closes the side menu.
+        if b != Button::Bar(bar::MENU) {
+            self.ui.side_menu = false;
+        }
         match b {
             Button::Title(i) => match i {
                 title::EXTRAS => self.ui.title = Some(true),
@@ -1297,6 +1311,7 @@ impl Session {
                 self.rt.answer_choice(&mut self.vm, i);
                 self.run()?;
             }
+            Button::Bar(bar::MENU) => self.ui.side_menu = !self.ui.side_menu,
             Button::Bar(id) => match id {
                 bar::AUTO => {
                     self.ui.auto = !self.ui.auto;

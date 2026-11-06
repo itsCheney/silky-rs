@@ -81,6 +81,17 @@ pub mod bar {
     pub const QUIT: i32 = 12;
     pub const HIDE: i32 = 13;
     pub const CLOSE: i32 = 14;
+    /// きまぐれテンプテーション2 only: the side menu button, and buttons
+    /// whose functions are not done yet (pin the button bar, costume
+    /// screen, loop the voice, skip unread text too, and the side menu's
+    /// notebook and collection).
+    pub const MENU: i32 = 15;
+    pub const PIN: i32 = 16;
+    pub const COSTUME: i32 = 17;
+    pub const LOOP_VOICE: i32 = 18;
+    pub const SKIP_ALL: i32 = 19;
+    pub const NOTEBOOK: i32 = 20;
+    pub const COLLECTION: i32 = 21;
 }
 
 /// Interface state kept by the frontend.
@@ -105,6 +116,8 @@ pub struct Ui {
     pub choices: Vec<String>,
     /// There is a selection to go back to.
     pub previous_choice: bool,
+    /// きまぐれテンプテーション2's side menu is open.
+    pub side_menu: bool,
 }
 
 /// Button state, as the row of the sprite sheet.
@@ -135,6 +148,7 @@ impl Ui {
             Button::Title(title::CONTINUE | title::LOAD) => self.has_saves,
             Button::Bar(bar::LOAD | bar::QUICK_LOAD) => self.has_saves,
             Button::Bar(bar::PREVIOUS_CHOICE) => self.previous_choice,
+            Button::Bar(bar::COSTUME | bar::NOTEBOOK | bar::COLLECTION) => false,
             _ => true,
         }
     }
@@ -426,17 +440,174 @@ pub struct Layout {
     /// screen coordinates.
     bar: Vec<Area>,
     /// Set for きまぐれテンプテーション2, whose interface differs.
-    kimaten2: Option<Kimaten2Title>,
+    kimaten2: Option<Kimaten2>,
+}
+
+/// A button of きまぐれテンプテーション2: its click area, the [`bar`] id it
+/// acts as, and its cell on the sheet (state rows `step` apart).
+#[derive(Debug, Clone, Copy)]
+struct Cell {
+    id: i32,
+    area: Area,
+    sheet: (u32, u32),
+    size: (u32, u32),
+    step: u32,
+    /// Number of state rows; states past the last use the last one.
+    states: u32,
+}
+
+impl Cell {
+    fn draw(&self, canvas: &mut Canvas, sheet: &silky_format::akb::Image, ui: &Ui, active: bool) {
+        let b = Button::Bar(self.id);
+        let state = match ui.state(b, ui.enabled(b), active) {
+            // The side menu button shows dimmed while the menu is open.
+            State::Pressed if self.id == bar::MENU && ui.side_menu => State::Disabled,
+            s => s,
+        };
+        let state = (state as u32).min(self.states - 1);
+        let (w, h) = self.size;
+        let part = (self.sheet.0, self.sheet.1 + self.step * state, w, h);
+        let dx = self.area.left + (self.area.width() as i32 - w as i32) / 2;
+        let dy = self.area.top + (self.area.height() as i32 - h as i32) / 2;
+        canvas.draw_part(sheet, part, dx, dy, false, 255);
+    }
+}
+
+/// Interface of きまぐれテンプテーション2.
+struct Kimaten2 {
+    title: Kimaten2Title,
+    /// Message window buttons (`mes_o.area`, `message_p.akb`).
+    bar: Vec<Cell>,
+    /// Side menu entries (`mesmenu.area`, `message_menu.akb`).
+    menu: Vec<Cell>,
+}
+
+impl Kimaten2 {
+    fn load(assets: &Assets) -> Result<Self> {
+        let window = crate::kimaten2::window::TOP;
+        let mut bar = Vec::new();
+        for a in area::parse(&assets.data("mes_o.area")?)? {
+            // Buttons 0..8 left to right: costume, quick save, quick load,
+            // voice loop, jump to the next unread text or selection, auto,
+            // skip read text, skip all, side menu. 50 x 34 cells from
+            // (50, 600), four state rows.
+            let ids = [
+                bar::COSTUME,
+                bar::QUICK_SAVE,
+                bar::QUICK_LOAD,
+                bar::LOOP_VOICE,
+                bar::NEXT_CHOICE,
+                bar::AUTO,
+                bar::SKIP,
+                bar::SKIP_ALL,
+                bar::MENU,
+            ];
+            let cell = match a.id {
+                0..=8 => Cell {
+                    id: ids[a.id as usize],
+                    area: a,
+                    sheet: (50 + 50 * a.id as u32, 600),
+                    size: (50, 34),
+                    step: 34,
+                    states: 4,
+                },
+                // The pin (padlock) left of them: 50 x 38 cells.
+                9 => Cell {
+                    id: bar::PIN,
+                    area: a,
+                    sheet: (0, 600),
+                    size: (50, 38),
+                    step: 38,
+                    states: 3,
+                },
+                // Hide the window: a cross on the window, relative to it.
+                10 => Cell {
+                    id: bar::HIDE,
+                    area: Area {
+                        top: a.top + window,
+                        bottom: a.bottom + window,
+                        ..a
+                    },
+                    sheet: (1280, 392),
+                    size: (36, 36),
+                    step: 36,
+                    states: 3,
+                },
+                _ => continue,
+            };
+            bar.push(cell);
+        }
+        // Side menu: 264 x 56 entries, three to a row of the sheet, each
+        // with four state rows below it.
+        let ids = [
+            bar::SAVE,
+            bar::LOAD,
+            bar::CONFIG,
+            bar::BACKLOG,
+            bar::NOTEBOOK,
+            bar::COLLECTION,
+            bar::TITLE,
+            bar::QUIT,
+        ];
+        let mut menu = Vec::new();
+        for a in area::parse(&assets.data("mesmenu.area")?)? {
+            let k = (a.id - 3840) as usize;
+            if let Some(&id) = ids.get(k) {
+                menu.push(Cell {
+                    id,
+                    area: a,
+                    sheet: (264 * (k % 3) as u32, 224 * (k / 3) as u32),
+                    size: (264, 56),
+                    step: 56,
+                    states: 4,
+                });
+            }
+        }
+        Ok(Self {
+            title: Kimaten2Title::load(assets)?,
+            bar,
+            menu,
+        })
+    }
+
+    fn hit(&self, ui: &Ui, x: i32, y: i32) -> Option<Button> {
+        let menu = if ui.side_menu { &self.menu[..] } else { &[] };
+        menu.iter()
+            .chain(&self.bar)
+            .find(|c| c.area.contains(x, y))
+            .map(|c| Button::Bar(c.id))
+    }
+
+    fn draw(&self, canvas: &mut Canvas, assets: &mut Assets, ui: &Ui) -> Result<()> {
+        let sheet = assets.image("message_p.akb")?;
+        for c in &self.bar {
+            let active = match c.id {
+                bar::AUTO => ui.auto,
+                bar::SKIP => ui.skip,
+                bar::MENU => ui.side_menu,
+                _ => false,
+            };
+            c.draw(canvas, &sheet, ui, active);
+        }
+        if ui.side_menu {
+            let sheet = assets.image("message_menu.akb")?;
+            // Backdrop: the dark gradient at the right of the sheet.
+            canvas.draw_part(&sheet, (792, 0, 264, 720), 1016, 0, false, 255);
+            for c in &self.menu {
+                c.draw(canvas, &sheet, ui, false);
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Layout {
     pub fn load(assets: &Assets, language: Language) -> Result<Self> {
         if assets.game().title == silky_format::game::Title::Kimaten2 {
-            // Its message window buttons are not drawn yet.
             return Ok(Self {
                 language,
                 bar: Vec::new(),
-                kimaten2: Some(Kimaten2Title::load(assets)?),
+                kimaten2: Some(Kimaten2::load(assets)?),
             });
         }
         let mut bar = area::parse(&assets.data("mes_o.area")?)?;
@@ -470,6 +641,7 @@ impl Layout {
         }
         if let (Some(extras), Some(k)) = (ui.title, &self.kimaten2) {
             return k
+                .title
                 .entries(extras)
                 .iter()
                 .find(|(_, a, _)| a.contains(x, y))
@@ -487,6 +659,9 @@ impl Layout {
         }
         if !text_shown || ui.window_hidden {
             return None;
+        }
+        if let Some(k) = &self.kimaten2 {
+            return k.hit(ui, x, y);
         }
         self.bar
             .iter()
@@ -544,7 +719,7 @@ impl Layout {
         }
         if let (Some(extras), Some(k)) = (ui.title, &self.kimaten2) {
             let sheet = assets.image("title_p.akb")?;
-            for &(entry, a, (sx, sy)) in k.entries(extras) {
+            for &(entry, a, (sx, sy)) in k.title.entries(extras) {
                 let b = Button::Title(entry);
                 let state = ui.state(b, ui.enabled(b), false) as u32;
                 let part = (sx, sy + Kimaten2Title::ROW * state, a.width(), a.height());
@@ -568,6 +743,9 @@ impl Layout {
         }
         if !text_shown || ui.window_hidden {
             return Ok(());
+        }
+        if let Some(k) = &self.kimaten2 {
+            return k.draw(canvas, assets, ui);
         }
         let sheet = assets.image("message_p.akb")?;
         for a in &self.bar {

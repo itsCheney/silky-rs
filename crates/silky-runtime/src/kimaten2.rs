@@ -118,7 +118,7 @@ pub mod window {
     /// Name plate: 288 x 42 cells of `name_p.akb`, at (178, TOP + 47).
     pub const NAME: (i32, i32) = (178, TOP + 47);
     pub const NAME_SIZE: (u32, u32) = (288, 42);
-    /// Text sprite top (TOP + 141). Text size, margins and line pitch are
-    /// provisional until compared with screenshots.
-    pub const TEXT_TOP: f32 = (TOP + 141) as f32;
+    /// First text line, from screenshots of the game.
+    pub const TEXT_LEFT: f32 = 180.0;
+    pub const TEXT_BASELINE: f32 = (TOP + 115) as f32;
 }

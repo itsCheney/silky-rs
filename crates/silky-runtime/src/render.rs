@@ -77,15 +77,16 @@ impl TextLayout {
                 size: TEXT_SIZE,
                 wide_advance: TEXT_WIDE_ADVANCE,
             },
-            // Provisional (no screenshots yet): text below the name plate,
-            // 27 full-width characters to a line.
+            // Measured on PC screenshots of the Chinese patch: 24 pixel
+            // glyphs every 28 pixels from x = 180. Line pitch and line
+            // length are not measured yet.
             Title::Kimaten2 => Self {
-                left: kimaten2::window::NAME.0 as f32 + 12.0,
-                baseline: kimaten2::window::TEXT_TOP + 26.0,
-                width: 27.0 * 34.0,
+                left: kimaten2::window::TEXT_LEFT,
+                baseline: kimaten2::window::TEXT_BASELINE,
+                width: 30.0 * 28.0,
                 line: 40.0,
-                size: 30.0,
-                wide_advance: 34.0 / 30.0,
+                size: 24.0,
+                wide_advance: 28.0 / 24.0,
             },
         }
     }
