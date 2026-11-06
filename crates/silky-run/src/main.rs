@@ -11,6 +11,9 @@ use silky_format::game::{Game, Kind};
 use silky_format::map::MapFile;
 use silky_format::mes::{Profile, Script};
 use silky_vm::native::{self, script, GAME, SCRIPT};
+
+/// Native class of the backlog.
+const BACKLOG: i32 = 22;
 use silky_vm::{Flow, Host, Stop, Value, Vm};
 
 #[derive(Parser)]
@@ -29,9 +32,10 @@ enum Command {
         /// Script to start with.
         #[arg(long, default_value = "start.mes")]
         start: String,
-        /// Text language: section of the MAP tables (0 = first).
-        #[arg(long, default_value_t = 0)]
-        lang: usize,
+        /// Text language: en, zh-hans, zh-hant or ja (0, 1, 2 also name the
+        /// sections of the MAP tables). Default: the game's first language.
+        #[arg(long)]
+        lang: Option<String>,
         /// Option to take at every selection (from 0).
         #[arg(long, default_value_t = 0)]
         choose: usize,
@@ -46,9 +50,11 @@ enum Command {
         push_le: bool,
         /// Result of an engine call, as CLASS.SUB=VALUE (for class 29 the
         /// command number), e.g. 29.110=1 picks "Start" on the title menu.
-        /// Other calls that return a value return 0.
+        /// Several values, as 29.42=1,1,2, are returned by successive calls,
+        /// the last one from then on. Other calls that return a value
+        /// return 0.
         #[arg(long = "result", value_parser = parse_result)]
-        results: Vec<((i32, i32), i32)>,
+        results: Vec<((i32, i32), Vec<i32>)>,
     },
     /// Run the game headless with the runtime and save frames as PNG: the
     /// title screen and the chosen message lines.
@@ -66,9 +72,10 @@ enum Command {
             default_value = "0,1,2,3,4,5,10,20,50,100"
         )]
         lines: Vec<u64>,
-        /// Text language: 0 English, 1 Simplified Chinese, 2 Traditional Chinese.
-        #[arg(long, default_value_t = 0)]
-        lang: usize,
+        /// Text language: en, zh-hans, zh-hant or ja (0, 1, 2 also work).
+        /// Default: the game's first language.
+        #[arg(long)]
+        lang: Option<String>,
         /// Font files for the message text, in fallback order. Without
         /// one, the text is left out of the frames.
         #[arg(long)]
@@ -96,13 +103,17 @@ fn main() -> Result<()> {
             push_le,
             results,
         } => {
-            let game = Game::open(&game)
+            let mut game = Game::open(&game)
                 .with_context(|| format!("cannot open game folder {}", game.display()))?;
             let profile = Profile {
                 push_big_endian: !push_le,
             };
+            let language = pick_language(&silky_runtime::assets::languages(&game), lang)?;
+            if !game.has_text_tables() {
+                game.use_translation(language.translation_tag());
+            }
             let options = TraceOptions {
-                lang,
+                lang: language.map_section(),
                 choose,
                 max_calls,
                 text_only,
@@ -121,7 +132,8 @@ fn main() -> Result<()> {
         } => {
             let game = Game::open(&game)
                 .with_context(|| format!("cannot open game folder {}", game.display()))?;
-            snap(game, &out, &lines, lang, &font, choose, &path)
+            let language = pick_language(&silky_runtime::assets::languages(&game), lang)?;
+            snap(game, &out, &lines, language, &font, choose, &path)
         }
     }
 }
@@ -130,7 +142,7 @@ fn snap(
     game: Game,
     out: &std::path::Path,
     lines: &[u64],
-    lang: usize,
+    language: silky_runtime::Language,
     fonts: &[PathBuf],
     choose: usize,
     path: &[usize],
@@ -138,10 +150,9 @@ fn snap(
     use silky_runtime::render::Renderer;
     use silky_runtime::text::TextRenderer;
     use silky_runtime::ui::{Layout, Ui};
-    use silky_runtime::{Assets, Config, Language, Pause, Runtime};
+    use silky_runtime::{Assets, Config, Pause, Runtime};
 
     std::fs::create_dir_all(out)?;
-    let language = Language::from_section(lang).context("--lang must be 0, 1 or 2")?;
     let text = if fonts.is_empty() {
         println!("no --font given: frames are saved without message text");
         None
@@ -157,6 +168,7 @@ fn snap(
         language,
         ..Config::default()
     };
+    silky_runtime::session::check_title(&game)?;
     let assets = Assets::new(game);
     let layout = Layout::load(&assets, language)?;
     let mut rt = Runtime::new(assets, config);
@@ -293,19 +305,37 @@ fn write_png(path: &std::path::Path, frame: &silky_runtime::render::Canvas) -> R
 }
 
 fn load_script(game: &Game, name: &str) -> Result<Script> {
-    let data = game
-        .set(Kind::Script)
-        .read(name)
-        .with_context(|| format!("cannot read script {name}"))?;
-    Ok(Script::parse(&data)?)
+    game.script(name)
+        .with_context(|| format!("cannot read script {name}"))
 }
 
-fn parse_result(s: &str) -> std::result::Result<((i32, i32), i32), String> {
+/// The language asked for, which the game must have, or its first one.
+fn pick_language(
+    available: &[silky_runtime::Language],
+    asked: Option<String>,
+) -> Result<silky_runtime::Language> {
+    let Some(name) = asked else {
+        return Ok(available[0]);
+    };
+    let lang = silky_runtime::Language::parse(&name)
+        .with_context(|| format!("unknown language {name:?}: use en, zh-hans, zh-hant or ja"))?;
+    anyhow::ensure!(
+        available.contains(&lang),
+        "this game has no {lang:?} text (it has {available:?})"
+    );
+    Ok(lang)
+}
+
+fn parse_result(s: &str) -> std::result::Result<((i32, i32), Vec<i32>), String> {
     let err = || format!("expected CLASS.SUB=VALUE, got {s:?}");
     let (key, value) = s.split_once('=').ok_or_else(err)?;
     let (class, sub) = key.split_once('.').ok_or_else(err)?;
     let num = |t: &str| t.trim().parse::<i32>().map_err(|_| err());
-    Ok(((num(class)?, num(sub)?), num(value)?))
+    let values = value
+        .split(',')
+        .map(num)
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    Ok(((num(class)?, num(sub)?), values))
 }
 
 struct TraceOptions {
@@ -313,7 +343,8 @@ struct TraceOptions {
     choose: usize,
     max_calls: u64,
     text_only: bool,
-    results: HashMap<(i32, i32), i32>,
+    /// Values still to return, by call; the last one stays.
+    results: HashMap<(i32, i32), Vec<i32>>,
 }
 
 fn trace(game: Game, profile: Profile, start: &str, options: TraceOptions) -> Result<()> {
@@ -372,13 +403,18 @@ impl TraceHost {
         }
     }
 
-    fn result(&self, vm: &mut Vm, class: i32, sub: i32) {
-        if let Some(&v) = self.options.results.get(&(class, sub)) {
+    fn result(&mut self, vm: &mut Vm, class: i32, sub: i32) {
+        if let Some(values) = self.options.results.get_mut(&(class, sub)) {
+            let v = if values.len() > 1 {
+                values.remove(0)
+            } else {
+                values[0]
+            };
             vm.push(v);
         } else if (class, sub) == (GAME, 20) {
             println!("select -> option {}", self.options.choose);
             vm.push(self.options.choose as i32 + 1);
-        } else if native::returns_value(class, sub) {
+        } else if native::returns_value(self.game.title, class, sub) {
             vm.push(0);
         }
     }
@@ -444,6 +480,11 @@ impl Host for TraceHost {
                     }
                     return Ok(Flow::Continue);
                 }
+                if let (11, [Value::Str(speaker)], true) =
+                    (cmd, args.as_slice(), self.options.text_only)
+                {
+                    println!("{:>12}  {speaker}", "speaker");
+                }
                 self.log(vm, &format!("Game.{cmd}({})", join(&args)));
                 self.result(vm, class, cmd);
             }
@@ -453,6 +494,14 @@ impl Host for TraceHost {
                     Some(Value::Int(s)) => s,
                     _ => -1,
                 };
+                // Japanese builds: the message text is in the script and
+                // goes to BackLog.3 before MesWnd.3 shows it.
+                if (class, sub) == (BACKLOG, 3) && self.options.text_only {
+                    if let [Value::Str(text)] = args.as_slice() {
+                        println!("{:>12}  {}", "text", text.replace('\n', " / "));
+                        return Ok(Flow::Continue);
+                    }
+                }
                 self.log(vm, &format!("{name}.{sub}({})", join(&args)));
                 self.result(vm, class, sub);
             }

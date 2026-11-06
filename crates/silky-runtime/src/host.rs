@@ -208,7 +208,8 @@ fn host_error(msg: impl Into<String>) -> silky_vm::Error {
 }
 
 impl Runtime {
-    pub fn new(assets: Assets, config: Config) -> Self {
+    pub fn new(mut assets: Assets, config: Config) -> Self {
+        assets.set_language(config.language);
         let audio = config.audio.clone();
         Self {
             assets,
@@ -380,6 +381,9 @@ impl Runtime {
     /// Re-reads the current message in the configured language.
     pub fn set_language(&mut self, language: Language) {
         self.config.language = language;
+        // Japanese builds: scripts loaded from now on use the translation
+        // folder (or not); the message shown stays as it is.
+        self.assets.set_language(language);
         let section = language.map_section();
         if let (Some(index), Some((_, map))) = (self.last_text, &self.text_table) {
             if self.scene.text.is_some() {
@@ -419,7 +423,7 @@ impl Runtime {
 
     fn skip(&mut self, name: String, vm: &mut Vm, class: i32, sub: i32) {
         *self.unhandled.entry(name).or_default() += 1;
-        if native::returns_value(class, sub) {
+        if native::returns_value(self.assets.game().title, class, sub) {
             vm.push(0);
         }
     }

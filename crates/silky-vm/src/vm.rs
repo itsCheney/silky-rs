@@ -170,6 +170,8 @@ pub struct Vm {
     pub source: SourcePos,
     /// Instructions executed so far.
     pub steps: u64,
+    /// Set by `text 0`: the next string continues the one on the stack.
+    line_break: bool,
 }
 
 impl Vm {
@@ -192,6 +194,7 @@ impl Vm {
             rng: 0x2545_f491,
             source: SourcePos::default(),
             steps: 0,
+            line_break: false,
         }
     }
 
@@ -475,7 +478,16 @@ impl Vm {
                 let Operand::Str(b) = &ins.operand else {
                     unreachable!()
                 };
-                self.stack.push(Value::Str(silky_format::decode_cp932(b)));
+                let text = cur.script.decode(b);
+                // After `text 0`, the line goes on the string before it.
+                match (self.line_break, self.stack.last_mut()) {
+                    (true, Some(Value::Str(top))) => {
+                        top.push('\n');
+                        top.push_str(&text);
+                    }
+                    _ => self.stack.push(Value::Str(text)),
+                }
+                self.line_break = false;
             }
             0x0c..=0x13 => {
                 let i = self.pop_index()?;
@@ -550,6 +562,12 @@ impl Vm {
                     return Ok(Some(Stop::Options));
                 }
             }
+            // Message text control. Sub 0 breaks the line: the engine adds
+            // a newline to the message being built from the strings.
+            0x1c => match ins.operand {
+                Operand::U8(0) => self.line_break = true,
+                _ => return Err(Error::Unsupported(op)),
+            },
             0x32 => {
                 let Operand::Int(v) = ins.operand else {
                     unreachable!()

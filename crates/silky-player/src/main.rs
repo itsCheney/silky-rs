@@ -29,9 +29,10 @@ use winit::window::{Window, WindowId};
 struct Cli {
     /// Game folder (with Patch.xml or the archives).
     game: PathBuf,
-    /// Text language: 0 English, 1 Simplified Chinese, 2 Traditional Chinese.
-    #[arg(long, default_value_t = 0)]
-    lang: usize,
+    /// Text language: en, zh-hans, zh-hant or ja (0, 1, 2 also work).
+    /// Default: the game's first language.
+    #[arg(long)]
+    lang: Option<String>,
     /// Font files for the message text, in fallback order. Without one,
     /// the system fonts the game itself uses are tried.
     #[arg(long)]
@@ -74,6 +75,7 @@ fn default_fonts(lang: Language) -> Vec<PathBuf> {
         Language::English => vec![windows.join("arial.ttf")],
         Language::SimplifiedChinese => vec![windows.join("msyh.ttc")],
         Language::TraditionalChinese => vec![windows.join("msjh.ttc")],
+        Language::Japanese => vec![windows.join("msgothic.ttc")],
     };
     names.extend(
         [
@@ -113,9 +115,15 @@ fn load_fonts(cli: &Cli, lang: Language) -> Result<Option<TextRenderer>> {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    let language = Language::from_section(cli.lang).context("--lang must be 0, 1 or 2")?;
     let game = Game::open(&cli.game)
         .with_context(|| format!("cannot open game folder {}", cli.game.display()))?;
+    let available = silky_runtime::assets::languages(&game);
+    let language = match &cli.lang {
+        None => available[0],
+        Some(name) => Language::parse(name)
+            .filter(|l| available.contains(l))
+            .with_context(|| format!("--lang {name}: this game has {available:?}"))?,
+    };
     let text = load_fonts(&cli, language)?;
     // Keep the stream alive for the whole run.
     let audio = start_audio();

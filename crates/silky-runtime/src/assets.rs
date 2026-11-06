@@ -7,20 +7,23 @@ use silky_format::mes::Script;
 
 use crate::{Error, Result};
 
-/// Text and art language of the international build.
+/// Text and art language. International builds carry English and Chinese
+/// in their `.MAP` tables; Japanese builds carry Japanese in the scripts,
+/// and Chinese only through a fan translation folder.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum Language {
     #[default]
     English,
     SimplifiedChinese,
     TraditionalChinese,
+    Japanese,
 }
 
 impl Language {
     /// Section of the `.MAP` text tables.
     pub fn map_section(self) -> usize {
         match self {
-            Language::English => 0,
+            Language::English | Language::Japanese => 0,
             Language::SimplifiedChinese => 1,
             Language::TraditionalChinese => 2,
         }
@@ -32,7 +35,29 @@ impl Language {
             Language::English => "en",
             Language::SimplifiedChinese => "cn",
             Language::TraditionalChinese => "tw",
+            Language::Japanese => "jp",
         }
+    }
+
+    /// Tag of a fan translation folder (`kimaten2_chs`) in this language.
+    pub fn translation_tag(self) -> Option<&'static str> {
+        match self {
+            Language::SimplifiedChinese => Some("chs"),
+            Language::TraditionalChinese => Some("cht"),
+            _ => None,
+        }
+    }
+
+    /// From a short name: `en`, `zh-hans`, `zh-hant`, `ja`, or the table
+    /// sections 0, 1, 2.
+    pub fn parse(name: &str) -> Option<Self> {
+        Some(match name.to_ascii_lowercase().as_str() {
+            "0" | "en" => Language::English,
+            "1" | "zh-hans" | "chs" | "zh" => Language::SimplifiedChinese,
+            "2" | "zh-hant" | "cht" => Language::TraditionalChinese,
+            "ja" | "jp" => Language::Japanese,
+            _ => return None,
+        })
     }
 
     pub fn from_section(section: usize) -> Option<Self> {
@@ -63,25 +88,38 @@ impl Assets {
         &self.game
     }
 
+    /// Languages this game can be played in, the default first.
+    pub fn languages(&self) -> Vec<Language> {
+        languages(&self.game)
+    }
+
+    /// Picks the files for a language: a fan translation folder, or the
+    /// original files. Cached images are dropped.
+    pub fn set_language(&mut self, language: Language) {
+        if !self.game.has_text_tables() {
+            self.game.use_translation(language.translation_tag());
+            self.images.clear();
+        }
+    }
+
     pub fn script(&self, name: &str) -> Result<Script> {
-        Ok(Script::parse(&self.game.set(Kind::Script).read(name)?)?)
+        Ok(self.game.script(name)?)
     }
 
     pub fn data(&self, name: &str) -> Result<Vec<u8>> {
-        Ok(self.game.set(Kind::Data).read(name)?)
+        Ok(self.game.read(Kind::Data, name)?)
     }
 
     /// A file from the archives of `kind`.
     pub fn read(&self, kind: Kind, name: &str) -> Result<Vec<u8>> {
         self.game
-            .set(kind)
-            .read(name)
+            .read(kind, name)
             .map_err(|_| Error::Missing(name.to_string()))
     }
 
     /// Whether a file exists in the archives of `kind`.
     pub fn exists(&self, kind: Kind, name: &str) -> bool {
-        self.game.set(kind).find(name).is_some()
+        self.game.exists(kind, name)
     }
 
     /// Decoded image, with `AKB+` difference images applied to their base.
@@ -91,11 +129,7 @@ impl Assets {
         if let Some(img) = self.images.get(&key) {
             return Ok(img.clone());
         }
-        let data = self
-            .game
-            .set(Kind::Layer)
-            .read(&name)
-            .map_err(|_| Error::Missing(name.clone()))?;
+        let data = self.read(Kind::Layer, &name)?;
         let header = akb::Header::parse(&data)?;
         let base = match &header.base {
             Some(b) if with_ext(b).eq_ignore_ascii_case(&name) => {
@@ -113,6 +147,29 @@ impl Assets {
     pub fn clear_cache(&mut self) {
         self.images.clear();
     }
+}
+
+/// Languages a game can be played in, the default first.
+pub fn languages(game: &Game) -> Vec<Language> {
+    if game.has_text_tables() {
+        return vec![
+            Language::English,
+            Language::SimplifiedChinese,
+            Language::TraditionalChinese,
+        ];
+    }
+    let mut list = vec![Language::Japanese];
+    for l in [Language::SimplifiedChinese, Language::TraditionalChinese] {
+        let tag = l.translation_tag();
+        if game
+            .translations
+            .iter()
+            .any(|t| Some(t.tag.as_str()) == tag)
+        {
+            list.push(l);
+        }
+    }
+    list
 }
 
 /// Base names and script arguments may leave out the extension.
@@ -147,5 +204,7 @@ mod tests {
             Language::from_section(2),
             Some(Language::TraditionalChinese)
         );
+        assert_eq!(Language::parse("ja"), Some(Language::Japanese));
+        assert_eq!(Language::parse("1"), Some(Language::SimplifiedChinese));
     }
 }

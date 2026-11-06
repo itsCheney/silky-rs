@@ -140,6 +140,7 @@ impl Session {
         text: Option<TextRenderer>,
         start: &str,
     ) -> Result<Self> {
+        check_title(&game)?;
         let assets = Assets::new(game);
         let layout = Layout::load(&assets, config.language)?;
         let screens = Screens::load(&assets, config.language);
@@ -1610,4 +1611,15 @@ fn is_pause_punctuation(c: char) -> bool {
 
 fn vm_error(e: silky_vm::Error) -> Error {
     Error::Invalid(e.to_string())
+}
+
+/// The screens and game commands are only done for ふゆから、くるる。 so far;
+/// other games run headless with `silky-run trace`.
+pub fn check_title(game: &Game) -> Result<()> {
+    match game.title {
+        silky_format::game::Title::Fuyukuru => Ok(()),
+        other => Err(crate::Error::Invalid(format!(
+            "{other:?}: the player does not support this game yet (its scripts run with `silky-run trace`)"
+        ))),
+    }
 }

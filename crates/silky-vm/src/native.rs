@@ -35,6 +35,8 @@ pub const CLASSES: &[(i32, &str)] = &[
     (29, "Game"),
 ];
 
+pub use silky_format::game::Title;
+
 pub const SELECT: i32 = 1;
 pub const SCRIPT: i32 = 21;
 pub const GAME: i32 = 29;
@@ -55,9 +57,36 @@ pub fn class_name(class: i32) -> Option<&'static str> {
 }
 
 /// Whether a native pushes a result. `sub` is the sub-command, or for class
-/// [`GAME`] the command number. Taken from how the scripts of ふゆから、
-/// くるる。 use the results; natives not listed push nothing.
-pub fn returns_value(class: i32, sub: i32) -> bool {
+/// [`GAME`] the command number. The engine classes are shared; class
+/// [`GAME`] is written for each game. Natives not listed push nothing.
+///
+/// ふゆから、くるる。: from how its scripts use the results.
+/// きまぐれテンプテーション2: Game commands whose handler in the exe pushes
+/// onto the script stack.
+pub fn returns_value(title: Title, class: i32, sub: i32) -> bool {
+    if class == GAME {
+        return match title {
+            Title::Fuyukuru => matches!(sub, 20 | 30 | 31 | 32 | 110 | 223 | 1006 | 1009),
+            Title::Kimaten2 => matches!(
+                sub,
+                20 | 24
+                    | 30
+                    | 31
+                    | 32
+                    | 34
+                    | 42
+                    | 43
+                    | 44
+                    | 51
+                    | 110
+                    | 959
+                    | 990
+                    | 1006
+                    | 1009
+                    | 1010
+            ),
+        };
+    }
     matches!(
         (class, sub),
         (2, 3)
@@ -69,6 +98,5 @@ pub fn returns_value(class: i32, sub: i32) -> bool {
             | (25, 0)
             | (26, 1)
             | (27, 2)
-            | (GAME, 20 | 30 | 31 | 32 | 110 | 223 | 1006 | 1009)
     )
 }

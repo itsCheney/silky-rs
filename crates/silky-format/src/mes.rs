@@ -187,6 +187,9 @@ pub struct Script {
     pub table_a: Vec<u32>,
     pub table_b: Vec<u32>,
     pub code: Vec<u8>,
+    /// Encoding of its strings: Shift-JIS, or GBK in fan translations
+    /// that ship loose scripts.
+    pub encoding: &'static encoding_rs::Encoding,
 }
 
 impl Script {
@@ -211,7 +214,20 @@ impl Script {
             table_a,
             table_b,
             code: data[code_start..].to_vec(),
+            encoding: encoding_rs::SHIFT_JIS,
         })
+    }
+
+    /// Same as [`Script::parse`], for strings in another encoding.
+    pub fn parse_with(data: &[u8], encoding: &'static encoding_rs::Encoding) -> Result<Self> {
+        let mut s = Self::parse(data)?;
+        s.encoding = encoding;
+        Ok(s)
+    }
+
+    /// Decodes a string operand.
+    pub fn decode(&self, bytes: &[u8]) -> String {
+        self.encoding.decode(bytes).0.into_owned()
     }
 
     /// Decodes the instruction at `offset`.

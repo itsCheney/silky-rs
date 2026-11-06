@@ -4,16 +4,17 @@ English | [简体中文](README.zh-CN.md)
 
 A cross-platform reimplementation of the Silky's engine (the "Silky Engine" used by SILKY'S PLUS and elf titles from 2014 on), written in Rust. It reads the original game files; you need your own copy of the game.
 
-The first target game is ふゆから、くるる。 (Fuyukara, Kururu.), 2026 international build 1.0.1.0. The first desktop platform is Windows.
+The first target game is ふゆから、くるる。 (Fuyukara, Kururu.), 2026 international build 1.0.1.0. The second is きまぐれテンプテーション2 (2024, Japanese build with patch 1.02), which so far runs headless only. The first desktop platform is Windows.
 
 ## Status
 
 Early. What works today:
 
-- `.arc` archives, including the LZSS compression and the override order from `Patch.xml` (`script.arc;script1.arc`: the later archive wins).
+- `.arc` archives, including the LZSS compression and the override order from `Patch.xml` or `FileInfo.xml` (`script.arc;script1.arc`: the later archive wins). `update.arc` is read as the newest data archive.
+- Fan translations shipped as loose files in a folder next to the archives (`<name>_chs`: GBK scripts and redrawn images), chosen as a language.
 - AKB images, including `AKB+` difference images on top of a base image.
 - `.MAP` text tables (one section per language).
-- `.MES` scripts and `LIBLARY.LIB`: header, offset tables and the full byte code decoder.
+- `.MES` scripts and `LIBLARY.LIB`: header, offset tables and the full byte code decoder. Japanese builds keep their text in the scripts (line breaks by the `text` opcode).
 - `.VSD` movie containers (an MPEG-1 program stream inside).
 - The script VM: stack, variable banks, functions, script calls and selections. Engine functions go to a host.
 - First engine functions and a software renderer: backgrounds, event pictures with their difference pictures, standing characters with expressions, the message window with its name plate, portrait and text, localized file names, the title picture.
@@ -30,6 +31,8 @@ Early. What works today:
 - Close-ups and character moves, read from the engine's handlers: event pictures moved and enlarged (`Game.12` subs 4 and 5), characters that hop or shake (`Game.13` sub 7; the step length of 50 ms is a guess), change slot (sub 10) or stand off their slot position (sub 14).
 
 On ふゆから、くるる。 all 56 scripts (7.9 million instructions) decode with every jump landing on an instruction, and all 3,255 images decode. Headless, the VM boots `start.mes` through the logo, caution and title scripts, and plays the story from `fk001.mes` on with its text in all three languages.
+
+On きまぐれテンプテーション2 all 64 scripts and 712 images decode. Headless, `silky-run trace` boots to the title menu and plays the story text with speaker names, in Japanese and, with the fan patch folder, in Simplified Chinese. Each game adds its own commands to the engine (native class 29); for this one the commands that return a value were read from its executable. Its interface (action and map menus, E-mote characters, its own screens) is not done, so the player and `silky-run snap` do not open it yet.
 
 Not done yet: other effects. The "fixed window" setting is kept but changes nothing, since the window never moves here. `silky-run snap` lists every engine call the runtime does not carry out yet.
 
@@ -51,8 +54,8 @@ Compared with screenshots of the original (Windows, Simplified Chinese): the mes
 ## silky-player
 
 ```sh
-silky-player <game folder>                 # English
-silky-player <game folder> --lang 1        # Simplified Chinese
+silky-player <game folder>                 # the game's first language
+silky-player <game folder> --lang zh-hans  # Simplified Chinese (or 1)
 silky-player <game folder> --font msyh.ttc --font arial.ttf
 ```
 
@@ -84,7 +87,8 @@ silky-tool extract <file.arc> <out folder>
 ```sh
 silky-run trace <game folder>                        # boot log until the title menu
 silky-run trace <game folder> --result 29.110=1      # pick "Start" on the title menu
-silky-run trace <game folder> --result 29.110=1 --text-only --lang 1 --max-calls 50000
+silky-run trace <game folder> --result 29.110=1 --text-only --lang zh-hans --max-calls 50000
+silky-run trace <kimaten2 folder> --result 29.110=1 --result 29.42=1,2 --result 29.43=1 --text-only
 ```
 
 ```sh
@@ -95,7 +99,7 @@ silky-run snap <game folder> --lines 99999999 --path 0,1,1   # play a route to i
 
 `snap` runs the game with `silky-runtime` and saves PNG frames of the title screen and of the listed message lines (counted from the first line of the game). Fonts are not part of the game files: pass one or more with `--font`, in fallback order; without a font the text is left out. `--path` gives the options for the first selections in order (later ones take `--choose`); with it the run stops when the game comes back to the title, and the frame held after each movie is saved too. On ふゆから、くるる。 the routes `--path 1` and `--path 0,0` end at the two bad endings, `--path 0,1,0` and `--path 0,1,1` at the true ending with its ending movie and end card.
 
-`trace` performs no engine function; it logs each call with its arguments. Calls whose result the scripts use return 0 unless `--result CLASS.SUB=VALUE` says otherwise. Selections (`Game.20`) take `--choose`, counted from 0 (default the first option). `--lang` picks the text section of the `.MAP` tables (0 English, 1 Simplified Chinese, 2 Traditional Chinese in this build).
+`trace` performs no engine function; it logs each call with its arguments. Calls whose result the scripts use return 0 unless `--result CLASS.SUB=VALUE` says otherwise; with several values (`29.42=1,1,2`) successive calls get them in turn and the last one stays. Selections (`Game.20`) take `--choose`, counted from 0 (default the first option). `--lang` is `en`, `zh-hans`, `zh-hant` or `ja` (0, 1, 2 still name the `.MAP` sections); a game offers the languages it has text for: ふゆから、くるる。 English and both Chinese, きまぐれテンプテーション2 Japanese, plus Simplified Chinese when its `kimaten2_chs` folder is there. On きまぐれテンプテーション2, `29.42` answers the action menu and `29.43` the map.
 
 ## Rules for this project
 
