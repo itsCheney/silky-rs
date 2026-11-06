@@ -10,6 +10,14 @@
 //!   item `i` (22) when `b[801 + i]` is set. The scripts set each flag
 //!   twice, at `n` and at `1000 + n`; the executable reads the second copy
 //!   when no game is running (from the title menu).
+//! * some notebook entries grow: `b[940 + i]` is how many parts of the
+//!   text are open, the rest of `archive_textNN.akb` is cut off, and a
+//!   "New" mark stands before the newest part (table [`SECTIONS`], from
+//!   the executable). In a game the mark always shows; from the title
+//!   menu it shows until the entry was opened there once (`b[2020 + i]`,
+//!   written when the entry is opened).
+//! * the last collection item is a voice recording: its picture is a
+//!   play / pause button that plays [`RECORDING`] one after another.
 //! * the costume is `b[701]` (form 1..4) and `b[708]` (the second outfit
 //!   of a form); forms C and D are open when `b[711]` / `b[712]` (or
 //!   `b[3012]` / `b[3013]`, the cleared-game copies) is 1. Closing
@@ -32,6 +40,86 @@ pub const NOTEBOOK_VAR: usize = 900;
 pub const ITEM_VAR: usize = 801;
 /// Offset of the copies read outside a game.
 pub const GLOBAL_COPY: usize = 1000;
+/// How many parts of a growing notebook entry are open.
+pub const STAGE_VAR: usize = 940;
+/// Notebook entry seen from the title menu (at `GLOBAL_COPY + SEEN_VAR`).
+pub const SEEN_VAR: usize = 1020;
+/// The voice recording of the last collection item, played in turn.
+pub const RECORDING: [&str; 5] = [
+    "kt_b0155.ogg",
+    "kt_c0201.ogg",
+    "kt_b0156.ogg",
+    "kt_c0202.ogg",
+    "kt_c0203.ogg",
+];
+const RECORDING_ITEM: usize = ITEMS - 1;
+
+/// Growing notebook entries: for `b[940 + entry]` = 0, 1, … (the last row
+/// for any higher value), where the text is cut (`None`: shown whole) and
+/// where the "New" mark goes, in pixels from the top of the text.
+#[allow(clippy::type_complexity)]
+const SECTIONS: [(usize, &[(Option<u32>, Option<u32>)]); 12] = [
+    (0, &[(Some(0x89), None), (None, Some(0x79))]),
+    (1, &[(Some(0x136), None), (None, Some(0x146))]),
+    (11, &[(Some(0x118), None), (None, Some(0x128))]),
+    (
+        15,
+        &[
+            (Some(0xf4), None),
+            (Some(0x15a), Some(0x104)),
+            (Some(0x1c2), Some(0x16a)),
+            (Some(0x2a8), Some(0x1d2)),
+            (None, Some(0x2b8)),
+        ],
+    ),
+    (
+        16,
+        &[
+            (Some(0xaa), None),
+            (Some(0x149), Some(0xba)),
+            (Some(0x21c), Some(0x159)),
+            (Some(0x2e0), Some(0x22c)),
+            (None, Some(0x2f0)),
+        ],
+    ),
+    (
+        17,
+        &[
+            (Some(0xbc), None),
+            (Some(0x124), Some(0xcc)),
+            (Some(0x1f8), Some(0x134)),
+            (None, Some(0x208)),
+        ],
+    ),
+    (
+        18,
+        &[
+            (Some(0x13a), None),
+            (Some(0x1b4), Some(0x14a)),
+            (Some(0x34e), Some(0x1c4)),
+            (None, Some(0x320)),
+        ],
+    ),
+    (19, &[(Some(0x128), None), (None, Some(0x138))]),
+    (20, &[(Some(0x73), None), (None, Some(0x83))]),
+    (
+        22,
+        &[
+            (Some(0xf1), None),
+            (Some(0x2ad), Some(0x101)),
+            (None, Some(0x2bd)),
+        ],
+    ),
+    (
+        23,
+        &[
+            (Some(0x13b), None),
+            (Some(0x17d), Some(0x14b)),
+            (None, Some(0x18d)),
+        ],
+    ),
+    (24, &[(Some(0x201), None), (None, Some(0x211))]),
+];
 pub const COSTUME_VAR: usize = 701;
 pub const OUTFIT_VAR: usize = 708;
 /// Forms C and D: (game flag, cleared-game flag).
@@ -50,6 +138,8 @@ pub mod ids {
     pub const PAGE_DOWN: i32 = 769;
     pub const NOTEBOOK_TAB: i32 = 1792;
     pub const ITEMS_TAB: i32 = 1793;
+    /// The picture of the voice recording (not in `itemselect.area`).
+    pub const RECORDING: i32 = 1024;
 }
 
 /// Ids of `cosselect.area`.
@@ -74,6 +164,8 @@ const PAGE_STRIP: Cells = Cells::new(310, 0, 308, 30, 31);
 const GEM: Cells = Cells::new(615, 1, 50, 62, 64);
 const ARROW: Cells = Cells::new(660, 0, 52, 47, 47);
 const FRAME: Cells = Cells::new(712, 0, 106, 106, 106);
+/// The "New" mark of a notebook part.
+const NEW_MARK: (u32, u32, u32) = (308, 243, 46);
 /// `arechive_list.akb`: entry `i` at column `i % 4`, block `i / 4`; rows
 /// normal, hover, chosen, locked.
 const LIST_CELL: (u32, u32) = (304, 32);
@@ -84,14 +176,17 @@ const TITLE_NOTEBOOK: (u32, u32) = (0, 558);
 const TITLE_ITEMS: (u32, u32) = (558, 460);
 const TITLE_H: u32 = 29;
 /// `item_ics.akb`: 106-pixel icons, nine a row; `item_ic.akb`: 256-pixel
-/// pictures, five a row (the sixth column holds play and pause buttons
-/// of the last item, a voice recording, not done here).
+/// pictures, five a row; the sixth column is the picture of the voice
+/// recording as a button: play (normal, hover, pressed), then pause.
 const ICON_SMALL: u32 = 106;
 const ICON_BIG: u32 = 256;
 const BIG_PER_ROW: u32 = 5;
 /// Placement on the backgrounds (measured on `archivebg` / `itembg`).
 const NB_TITLE_POS: (i32, i32) = (566, 42);
-const NB_TEXT: (i32, i32, i32) = (430, 100, 530);
+/// The text layer of the executable is at (376, 108), 523 high, with the
+/// text 46 pixels in and the "New" mark at its left edge.
+const NB_TEXT: (i32, i32, i32) = (422, 108, 523);
+const NB_MARK_X: i32 = 376;
 const NB_TRACK: (i32, i32, i32, i32) = (1231, 93, 45, 520);
 const IT_TITLE_POS: (i32, i32) = (712, 350);
 const IT_PICTURE: (i32, i32) = (376, 385);
@@ -125,6 +220,14 @@ pub struct ArchiveScreen {
     pub chosen: [Option<usize>; 2],
     /// Scroll of the shown text, in pixels.
     pub scroll: i32,
+    /// Open parts of growing notebook entries (`b[940 + i]`).
+    pub stages: Vec<u8>,
+    /// Opened from the title menu: which entries were seen there.
+    pub seen: Option<Vec<bool>>,
+    /// Whether the chosen notebook entry shows its "New" mark.
+    pub new_mark: bool,
+    /// The recording part playing, if any.
+    pub recording: Option<usize>,
 }
 
 impl ArchiveScreen {
@@ -140,7 +243,35 @@ impl ArchiveScreen {
             top: 0,
             chosen: [None, None],
             scroll: 0,
+            stages: (0..NOTEBOOK_ENTRIES)
+                .map(|i| var(base + STAGE_VAR + i))
+                .collect(),
+            seen: global.then(|| {
+                (0..NOTEBOOK_ENTRIES)
+                    .map(|i| var(GLOBAL_COPY + SEEN_VAR + i) != 0)
+                    .collect()
+            }),
+            new_mark: false,
+            recording: None,
         }
+    }
+
+    /// Where the chosen notebook entry's text is cut and where its "New"
+    /// mark goes.
+    fn section(&self) -> (Option<u32>, Option<u32>) {
+        let Some(e) = self.chosen().filter(|_| self.book == Book::Notebook) else {
+            return (None, None);
+        };
+        let Some((_, rows)) = SECTIONS.iter().find(|(i, _)| *i == e) else {
+            return (None, None);
+        };
+        let v = self.stages.get(e).copied().unwrap_or(0) as usize;
+        rows[v.min(rows.len() - 1)]
+    }
+
+    /// Whether the voice recording is the item shown.
+    pub fn recording_shown(&self) -> bool {
+        self.book == Book::Items && self.chosen() == Some(RECORDING_ITEM)
     }
 
     fn flags(&self) -> &[u8] {
@@ -252,10 +383,28 @@ impl Archive {
         }
     }
 
+    /// Height of the shown text: the open parts of a growing entry.
+    fn text_height(s: &ArchiveScreen, text: &Image) -> u32 {
+        match s.section().0 {
+            Some(cut) => cut.min(text.height),
+            None => text.height,
+        }
+    }
+
     /// How far the shown text can scroll.
     pub fn max_scroll(&self, assets: &mut Assets, s: &ArchiveScreen) -> i32 {
         let view = Self::text_view(s.book).2;
-        Self::text_image(assets, s).map_or(0, |t| (t.height as i32 - view).max(0))
+        Self::text_image(assets, s).map_or(0, |t| (Self::text_height(s, &t) as i32 - view).max(0))
+    }
+
+    fn picture_rect() -> Area {
+        Area {
+            id: ids::RECORDING,
+            left: IT_PICTURE.0,
+            top: IT_PICTURE.1,
+            right: IT_PICTURE.0 + ICON_BIG as i32,
+            bottom: IT_PICTURE.1 + ICON_BIG as i32,
+        }
     }
 
     pub fn enabled(s: &ArchiveScreen, id: i32, max_scroll: i32) -> bool {
@@ -273,6 +422,9 @@ impl Archive {
     }
 
     pub fn hit(&self, s: &ArchiveScreen, x: i32, y: i32) -> Option<Button> {
+        if s.recording_shown() && Self::picture_rect().contains(x, y) {
+            return Some(Button::Screen(ids::RECORDING));
+        }
         let id = find(self.areas(s.book), x, y)?;
         // Unknown ids (`itemselect.area` 768) do nothing.
         let known = matches!(
@@ -352,7 +504,12 @@ impl Archive {
             );
             if s.book == Book::Items {
                 let pictures = assets.image("item_ic.akb")?;
-                let (px, py) = (e as u32 % BIG_PER_ROW, e as u32 / BIG_PER_ROW);
+                let (px, py) = if s.recording_shown() {
+                    let st = ui.state(Button::Screen(ids::RECORDING), true, false) as u32;
+                    (BIG_PER_ROW, st + 3 * s.recording.is_some() as u32)
+                } else {
+                    (e as u32 % BIG_PER_ROW, e as u32 / BIG_PER_ROW)
+                };
                 canvas.draw_part(
                     &pictures,
                     (px * ICON_BIG, py * ICON_BIG, ICON_BIG, ICON_BIG),
@@ -365,8 +522,26 @@ impl Archive {
             if let Some(text) = Self::text_image(assets, s) {
                 let (x, y, view) = Self::text_view(s.book);
                 let top = s.scroll.clamp(0, max) as u32;
-                let h = (text.height - top).min(view as u32);
+                let height = Self::text_height(s, &text);
+                let h = height.saturating_sub(top).min(view as u32);
                 canvas.draw_part(&text, (0, top, text.width, h), x, y, false, 255);
+                if let (Some(mark), true) = (s.section().1, s.new_mark) {
+                    let (mx, my, size) = NEW_MARK;
+                    // Clipped to the text view like the layer it is on.
+                    let rel = mark as i32 - top as i32;
+                    let from = (-rel).max(0) as u32;
+                    let to = (view - rel).clamp(0, size as i32) as u32;
+                    if from < to {
+                        canvas.draw_part(
+                            &sheet,
+                            (mx, my + from, size, to - from),
+                            NB_MARK_X,
+                            y + rel + from as i32,
+                            false,
+                            255,
+                        );
+                    }
+                }
             }
         }
         let pressed = ui.pressed == Some(Button::Screen(TEXT_SCROLL));
@@ -467,10 +642,23 @@ impl Archive {
             TEXT_DOWN => s.scroll = (s.scroll + TEXT_STEP).min(max_scroll),
             PAGE_UP => s.top = s.top.saturating_sub(NOTEBOOK_ROWS),
             PAGE_DOWN if s.top + NOTEBOOK_ROWS < NOTEBOOK_ENTRIES => s.top += NOTEBOOK_ROWS,
+            RECORDING => return ArchiveAction::Recording,
             _ => {
                 if let Some(e) = s.entry(id).filter(|&e| s.open(e)) {
                     s.chosen[s.book as usize] = Some(e);
                     s.scroll = 0;
+                    if s.book == Book::Notebook {
+                        // From the title menu the mark shows until the
+                        // entry was opened there once.
+                        match &mut s.seen {
+                            Some(seen) => {
+                                s.new_mark = !seen[e];
+                                seen[e] = true;
+                                return ArchiveAction::Seen(GLOBAL_COPY + SEEN_VAR + e);
+                            }
+                            None => s.new_mark = true,
+                        }
+                    }
                 }
             }
         }
@@ -562,6 +750,10 @@ impl Archive {
 pub enum ArchiveAction {
     None,
     Close,
+    /// Set this byte variable (an entry seen from the title menu).
+    Seen(usize),
+    /// Play or stop the voice recording.
+    Recording,
 }
 
 #[cfg(test)]
@@ -578,6 +770,36 @@ mod tests {
         assert_eq!(s.entry(256), None);
         let g = ArchiveScreen::new(Book::Items, |i| (i == 1000 + 801) as u8, true);
         assert!(g.items[0] == 1 && g.items[1] == 0);
+    }
+
+    #[test]
+    fn growing_entries() {
+        let var = |i: usize| match i {
+            900 | 915 | 1900 | 1915 => 1,
+            955 => 2,
+            1955 => 9,
+            2020 => 1,
+            _ => 0,
+        };
+        let mut s = ArchiveScreen::new(Book::Notebook, var, false);
+        s.chosen[0] = Some(15);
+        assert_eq!(s.section(), (Some(0x1c2), Some(0x16a)));
+        s.chosen[0] = Some(0);
+        assert_eq!(s.section(), (Some(0x89), None));
+        s.chosen[0] = Some(2);
+        assert_eq!(s.section(), (None, None));
+        let mut g = ArchiveScreen::new(Book::Notebook, var, true);
+        let archive = Archive {
+            notebook: vec![],
+            items: vec![],
+            costume: vec![],
+        };
+        assert_eq!(archive.press(&mut g, 0, 0), ArchiveAction::Seen(2020));
+        assert!(!g.new_mark);
+        g.top = 12;
+        assert_eq!(archive.press(&mut g, 3, 0), ArchiveAction::Seen(2035));
+        assert!(g.new_mark);
+        assert_eq!(g.section(), (None, Some(0x2b8)));
     }
 
     #[test]

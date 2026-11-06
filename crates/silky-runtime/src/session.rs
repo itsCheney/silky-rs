@@ -22,7 +22,7 @@ use crate::screens::{
     dialog_ids, log_ids, save_ids, Action, Backlog, Dialog, Item, LogEntry, Mode, SaveLoad, Screen,
     Screens, LOG_ROWS, SAVE_ROWS,
 };
-use crate::system::{RightClick, Settings, SystemData};
+use crate::system::{RightClick, Settings, SystemData, GLOBAL_BYTES};
 use crate::text::TextRenderer;
 use crate::ui::{bar, title, Button, Layout, Ui};
 use crate::{Assets, Config, Error, Extras, Language, Pause, Result, Runtime, SaveState};
@@ -201,6 +201,7 @@ impl Session {
         data.read.extend(seen.read);
         self.rt.system = data;
         self.saves = Some(saves);
+        self.apply_global_bytes();
         let old = Settings {
             language: Some(self.rt.config.language),
             ..self.rt.system.settings.clone()
@@ -317,6 +318,7 @@ impl Session {
     fn restore(&mut self, state: SaveState) -> Result<()> {
         let kept = state.clone();
         self.rt.load_state(&mut self.vm, state)?;
+        self.apply_global_bytes();
         if self.log.is_empty() {
             if let Some(text) = &self.rt.scene.text {
                 self.logged += 1;
@@ -373,6 +375,7 @@ impl Session {
         self.vm = Vm::new(Profile::default());
         self.rt.reset();
         self.rt.boot(&mut self.vm, &self.start)?;
+        self.apply_global_bytes();
         self.busy = None;
         self.screen = None;
         self.dialog = None;
@@ -1008,10 +1011,89 @@ impl Session {
             Some(Screen::Costume(c)) => Archive::press_costume(c, id),
             _ => ArchiveAction::None,
         };
-        if action == ArchiveAction::Close {
-            self.close_screen();
+        match action {
+            ArchiveAction::Close => self.close_screen(),
+            ArchiveAction::Seen(i) => self.vm.set_var_b(i, 1),
+            ArchiveAction::Recording => {
+                let Some(Screen::Archive(s)) = &mut self.screen else {
+                    return Ok(());
+                };
+                if s.recording.take().is_some() {
+                    self.rt.stop_sound_voice();
+                } else {
+                    s.recording = Some(0);
+                    self.play_recording(0);
+                }
+                self.frame = None;
+            }
+            ArchiveAction::None => {}
         }
         Ok(())
+    }
+
+    /// Plays a part of the voice recording. The executable names
+    /// `kt_*.ogg`, which the game data seen so far does not have: a missing
+    /// part is reported and skipped.
+    fn play_recording(&mut self, part: usize) {
+        let file = archive::RECORDING[part];
+        if let Err(e) = self.rt.replay_voice(file) {
+            self.rt.note_unhandled(format!("recording voice: {e}"));
+        }
+    }
+
+    /// Plays the voice recording on: the next part when one ends.
+    fn advance_recording(&mut self) {
+        let Some(Screen::Archive(s)) = &mut self.screen else {
+            return;
+        };
+        let Some(part) = s.recording else {
+            return;
+        };
+        if !s.recording_shown() {
+            s.recording = None;
+            self.rt.stop_sound_voice();
+            self.frame = None;
+        } else if !self.rt.voice_playing() {
+            if part + 1 < archive::RECORDING.len() {
+                s.recording = Some(part + 1);
+                self.play_recording(part + 1);
+            } else {
+                s.recording = None;
+                self.frame = None;
+            }
+        }
+    }
+
+    /// Copies changed global byte variables into the system data.
+    fn store_global_bytes(&mut self) {
+        let vm = self.vm.bytes.get(GLOBAL_BYTES..).unwrap_or(&[]);
+        let kept = &self.rt.system.global_bytes;
+        let n = vm.len().max(kept.len());
+        let at = |b: &[u8], i: usize| b.get(i).copied().unwrap_or(0);
+        if (0..n).any(|i| at(vm, i) != at(kept, i)) {
+            let mut all: Vec<u8> = (0..n).map(|i| at(vm, i)).collect();
+            while all.last() == Some(&0) {
+                all.pop();
+            }
+            self.rt.system.global_bytes = all;
+            self.rt.system_changed = true;
+        }
+    }
+
+    /// Puts the kept global byte variables into the VM (after a boot or a
+    /// load, which bring their own copies).
+    fn apply_global_bytes(&mut self) {
+        if !self.layout.is_kimaten2() {
+            return;
+        }
+        let kept = self.rt.system.global_bytes.clone();
+        let end = self.vm.bytes.len().max(GLOBAL_BYTES + kept.len());
+        for i in GLOBAL_BYTES..end {
+            let v = kept.get(i - GLOBAL_BYTES).copied().unwrap_or(0);
+            if self.vm.var_b(i) != v {
+                self.vm.set_var_b(i, v);
+            }
+        }
     }
 
     /// Whether some notebook entry and some collection item are open, for
@@ -1030,6 +1112,7 @@ impl Session {
     fn close_screen(&mut self) {
         match &self.screen {
             Some(Screen::Settings(_)) => self.flush_system(),
+            Some(Screen::Archive(s)) if s.recording.is_some() => self.rt.stop_sound_voice(),
             // The costume screen writes its choice back when it closes.
             Some(Screen::Costume(c)) => {
                 for (i, v) in c.result() {
@@ -1534,6 +1617,8 @@ impl Session {
         }
         if self.layout.is_kimaten2() {
             self.refresh_archive_flags();
+            self.store_global_bytes();
+            self.advance_recording();
         }
         if self.rt.system_changed && self.ui.clock >= self.system_stored + SYSTEM_STORE_MS {
             self.flush_system();

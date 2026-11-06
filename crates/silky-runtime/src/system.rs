@@ -176,7 +176,13 @@ pub struct SystemData {
     pub music: BTreeSet<String>,
     /// Lines read, as `table:index`.
     pub read: BTreeSet<String>,
+    /// Byte variables from [`GLOBAL_BYTES`] on, which きまぐれテンプテーション2
+    /// keeps across games (notebook and collection copies, clear flags).
+    pub global_bytes: Vec<u8>,
 }
+
+/// First byte variable kept outside a game (きまぐれテンプテーション2).
+pub const GLOBAL_BYTES: usize = 1000;
 
 impl SystemData {
     fn path(dir: &Path) -> PathBuf {
