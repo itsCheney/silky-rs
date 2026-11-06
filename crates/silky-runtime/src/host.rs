@@ -19,6 +19,7 @@ const SPRITE: i32 = 19;
 const SCREEN: i32 = 20;
 const UI: i32 = 26;
 const MOVIE: i32 = 23;
+const MESWND: i32 = 2;
 
 /// Screen calls (class 20). Times are in frames of 1/60 s (provisional).
 mod screen {
@@ -319,10 +320,12 @@ impl Runtime {
         vm.push(result);
     }
 
-    /// Returns from a movie.
-    pub fn answer_movie(&mut self, vm: &mut Vm) {
+    /// Returns from a movie: `played` is false if it could not be shown.
+    /// The scripts show the movie's still picture (and after the ending,
+    /// the end card) when the result is 1.
+    pub fn answer_movie(&mut self, vm: &mut Vm, played: bool) {
         self.audio.stop(Bus::Music, MOVIE_AUDIO);
-        vm.push(0);
+        vm.push(played as i32);
     }
 
     /// Opens the movie set up with `Movie.0` and starts its sound.
@@ -579,7 +582,9 @@ impl Runtime {
             _ => -1,
         };
         let plain = [cmd::TITLE, cmd::LOCALIZE, cmd::SPEAKER];
-        if sub >= 0 && !plain.contains(&command) {
+        // A selection's last value is its window style (9, or -1 for the
+        // default), not a sub command.
+        if (sub >= 0 || command == cmd::SELECT) && !plain.contains(&command) {
             args.pop();
         }
         let s = |i: usize| args.get(i).and_then(Value::as_str).map(str::to_string);
@@ -776,8 +781,14 @@ impl Runtime {
                 self.handled += 1;
                 return Ok(Flow::Yield);
             }
-            (cmd::LOCALIZE, _, 1) => {
-                let name = s(0).ok_or_else(|| host_error("localize without a name"))?;
+            // Also used inside the arguments of another call, as in
+            // Game.12(0, 1, Game.223("x.akb"), 1): the values before the
+            // name belong to the outer call and go back on the stack.
+            (cmd::LOCALIZE, _, len) if len >= 1 && matches!(args.last(), Some(Value::Str(_))) => {
+                let name = s(len - 1).ok_or_else(|| host_error("localize without a name"))?;
+                for v in &args[..len - 1] {
+                    vm.push(v.clone());
+                }
                 let local = localized_name(&name, self.config.language);
                 let found = [Kind::Layer, Kind::Movie]
                     .iter()
@@ -836,6 +847,19 @@ impl Host for Runtime {
                         return Ok(flow);
                     }
                 }
+                // MesWnd.2(0) takes the message window away (before scene
+                // changes and movies); the next message brings it back.
+                // MesWnd.2(1) shows it, which the next message does anyway.
+                if class == MESWND && sub == 2 {
+                    if let [Value::Int(on)] = args.as_slice() {
+                        if *on == 0 {
+                            self.scene.text = None;
+                            self.scene.speaker = None;
+                        }
+                        self.handled += 1;
+                        return Ok(Flow::Continue);
+                    }
+                }
                 if class == MOVIE {
                     match (sub, args.as_slice()) {
                         // (0, name): set up a movie.
@@ -844,7 +868,8 @@ impl Host for Runtime {
                             self.handled += 1;
                             return Ok(Flow::Continue);
                         }
-                        // Play it; returns 0 when done.
+                        // Play it; returns 1 once played (see
+                        // [`Runtime::answer_movie`]).
                         (2, []) => {
                             self.handled += 1;
                             if self.movie.is_some() {

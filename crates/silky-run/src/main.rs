@@ -76,6 +76,11 @@ enum Command {
         /// Option to take at every selection.
         #[arg(long, default_value_t = 0)]
         choose: usize,
+        /// Options for the first selections, in order, comma separated;
+        /// later selections take --choose. The run stops when the game
+        /// comes back to the title (an ending).
+        #[arg(long, value_delimiter = ',')]
+        path: Vec<usize>,
     },
 }
 
@@ -112,10 +117,11 @@ fn main() -> Result<()> {
             lang,
             font,
             choose,
+            path,
         } => {
             let game = Game::open(&game)
                 .with_context(|| format!("cannot open game folder {}", game.display()))?;
-            snap(game, &out, &lines, lang, &font, choose)
+            snap(game, &out, &lines, lang, &font, choose, &path)
         }
     }
 }
@@ -127,6 +133,7 @@ fn snap(
     lang: usize,
     fonts: &[PathBuf],
     choose: usize,
+    path: &[usize],
 ) -> Result<()> {
     use silky_runtime::render::Renderer;
     use silky_runtime::text::TextRenderer;
@@ -158,11 +165,20 @@ fn snap(
     let last = lines.iter().copied().max().unwrap_or(0);
     let mut line_no = 0u64;
     let mut title_saved = false;
+    let mut selections = 0usize;
+    // Frame shown when the game first waits after a movie (the movie's
+    // still picture, the end card after the ending).
+    let mut after_movie: Option<String> = None;
+    let mut script = String::new();
     let mut polls = 0u64;
     loop {
         match vm.run(&mut rt, 50_000_000)? {
             Stop::Yield => match rt.pause.take() {
                 Some(Pause::Title) => {
+                    if !path.is_empty() && title_saved {
+                        println!("back to the title after {line_no} lines, from {script}");
+                        break;
+                    }
                     if !title_saved {
                         let mut frame = renderer.render_scene(&rt.scene, &mut rt.assets, false)?;
                         let ui = Ui {
@@ -180,6 +196,12 @@ fn snap(
                 }
                 Some(Pause::Text { index }) => {
                     rt.jolts.clear();
+                    after_movie = None;
+                    let name = vm.script_name().unwrap_or("?");
+                    if name != script {
+                        script = name.to_string();
+                        println!("script {script}");
+                    }
                     if lines.contains(&line_no) {
                         let mut frame = renderer.render(&rt.scene, &mut rt.assets)?;
                         let ui = Ui {
@@ -199,28 +221,53 @@ fn snap(
                 }
                 // Headless: transitions and waits end at once; input polls
                 // see a click now and then so wait-for-click loops end.
-                Some(Pause::Transition(_)) => {}
+                Some(Pause::Transition(t)) => {
+                    // A still picture held after a movie.
+                    if let (Some(name), true) = (&after_movie, t.ms >= 1000) {
+                        let frame = renderer.render(&rt.scene, &mut rt.assets)?;
+                        let path = out.join(format!("after-{}.png", name.replace('.', "_")));
+                        write_png(&path, &frame)?;
+                        println!("{}", path.display());
+                        after_movie = None;
+                    }
+                }
                 Some(Pause::Frame) => {
+                    if let Some(name) = &after_movie {
+                        let frame = renderer.render(&rt.scene, &mut rt.assets)?;
+                        let path = out.join(format!("after-{}.png", name.replace('.', "_")));
+                        write_png(&path, &frame)?;
+                        println!("{}", path.display());
+                        after_movie = None;
+                    }
                     polls += 1;
                     if polls % 600 == 0 {
                         rt.clicked = true;
                     }
                 }
                 Some(Pause::Choice) => {
+                    let choose = path.get(selections).copied().unwrap_or(choose);
+                    selections += 1;
                     println!("select [{}] -> {}", rt.choices.join(" | "), choose);
                     let pick = choose.min(rt.choices.len().saturating_sub(1));
                     rt.answer_choice(&mut vm, pick);
                 }
                 // Headless: leave extras screens, movies end at once.
                 Some(Pause::Extras(_)) => rt.answer_extras(&mut vm, -1),
-                Some(Pause::Movie) => rt.answer_movie(&mut vm),
+                Some(Pause::Movie) => {
+                    println!("movie {}", rt.movie.as_deref().unwrap_or("?"));
+                    after_movie = rt.movie.clone();
+                    rt.answer_movie(&mut vm, true)
+                }
                 None => {}
             },
             Stop::Options => {
                 rt.begin_options(vm.options().len());
                 vm.run_all_options()?;
             }
-            Stop::Ended => break,
+            Stop::Ended => {
+                println!("end of scripts in {}", vm.script_name().unwrap_or("?"));
+                break;
+            }
             Stop::Budget => anyhow::bail!("no message line within the step budget"),
         }
     }

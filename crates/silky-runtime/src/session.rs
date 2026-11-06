@@ -472,7 +472,7 @@ impl Session {
                         Err(e) => {
                             let name = self.rt.movie.clone().unwrap_or_default();
                             self.rt.note_unhandled(format!("movie {name}: {e}"));
-                            self.rt.answer_movie(&mut self.vm);
+                            self.rt.answer_movie(&mut self.vm, false);
                         }
                     },
                     None => {}
@@ -805,7 +805,7 @@ impl Session {
 
     fn end_movie(&mut self) -> Result<()> {
         if self.movie.take().is_some() {
-            self.rt.answer_movie(&mut self.vm);
+            self.rt.answer_movie(&mut self.vm, true);
             self.state = State::Busy;
             self.run()?;
         }

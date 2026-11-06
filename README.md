@@ -90,9 +90,10 @@ silky-run trace <game folder> --result 29.110=1 --text-only --lang 1 --max-calls
 ```sh
 silky-run snap <game folder> --out snaps --font DejaVuSans.ttf --lines 0,10,50
 silky-run snap <game folder> --lang 1 --font msyh.ttc --lines 170
+silky-run snap <game folder> --lines 99999999 --path 0,1,1   # play a route to its ending
 ```
 
-`snap` runs the game with `silky-runtime` and saves PNG frames of the title screen and of the listed message lines (counted from the first line of the game). Fonts are not part of the game files: pass one or more with `--font`, in fallback order; without a font the text is left out.
+`snap` runs the game with `silky-runtime` and saves PNG frames of the title screen and of the listed message lines (counted from the first line of the game). Fonts are not part of the game files: pass one or more with `--font`, in fallback order; without a font the text is left out. `--path` gives the options for the first selections in order (later ones take `--choose`); with it the run stops when the game comes back to the title, and the frame held after each movie is saved too. On ふゆから、くるる。 the routes `--path 1` and `--path 0,0` end at the two bad endings, `--path 0,1,0` and `--path 0,1,1` at the true ending with its ending movie and end card.
 
 `trace` performs no engine function; it logs each call with its arguments. Calls whose result the scripts use return 0 unless `--result CLASS.SUB=VALUE` says otherwise. Selections (`Game.20`) take `--choose`, counted from 0 (default the first option). `--lang` picks the text section of the `.MAP` tables (0 English, 1 Simplified Chinese, 2 Traditional Chinese in this build).
 
