@@ -15,6 +15,7 @@ pub mod audio;
 pub mod canvas;
 pub mod game_tables;
 mod host;
+pub mod kimaten2;
 pub mod menus;
 pub mod movie;
 pub mod render;

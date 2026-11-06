@@ -10,9 +10,11 @@ use std::sync::Arc;
 use silky_format::akb::Image;
 
 use crate::assets::{localized_name, Assets, Language};
+use crate::kimaten2;
 use crate::scene::Scene;
 use crate::text::TextRenderer;
 use crate::{Result, SCREEN_HEIGHT, SCREEN_WIDTH};
+use silky_format::game::Title;
 
 pub use crate::canvas::Canvas;
 
@@ -51,6 +53,44 @@ const TEXT_LINE: f32 = 34.0;
 const TEXT_SIZE: f32 = 21.0;
 const TEXT_WIDE_ADVANCE: f32 = 26.5 / TEXT_SIZE;
 
+/// Where the message text goes.
+#[derive(Debug, Clone, Copy)]
+pub struct TextLayout {
+    pub left: f32,
+    /// Baseline of the first line.
+    pub baseline: f32,
+    pub width: f32,
+    pub line: f32,
+    pub size: f32,
+    /// Pen advance of CJK characters, as a multiple of the size.
+    pub wide_advance: f32,
+}
+
+impl TextLayout {
+    pub fn for_title(title: Title) -> Self {
+        match title {
+            Title::Fuyukuru => Self {
+                left: TEXT_LEFT,
+                baseline: TEXT_BASELINE,
+                width: TEXT_WIDTH,
+                line: TEXT_LINE,
+                size: TEXT_SIZE,
+                wide_advance: TEXT_WIDE_ADVANCE,
+            },
+            // Provisional (no screenshots yet): text below the name plate,
+            // 27 full-width characters to a line.
+            Title::Kimaten2 => Self {
+                left: kimaten2::window::NAME.0 as f32 + 12.0,
+                baseline: kimaten2::window::TEXT_TOP + 26.0,
+                width: 27.0 * 34.0,
+                line: 40.0,
+                size: 30.0,
+                wide_advance: 34.0 / 30.0,
+            },
+        }
+    }
+}
+
 pub struct Renderer {
     text: Option<TextRenderer>,
     language: Language,
@@ -59,24 +99,36 @@ pub struct Renderer {
     pub window: ([f32; 3], f32),
     /// Output pixels per game pixel, for text (see [`Canvas::present`]).
     pub scale: f32,
+    /// Game whose message window is drawn.
+    title: Title,
+    pub text_layout: TextLayout,
+    /// Name plate rows by speaker name (きまぐれテンプテーション2), for the
+    /// language they were made for.
+    speaker_rows: Option<(Language, HashMap<String, usize>)>,
 }
 
 impl Renderer {
     /// `text` is `None` to leave out message text (no font available).
     pub fn new(text: Option<TextRenderer>, language: Language) -> Self {
-        let text = text.map(|mut t| {
-            if language != Language::English {
-                t.wide_advance = Some(TEXT_WIDE_ADVANCE);
-            }
-            t
-        });
-        Self {
+        let mut r = Self {
             text,
             language,
             characters: HashMap::new(),
             window: ([0.0; 3], WINDOW_OPACITY as f32 / 255.0),
             scale: 1.0,
-        }
+            title: Title::Fuyukuru,
+            text_layout: TextLayout::for_title(Title::Fuyukuru),
+            speaker_rows: None,
+        };
+        r.set_language(language);
+        r
+    }
+
+    /// Draws the message window of this game.
+    pub fn set_title(&mut self, title: Title) {
+        self.title = title;
+        self.text_layout = TextLayout::for_title(title);
+        self.set_language(self.language);
     }
 
     /// Body with its expression drawn on, cached.
@@ -121,9 +173,23 @@ impl Renderer {
     /// Switches the language of nameplates and text spacing.
     pub fn set_language(&mut self, language: Language) {
         self.language = language;
+        let wide = self.text_layout.wide_advance;
         if let Some(t) = &mut self.text {
-            t.wide_advance = (language != Language::English).then_some(TEXT_WIDE_ADVANCE);
+            t.wide_advance = (language != Language::English).then_some(wide);
         }
+    }
+
+    /// Name plate row of a speaker given by name.
+    fn speaker_row(&mut self, assets: &Assets, name: &str) -> Option<usize> {
+        if self
+            .speaker_rows
+            .as_ref()
+            .is_none_or(|(l, _)| *l != self.language)
+        {
+            let rows = kimaten2::speaker_rows(assets.game());
+            self.speaker_rows = Some((self.language, rows));
+        }
+        self.speaker_rows.as_ref()?.1.get(name).copied()
     }
 
     /// Draws the message text of the scene, only its first `limit`
@@ -133,6 +199,56 @@ impl Renderer {
             return;
         }
         self.draw_text_at(canvas, scene, limit, scene.shake);
+    }
+
+    /// The message window of きまぐれテンプテーション2: the band of
+    /// `message_p.akb` and the speaker's row of `name_p.akb` (a name not in
+    /// its list is written as text).
+    fn kimaten2_window(
+        &mut self,
+        canvas: &mut Canvas,
+        scene: &Scene,
+        assets: &mut Assets,
+    ) -> Result<()> {
+        use kimaten2::window;
+        let parts = assets.image("message_p.akb")?;
+        let (color, opacity) = self.window;
+        let alpha = (opacity.clamp(0.0, 1.0) * 255.0) as u8;
+        canvas.draw_part(&parts, (0, 0, 1280, 300), 0, window::TOP, false, alpha);
+        if color != [0.0; 3] {
+            let rgb = color.map(|c| (c.clamp(0.0, 1.0) * 255.0) as u8);
+            canvas.fill(
+                0,
+                window::TOP + 30,
+                1280,
+                215,
+                [rgb[0], rgb[1], rgb[2], alpha / 2],
+            );
+        }
+        if let Some(name) = &scene.speaker_name {
+            let (x, y) = window::NAME;
+            let (w, h) = window::NAME_SIZE;
+            match self.speaker_row(assets, name) {
+                Some(row) => {
+                    let sheet = assets.image("name_p.akb")?;
+                    canvas.draw_part(&sheet, (0, h * row as u32, w, h), x, y, false, 255);
+                }
+                None => {
+                    if let Some(tr) = &self.text {
+                        let size = self.text_layout.size * 0.9;
+                        tr.draw_line(
+                            canvas,
+                            name,
+                            x as f32 + 24.0,
+                            y as f32 + h as f32 - 10.0,
+                            size,
+                            [255, 255, 255, 255],
+                        );
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     fn draw_text_at(
@@ -145,16 +261,17 @@ impl Renderer {
         let (Some(text), Some(tr)) = (&scene.text, &self.text) else {
             return;
         };
+        let l = self.text_layout;
         let mut left = limit.unwrap_or(usize::MAX);
-        for (i, line) in tr.wrap(text, TEXT_SIZE, TEXT_WIDTH).iter().enumerate() {
+        for (i, line) in tr.wrap(text, l.size, l.width).iter().enumerate() {
             if left == 0 {
                 break;
             }
             let shown: String = line.chars().take(left).collect();
             left = left.saturating_sub(line.chars().count());
-            let y = TEXT_BASELINE + TEXT_LINE * i as f32 + shift.1 as f32;
-            let x = TEXT_LEFT + shift.0 as f32;
-            tr.draw_line(canvas, &shown, x, y, TEXT_SIZE, [255, 255, 255, 255]);
+            let y = l.baseline + l.line * i as f32 + shift.1 as f32;
+            let x = l.left + shift.0 as f32;
+            tr.draw_line(canvas, &shown, x, y, l.size, [255, 255, 255, 255]);
         }
     }
 
@@ -221,7 +338,12 @@ impl Renderer {
             canvas.draw(&img, 0, 0, false);
         }
 
-        if scene.text.is_some() && window {
+        if scene.text.is_some() && window && self.title == Title::Kimaten2 {
+            self.kimaten2_window(&mut canvas, scene, assets)?;
+            if text {
+                self.draw_text_at(&mut canvas, scene, None, (0, 0));
+            }
+        } else if scene.text.is_some() && window {
             let parts = assets.image("message_p.akb")?;
             let (color, opacity) = self.window;
             let alpha = (opacity.clamp(0.0, 1.0) * 255.0) as u8;

@@ -172,6 +172,9 @@ pub struct Vm {
     pub steps: u64,
     /// Set by `text 0`: the next string continues the one on the stack.
     line_break: bool,
+    /// Strings the option bodies left (Japanese builds put each label
+    /// there, as `option @x; push.cs "label"; ret`), in option order.
+    pub option_labels: Vec<String>,
 }
 
 impl Vm {
@@ -195,6 +198,7 @@ impl Vm {
             source: SourcePos::default(),
             steps: 0,
             line_break: false,
+            option_labels: Vec::new(),
         }
     }
 
@@ -350,6 +354,7 @@ impl Vm {
         }
         self.pc = first;
         self.options.clear();
+        self.option_labels.clear();
         Ok(())
     }
 
@@ -612,6 +617,15 @@ impl Vm {
     fn restore(&mut self, function: bool) -> Option<Stop> {
         if function {
             self.locals.pop();
+        }
+        if self
+            .contexts
+            .last()
+            .is_some_and(|c| c.kind == ContextKind::Option)
+        {
+            if let Some(Value::Str(label)) = self.stack.last() {
+                self.option_labels.push(label.clone());
+            }
         }
         self.stack.clear();
         self.statement_base = 0;

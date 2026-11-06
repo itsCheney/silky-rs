@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use silky_format::game::Kind;
+use silky_format::game::{Kind, Title};
 use silky_format::map::MapFile;
 use silky_vm::native::{self, script, GAME, SCRIPT};
 use silky_vm::{Flow, Host, Value, Vm};
@@ -20,6 +20,12 @@ const SCREEN: i32 = 20;
 const UI: i32 = 26;
 const MOVIE: i32 = 23;
 const MESWND: i32 = 2;
+const BACKLOG: i32 = 22;
+
+/// Game commands of ふゆから、くるる。 that きまぐれテンプテーション2 uses
+/// the same way (checked against its scripts); its other commands are its
+/// own and are reported as not carried out.
+const KIMATEN2_SHARED: [i32; 4] = [cmd::SPEAKER, cmd::PICTURE, cmd::SELECT, cmd::TITLE];
 
 /// Screen calls (class 20). Times are in frames of 1/60 s (provisional).
 mod screen {
@@ -201,6 +207,12 @@ pub struct Runtime {
     /// Character jolts (command 13, sub 7) for the frontend to play: slot
     /// and four offsets.
     pub jolts: Vec<(i32, Jolt)>,
+    /// Text of the next message (Japanese builds put it in the script and
+    /// pass it to `BackLog.3` before `MesWnd.3` shows it).
+    pending_text: Option<String>,
+    /// Script of the current message, for its read key (the text is shown
+    /// from a library function, so the VM is in `liblary.lib` by then).
+    message_script: String,
 }
 
 fn host_error(msg: impl Into<String>) -> silky_vm::Error {
@@ -231,7 +243,14 @@ impl Runtime {
             system_changed: false,
             read_before: false,
             movie: None,
+            pending_text: None,
+            message_script: String::new(),
         }
+    }
+
+    /// Script the current message is in (lowercase).
+    pub fn message_script(&self) -> &str {
+        &self.message_script
     }
 
     /// Starts the game at its first script (`start.mes`).
@@ -585,6 +604,11 @@ impl Runtime {
             Some(Value::Int(s)) => *s,
             _ => -1,
         };
+        let title = self.assets.game().title;
+        if title == Title::Kimaten2 && !KIMATEN2_SHARED.contains(&command) {
+            self.skip(format!("Game.{command}"), vm, GAME, command);
+            return Ok(Flow::Continue);
+        }
         let plain = [cmd::TITLE, cmd::LOCALIZE, cmd::SPEAKER];
         // A selection's last value is its window style (9, or -1 for the
         // default), not a sub command.
@@ -602,6 +626,17 @@ impl Runtime {
         let scene = &mut self.scene;
         match (command, sub, args.len()) {
             (cmd::SPEAKER, row, 1) if row >= 0 => scene.speaker = Some(row),
+            (cmd::SPEAKER, _, 1) if s(0).is_some() => scene.speaker_name = s(0),
+            // Japanese builds: (style, question); the labels are the
+            // strings the option bodies left.
+            (cmd::SELECT, _, 2) if s(1).is_some() => {
+                scene.text = s(1).filter(|q| !q.is_empty());
+                self.choices = std::mem::take(&mut vm.option_labels);
+                self.option_count = 0;
+                self.pause = Some(Pause::Choice);
+                self.handled += 1;
+                return Ok(Flow::Yield);
+            }
             (cmd::PORTRAIT, 6, 1) => scene.portrait = s(0).map(|b| (b, None)),
             (cmd::PORTRAIT, 7, 1) => {
                 if let Some(p) = &mut scene.portrait {
@@ -831,8 +866,14 @@ impl Host for Runtime {
                     Some(Value::Int(s)) => s,
                     _ => -1,
                 };
-                // Sprite.1 (layer, image): the title screen picture.
-                if class == SPRITE && sub == 1 && args.len() == 2 {
+                // Sprite.1 (layer, image): the title screen picture. In
+                // きまぐれテンプテーション2 it loads the title's button
+                // sheet, which the title screen draws in cells itself.
+                if class == SPRITE
+                    && sub == 1
+                    && args.len() == 2
+                    && self.assets.game().title == Title::Fuyukuru
+                {
                     let layer = args[0].int();
                     match args[1].as_str() {
                         Some(name) if !name.is_empty() => {
@@ -851,6 +892,33 @@ impl Host for Runtime {
                         return Ok(flow);
                     }
                 }
+                // Japanese builds: the message text arrives as BackLog.3
+                // (text), and MesWnd.3 (message, 0) shows it and waits;
+                // its result 0 means "go on".
+                if class == BACKLOG && sub == 3 {
+                    if let [Value::Str(text)] = args.as_slice() {
+                        self.pending_text = Some(text.clone());
+                        self.handled += 1;
+                        return Ok(Flow::Continue);
+                    }
+                }
+                if class == MESWND && sub == 3 {
+                    if let Some(text) = self.pending_text.take() {
+                        let index = args.first().map(Value::int).unwrap_or(0).max(0) as usize;
+                        self.scene.text = Some(text);
+                        if self.message_script.is_empty() {
+                            self.message_script =
+                                vm.script_name().unwrap_or("").to_ascii_lowercase();
+                        }
+                        let key = format!("{}:{index}", self.message_script);
+                        self.read_before = !self.system.read.insert(key);
+                        self.system_changed |= !self.read_before;
+                        self.pause = Some(Pause::Text { index });
+                        vm.push(0);
+                        self.handled += 1;
+                        return Ok(Flow::Yield);
+                    }
+                }
                 // MesWnd.2(0) takes the message window away (before scene
                 // changes and movies); the next message brings it back.
                 // MesWnd.2(1) shows it, which the next message does anyway.
@@ -859,6 +927,7 @@ impl Host for Runtime {
                         if *on == 0 {
                             self.scene.text = None;
                             self.scene.speaker = None;
+                            self.scene.speaker_name = None;
                         }
                         self.handled += 1;
                         return Ok(Flow::Continue);
@@ -904,8 +973,10 @@ impl Host for Runtime {
     }
 
     /// Start of a message: the speaker is set again for each line.
-    fn message(&mut self, _vm: &mut Vm, _number: u32) -> silky_vm::Result<Flow> {
+    fn message(&mut self, vm: &mut Vm, _number: u32) -> silky_vm::Result<Flow> {
+        self.message_script = vm.script_name().unwrap_or("").to_ascii_lowercase();
         self.scene.speaker = None;
+        self.scene.speaker_name = None;
         self.voice = None;
         // A new message cuts the voice of the last one, unless the player
         // turned that off.

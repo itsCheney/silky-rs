@@ -40,6 +40,11 @@ pub mod title {
     pub const SCENE_MODE: usize = 7;
     pub const MUSIC_MODE: usize = 8;
     pub const BACK: usize = 9;
+    /// きまぐれテンプテーション2's extras page also has アンネViewer,
+    /// 捜査手帳 and アンネの部屋.
+    pub const VIEWER: usize = 10;
+    pub const NOTEBOOK: usize = 11;
+    pub const ROOM: usize = 12;
 
     /// Value the title menu call returns to the script for an entry, if
     /// the script handles it. Continue, Load and Settings open engine
@@ -51,6 +56,9 @@ pub mod title {
             CG_MODE => 257,
             SCENE_MODE => 258,
             MUSIC_MODE => 259,
+            VIEWER => 260,
+            NOTEBOOK => 261,
+            ROOM => 262,
             _ => return None,
         })
     }
@@ -345,16 +353,92 @@ fn choice_top(i: usize, n: usize) -> i32 {
     CHOICE_CENTER_Y - CHOICE_PITCH * n as i32 / 2 + CHOICE_PITCH * i as i32
 }
 
+/// Title menu of きまぐれテンプテーション2: click areas from `title.area`
+/// (main page) and `title2.area` (extras), cells of `title_p.akb` side by
+/// side in area order, four 63-pixel state rows per block.
+struct Kimaten2Title {
+    /// (entry, screen area, sheet cell top left).
+    main: Vec<(usize, Area, (u32, u32))>,
+    extras: Vec<(usize, Area, (u32, u32))>,
+}
+
+impl Kimaten2Title {
+    const ROW: u32 = 63;
+
+    fn load(assets: &Assets) -> Result<Self> {
+        let main_areas = area::parse(&assets.data("title.area")?)?;
+        let extra_areas = area::parse(&assets.data("title2.area")?)?;
+        // Sheet blocks: the main entries from (0, 0); CG, scene, music and
+        // back from (0, 252); viewer, notebook and room from (490, 656).
+        let mut main = Vec::new();
+        let mut x = 0;
+        for a in main_areas.iter().filter(|a| (0..6).contains(&a.id)) {
+            main.push((a.id as usize, *a, (x, 0)));
+            x += a.width();
+        }
+        let find = |id: i32| extra_areas.iter().find(|a| a.id == id).copied();
+        let mut extras = Vec::new();
+        for (block, ids) in [
+            (
+                (0, 252),
+                [
+                    (256, title::CG_MODE),
+                    (257, title::SCENE_MODE),
+                    (258, title::MUSIC_MODE),
+                    (262, title::BACK),
+                ]
+                .as_slice(),
+            ),
+            (
+                (490, 656),
+                [
+                    (259, title::VIEWER),
+                    (260, title::NOTEBOOK),
+                    (261, title::ROOM),
+                ]
+                .as_slice(),
+            ),
+        ] {
+            let mut x = block.0;
+            for &(id, entry) in ids {
+                if let Some(a) = find(id) {
+                    extras.push((entry, a, (x, block.1)));
+                    x += a.width();
+                }
+            }
+        }
+        Ok(Self { main, extras })
+    }
+
+    fn entries(&self, extras: bool) -> &[(usize, Area, (u32, u32))] {
+        if extras {
+            &self.extras
+        } else {
+            &self.main
+        }
+    }
+}
+
 /// Screen layout of the interface, loaded once per game.
 pub struct Layout {
     language: Language,
     /// Message window buttons from `mes_o.area`, close button moved to
     /// screen coordinates.
     bar: Vec<Area>,
+    /// Set for きまぐれテンプテーション2, whose interface differs.
+    kimaten2: Option<Kimaten2Title>,
 }
 
 impl Layout {
     pub fn load(assets: &Assets, language: Language) -> Result<Self> {
+        if assets.game().title == silky_format::game::Title::Kimaten2 {
+            // Its message window buttons are not drawn yet.
+            return Ok(Self {
+                language,
+                bar: Vec::new(),
+                kimaten2: Some(Kimaten2Title::load(assets)?),
+            });
+        }
         let mut bar = area::parse(&assets.data("mes_o.area")?)?;
         bar.retain(|a| a.id <= bar::CLOSE);
         for a in &mut bar {
@@ -363,7 +447,11 @@ impl Layout {
                 a.bottom += CLOSE_AREA_TOP;
             }
         }
-        Ok(Self { language, bar })
+        Ok(Self {
+            language,
+            bar,
+            kimaten2: None,
+        })
     }
 
     /// Button under a point (screen pixels).
@@ -379,6 +467,13 @@ impl Layout {
                         && y < top + CHOICE_CELL.1 as i32
                 })
                 .map(Button::Choice);
+        }
+        if let (Some(extras), Some(k)) = (ui.title, &self.kimaten2) {
+            return k
+                .entries(extras)
+                .iter()
+                .find(|(_, a, _)| a.contains(x, y))
+                .map(|(e, _, _)| Button::Title(*e));
         }
         if let Some(extras) = ui.title {
             let l = title_layout(self.language);
@@ -414,7 +509,12 @@ impl Layout {
             let n = ui.choices.len();
             for (i, label) in ui.choices.iter().enumerate() {
                 let state = ui.state(Button::Choice(i), true, false) as u32;
-                let (sx, sy) = CHOICE_SHEET;
+                // きまぐれテンプテーション2: the same size of cell, lower
+                // on `message_p.akb` (provisional placement).
+                let (sx, sy) = match self.kimaten2 {
+                    Some(_) => (500, 600),
+                    None => CHOICE_SHEET,
+                };
                 let (w, h) = CHOICE_CELL;
                 let top = choice_top(i, n);
                 canvas.draw_part(
@@ -441,6 +541,16 @@ impl Layout {
                     );
                 }
             }
+        }
+        if let (Some(extras), Some(k)) = (ui.title, &self.kimaten2) {
+            let sheet = assets.image("title_p.akb")?;
+            for &(entry, a, (sx, sy)) in k.entries(extras) {
+                let b = Button::Title(entry);
+                let state = ui.state(b, ui.enabled(b), false) as u32;
+                let part = (sx, sy + Kimaten2Title::ROW * state, a.width(), a.height());
+                canvas.draw_part(&sheet, part, a.left, a.top, false, 255);
+            }
+            return Ok(());
         }
         if let Some(extras) = ui.title {
             let sheet =

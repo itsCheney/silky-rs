@@ -4,7 +4,7 @@ English | [简体中文](README.zh-CN.md)
 
 A cross-platform reimplementation of the Silky's engine (the "Silky Engine" used by SILKY'S PLUS and elf titles from 2014 on), written in Rust. It reads the original game files; you need your own copy of the game.
 
-The first target game is ふゆから、くるる。 (Fuyukara, Kururu.), 2026 international build 1.0.1.0. The second is きまぐれテンプテーション2 (2024, Japanese build with patch 1.02), which so far runs headless only. The first desktop platform is Windows.
+The first target game is ふゆから、くるる。 (Fuyukara, Kururu.), 2026 international build 1.0.1.0. The second is きまぐれテンプテーション2 (2024, Japanese build with patch 1.02), whose interface is partly done. The first desktop platform is Windows.
 
 ## Status
 
@@ -33,7 +33,7 @@ Early. What works today:
 
 On ふゆから、くるる。 all 56 scripts (7.9 million instructions) decode with every jump landing on an instruction, and all 3,255 images decode. Headless, the VM boots `start.mes` through the logo, caution and title scripts, and plays the story from `fk001.mes` on with its text in all three languages.
 
-On きまぐれテンプテーション2 all 64 scripts and 712 images decode. Headless, `silky-run trace` boots to the title menu and plays the story text with speaker names, in Japanese and, with the fan patch folder, in Simplified Chinese. Each game adds its own commands to the engine (native class 29); for this one the commands that return a value were read from its executable. Its interface (action and map menus, E-mote characters, its own screens) is not done, so the player and `silky-run snap` do not open it yet.
+On きまぐれテンプテーション2 all 64 scripts and 712 images decode. Headless, `silky-run trace` boots to the title menu and plays the story text with speaker names, in Japanese and, with the fan patch folder, in Simplified Chinese. Each game adds its own commands to the engine (native class 29); for this one the commands that return a value were read from its executable. The player and `silky-run snap` open it: the title menu, the message window with the speaker's name plate (the fan patch's redrawn plates for its Chinese names too) and the selections are drawn from the game's sheets, with the window position read from the executable. Text size, margins and line pitch there are provisional until compared with screenshots. Not done yet: the action and map menus (so the story stops at the first one), the window buttons, E-mote characters and the game's own save, backlog and settings screens.
 
 Not done yet: other effects. The "fixed window" setting is kept but changes nothing, since the window never moves here. `silky-run snap` lists every engine call the runtime does not carry out yet.
 

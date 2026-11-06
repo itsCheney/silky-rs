@@ -42,6 +42,9 @@ pub struct Scene {
     /// Speaker of the current line: row of the nameplate sheet (command
     /// 11). Cleared at every message.
     pub speaker: Option<i32>,
+    /// Speaker given by name (Japanese builds: `Game.11("name")`).
+    #[serde(default)]
+    pub speaker_name: Option<String>,
     /// Music playing, by channel, so a loaded save can start it again.
     pub music: BTreeMap<i32, String>,
     /// Screen covered by a colour (0xRRGGBB) after a fade out.

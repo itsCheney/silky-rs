@@ -176,7 +176,7 @@ fn snap(
         language,
         ..Config::default()
     };
-    silky_runtime::session::check_title(&game)?;
+    renderer.set_title(game.title);
     let assets = Assets::new(game);
     let layout = Layout::load(&assets, language)?;
     let mut rt = Runtime::new(assets, config);
@@ -217,7 +217,7 @@ fn snap(
                 Some(Pause::Text { index }) => {
                     rt.jolts.clear();
                     after_movie = None;
-                    let name = vm.script_name().unwrap_or("?");
+                    let name = rt.message_script();
                     if name != script {
                         script = name.to_string();
                         println!("script {script}");
@@ -229,7 +229,7 @@ fn snap(
                             ..Ui::default()
                         };
                         layout.draw(&mut frame, &mut rt.assets, &ui, true, None)?;
-                        let script = vm.script_name().unwrap_or("x").replace('.', "_");
+                        let script = rt.message_script().replace('.', "_");
                         let path = out.join(format!("line{line_no:05}-{script}-{index}.png"));
                         write_png(&path, &frame)?;
                         println!("{}", path.display());
