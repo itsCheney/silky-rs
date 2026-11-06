@@ -25,6 +25,10 @@ const BACKLOG: i32 = 22;
 /// Game commands of ふゆから、くるる。 that きまぐれテンプテーション2 uses
 /// the same way (checked against its scripts); its other commands are its
 /// own and are reported as not carried out.
+/// きまぐれテンプテーション2's action menu.
+const ACTION_MENU: i32 = 42;
+/// きまぐれテンプテーション2's map.
+const MAP: i32 = 43;
 const KIMATEN2_SHARED: [i32; 4] = [cmd::SPEAKER, cmd::PICTURE, cmd::SELECT, cmd::TITLE];
 
 /// Screen calls (class 20). Times are in frames of 1/60 s (provisional).
@@ -146,6 +150,26 @@ pub enum Pause {
     /// A movie plays (`Movie.2`); the frontend shows it, then runs the
     /// scripts again.
     Movie,
+    /// きまぐれテンプテーション2's action menu is up ([`Runtime::actions`]);
+    /// answer with [`Runtime::answer_action`].
+    Actions,
+    /// きまぐれテンプテーション2's map is up ([`Runtime::map`]); answer
+    /// with [`Runtime::answer_action`].
+    Map,
+}
+
+/// A button of きまぐれテンプテーション2's action menu (`Game.42`).
+///
+/// The script puts up to seven buttons in byte variables 0..7 before the
+/// call: 0 for none, else the icon (1 着替える .. 11 解除する) plus 50
+/// for a grey tick or 100 for a pink one (done). The call returns the
+/// variable's number plus one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActionButton {
+    pub result: i32,
+    pub icon: u32,
+    /// 0 none, 1 grey tick, 2 pink tick.
+    pub tick: u32,
 }
 
 /// The three extras screens of the title menu.
@@ -213,6 +237,10 @@ pub struct Runtime {
     /// Script of the current message, for its read key (the text is shown
     /// from a library function, so the VM is in `liblary.lib` by then).
     message_script: String,
+    /// Buttons of the action menu that is up.
+    pub actions: Vec<ActionButton>,
+    /// The map that is up.
+    pub map: Option<crate::kimaten2::map::Map>,
 }
 
 fn host_error(msg: impl Into<String>) -> silky_vm::Error {
@@ -245,6 +273,8 @@ impl Runtime {
             movie: None,
             pending_text: None,
             message_script: String::new(),
+            actions: Vec::new(),
+            map: None,
         }
     }
 
@@ -440,6 +470,13 @@ impl Runtime {
         vm.push(result);
     }
 
+    /// Answers the action menu or the map with a button's result.
+    pub fn answer_action(&mut self, vm: &mut Vm, result: i32) {
+        self.actions.clear();
+        self.map = None;
+        vm.push(result);
+    }
+
     fn skip(&mut self, name: String, vm: &mut Vm, class: i32, sub: i32) {
         *self.unhandled.entry(name).or_default() += 1;
         if native::returns_value(self.assets.game().title, class, sub) {
@@ -605,6 +642,51 @@ impl Runtime {
             _ => -1,
         };
         let title = self.assets.game().title;
+        if title == Title::Kimaten2 && command == ACTION_MENU {
+            self.actions = (0..7)
+                .filter_map(|i| {
+                    let v = vm.var_b(i) as u32;
+                    (v != 0).then_some(ActionButton {
+                        result: i as i32 + 1,
+                        icon: v % 100 % 50,
+                        tick: match v / 50 {
+                            0 => 0,
+                            1 => 1,
+                            _ => 2,
+                        },
+                    })
+                })
+                .collect();
+            self.handled += 1;
+            if self.actions.is_empty() {
+                vm.push(-1);
+                return Ok(Flow::Continue);
+            }
+            self.pause = Some(Pause::Actions);
+            return Ok(Flow::Yield);
+        }
+        if title == Title::Kimaten2 && command == MAP {
+            use crate::kimaten2::map;
+            // (voice set or -1, back button, which map)
+            let n = |i: usize| args.get(i).map(Value::int).unwrap_or(0);
+            let (voice, back, second) = (n(0), n(1) == 1, n(2) != 0);
+            if let Some(set) = map::VOICES
+                .get(voice.max(0) as usize)
+                .filter(|_| voice >= 0)
+            {
+                let file = set[vm.var_b(100) as usize % 3];
+                self.play(Bus::Voice, Kind::Voice, 0, file)?;
+            }
+            self.map = Some(map::Map {
+                second,
+                back,
+                bytes: (0..30).map(|i| vm.var_b(i)).collect(),
+                panel: None,
+            });
+            self.handled += 1;
+            self.pause = Some(Pause::Map);
+            return Ok(Flow::Yield);
+        }
         if title == Title::Kimaten2 && !KIMATEN2_SHARED.contains(&command) {
             self.skip(format!("Game.{command}"), vm, GAME, command);
             return Ok(Flow::Continue);

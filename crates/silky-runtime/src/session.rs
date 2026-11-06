@@ -247,15 +247,22 @@ impl Session {
         let Some(saves) = &self.saves else {
             return Ok(());
         };
-        if self.state != State::Text {
-            return Ok(());
-        }
+        // At a selection or an action menu, the save holds the message
+        // before it (loading it shows that message, then the menu again).
+        let state = match self.state {
+            State::Text => self.rt.save_state(&self.vm),
+            State::Choice => match self.log.last() {
+                Some(e) => e.state.clone(),
+                None => return Ok(()),
+            },
+            _ => return Ok(()),
+        };
         let saves = saves.clone();
         let thumb = match &self.thumb {
             Some(t) => Some(t.clone()),
             None => self.scene_thumb().ok(),
         };
-        saves.write(slot, self.rt.save_state(&self.vm), thumb.as_ref())?;
+        saves.write(slot, state, thumb.as_ref())?;
         self.ui.has_saves = true;
         Ok(())
     }
@@ -455,6 +462,29 @@ impl Session {
                         self.skip_to_choice = false;
                         self.ui.skip = false;
                         self.ui.auto = false;
+                        break;
+                    }
+                    Some(Pause::Actions) => {
+                        if self.rt.system.settings.auto_save_at_choices {
+                            self.auto_save();
+                        }
+                        self.ui.actions = self.rt.actions.clone();
+                        self.ui.waiting = false;
+                        self.ui.skip = false;
+                        self.ui.auto = false;
+                        self.skip_to_choice = false;
+                        self.state = State::Choice;
+                        self.base = None;
+                        break;
+                    }
+                    Some(Pause::Map) => {
+                        self.ui.map = self.rt.map.clone();
+                        self.ui.waiting = false;
+                        self.ui.skip = false;
+                        self.ui.auto = false;
+                        self.skip_to_choice = false;
+                        self.state = State::Choice;
+                        self.base = None;
                         break;
                     }
                     Some(Pause::Extras(kind)) => {
@@ -1304,6 +1334,35 @@ impl Session {
                     }
                 }
             },
+            Button::Action(i) => {
+                let result = self.ui.actions.get(i).map_or(-1, |a| a.result);
+                self.ui.actions.clear();
+                self.base = None;
+                self.rt.answer_action(&mut self.vm, result);
+                self.run()?;
+            }
+            Button::Map(id) => {
+                use crate::kimaten2::map::{Click, BACK};
+                let Some(m) = &mut self.ui.map else {
+                    return Ok(());
+                };
+                let click = match id {
+                    512 => Some(Click::Result(BACK)),
+                    256.. => m.click_panel((id - 256) as usize),
+                    _ => m.click_place(id as usize),
+                };
+                match click {
+                    Some(Click::Result(r)) => {
+                        self.ui.map = None;
+                        self.base = None;
+                        self.rt.answer_action(&mut self.vm, r);
+                        self.run()?;
+                    }
+                    Some(Click::OpenPanel(p)) => m.panel = Some(p),
+                    Some(Click::ClosePanel) => m.panel = None,
+                    None => {}
+                }
+            }
             Button::Choice(i) => {
                 self.ui.choices.clear();
                 let (skip, auto) = self.modes_at_choice;
@@ -1570,7 +1629,11 @@ impl Session {
     /// The game with its interface.
     fn game_frame(&mut self) -> Result<Canvas> {
         {
-            let window = !self.ui.window_hidden && self.state != State::Title;
+            // The action menu takes the message window away.
+            let window = !self.ui.window_hidden
+                && self.state != State::Title
+                && self.ui.actions.is_empty()
+                && self.ui.map.is_none();
             if self.base.is_none() {
                 self.base = Some(self.renderer.render_parts(
                     &self.rt.scene,

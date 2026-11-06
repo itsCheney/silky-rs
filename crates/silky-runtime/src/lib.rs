@@ -28,7 +28,7 @@ pub mod text;
 pub mod ui;
 
 pub use assets::{Assets, Language};
-pub use host::{Config, Extras, Pause, Runtime, SaveState, Transition};
+pub use host::{ActionButton, Config, Extras, Pause, Runtime, SaveState, Transition};
 pub use scene::Scene;
 pub use session::{Session, State};
 

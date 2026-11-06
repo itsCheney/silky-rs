@@ -88,6 +88,12 @@ enum Command {
         /// comes back to the title (an ending).
         #[arg(long, value_delimiter = ',')]
         path: Vec<usize>,
+        /// きまぐれテンプテーション2: buttons to take at the first action
+        /// menus, counted from 0, comma separated. Later menus take the
+        /// buttons without a pink tick in turn. The first five menus and
+        /// maps are saved as actionsN.png and mapN.png.
+        #[arg(long, value_delimiter = ',')]
+        actions: Vec<usize>,
         /// Height of the saved frames in pixels. The game is laid out in
         /// 1280 x 720; pictures are scaled up and text is drawn at this size.
         #[arg(long, default_value_t = 1080)]
@@ -133,27 +139,39 @@ fn main() -> Result<()> {
             font,
             choose,
             path,
+            actions,
             height,
         } => {
             let game = Game::open(&game)
                 .with_context(|| format!("cannot open game folder {}", game.display()))?;
             let language = pick_language(&silky_runtime::assets::languages(&game), lang)?;
-            snap(game, &out, &lines, language, &font, choose, &path, height)
+            let picks = Picks {
+                choose,
+                path,
+                actions,
+            };
+            snap(game, &out, &lines, language, &font, &picks, height)
         }
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+/// What `snap` answers at selections and action menus.
+struct Picks {
+    choose: usize,
+    path: Vec<usize>,
+    actions: Vec<usize>,
+}
+
 fn snap(
     game: Game,
     out: &std::path::Path,
     lines: &[u64],
     language: silky_runtime::Language,
     fonts: &[PathBuf],
-    choose: usize,
-    path: &[usize],
+    picks: &Picks,
     height: u32,
 ) -> Result<()> {
+    let (choose, path) = (picks.choose, &picks.path);
     use silky_runtime::render::Renderer;
     use silky_runtime::text::TextRenderer;
     use silky_runtime::ui::{Layout, Ui};
@@ -186,6 +204,9 @@ fn snap(
     let mut line_no = 0u64;
     let mut title_saved = false;
     let mut selections = 0usize;
+    let mut action_menus = 0usize;
+    let mut maps = 0usize;
+    let mut last_menu: (Vec<u32>, usize) = (Vec::new(), 0);
     // Frame shown when the game first waits after a movie (the movie's
     // still picture, the end card after the ending).
     let mut after_movie: Option<String> = None;
@@ -270,6 +291,84 @@ fn snap(
                     println!("select [{}] -> {}", rt.choices.join(" | "), choose);
                     let pick = choose.min(rt.choices.len().saturating_sub(1));
                     rt.answer_choice(&mut vm, pick);
+                }
+                Some(Pause::Actions) => {
+                    if action_menus < 5 {
+                        let mut frame = renderer.render_scene(&rt.scene, &mut rt.assets, false)?;
+                        let ui = Ui {
+                            actions: rt.actions.clone(),
+                            ..Ui::default()
+                        };
+                        layout.draw(&mut frame, &mut rt.assets, &ui, false, None)?;
+                        let path = out.join(format!("actions{action_menus}.png"));
+                        write_png(&path, &frame)?;
+                        println!("{}", path.display());
+                    }
+                    // Buttons not done yet (no pink tick), taken in turn
+                    // while the same menu comes back.
+                    let icons: Vec<u32> = rt.actions.iter().map(|a| a.icon).collect();
+                    if last_menu.0 == icons {
+                        last_menu.1 += 1;
+                    } else {
+                        last_menu = (icons, 0);
+                    }
+                    let open: Vec<_> = rt.actions.iter().filter(|a| a.tick != 2).collect();
+                    let turn = match open.len() {
+                        0 => rt.actions.first(),
+                        n => Some(open[last_menu.1 % n]),
+                    };
+                    let pick = picks
+                        .actions
+                        .get(action_menus)
+                        .and_then(|&i| rt.actions.get(i))
+                        .or(turn)
+                        .map_or(-1, |a| a.result);
+                    println!("actions {:?} -> {pick}", last_menu.0);
+                    action_menus += 1;
+                    rt.answer_action(&mut vm, pick);
+                }
+                Some(Pause::Map) => {
+                    use silky_runtime::kimaten2::map::{Click, BACK};
+                    let mut m = rt.map.clone().unwrap();
+                    // The first place not done yet, through its panel on
+                    // the second map; else back.
+                    let mut pick = BACK;
+                    for i in 0..m.places() {
+                        let spot = m.place(i);
+                        if !spot.shown || spot.done {
+                            continue;
+                        }
+                        match m.click_place(i) {
+                            Some(Click::Result(r)) => pick = r,
+                            Some(Click::OpenPanel(p)) => {
+                                m.panel = Some(p);
+                                let (spots, _) = m.panel_spots(p);
+                                match spots.iter().find(|(_, s)| s.enabled && !s.done) {
+                                    Some((k, _)) => match m.click_panel(*k) {
+                                        Some(Click::Result(r)) => pick = r,
+                                        _ => continue,
+                                    },
+                                    None => continue,
+                                }
+                            }
+                            _ => continue,
+                        }
+                        break;
+                    }
+                    if maps < 5 {
+                        let mut frame = renderer.render_scene(&rt.scene, &mut rt.assets, false)?;
+                        let ui = Ui {
+                            map: Some(m.clone()),
+                            ..Ui::default()
+                        };
+                        layout.draw(&mut frame, &mut rt.assets, &ui, false, None)?;
+                        let path = out.join(format!("map{maps}.png"));
+                        write_png(&path, &frame)?;
+                        println!("{}", path.display());
+                    }
+                    println!("map {} -> {pick}", if m.second { 2 } else { 1 });
+                    maps += 1;
+                    rt.answer_action(&mut vm, pick);
                 }
                 // Headless: leave extras screens, movies end at once.
                 Some(Pause::Extras(_)) => rt.answer_extras(&mut vm, -1),

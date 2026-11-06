@@ -439,6 +439,11 @@ impl Vm {
         set(&mut self.h, index, v.into());
     }
 
+    /// Byte variable (`ld.b`).
+    pub fn var_b(&self, index: usize) -> u8 {
+        self.bytes.get(index).copied().unwrap_or(0)
+    }
+
     pub fn set_seed(&mut self, seed: u32) {
         self.rng = seed.max(1);
     }

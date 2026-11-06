@@ -22,6 +22,11 @@ pub enum Button {
     Bar(i32),
     /// Option of a selection.
     Choice(usize),
+    /// Button of きまぐれテンプテーション2's action menu, by index.
+    Action(usize),
+    /// Button of きまぐれテンプテーション2's map, by its area id: places
+    /// 0.., panel buttons 256.., back 512.
+    Map(i32),
     /// Element of an engine screen (save/load, backlog), by area id.
     Screen(i32),
     /// Yes, no or "do not ask again" of a dialog, by `dialog.area` id.
@@ -118,6 +123,10 @@ pub struct Ui {
     pub previous_choice: bool,
     /// きまぐれテンプテーション2's side menu is open.
     pub side_menu: bool,
+    /// Buttons of きまぐれテンプテーション2's action menu, while it is up.
+    pub actions: Vec<crate::ActionButton>,
+    /// きまぐれテンプテーション2's map, while it is up.
+    pub map: Option<crate::kimaten2::map::Map>,
 }
 
 /// Button state, as the row of the sprite sheet.
@@ -480,6 +489,59 @@ struct Kimaten2 {
     bar: Vec<Cell>,
     /// Side menu entries (`mesmenu.area`, `message_menu.akb`).
     menu: Vec<Cell>,
+    /// Small buttons under the action menu (`actselect.area`).
+    action_bar: Vec<Cell>,
+    /// Map areas: `map01.area`, `map02.area` (places, back, small
+    /// buttons), `map03.area` (panels of the second map).
+    map_areas: [Vec<Area>; 2],
+    panel_areas: Vec<Area>,
+}
+
+/// Map sheets: places are 304 x 184 cells side by side, four state rows;
+/// panel buttons 240 x 88 and back buttons 112 x 72 lower on
+/// `map2_p.akb`, with the 探索終了 stamps.
+const MAP_PLACE: (u32, u32) = (304, 184);
+const MAP_PANEL_X: [u32; 8] = [0, 240, 480, 1440, 720, 960, 1200, 1440];
+const MAP_PANEL: (u32, u32) = (240, 88);
+const MAP_BACK: (u32, u32) = (112, 72);
+const MAP_SHEET_Y: u32 = 920;
+const MAP_STAMP: (u32, u32, u32, u32) = (1552, 920, 271, 168);
+const MAP_STAMP_SMALL: (u32, u32, u32, u32) = (1552, 1088, 144, 88);
+const MAP_BACK_ID: i32 = 512;
+
+/// Action menu buttons (304 x 94) by how many there are, top left corners
+/// (from the executable).
+const ACTION_SIZE: (u32, u32) = (304, 94);
+fn action_positions(n: usize) -> &'static [(i32, i32)] {
+    const ONE: [(i32, i32); 1] = [(488, 320)];
+    const TWO: [(i32, i32); 2] = [(328, 320), (649, 320)];
+    const FOUR: [(i32, i32); 4] = [(328, 240), (649, 240), (328, 357), (649, 357)];
+    const SIX: [(i32, i32); 6] = [
+        (328, 160),
+        (649, 160),
+        (328, 277),
+        (649, 277),
+        (328, 395),
+        (649, 395),
+    ];
+    match n {
+        0 => &[],
+        1 => &ONE,
+        2 => &TWO,
+        3 | 4 => &FOUR[..n],
+        _ => &SIX[..n.min(6)],
+    }
+}
+
+/// Cell of an action icon on `select_p.akb` (three state rows 94 apart).
+fn action_cell(icon: u32) -> (u32, u32) {
+    match icon {
+        1..=4 => (304 * (icon - 1), 0),
+        5..=8 => (304 * (icon - 5), 282),
+        9 => (608, 564),
+        10 => (912, 564),
+        _ => (912, 846),
+    }
 }
 
 impl Kimaten2 {
@@ -563,11 +625,218 @@ impl Kimaten2 {
                 });
             }
         }
+        // Save, load, quick save, quick load, notebook, collection: 56 x
+        // 58 cells of `select_p.akb` from (168, 564), four state rows.
+        let ids = [
+            bar::SAVE,
+            bar::LOAD,
+            bar::QUICK_SAVE,
+            bar::QUICK_LOAD,
+            bar::NOTEBOOK,
+            bar::COLLECTION,
+        ];
+        let mut action_bar = Vec::new();
+        for a in area::parse(&assets.data("actselect.area")?)? {
+            let k = (a.id - 3840) as usize;
+            if let Some(&id) = ids.get(k) {
+                action_bar.push(Cell {
+                    id,
+                    area: a,
+                    sheet: (168 + 56 * k as u32, 564),
+                    size: (56, 58),
+                    step: 58,
+                    states: 4,
+                });
+            }
+        }
         Ok(Self {
             title: Kimaten2Title::load(assets)?,
             bar,
             menu,
+            action_bar,
+            map_areas: [
+                area::parse(&assets.data("map01.area")?)?,
+                area::parse(&assets.data("map02.area")?)?,
+            ],
+            panel_areas: area::parse(&assets.data("map03.area")?)?,
         })
+    }
+
+    /// The small save/load/... buttons at their place on a screen.
+    fn small_buttons<'a>(&'a self, areas: &'a [Area]) -> impl Iterator<Item = Cell> + 'a {
+        self.action_bar.iter().filter_map(move |c| {
+            let k = c.area.id;
+            areas
+                .iter()
+                .find(|a| a.id == k)
+                .map(|a| Cell { area: *a, ..*c })
+        })
+    }
+
+    fn hit_map(&self, ui: &Ui, m: &crate::kimaten2::map::Map, x: i32, y: i32) -> Option<Button> {
+        let areas = &self.map_areas[m.second as usize];
+        let found = |list: &[Area], id: i32| {
+            list.iter()
+                .find(|a| a.id == id && a.contains(x, y))
+                .is_some()
+        };
+        if let Some(p) = m.panel {
+            let (spots, back) = m.panel_spots(p);
+            for (k, _) in spots {
+                if found(&self.panel_areas, 256 + k as i32) {
+                    return Some(Button::Map(256 + k as i32));
+                }
+            }
+            let k = p as i32 * 4 + 3;
+            if back && found(&self.panel_areas, 256 + k) {
+                return Some(Button::Map(256 + k));
+            }
+        } else {
+            for i in 0..m.places() {
+                if m.place(i).shown && found(areas, i as i32) {
+                    return Some(Button::Map(i as i32));
+                }
+            }
+        }
+        if m.back && found(areas, MAP_BACK_ID) {
+            return Some(Button::Map(MAP_BACK_ID));
+        }
+        let _ = ui;
+        self.small_buttons(areas)
+            .find(|c| c.area.contains(x, y))
+            .map(|c| Button::Bar(c.id))
+    }
+
+    fn draw_map(
+        &self,
+        canvas: &mut Canvas,
+        assets: &mut Assets,
+        ui: &Ui,
+        m: &crate::kimaten2::map::Map,
+    ) -> Result<()> {
+        let areas = &self.map_areas[m.second as usize];
+        let bg = assets.image(if m.second { "map2.akb" } else { "map1.akb" })?;
+        canvas.draw(&bg, 0, 0, false);
+        let places = assets.image(if m.second { "map2_p.akb" } else { "map1_p.akb" })?;
+        let sheet2 = assets.image("map2_p.akb")?;
+        let state = |b: Button, enabled: bool| {
+            if enabled {
+                (ui.state(b, true, false) as u32).min(2)
+            } else {
+                3
+            }
+        };
+        let at = |list: &[Area], id: i32| list.iter().find(|a| a.id == id).copied();
+        for i in 0..m.places() {
+            let spot = m.place(i);
+            let Some(a) = at(areas, i as i32).filter(|_| spot.shown) else {
+                continue;
+            };
+            let (w, h) = MAP_PLACE;
+            let st = state(Button::Map(i as i32), spot.enabled && m.panel.is_none());
+            canvas.draw_part(
+                &places,
+                (w * i as u32, h * st, w, h),
+                a.left,
+                a.top,
+                false,
+                255,
+            );
+            if spot.done {
+                let (sx, sy, sw, sh) = MAP_STAMP;
+                canvas.draw_part(
+                    &sheet2,
+                    (sx, sy, sw, sh),
+                    a.left + 16,
+                    a.top + 8,
+                    false,
+                    255,
+                );
+            }
+        }
+        let back = |canvas: &mut Canvas, id: i32, a: Area| {
+            let (w, h) = MAP_BACK;
+            let st = state(Button::Map(id), true);
+            canvas.draw_part(
+                &sheet2,
+                (1440, MAP_SHEET_Y + h * st, w, h),
+                a.left,
+                a.top,
+                false,
+                255,
+            );
+        };
+        if let Some(p) = m.panel {
+            let (spots, has_back) = m.panel_spots(p);
+            for (k, spot) in spots {
+                let id = 256 + k as i32;
+                let Some(a) = at(&self.panel_areas, id) else {
+                    continue;
+                };
+                let (w, h) = MAP_PANEL;
+                let st = state(Button::Map(id), spot.enabled);
+                canvas.draw_part(
+                    &sheet2,
+                    (MAP_PANEL_X[k], MAP_SHEET_Y + h * st, w, h),
+                    a.left,
+                    a.top,
+                    false,
+                    255,
+                );
+                if spot.done {
+                    let (sx, sy, sw, sh) = MAP_STAMP_SMALL;
+                    canvas.draw_part(&sheet2, (sx, sy, sw, sh), a.left + 48, a.top, false, 255);
+                }
+            }
+            let id = 256 + p as i32 * 4 + 3;
+            if let (true, Some(a)) = (has_back, at(&self.panel_areas, id)) {
+                back(canvas, id, a);
+            }
+        }
+        if let (true, Some(a)) = (m.back, at(areas, MAP_BACK_ID)) {
+            back(canvas, MAP_BACK_ID, a);
+        }
+        let select = assets.image("select_p.akb")?;
+        for c in self.small_buttons(areas) {
+            c.draw(canvas, &select, ui, false);
+        }
+        Ok(())
+    }
+
+    fn hit_actions(&self, ui: &Ui, x: i32, y: i32) -> Option<Button> {
+        let (w, h) = ACTION_SIZE;
+        let at = action_positions(ui.actions.len());
+        if let Some(i) = at
+            .iter()
+            .position(|&(ax, ay)| x >= ax && y >= ay && x < ax + w as i32 && y < ay + h as i32)
+        {
+            return Some(Button::Action(i));
+        }
+        self.action_bar
+            .iter()
+            .find(|c| c.area.contains(x, y))
+            .map(|c| Button::Bar(c.id))
+    }
+
+    fn draw_actions(&self, canvas: &mut Canvas, assets: &mut Assets, ui: &Ui) -> Result<()> {
+        let sheet = assets.image("select_p.akb")?;
+        let (w, h) = ACTION_SIZE;
+        let at = action_positions(ui.actions.len());
+        for (i, (a, &(x, y))) in ui.actions.iter().zip(at).enumerate() {
+            let state = (ui.state(Button::Action(i), true, false) as u32).min(2);
+            let (sx, sy) = action_cell(a.icon);
+            canvas.draw_part(&sheet, (sx, sy + h * state, w, h), x, y, false, 255);
+            // Ticks are whole cells drawn over the button.
+            match a.tick {
+                1 => canvas.draw_part(&sheet, (304, 846, w, h), x, y, false, 255),
+                2 => canvas.draw_part(&sheet, (608, 846, w, h), x, y, false, 255),
+                _ => {}
+            }
+        }
+        for c in &self.action_bar {
+            c.draw(canvas, &sheet, ui, false);
+        }
+        Ok(())
     }
 
     fn hit(&self, ui: &Ui, x: i32, y: i32) -> Option<Button> {
@@ -638,6 +907,12 @@ impl Layout {
                         && y < top + CHOICE_CELL.1 as i32
                 })
                 .map(Button::Choice);
+        }
+        if let (Some(m), Some(k)) = (&ui.map, &self.kimaten2) {
+            return k.hit_map(ui, m, x, y);
+        }
+        if let (false, Some(k)) = (ui.actions.is_empty(), &self.kimaten2) {
+            return k.hit_actions(ui, x, y);
         }
         if let (Some(extras), Some(k)) = (ui.title, &self.kimaten2) {
             return k
@@ -716,6 +991,12 @@ impl Layout {
                     );
                 }
             }
+        }
+        if let (Some(m), Some(k)) = (&ui.map, &self.kimaten2) {
+            return k.draw_map(canvas, assets, ui, m);
+        }
+        if let (false, Some(k)) = (ui.actions.is_empty(), &self.kimaten2) {
+            return k.draw_actions(canvas, assets, ui);
         }
         if let (Some(extras), Some(k)) = (ui.title, &self.kimaten2) {
             let sheet = assets.image("title_p.akb")?;
