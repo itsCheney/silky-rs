@@ -9,8 +9,8 @@ use std::sync::Arc;
 
 use silky_format::akb::Image;
 
-use crate::assets::Assets;
-use crate::scene::{Character, Scene};
+use crate::assets::{localized_name, Assets, Language};
+use crate::scene::Scene;
 use crate::text::TextRenderer;
 use crate::{Result, SCREEN_HEIGHT, SCREEN_WIDTH};
 
@@ -51,10 +51,11 @@ impl Canvas {
     /// Draws an image at (x, y), 1:1. Pure green (0, 255, 0) counts as
     /// transparent when `green_key` is set, as in event difference pictures.
     pub fn draw(&mut self, img: &Image, x: i32, y: i32, green_key: bool) {
-        self.draw_part(img, (0, 0, img.width, img.height), x, y, green_key);
+        self.draw_part(img, (0, 0, img.width, img.height), x, y, green_key, 255);
     }
 
-    /// Draws the rectangle (left, top, width, height) of an image at (x, y).
+    /// Draws the rectangle (left, top, width, height) of an image at (x, y),
+    /// with its alpha scaled by `opacity` (255 = as stored).
     pub fn draw_part(
         &mut self,
         img: &Image,
@@ -62,6 +63,7 @@ impl Canvas {
         x: i32,
         y: i32,
         green_key: bool,
+        opacity: u8,
     ) {
         let (pl, pt, pw, ph) = part;
         for row in 0..ph.min(img.height.saturating_sub(pt)) {
@@ -75,7 +77,8 @@ impl Canvas {
                 if green_key && s[0] == 0 && s[1] == 255 && s[2] == 0 {
                     continue;
                 }
-                self.blend_px(x + col as i32, dy, [s[0], s[1], s[2], s[3]]);
+                let a = (s[3] as u32 * opacity as u32 + 127) / 255;
+                self.blend_px(x + col as i32, dy, [s[0], s[1], s[2], a as u8]);
             }
         }
     }
@@ -169,43 +172,68 @@ fn slot_layout(slot: i32) -> (f32, i32) {
     }
 }
 
-/// Message window: the dark band at the top left of `message_p.akb`
-/// (rows 0..216 of rectangle 256 in `mes_c.area`; below it the sheet is
-/// empty), drawn at the bottom of the screen.
-const WINDOW_PART: (u32, u32, u32, u32) = (0, 0, 1280, 216);
-/// Text box inside the window. Provisional: not measured on the original.
-const TEXT_LEFT: f32 = 190.0;
-const TEXT_TOP: f32 = 575.0;
-const TEXT_WIDTH: f32 = 900.0;
-const TEXT_LINE: f32 = 40.0;
-/// Text size set by the scripts (`Font.0(28, 28)`).
-const TEXT_SIZE: f32 = 28.0;
+/// Message window, measured on screenshots of the original (Windows,
+/// Chinese text). `message_p.akb` holds a dark band (rows 0..220) and a
+/// paper texture (rows 220..440); both are drawn at the window position
+/// at half opacity.
+const WINDOW_BAND: (u32, u32, u32, u32) = (0, 0, 1280, 220);
+const WINDOW_TEXTURE: (u32, u32, u32, u32) = (0, 220, 1280, 220);
+const WINDOW_TOP: i32 = 500;
+const WINDOW_OPACITY: u8 = 128;
+/// Nameplate: row `n` of `nameplate_<lang>.akb` is a 376 x 56 plate.
+const NAMEPLATE_SIZE: (u32, u32) = (376, 56);
+const NAMEPLATE_POS: (i32, i32) = (264, 500);
+/// Window portrait: body (with face) scaled to 40 % with its top left here.
+const PORTRAIT_SCALE: f32 = 0.4;
+const PORTRAIT_POS: (f32, f32) = (-288.0, 320.0);
+/// Text: left edge and first baseline measured; Chinese characters sit on
+/// a fixed 26.5 px pitch at a 21 px size. Width and line pitch are
+/// provisional (no two-line sample yet).
+const TEXT_LEFT: f32 = 282.0;
+const TEXT_BASELINE: f32 = 578.0;
+const TEXT_WIDTH: f32 = 800.0;
+const TEXT_LINE: f32 = 34.0;
+const TEXT_SIZE: f32 = 21.0;
+const TEXT_WIDE_ADVANCE: f32 = 26.5 / TEXT_SIZE;
 
 pub struct Renderer {
     text: Option<TextRenderer>,
+    language: Language,
     characters: HashMap<(String, Option<String>), Arc<Image>>,
 }
 
 impl Renderer {
     /// `text` is `None` to leave out message text (no font available).
-    pub fn new(text: Option<TextRenderer>) -> Self {
+    pub fn new(text: Option<TextRenderer>, language: Language) -> Self {
+        let text = text.map(|mut t| {
+            if language != Language::English {
+                t.wide_advance = Some(TEXT_WIDE_ADVANCE);
+            }
+            t
+        });
         Self {
             text,
+            language,
             characters: HashMap::new(),
         }
     }
 
     /// Body with its expression drawn on, cached.
-    fn character(&mut self, assets: &mut Assets, c: &Character) -> Result<Arc<Image>> {
+    fn character(
+        &mut self,
+        assets: &mut Assets,
+        body: &str,
+        face: Option<&str>,
+    ) -> Result<Arc<Image>> {
         let key = (
-            c.body.to_ascii_lowercase(),
-            c.face.as_ref().map(|f| f.to_ascii_lowercase()),
+            body.to_ascii_lowercase(),
+            face.map(|f| f.to_ascii_lowercase()),
         );
         if let Some(img) = self.characters.get(&key) {
             return Ok(img.clone());
         }
-        let body = assets.image(&c.body)?;
-        let img = match &c.face {
+        let body = assets.image(body)?;
+        let img = match face {
             Some(face) => {
                 let face = assets.image(face)?;
                 let mut canvas = Canvas {
@@ -248,7 +276,7 @@ impl Renderer {
         let mut chars: Vec<_> = scene.characters.iter().collect();
         chars.sort_by_key(|(slot, _)| slot_layout(**slot).1);
         for (slot, c) in chars {
-            let img = self.character(assets, c)?;
+            let img = self.character(assets, &c.body, c.face.as_deref())?;
             let s = c.scale as f32 / 100.0;
             let x = SCREEN_WIDTH as f32 / 2.0 + slot_layout(*slot).0 - img.width as f32 * s / 2.0;
             let y = 300.0 - 700.0 * s;
@@ -262,16 +290,23 @@ impl Renderer {
 
         if let Some(text) = &scene.text {
             let parts = assets.image("message_p.akb")?;
-            canvas.draw_part(
-                &parts,
-                WINDOW_PART,
-                0,
-                (SCREEN_HEIGHT - WINDOW_PART.3) as i32,
-                false,
-            );
+            for part in [WINDOW_BAND, WINDOW_TEXTURE] {
+                canvas.draw_part(&parts, part, 0, WINDOW_TOP, false, WINDOW_OPACITY);
+            }
+            if let (true, Some((body, face))) = (scene.portrait_visible, &scene.portrait) {
+                let img = self.character(assets, body, face.as_deref())?;
+                let (x, y) = PORTRAIT_POS;
+                canvas.draw_scaled(&img, x, y, PORTRAIT_SCALE);
+            }
+            if let Some(row) = scene.speaker {
+                let sheet = assets.image(&localized_name("nameplate.akb", self.language))?;
+                let (w, h) = NAMEPLATE_SIZE;
+                let (x, y) = NAMEPLATE_POS;
+                canvas.draw_part(&sheet, (0, h * row as u32, w, h), x, y, false, 255);
+            }
             if let Some(tr) = &self.text {
                 for (i, line) in tr.wrap(text, TEXT_SIZE, TEXT_WIDTH).iter().enumerate() {
-                    let y = TEXT_TOP + TEXT_LINE * i as f32;
+                    let y = TEXT_BASELINE + TEXT_LINE * i as f32;
                     tr.draw_line(
                         &mut canvas,
                         line,

@@ -12,6 +12,8 @@ const SPRITE: i32 = 19;
 
 /// Game commands (class 29) this runtime knows.
 mod cmd {
+    /// Speaker nameplate: `Game.11(row)`, row of `nameplate_<lang>.akb`.
+    pub const SPEAKER: i32 = 11;
     /// Message window portrait: 6 body, 7 face, 9 show, 11 hide.
     pub const PORTRAIT: i32 = 10;
     /// Background: 0 load, 1 difference picture, 2 and 3 transitions.
@@ -104,13 +106,15 @@ impl Runtime {
             Some(Value::Int(s)) => *s,
             _ => -1,
         };
-        if sub >= 0 && command != cmd::TITLE && command != cmd::LOCALIZE {
+        let plain = [cmd::TITLE, cmd::LOCALIZE, cmd::SPEAKER];
+        if sub >= 0 && !plain.contains(&command) {
             args.pop();
         }
         let s = |i: usize| args.get(i).and_then(Value::as_str).map(str::to_string);
         let n = |i: usize| args.get(i).map(Value::int).unwrap_or(0);
         let scene = &mut self.scene;
         match (command, sub, args.len()) {
+            (cmd::SPEAKER, row, 1) if row >= 0 => scene.speaker = Some(row),
             (cmd::PORTRAIT, 6, 1) => scene.portrait = s(0).map(|b| (b, None)),
             (cmd::PORTRAIT, 7, 1) => {
                 if let Some(p) = &mut scene.portrait {
@@ -247,5 +251,11 @@ impl Host for Runtime {
                 Ok(Flow::Continue)
             }
         }
+    }
+
+    /// Start of a message: the speaker is set again for each line.
+    fn message(&mut self, _vm: &mut Vm, _number: u32) -> silky_vm::Result<Flow> {
+        self.scene.speaker = None;
+        Ok(Flow::Continue)
     }
 }

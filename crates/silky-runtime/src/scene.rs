@@ -26,10 +26,13 @@ pub struct Scene {
     /// Images loaded into sprite layers (class Sprite, sub 1); the title
     /// screen uses these.
     pub layers: BTreeMap<i32, String>,
-    /// Message window portrait: body and face (command 10). Tracked, not
-    /// drawn yet.
+    /// Message window portrait: body and face (command 10), drawn at the
+    /// bottom left over the window while `portrait_visible` is set.
     pub portrait: Option<(String, Option<String>)>,
     pub portrait_visible: bool,
+    /// Speaker of the current line: row of the nameplate sheet (command
+    /// 11). Cleared at every message.
+    pub speaker: Option<i32>,
     /// Current message text.
     pub text: Option<String>,
 }

@@ -20,9 +20,9 @@ Early. What works today:
 
 On ふゆから、くるる。 all 56 scripts (7.9 million instructions) decode with every jump landing on an instruction, and all 3,255 images decode. Headless, the VM boots `start.mes` through the logo, caution and title scripts, and plays the story from `fk001.mes` on with its text in all three languages.
 
-Not done yet: the title menu buttons, the message window portrait and name plate, transitions and effects, sound, movies, the backlog, saves, configuration, and the desktop player. `silky-run snap` lists every engine call the runtime does not carry out yet.
+Not done yet: the title menu buttons, the button bar and icons of the message window, close-up insets, transitions and effects, sound, movies, the backlog, saves, configuration, and the desktop player. `silky-run snap` lists every engine call the runtime does not carry out yet.
 
-Provisional (not yet compared with the original): the message text position and the standing character layout.
+Compared with screenshots of the original (Windows, Simplified Chinese): the message window, name plate, window portrait, the position and pitch of Chinese text, and the size and position of standing characters. Still provisional: English text metrics, the line pitch of two-line messages, and the wrap width.
 
 ## Layout
 

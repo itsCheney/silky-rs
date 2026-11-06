@@ -12,6 +12,10 @@ use crate::{Error, Result};
 
 pub struct TextRenderer {
     fonts: Vec<Font>,
+    /// Pen advance of CJK characters (and the punctuation used with them),
+    /// as a multiple of the text size. `None` uses the font's own advance;
+    /// set it for Chinese text only.
+    pub wide_advance: Option<f32>,
 }
 
 impl TextRenderer {
@@ -28,7 +32,10 @@ impl TextRenderer {
         if fonts.is_empty() {
             return Err(Error::Font("no font given".into()));
         }
-        Ok(Self { fonts })
+        Ok(Self {
+            fonts,
+            wide_advance: None,
+        })
     }
 
     fn font_for(&self, c: char) -> &Font {
@@ -39,7 +46,10 @@ impl TextRenderer {
     }
 
     fn advance(&self, c: char, size: f32) -> f32 {
-        self.font_for(c).metrics(c, size).advance_width
+        match self.wide_advance {
+            Some(k) if takes_cell(c) => size * k,
+            _ => self.font_for(c).metrics(c, size).advance_width,
+        }
     }
 
     /// Breaks text into lines no wider than `width`: at spaces for words,
@@ -90,10 +100,24 @@ impl TextRenderer {
                 let gx = pen.round() as i32 + m.xmin;
                 let gy = (y + dy).round() as i32 - m.height as i32 - m.ymin;
                 canvas.blend_mask(gx, gy, m.width, m.height, &bitmap, c);
-                pen += m.advance_width;
+                pen += self.advance(ch, size);
             }
         }
     }
+}
+
+/// CJK characters and full-width forms: a line may break around them.
+fn is_wide(c: char) -> bool {
+    matches!(
+        c as u32,
+        0x2e80..=0xd7ff | 0xf900..=0xfaff | 0xfe30..=0xfe4f | 0xff00..=0xff60 | 0xffe0..=0xffe6
+    )
+}
+
+/// Characters that take a full cell in CJK text, including the quotes and
+/// dashes that Latin fonts draw narrow.
+fn takes_cell(c: char) -> bool {
+    is_wide(c) || matches!(c, '“' | '”' | '‘' | '’' | '…' | '—')
 }
 
 /// Words with their following space kept as separate items; each CJK
@@ -102,8 +126,7 @@ fn split_words(text: &str) -> Vec<&str> {
     let mut out = Vec::new();
     let mut start = 0;
     for (i, c) in text.char_indices() {
-        let wide = c as u32 >= 0x2e80;
-        if c == ' ' || wide {
+        if c == ' ' || is_wide(c) {
             if start < i {
                 out.push(&text[start..i]);
             }

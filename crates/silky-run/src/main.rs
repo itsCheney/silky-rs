@@ -144,7 +144,7 @@ fn snap(
             .collect::<Result<Vec<_>>>()?;
         Some(TextRenderer::new(&files)?)
     };
-    let mut renderer = Renderer::new(text);
+    let mut renderer = Renderer::new(text, language);
     let config = Config {
         language,
         ..Config::default()
