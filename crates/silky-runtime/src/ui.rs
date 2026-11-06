@@ -86,10 +86,10 @@ pub mod bar {
     pub const QUIT: i32 = 12;
     pub const HIDE: i32 = 13;
     pub const CLOSE: i32 = 14;
-    /// きまぐれテンプテーション2 only: the side menu button, and buttons
-    /// whose functions are not done yet (pin the button bar, costume
-    /// screen, loop the voice, skip unread text too, and the side menu's
-    /// notebook and collection).
+    /// きまぐれテンプテーション2 only: the side menu button, the costume
+    /// screen, the notebook and collection, and buttons whose functions
+    /// are not done yet (pin the button bar, loop the voice, skip unread
+    /// text too).
     pub const MENU: i32 = 15;
     pub const PIN: i32 = 16;
     pub const COSTUME: i32 = 17;
@@ -127,6 +127,10 @@ pub struct Ui {
     pub actions: Vec<crate::ActionButton>,
     /// きまぐれテンプテーション2's map, while it is up.
     pub map: Option<crate::kimaten2::map::Map>,
+    /// きまぐれテンプテーション2: some notebook entry, some collection
+    /// item is open (enables their buttons).
+    pub notebook: bool,
+    pub collection: bool,
 }
 
 /// Button state, as the row of the sprite sheet.
@@ -157,7 +161,8 @@ impl Ui {
             Button::Title(title::CONTINUE | title::LOAD) => self.has_saves,
             Button::Bar(bar::LOAD | bar::QUICK_LOAD) => self.has_saves,
             Button::Bar(bar::PREVIOUS_CHOICE) => self.previous_choice,
-            Button::Bar(bar::COSTUME | bar::NOTEBOOK | bar::COLLECTION) => false,
+            Button::Bar(bar::NOTEBOOK) => self.notebook,
+            Button::Bar(bar::COLLECTION) => self.collection,
             _ => true,
         }
     }
@@ -871,6 +876,10 @@ impl Kimaten2 {
 }
 
 impl Layout {
+    pub fn is_kimaten2(&self) -> bool {
+        self.kimaten2.is_some()
+    }
+
     pub fn load(assets: &Assets, language: Language) -> Result<Self> {
         if assets.game().title == silky_format::game::Title::Kimaten2 {
             return Ok(Self {

@@ -444,6 +444,12 @@ impl Vm {
         self.bytes.get(index).copied().unwrap_or(0)
     }
 
+    /// Sets a byte variable, as a host screen does that writes game state
+    /// (the costume screen of きまぐれテンプテーション2).
+    pub fn set_var_b(&mut self, index: usize, value: u8) {
+        set(&mut self.bytes, index, value);
+    }
+
     pub fn set_seed(&mut self, seed: u32) {
         self.rng = seed.max(1);
     }

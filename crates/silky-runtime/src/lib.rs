@@ -10,6 +10,7 @@
 //! Engine calls the runtime does not carry out yet are counted in
 //! [`Runtime::unhandled`], never silently treated as done.
 
+pub mod archive;
 pub mod assets;
 pub mod audio;
 pub mod canvas;

@@ -12,12 +12,11 @@ use std::sync::Arc;
 
 use silky_format::akb::Image;
 use silky_format::area::Area;
-use silky_format::map::MapFile;
 
-use crate::assets::{localized_name, Assets, Language};
+use crate::assets::{localized_name, Assets, HelpLines, Language};
 use crate::game_tables::{entry_images, CG_ENTRIES, CG_IMAGES, MUSIC, SCENES};
 use crate::render::Canvas;
-use crate::screens::{area, area_file, draw_scroll_thumb, Cells, INK};
+use crate::screens::{area, area_file, draw_gem_thumb, draw_scroll_thumb, Cells, INK, K2_INK};
 use crate::system::{RightClick, Settings, SystemData, VOICE_GROUPS};
 use crate::text::TextRenderer;
 use crate::ui::{Button, Ui};
@@ -59,6 +58,9 @@ fn is_fixed(id: i32) -> bool {
 }
 /// System page toggle for auto mode itself (not a stored setting).
 pub const AUTO_MODE: i32 = 1536;
+/// きまぐれテンプテーション2's E-mote animation toggle (4352 in its
+/// `config00.area`, where ふゆから、くるる。 has the language buttons).
+pub const EMOTE_ANIMATION: i32 = 4608;
 
 // Settings sheets (`system_p`, `sound_p`).
 const TAB_SYSTEM: Cells = Cells::new(0, 0, 186, 117, 117);
@@ -92,12 +94,46 @@ const SND_BAR_H: u32 = 29;
 const SYSTEM_COVER_Y: i32 = 30;
 const SOUND_COVER_Y: i32 = 10;
 const VIEW: (i32, i32) = (25, 660);
-pub const SETTINGS_TRACK: (i32, i32, i32, i32) = (1008, 115, 26, 488);
+const SETTINGS_TRACK: (i32, i32, i32, i32) = (1008, 115, 26, 488);
 pub const SCROLL_STEP: i32 = 60;
 /// Colour sample of the message window on the system page (cover pixels).
 const WINDOW_SAMPLE: (i32, i32, u32, u32) = (31, 391, 468, 56);
 const HELP_POS: (f32, f32) = (96.0, 694.0);
 const HELP_SIZE: f32 = 17.0;
+
+// きまぐれテンプテーション2: `systembg`/`soundbg`, `system_cover`/
+// `sound_cover`, one sheet `systemsound_p` for both pages.
+const K2_TAB_SYSTEM: Cells = Cells::new(0, 0, 196, 125, 125);
+const K2_TAB_SOUND: Cells = Cells::new(196, 0, 196, 125, 125);
+const K2_BACK: Cells = Cells::new(392, 0, 188, 71, 72);
+const K2_RESET: Cells = Cells::new(580, 0, 68, 71, 72);
+const K2_GEM: Cells = Cells::new(648, 1, 46, 62, 64);
+const K2_ARROW: Cells = Cells::new(698, 0, 48, 47, 47);
+/// On rows 0..3, off rows 3..6.
+const K2_TOGGLE: Cells = Cells::new(648, 192, 49, 40, 40);
+/// Heart knobs: pink, blue, green, red, grey columns; three state rows.
+const K2_KNOB: Cells = Cells::new(392, 285, 40, 40, 40);
+/// Diamonds for the effect speed: normal, hover, chosen.
+const K2_RADIO: Cells = Cells::new(747, 0, 53, 45, 45);
+const K2_RIGHT_CLICK: [u32; 2] = [798, 1277];
+const K2_RIGHT_CLICK_CELL: (u32, u32, u32) = (477, 52, 52);
+/// Volume bar fills (x, y, width, height) and where they go from the
+/// left of their area; the black holes of the cover are a pixel taller.
+const K2_BAR_BIG: (u32, u32, u32, u32) = (0, 540, 268, 22);
+const K2_BAR_SMALL: (u32, u32, u32, u32) = (0, 608, 133, 18);
+const K2_BAR_LEFT: (i32, i32) = (7, 8);
+/// Value digits "0123456789%" (x, y, width, height); value boxes of the
+/// big bars to the right of the bar, of the small ones above it.
+const K2_DIGITS: (u32, u32, u32, u32) = (0, 500, 13, 15);
+const K2_VALUE_BIG: (i32, i32) = (303, 0);
+const K2_VALUE_SMALL: (i32, i32) = (8, -33);
+const K2_VALUE_W: i32 = 68;
+const K2_SYSTEM_COVER_Y: i32 = 64;
+const K2_SOUND_COVER_Y: i32 = 40;
+const K2_VIEW: (i32, i32) = (48, 612);
+const K2_TRACK: (i32, i32, i32, i32) = (988, 116, 45, 512);
+const K2_WINDOW_SAMPLE: (i32, i32, u32, u32) = (27, 328, 468, 58);
+const K2_HELP_POS: (f32, f32) = (164.0, 702.0);
 
 // Extras sheets (`cgmode_p`, `scenemode_p`, `musicmode_p`).
 const MODE_BUTTON: [Cells; 3] = [
@@ -199,12 +235,10 @@ pub struct Menus {
     gallery: Vec<Area>,
     scenes: Vec<Area>,
     music: Vec<Area>,
-    system_help: Option<MapFile>,
-    sound_help: Option<MapFile>,
-}
-
-fn map(assets: &Assets, name: &str) -> Option<MapFile> {
-    assets.data(name).ok().and_then(|d| MapFile::parse(&d).ok())
+    system_help: Option<HelpLines>,
+    sound_help: Option<HelpLines>,
+    /// きまぐれテンプテーション2: its own settings look.
+    kimaten2: bool,
 }
 
 fn find(areas: &[Area], x: i32, y: i32) -> Option<&Area> {
@@ -218,15 +252,35 @@ pub fn slider_value(a: &Area, x: i32) -> f32 {
 
 impl Menus {
     pub fn load(assets: &Assets, language: Language) -> Self {
+        let kimaten2 = assets.game().title == silky_format::game::Title::Kimaten2;
+        let mut system = area_file(assets, "config00.area");
+        let mut sound = area_file(assets, "config01.area");
+        if kimaten2 {
+            // Same ids as ふゆから、くるる。 but for the E-mote toggle and the
+            // voice groups (toggles from 1280, sliders from 1536).
+            for a in &mut system {
+                if a.id == 4352 {
+                    a.id = EMOTE_ANIMATION;
+                }
+            }
+            for a in &mut sound {
+                a.id = match a.id {
+                    1280..=1289 => a.id - 256,
+                    1536..=1545 => a.id - 256,
+                    id => id,
+                };
+            }
+        }
         Self {
             language,
-            system: area_file(assets, "config00.area"),
-            sound: area_file(assets, "config01.area"),
+            system,
+            sound,
             gallery: area_file(assets, "cgmode.area"),
             scenes: area_file(assets, "scmode.area"),
             music: area_file(assets, "soundmode.area"),
-            system_help: map(assets, "confighelp.map"),
-            sound_help: map(assets, "soundconfighelp.map"),
+            system_help: HelpLines::load(assets, "confighelp"),
+            sound_help: HelpLines::load(assets, "soundconfighelp"),
+            kimaten2,
         }
     }
 
@@ -249,35 +303,59 @@ impl Menus {
         }
     }
 
-    fn cover_y(page: Page) -> i32 {
-        match page {
-            Page::System => SYSTEM_COVER_Y,
-            Page::Sound => SOUND_COVER_Y,
+    fn cover_y(&self, page: Page) -> i32 {
+        match (self.kimaten2, page) {
+            (false, Page::System) => SYSTEM_COVER_Y,
+            (false, Page::Sound) => SOUND_COVER_Y,
+            (true, Page::System) => K2_SYSTEM_COVER_Y,
+            (true, Page::Sound) => K2_SOUND_COVER_Y,
+        }
+    }
+
+    fn view(&self) -> (i32, i32) {
+        match self.kimaten2 {
+            true => K2_VIEW,
+            false => VIEW,
+        }
+    }
+
+    /// Scroll bar track of the settings screen.
+    pub fn track(&self) -> (i32, i32, i32, i32) {
+        match self.kimaten2 {
+            true => K2_TRACK,
+            false => SETTINGS_TRACK,
+        }
+    }
+
+    /// Page picture of the settings screen.
+    fn cover(&self, assets: &mut Assets, page: Page) -> Result<Arc<Image>> {
+        match (self.kimaten2, page) {
+            (false, Page::System) => self.sheet(assets, "system_cover.akb"),
+            (false, Page::Sound) => self.sheet(assets, "sound_cover.akb"),
+            (true, Page::System) => assets.image("system_cover.akb"),
+            (true, Page::Sound) => assets.image("sound_cover.akb"),
         }
     }
 
     pub fn max_scroll(&self, assets: &mut Assets, page: Page) -> i32 {
-        let name = match page {
-            Page::System => "system_cover.akb",
-            Page::Sound => "sound_cover.akb",
-        };
-        let h = self.sheet(assets, name).map_or(0, |i| i.height as i32);
-        (h + Self::cover_y(page) - VIEW.1).max(0)
+        let h = self.cover(assets, page).map_or(0, |i| i.height as i32);
+        (h + self.cover_y(page) - self.view().1).max(0)
     }
 
     /// Area of a control on screen (page controls move with the scroll).
-    fn on_screen(a: &Area, scroll: i32) -> Option<Area> {
+    fn on_screen(&self, a: &Area, scroll: i32) -> Option<Area> {
         if is_fixed(a.id) {
             return Some(*a);
         }
+        let view = self.view();
         let (top, bottom) = (a.top - scroll, a.bottom - scroll);
-        (top >= VIEW.0 && bottom <= VIEW.1).then_some(Area { top, bottom, ..*a })
+        (top >= view.0 && bottom <= view.1).then_some(Area { top, bottom, ..*a })
     }
 
     pub fn hit_settings(&self, s: &SettingsScreen, x: i32, y: i32) -> Option<(Button, Area)> {
         self.settings_areas(s.page)
             .iter()
-            .filter_map(|a| Self::on_screen(a, s.scroll))
+            .filter_map(|a| self.on_screen(a, s.scroll))
             .find(|a| a.contains(x, y))
             .map(|a| (Button::Screen(a.id), a))
     }
@@ -294,35 +372,18 @@ impl Menus {
         text: Option<&TextRenderer>,
     ) -> Result<()> {
         let st = &data.settings;
-        let (bg, cover, sheet) = match s.page {
-            Page::System => ("system_bg.akb", "system_cover.akb", "system_p.akb"),
-            Page::Sound => ("sound_bg.akb", "sound_cover.akb", "sound_p.akb"),
+        if self.kimaten2 {
+            return self.draw_settings_kimaten2(canvas, assets, ui, s, data, max_scroll, text);
+        }
+        let (bg, sheet) = match s.page {
+            Page::System => ("system_bg.akb", "system_p.akb"),
+            Page::Sound => ("sound_bg.akb", "sound_p.akb"),
         };
         canvas.draw(&*self.sheet(assets, bg)?, 0, 0, false);
-        let cover = self.sheet(assets, cover)?;
-        // The visible band of the page picture.
-        let cy = Self::cover_y(s.page);
-        let src_top = (VIEW.0 - cy + s.scroll).max(0) as u32;
-        let dst_top = src_top as i32 + cy - s.scroll;
-        let h = (VIEW.1 - dst_top).max(0) as u32;
-        canvas.draw_part(&cover, (0, src_top, cover.width, h), 0, dst_top, false, 255);
-        if s.page == Page::System {
-            let (x, y, w, h) = WINDOW_SAMPLE;
-            let y = y + cy - s.scroll;
-            if y >= VIEW.0 && y + h as i32 <= VIEW.1 {
-                let c = st.window_color;
-                let rgba = [
-                    (c[0] * 255.0) as u8,
-                    (c[1] * 255.0) as u8,
-                    (c[2] * 255.0) as u8,
-                    (st.window_opacity * 255.0) as u8,
-                ];
-                canvas.fill(x, y, w, h, rgba);
-            }
-        }
+        self.draw_cover(canvas, assets, s, st, WINDOW_SAMPLE)?;
         let sheet = self.sheet(assets, sheet)?;
         for a in self.settings_areas(s.page) {
-            let Some(a) = Self::on_screen(a, s.scroll) else {
+            let Some(a) = self.on_screen(a, s.scroll) else {
                 continue;
             };
             let b = Button::Screen(a.id);
@@ -370,6 +431,184 @@ impl Menus {
             }
         }
         Ok(())
+    }
+
+    /// The visible band of the page picture, with the window colour
+    /// sample on the system page.
+    fn draw_cover(
+        &self,
+        canvas: &mut Canvas,
+        assets: &mut Assets,
+        s: &SettingsScreen,
+        st: &Settings,
+        sample: (i32, i32, u32, u32),
+    ) -> Result<()> {
+        let cover = self.cover(assets, s.page)?;
+        let view = self.view();
+        let cy = self.cover_y(s.page);
+        let src_top = (view.0 - cy + s.scroll).max(0) as u32;
+        let dst_top = src_top as i32 + cy - s.scroll;
+        let h = (view.1 - dst_top).max(0) as u32;
+        canvas.draw_part(&cover, (0, src_top, cover.width, h), 0, dst_top, false, 255);
+        if s.page == Page::System {
+            let (x, y, w, h) = sample;
+            let y = y + cy - s.scroll;
+            if y >= view.0 && y + h as i32 <= view.1 {
+                let c = st.window_color;
+                let rgba = [
+                    (c[0] * 255.0) as u8,
+                    (c[1] * 255.0) as u8,
+                    (c[2] * 255.0) as u8,
+                    (st.window_opacity * 255.0) as u8,
+                ];
+                canvas.fill(x, y, w, h, rgba);
+            }
+        }
+        Ok(())
+    }
+
+    /// Voice groups of the sound page: nine in きまぐれテンプテーション2.
+    pub fn voice_groups(&self) -> usize {
+        match self.kimaten2 {
+            true => 9,
+            false => VOICE_GROUPS,
+        }
+    }
+
+    /// The settings screen of きまぐれテンプテーション2: one sheet for both
+    /// pages, heart knobs, ON/off plates and volume bars with numbers.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_settings_kimaten2(
+        &self,
+        canvas: &mut Canvas,
+        assets: &mut Assets,
+        ui: &Ui,
+        s: &SettingsScreen,
+        data: &SystemData,
+        max_scroll: i32,
+        text: Option<&TextRenderer>,
+    ) -> Result<()> {
+        let st = &data.settings;
+        let bg = match s.page {
+            Page::System => "systembg.akb",
+            Page::Sound => "soundbg.akb",
+        };
+        canvas.draw(&*assets.image(bg)?, 0, 0, false);
+        self.draw_cover(canvas, assets, s, st, K2_WINDOW_SAMPLE)?;
+        let sheet = assets.image("systemsound_p.akb")?;
+        for a in self.settings_areas(s.page) {
+            let Some(a) = self.on_screen(a, s.scroll) else {
+                continue;
+            };
+            let id = a.id;
+            let b = Button::Screen(id);
+            let row = |active: bool| ui.state(b, true, active) as u32;
+            let sheet = &*sheet;
+            match id {
+                ids::SYSTEM_TAB => {
+                    K2_TAB_SYSTEM.draw(canvas, sheet, row(s.page == Page::System), &a)
+                }
+                ids::SOUND_TAB => K2_TAB_SOUND.draw(canvas, sheet, row(s.page == Page::Sound), &a),
+                ids::UP => {
+                    let r = if s.scroll > 0 { row(false) } else { 3 };
+                    K2_ARROW.draw(canvas, sheet, r, &a)
+                }
+                ids::DOWN => {
+                    let r = if s.scroll < max_scroll { row(false) } else { 3 };
+                    K2_ARROW.draw(canvas, sheet, 4 + r, &a)
+                }
+                ids::RESET => K2_RESET.draw(canvas, sheet, row(false), &a),
+                ids::BACK => K2_BACK.draw(canvas, sheet, row(false), &a),
+                ids::SCROLL => {}
+                _ => {
+                    let toggle = match s.page {
+                        Page::System if id == AUTO_MODE => Some(ui.auto),
+                        Page::System => system_toggle(st, id),
+                        Page::Sound => sound_toggle(st, id),
+                    };
+                    if let Some(on) = toggle {
+                        let r = row(false).min(2);
+                        K2_TOGGLE.draw(canvas, sheet, if on { r } else { 3 + r }, &a);
+                        continue;
+                    }
+                    match s.page {
+                        Page::System => self.draw_k2_system(canvas, sheet, ui, id, &a, st),
+                        Page::Sound => {
+                            if let Some(v) = sound_slider(st, id) {
+                                draw_k2_volume(canvas, sheet, id, &a, v);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let pressed = ui.pressed == Some(Button::Screen(ids::SCROLL));
+        let hover = ui.hover == Some(Button::Screen(ids::SCROLL));
+        let pos = s.scroll.max(0) as usize;
+        draw_gem_thumb(
+            canvas,
+            &sheet,
+            K2_GEM,
+            K2_TRACK,
+            pos,
+            max_scroll.max(0) as usize,
+            pressed,
+            hover,
+        );
+        if let (true, Some(tr), Some(Button::Screen(id))) = (st.tooltips, text, ui.hover) {
+            if let Some(help) = self.settings_help(s.page, id) {
+                let (x, y) = K2_HELP_POS;
+                tr.draw_outlined(canvas, help, x, y, HELP_SIZE, [255; 4], K2_INK);
+            }
+        }
+        Ok(())
+    }
+
+    fn draw_k2_system(
+        &self,
+        canvas: &mut Canvas,
+        sheet: &Image,
+        ui: &Ui,
+        id: i32,
+        a: &Area,
+        st: &Settings,
+    ) {
+        let state = |active: bool| ui.state(Button::Screen(id), true, active) as u32;
+        if let Some(v) = system_slider(st, id) {
+            // Speeds pink; red, green, blue, then grey for the opacity.
+            let column = match id {
+                2048 => 3,
+                2049 => 2,
+                2050 => 1,
+                2051 => 4,
+                _ => 0,
+            };
+            let knob = Cells {
+                x: K2_KNOB.x + K2_KNOB.w * column,
+                ..K2_KNOB
+            };
+            let x = a.left + 10 + (v.clamp(0.0, 1.0) * (a.width() as f32 - 20.0)) as i32;
+            let y = a.top + (a.height() as i32 - knob.h as i32) / 2;
+            let r = state(false).min(2);
+            canvas.draw_part(sheet, knob.part(r), x - knob.w as i32 / 2, y, false, 255);
+        } else if (2560..=2562).contains(&id) {
+            let chosen = st.effect_speed as i32 == id - 2560;
+            let r = if chosen { 2 } else { state(false).min(1) };
+            K2_RADIO.draw(canvas, sheet, r, a);
+        } else if (3072..=3077).contains(&id) {
+            let k = (id - 3072) as u32;
+            let (w, h, pitch) = K2_RIGHT_CLICK_CELL;
+            let active = right_click_option(k as usize) == st.right_click;
+            let row = (k / 2) * 4 + state(active).min(2);
+            canvas.draw_part(
+                sheet,
+                (K2_RIGHT_CLICK[(k % 2) as usize], pitch * row, w, h),
+                a.left + (a.width() as i32 - w as i32) / 2,
+                a.top + (a.height() as i32 - h as i32) / 2,
+                false,
+                255,
+            );
+        }
     }
 
     fn draw_toggle(canvas: &mut Canvas, sheet: &Image, ui: &Ui, a: &Area, on: bool) {
@@ -469,6 +708,7 @@ impl Menus {
     }
 
     fn settings_help(&self, page: Page, id: i32) -> Option<&str> {
+        let groups = self.voice_groups();
         let (help, index) = match page {
             Page::System => (
                 &self.system_help,
@@ -496,6 +736,7 @@ impl Menus {
                     ids::SOUND_TAB => 20,
                     ids::RESET => 21,
                     ids::BACK => 22,
+                    EMOTE_ANIMATION => 23,
                     _ => return None,
                 },
             ),
@@ -511,20 +752,20 @@ impl Menus {
                     768 => 6,
                     769 => 7,
                     1024..=1033 => 8 + (id - 1024) as usize,
-                    1280..=1289 => 18 + (id - 1280) as usize,
-                    1792 => 28,
-                    ids::UP => 29,
-                    ids::DOWN => 30,
-                    ids::SCROLL => 31,
-                    ids::SYSTEM_TAB => 32,
-                    ids::SOUND_TAB => 33,
-                    ids::RESET => 34,
-                    ids::BACK => 35,
+                    1280..=1289 => 8 + groups + (id - 1280) as usize,
+                    1792 => 8 + 2 * groups,
+                    ids::UP => 9 + 2 * groups,
+                    ids::DOWN => 10 + 2 * groups,
+                    ids::SCROLL => 11 + 2 * groups,
+                    ids::SYSTEM_TAB => 12 + 2 * groups,
+                    ids::SOUND_TAB => 13 + 2 * groups,
+                    ids::RESET => 14 + 2 * groups,
+                    ids::BACK => 15 + 2 * groups,
                     _ => return None,
                 },
             ),
         };
-        help.as_ref()?.line(self.language.map_section(), index)
+        help.as_ref()?.line(self.language, index)
     }
 
     /// A control of the settings screen where it is on screen now.
@@ -532,11 +773,11 @@ impl Menus {
         self.settings_areas(s.page)
             .iter()
             .find(|a| a.id == id)
-            .and_then(|a| Self::on_screen(a, s.scroll))
+            .and_then(|a| self.on_screen(a, s.scroll))
     }
 
     pub fn settings_track(&self, x: i32, y: i32) -> Option<f32> {
-        let (tx, ty, tw, th) = SETTINGS_TRACK;
+        let (tx, ty, tw, th) = self.track();
         (x >= tx - 20 && x < tx + tw + 20 && y >= ty && y < ty + th)
             .then(|| (y - ty) as f32 / th as f32)
     }
@@ -824,6 +1065,36 @@ fn draw_scroll_thumb_color(
 }
 
 /// The system page's toggles.
+/// A volume bar of きまぐれテンプテーション2 with its value in per cent.
+fn draw_k2_volume(canvas: &mut Canvas, sheet: &Image, id: i32, a: &Area, v: f32) {
+    let small = id >= 1280;
+    let ((bx, by, bw, bh), left, value) = match small {
+        true => (K2_BAR_SMALL, K2_BAR_LEFT.1, K2_VALUE_SMALL),
+        false => (K2_BAR_BIG, K2_BAR_LEFT.0, K2_VALUE_BIG),
+    };
+    let v = v.clamp(0.0, 1.0);
+    let top = a.top + (a.height() as i32 - bh as i32) / 2;
+    let filled = (v * bw as f32).round() as u32;
+    canvas.draw_part(sheet, (bx, by, filled, bh), a.left + left, top, false, 255);
+    // The number, centred in its black box (24 rows, as tall as a bar).
+    let (dx, dy, dw, dh) = K2_DIGITS;
+    let s = format!("{}%", (v * 100.0).round() as u32);
+    let glyph = |c: char| match c {
+        '0'..='9' => Some(c as u32 - '0' as u32),
+        '%' => Some(10),
+        _ => None,
+    };
+    let width = s.chars().filter_map(glyph).count() as i32 * dw as i32;
+    let box_left = a.left + value.0;
+    let box_top = a.top + (a.height() as i32 - 24) / 2 + value.1;
+    let mut x = box_left + (K2_VALUE_W - width) / 2;
+    let y = box_top + (24 - dh as i32) / 2;
+    for g in s.chars().filter_map(glyph) {
+        canvas.draw_part(sheet, (dx + dw * g, dy, dw, dh), x, y, false, 255);
+        x += dw as i32;
+    }
+}
+
 pub fn system_toggle(st: &Settings, id: i32) -> Option<bool> {
     Some(match id {
         0 => st.typewriter,
@@ -836,6 +1107,7 @@ pub fn system_toggle(st: &Settings, id: i32) -> Option<bool> {
         1792 => st.keep_auto_after_choices,
         2304 => st.fixed_window,
         2816..=2824 => st.confirm[confirm_question(id)],
+        EMOTE_ANIMATION => st.emote_animation,
         _ => return None,
     })
 }
@@ -904,6 +1176,7 @@ pub fn apply(st: &mut Settings, page: Page, id: i32, value: f32) -> bool {
             1792 => st.keep_auto_after_choices ^= true,
             2304 => st.fixed_window ^= true,
             2816..=2824 => st.confirm[confirm_question(id)] ^= true,
+            EMOTE_ANIMATION => st.emote_animation ^= true,
             1 => st.text_speed = value,
             1025 => st.skip_speed = value,
             1537 => st.auto_speed = value,

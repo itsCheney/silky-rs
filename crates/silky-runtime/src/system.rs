@@ -67,6 +67,9 @@ pub struct Settings {
     pub voice_group: [f32; VOICE_GROUPS],
     /// A click cuts the voice of the message.
     pub cut_voice: bool,
+    /// Animated E-mote characters (きまぐれテンプテーション2); kept for the
+    /// settings screen, E-mote is not drawn yet.
+    pub emote_animation: bool,
 }
 
 impl Default for Settings {
@@ -100,6 +103,7 @@ impl Default for Settings {
             voice_group_on: [true; VOICE_GROUPS],
             voice_group: [1.0; VOICE_GROUPS],
             cut_voice: true,
+            emote_animation: true,
         }
     }
 }
@@ -140,6 +144,24 @@ impl Settings {
         ) {
             (Some(b'v'), Some(c @ b'a'..=b'i')) => (c - b'a') as usize,
             _ => VOICE_GROUPS - 1,
+        }
+    }
+
+    /// Voice group in きまぐれテンプテーション2 (`k2a0001.ogg`): the third
+    /// letter names the speaker. Groups follow the sound page: アンネリーゼ,
+    /// コハル, 美代, 千代, みりあ, 花音, 晶, キルト, others. Letters matched to
+    /// names by the speaker shown after each voice in a trace.
+    pub fn voice_group_of_kimaten2(file: &str) -> usize {
+        match file.as_bytes().get(2).map(u8::to_ascii_lowercase) {
+            Some(b'a') => 0,
+            Some(b'b') => 1,
+            Some(b'c') => 2,
+            Some(b'd') => 3,
+            Some(b'f') => 4,
+            Some(b'g') => 5,
+            Some(b'h') => 6,
+            Some(b'e') => 7,
+            _ => 8,
         }
     }
 }
@@ -198,6 +220,8 @@ mod tests {
         assert_eq!(Settings::voice_group_of("va0001.ogg"), 0);
         assert_eq!(Settings::voice_group_of("VI0040.ogg"), 8);
         assert_eq!(Settings::voice_group_of("vk0145a.ogg"), 9);
+        assert_eq!(Settings::voice_group_of_kimaten2("K2E0001.OGG"), 7);
+        assert_eq!(Settings::voice_group_of_kimaten2("k2x0001.ogg"), 8);
     }
 
     #[test]

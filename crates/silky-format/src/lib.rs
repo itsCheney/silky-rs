@@ -9,6 +9,7 @@ pub mod arc;
 pub mod area;
 pub mod error;
 pub mod game;
+pub mod hlg;
 pub mod lzss;
 pub mod map;
 pub mod mes;

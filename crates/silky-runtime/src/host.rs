@@ -562,7 +562,12 @@ impl Runtime {
         let gain = match bus {
             Bus::Voice => {
                 let st = &self.system.settings;
-                let g = crate::system::Settings::voice_group_of(file);
+                let g = match self.assets.game().title {
+                    silky_format::game::Title::Kimaten2 => {
+                        crate::system::Settings::voice_group_of_kimaten2(file)
+                    }
+                    _ => crate::system::Settings::voice_group_of(file),
+                };
                 if st.voice_group_on[g] {
                     st.voice_group[g]
                 } else {

@@ -10,9 +10,8 @@ use std::sync::Arc;
 
 use silky_format::akb::Image;
 use silky_format::area::{self, Area};
-use silky_format::map::MapFile;
 
-use crate::assets::{localized_name, Assets, Language};
+use crate::assets::{localized_name, Assets, HelpLines, Language};
 use crate::render::Canvas;
 use crate::save::{self, Kind};
 use crate::text::TextRenderer;
@@ -111,37 +110,117 @@ impl Cells {
     }
 }
 
-// `save_load_p_<lang>.akb`.
-const SL_SAVE_MODE: Cells = Cells::new(0, 0, 186, 117, 117);
-const SL_LOAD_MODE: Cells = Cells::new(186, 0, 186, 117, 117);
-/// Up arrows in rows 0..4, down arrows in rows 4..8.
-const SL_ARROW: Cells = Cells::new(373, 0, 52, 53, 54);
-const SL_DELETE_ALL: Cells = Cells::new(427, 0, 71, 73, 74);
-const SL_DELETE: Cells = Cells::new(427, 296, 62, 62, 66);
-const SL_BACK: Cells = Cells::new(565, 0, 88, 91, 91);
-/// Rows 0..3 "create a save", 3..6 a save, 6..9 the newest save.
-const SL_ROW: Cells = Cells::new(653, 0, 970, 82, 82);
-/// Manual tab: rows 0..4 save mode, 4..8 load mode. Auto rows 0..4,
-/// quick rows 4..8 of the second column.
-const SL_TAB_MANUAL: Cells = Cells::new(1625, 0, 270, 67, 67);
-const SL_TAB_OTHER: Cells = Cells::new(1895, 0, 270, 67, 67);
-/// Small digits for dates: '/', ':', then 0..9.
-const SL_DIGIT_Y: u32 = 738;
-const SL_DIGIT_H: u32 = 14;
-const SL_SLASH: (u32, u32) = (833, 7);
-const SL_COLON: (u32, u32) = (840, 6);
-const SL_DIGITS: (u32, u32, u32) = (846, 11, 11);
+/// Look of the save and load screen: images, sheet cells, placement.
+struct SaveStyle {
+    save_bg: &'static str,
+    load_bg: &'static str,
+    sheet: &'static str,
+    /// Image names take a language suffix (`save_bg_en.akb`).
+    localized: bool,
+    save_mode: Cells,
+    load_mode: Cells,
+    /// Up arrows in rows 0..4, down arrows in rows 4..8.
+    arrow: Cells,
+    delete_all: Cells,
+    delete: Cells,
+    back: Cells,
+    /// Rows 0..3 "create a save", 3..6 a save, 6..9 the newest save.
+    row: Cells,
+    /// Manual tab: rows 0..4 save mode, 4..8 load mode. Auto rows 0..4,
+    /// quick rows 4..8 of the second column.
+    tab_manual: Cells,
+    tab_other: Cells,
+    /// Small digits for dates: top, height, '/', ':', then 0..9 as
+    /// (left, width, pitch).
+    digit_y: u32,
+    digit_h: u32,
+    slash: (u32, u32),
+    colon: (u32, u32),
+    digits: (u32, u32, u32),
+    /// Scroll bar track, measured on the background.
+    track: (i32, i32, i32, i32),
+    /// A gem that runs down the track, if the thumb is not a plain bar.
+    gem: Option<Cells>,
+    help_pos: (f32, f32),
+    help_ink: [u8; 4],
+    ink: [u8; 4],
+    /// Row label left of a save and of the newest save (after its badge).
+    label_x: (f32, f32),
+    /// Row column whose colour fills the black text field.
+    field_fill: u32,
+}
+
+/// `save_load_p_<lang>.akb` of ふゆから、くるる。
+const FUYUKURU_SAVE: SaveStyle = SaveStyle {
+    save_bg: "save_bg.akb",
+    load_bg: "load_bg.akb",
+    sheet: "save_load_p.akb",
+    localized: true,
+    save_mode: Cells::new(0, 0, 186, 117, 117),
+    load_mode: Cells::new(186, 0, 186, 117, 117),
+    arrow: Cells::new(373, 0, 52, 53, 54),
+    delete_all: Cells::new(427, 0, 71, 73, 74),
+    delete: Cells::new(427, 296, 62, 62, 66),
+    back: Cells::new(565, 0, 88, 91, 91),
+    row: Cells::new(653, 0, 970, 82, 82),
+    tab_manual: Cells::new(1625, 0, 270, 67, 67),
+    tab_other: Cells::new(1895, 0, 270, 67, 67),
+    digit_y: 738,
+    digit_h: 14,
+    slash: (833, 7),
+    colon: (840, 6),
+    digits: (846, 11, 11),
+    track: (1008, 121, 26, 511),
+    gem: None,
+    help_pos: (96.0, 694.0),
+    help_ink: INK,
+    ink: INK,
+    label_x: (160.0, 280.0),
+    field_fill: 156,
+};
+
+/// `saveload_p.akb` of きまぐれテンプテーション2. The rows have the same
+/// inner layout as in ふゆから、くるる。; the third tab column holds the
+/// row delete button (rows 0..4) and "delete all" (rows 4..8).
+const KIMATEN2_SAVE: SaveStyle = SaveStyle {
+    save_bg: "savebg.akb",
+    load_bg: "loadbg.akb",
+    sheet: "saveload_p.akb",
+    localized: false,
+    save_mode: Cells::new(0, 0, 196, 125, 125),
+    load_mode: Cells::new(196, 0, 196, 125, 125),
+    arrow: Cells::new(698, 0, 48, 47, 47),
+    delete_all: Cells::new(2053, 268, 64, 67, 67),
+    delete: Cells::new(2053, 0, 64, 67, 67),
+    back: Cells::new(392, 0, 188, 71, 72),
+    row: Cells::new(747, 0, 970, 82, 82),
+    tab_manual: Cells::new(1717, 0, 168, 67, 67),
+    tab_other: Cells::new(1885, 0, 168, 67, 67),
+    digit_y: 525,
+    digit_h: 14,
+    slash: (120, 12),
+    colon: (132, 10),
+    digits: (0, 12, 12),
+    track: (988, 116, 45, 512),
+    gem: Some(Cells::new(648, 1, 46, 62, 64)),
+    help_pos: (164.0, 702.0),
+    help_ink: [255, 255, 255, 255],
+    ink: K2_INK,
+    label_x: (160.0, 160.0),
+    field_fill: 892,
+};
+
+/// Text on the pink screens of きまぐれテンプテーション2.
+pub(crate) const K2_INK: [u8; 4] = [120, 32, 62, 255];
+
 /// Inside a row: thumbnail, the text field (drawn black on the sheet),
 /// the place of the label after the "new" badge.
 const ROW_THUMB: (i32, i32) = (18, 4);
 const ROW_FIELD: (u32, u32, u32, u32) = (160, 44, 729, 27);
-const ROW_LABEL_X: (f32, f32) = (160.0, 280.0);
-/// Scroll bar tracks, measured on the backgrounds.
-const SL_TRACK: (i32, i32, i32, i32) = (1008, 121, 26, 511);
+/// Scroll bar track of the backlog, measured on the background.
 const LOG_TRACK: (i32, i32, i32, i32) = (1069, 121, 26, 511);
 pub(crate) const THUMB_COLOR: [u8; 4] = [18, 112, 190, 255];
 /// Help line at the bottom of the save screen.
-const HELP_POS: (f32, f32) = (96.0, 694.0);
 const HELP_SIZE: f32 = 17.0;
 pub(crate) const INK: [u8; 4] = [34, 74, 120, 255];
 
@@ -180,17 +259,55 @@ const LOG_TEXT_SIZE: f32 = 21.0;
 const LOG_LINE: f32 = 32.0;
 const NAMEPLATE: (u32, u32) = (376, 56);
 
-// `dialog_p_<lang>.akb`.
-const DLG_YES: Cells = Cells::new(0, 0, 90, 47, 48);
-const DLG_NO: Cells = Cells::new(90, 0, 90, 47, 48);
-/// Rows: empty, hover, pressed, ticked.
-const DLG_CHECK: Cells = Cells::new(0, 145, 26, 26, 28);
-const DLG_BOX: (u32, u32, u32, u32) = (180, 0, 516, 203);
-const DLG_BOX_POS: (i32, i32) = (382, 221);
-/// Question images: one per 36 rows, to the right of the boxes.
-const DLG_QUESTION: (u32, u32, u32, u32) = (700, 3, 780, 31);
-const DLG_QUESTION_PITCH: u32 = 36;
-const DLG_QUESTION_Y: i32 = 251;
+/// Look of the yes/no dialog.
+struct DialogStyle {
+    sheet: &'static str,
+    localized: bool,
+    yes: Cells,
+    no: Cells,
+    /// Rows: empty, hover, pressed, ticked.
+    check: Cells,
+    box_part: (u32, u32, u32, u32),
+    box_pos: (i32, i32),
+    /// Question images, one per `question_pitch` rows, to the right of
+    /// the box; drawn centred on `question_center`, top at `question_y`.
+    question: (u32, u32, u32, u32),
+    question_pitch: u32,
+    question_center: i32,
+    question_y: i32,
+}
+
+/// `dialog_p_<lang>.akb` of ふゆから、くるる。
+const FUYUKURU_DIALOG: DialogStyle = DialogStyle {
+    sheet: "dialog_p.akb",
+    localized: true,
+    yes: Cells::new(0, 0, 90, 47, 48),
+    no: Cells::new(90, 0, 90, 47, 48),
+    check: Cells::new(0, 145, 26, 26, 28),
+    box_part: (180, 0, 516, 203),
+    box_pos: (382, 221),
+    question: (700, 3, 780, 31),
+    question_pitch: 36,
+    question_center: 640,
+    question_y: 251,
+};
+
+/// `dialog_p.akb` of きまぐれテンプテーション2: a winged box whose dark bar
+/// takes the question. Box placed so that its "don't ask again" text
+/// follows the check box of `dialog.area`.
+const KIMATEN2_DIALOG: DialogStyle = DialogStyle {
+    sheet: "dialog_p.akb",
+    localized: false,
+    yes: Cells::new(728, 0, 90, 47, 47),
+    no: Cells::new(728, 141, 90, 47, 47),
+    check: Cells::new(728, 482, 20, 20, 20),
+    box_part: (0, 0, 724, 365),
+    box_pos: (248, 74),
+    question: (820, 1, 601, 36),
+    question_pitch: 40,
+    question_center: 616,
+    question_y: 278,
+};
 
 /// The save screen is for saving or for loading.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -355,6 +472,10 @@ pub enum Screen {
     Backlog(Backlog),
     Settings(crate::menus::SettingsScreen),
     Extras(crate::menus::ExtrasScreen),
+    /// きまぐれテンプテーション2's notebook and collection.
+    Archive(crate::archive::ArchiveScreen),
+    /// きまぐれテンプテーション2's costume screen.
+    Costume(crate::archive::CostumeScreen),
 }
 
 /// Layouts of the screens, loaded once per game.
@@ -363,7 +484,7 @@ pub struct Screens {
     save_load: Vec<Area>,
     backlog: Vec<Area>,
     dialog: Vec<Area>,
-    help: Option<MapFile>,
+    help: Option<HelpLines>,
     /// きまぐれテンプテーション2: its own backlog look.
     kimaten2: bool,
 }
@@ -412,15 +533,26 @@ impl Screens {
             backlog,
             dialog: area_file(assets, "dialog.area"),
             kimaten2: assets.game().title == silky_format::game::Title::Kimaten2,
-            help: assets
-                .data("saveloadhelp.map")
-                .ok()
-                .and_then(|d| MapFile::parse(&d).ok()),
+            help: HelpLines::load(assets, "saveloadhelp"),
         }
     }
 
     fn sheet(&self, assets: &mut Assets, name: &str) -> Result<Arc<Image>> {
         assets.image(&localized_name(name, self.language))
+    }
+
+    fn save_style(&self) -> &'static SaveStyle {
+        match self.kimaten2 {
+            true => &KIMATEN2_SAVE,
+            false => &FUYUKURU_SAVE,
+        }
+    }
+
+    fn style_image(&self, assets: &mut Assets, st: &SaveStyle, name: &str) -> Result<Arc<Image>> {
+        match st.localized {
+            true => self.sheet(assets, name),
+            false => assets.image(name),
+        }
     }
 
     // Save and load screen.
@@ -465,12 +597,13 @@ impl Screens {
         text: Option<&TextRenderer>,
     ) -> Result<()> {
         use save_ids::*;
+        let sl = self.save_style();
         let bg = match s.mode {
-            Mode::Save => "save_bg.akb",
-            Mode::Load => "load_bg.akb",
+            Mode::Save => sl.save_bg,
+            Mode::Load => sl.load_bg,
         };
-        canvas.draw(&*self.sheet(assets, bg)?, 0, 0, false);
-        let sheet = self.sheet(assets, "save_load_p.akb")?;
+        canvas.draw(&*self.style_image(assets, sl, bg)?, 0, 0, false);
+        let sheet = self.style_image(assets, sl, sl.sheet)?;
         let state = |id: i32, active: bool| {
             let b = Button::Screen(id);
             ui.state(b, self.save_load_enabled(s, id, any_saves), active) as u32
@@ -478,20 +611,27 @@ impl Screens {
         for a in &self.save_load {
             let id = a.id;
             match id {
-                SAVE_MODE => SL_SAVE_MODE.draw(canvas, &sheet, state(id, s.mode == Mode::Save), a),
-                LOAD_MODE => SL_LOAD_MODE.draw(canvas, &sheet, state(id, s.mode == Mode::Load), a),
-                DELETE_ALL => SL_DELETE_ALL.draw(canvas, &sheet, state(id, false), a),
-                BACK => SL_BACK.draw(canvas, &sheet, state(id, false), a),
-                UP => SL_ARROW.draw(canvas, &sheet, state(id, false), a),
-                DOWN => SL_ARROW.draw(canvas, &sheet, 4 + state(id, false), a),
+                SAVE_MODE => sl
+                    .save_mode
+                    .draw(canvas, &sheet, state(id, s.mode == Mode::Save), a),
+                LOAD_MODE => sl
+                    .load_mode
+                    .draw(canvas, &sheet, state(id, s.mode == Mode::Load), a),
+                DELETE_ALL => sl.delete_all.draw(canvas, &sheet, state(id, false), a),
+                BACK => sl.back.draw(canvas, &sheet, state(id, false), a),
+                UP => sl.arrow.draw(canvas, &sheet, state(id, false), a),
+                DOWN => sl.arrow.draw(canvas, &sheet, 4 + state(id, false), a),
                 TAB_MANUAL => {
                     let base = if s.mode == Mode::Save { 0 } else { 4 };
                     let st = state(id, s.tab == Kind::Manual);
-                    SL_TAB_MANUAL.draw(canvas, &sheet, base + st, a)
+                    sl.tab_manual.draw(canvas, &sheet, base + st, a)
                 }
-                TAB_AUTO => SL_TAB_OTHER.draw(canvas, &sheet, state(id, s.tab == Kind::Auto), a),
+                TAB_AUTO => sl
+                    .tab_other
+                    .draw(canvas, &sheet, state(id, s.tab == Kind::Auto), a),
                 TAB_QUICK => {
-                    SL_TAB_OTHER.draw(canvas, &sheet, 4 + state(id, s.tab == Kind::Quick), a)
+                    sl.tab_other
+                        .draw(canvas, &sheet, 4 + state(id, s.tab == Kind::Quick), a)
                 }
                 _ => {}
             }
@@ -507,22 +647,18 @@ impl Screens {
             let (x, y) = (a.left, a.top);
             match item {
                 Item::Create => {
-                    canvas.draw_part(&sheet, SL_ROW.part(st), x, y, false, 255);
+                    canvas.draw_part(&sheet, sl.row.part(st), x, y, false, 255);
                 }
                 Item::Slot(r) => {
                     let cell = if r.newest { 6 } else { 3 } + st;
-                    draw_row_cell(canvas, &sheet, SL_ROW.part(cell), x, y);
+                    draw_row_cell(canvas, &sheet, sl.row.part(cell), sl.field_fill, x, y);
                     if let Some(t) = &r.thumb {
                         canvas.draw(t, x + ROW_THUMB.0, y + ROW_THUMB.1, false);
                     }
                     if let Some(tr) = text {
                         let label = self.slot_label(r);
-                        let lx = if r.newest {
-                            ROW_LABEL_X.1
-                        } else {
-                            ROW_LABEL_X.0
-                        };
-                        tr.draw_plain(canvas, &label, x as f32 + lx, y as f32 + 33.0, 18.0, INK);
+                        let lx = if r.newest { sl.label_x.1 } else { sl.label_x.0 };
+                        tr.draw_plain(canvas, &label, x as f32 + lx, y as f32 + 33.0, 18.0, sl.ink);
                         if let Some(t) = &r.text {
                             let line = first_line(tr, t, 16.0, ROW_FIELD.2 as f32 - 16.0);
                             tr.draw_plain(
@@ -531,33 +667,58 @@ impl Screens {
                                 x as f32 + ROW_FIELD.0 as f32 + 8.0,
                                 y as f32 + 64.0,
                                 16.0,
-                                INK,
+                                sl.ink,
                             );
                         }
                     }
                     let date = format_time(r.saved_at);
                     let right = x + ROW_FIELD.0 as i32 + ROW_FIELD.2 as i32;
-                    draw_digits(canvas, &sheet, &date, right, y + 18);
+                    draw_digits(canvas, &sheet, sl, &date, right, y + 18);
                     if let Some(a) = area(&self.save_load, DELETE + row as i32) {
-                        SL_DELETE.draw(canvas, &sheet, state(DELETE + row as i32, false), a);
+                        sl.delete
+                            .draw(canvas, &sheet, state(DELETE + row as i32, false), a);
                     }
                 }
             }
         }
-        if let Some(a) = area(&self.save_load, SCROLL) {
-            let _ = a;
-            draw_scroll_thumb(canvas, SL_TRACK, s.scroll, s.len(), SAVE_ROWS);
+        if area(&self.save_load, SCROLL).is_some() {
+            match sl.gem {
+                Some(gem) => {
+                    let pressed = ui.pressed == Some(Button::Screen(SCROLL));
+                    let hover = ui.hover == Some(Button::Screen(SCROLL));
+                    // At the top while there is nothing to scroll.
+                    let max = s.max_scroll().max(1);
+                    draw_gem_thumb(canvas, &sheet, gem, sl.track, s.scroll, max, pressed, hover);
+                }
+                None => draw_scroll_thumb(canvas, sl.track, s.scroll, s.len(), SAVE_ROWS),
+            }
         }
         if let (Some(tr), Some(Button::Screen(id))) = (text, ui.hover) {
             if let Some(help) = self.help_line(s, id) {
-                tr.draw_plain(canvas, &help, HELP_POS.0, HELP_POS.1, HELP_SIZE, INK);
+                self.draw_help(tr, canvas, &help, sl.help_pos, sl.help_ink);
             }
         }
         Ok(())
     }
 
     fn help(&self, index: usize) -> Option<&str> {
-        self.help.as_ref()?.line(self.language.map_section(), index)
+        self.help.as_ref()?.line(self.language, index)
+    }
+
+    /// A help line: plain ink, or white with an edge on the pink bar of
+    /// きまぐれテンプテーション2.
+    fn draw_help(
+        &self,
+        tr: &TextRenderer,
+        canvas: &mut Canvas,
+        line: &str,
+        pos: (f32, f32),
+        ink: [u8; 4],
+    ) {
+        match self.kimaten2 {
+            true => tr.draw_outlined(canvas, line, pos.0, pos.1, HELP_SIZE, ink, K2_INK),
+            false => tr.draw_plain(canvas, line, pos.0, pos.1, HELP_SIZE, ink),
+        }
     }
 
     /// Row title: "Save Data 001", "Auto Save #01", ...
@@ -814,21 +975,19 @@ impl Screens {
             }
         }
         // The thumb is a gem that runs down the track.
-        let (x, y, w, h) = K_LOG_TRACK;
         let max = Backlog::max_top(log.len());
-        let travel = h - K_LOG_GEM.h as i32;
-        let top = y + if max == 0 {
-            travel
-        } else {
-            travel * b.top as i32 / max as i32
-        };
-        let row = match ui.pressed {
-            Some(Button::Screen(SCROLL)) => 2,
-            _ if ui.hover == Some(Button::Screen(SCROLL)) => 1,
-            _ => 0,
-        };
-        let left = x + (w - K_LOG_GEM.w as i32) / 2;
-        canvas.draw_part(&sheet, K_LOG_GEM.part(row), left, top, false, 255);
+        let pressed = ui.pressed == Some(Button::Screen(SCROLL));
+        let hover = ui.hover == Some(Button::Screen(SCROLL));
+        draw_gem_thumb(
+            canvas,
+            &sheet,
+            K_LOG_GEM,
+            K_LOG_TRACK,
+            b.top,
+            max,
+            pressed,
+            hover,
+        );
         Ok(())
     }
 
@@ -837,7 +996,7 @@ impl Screens {
         let (areas, id, track) = if backlog {
             (&self.backlog, log_ids::SCROLL, self.log_track())
         } else {
-            (&self.save_load, save_ids::SCROLL, SL_TRACK)
+            (&self.save_load, save_ids::SCROLL, self.save_style().track)
         };
         area(areas, id).filter(|a| a.contains(x, y))?;
         Some(((y - track.1) as f32 / track.3 as f32).clamp(0.0, 1.0))
@@ -861,25 +1020,32 @@ impl Screens {
     ) -> Result<()> {
         use dialog_ids::*;
         canvas.fill(0, 0, canvas.width, canvas.height, [0, 0, 0, 110]);
-        let sheet = self.sheet(assets, "dialog_p.akb")?;
-        canvas.draw_part(&sheet, DLG_BOX, DLG_BOX_POS.0, DLG_BOX_POS.1, false, 255);
-        // Question: centre the drawn part of its strip on the box.
-        let (qx, qy, qw, qh) = DLG_QUESTION;
-        let qy = qy + DLG_QUESTION_PITCH * d.action.question() as u32;
+        let ds = match self.kimaten2 {
+            true => &KIMATEN2_DIALOG,
+            false => &FUYUKURU_DIALOG,
+        };
+        let sheet = match ds.localized {
+            true => self.sheet(assets, ds.sheet)?,
+            false => assets.image(ds.sheet)?,
+        };
+        canvas.draw_part(&sheet, ds.box_part, ds.box_pos.0, ds.box_pos.1, false, 255);
+        // Question: centre the drawn part of its strip.
+        let (qx, qy, qw, qh) = ds.question;
+        let qy = qy + ds.question_pitch * d.action.question() as u32;
         if let Some((l, r)) = opaque_columns(&sheet, qx, qy, qw, qh) {
             let w = r - l;
-            let x = DLG_BOX_POS.0 + (DLG_BOX.2 as i32 - w as i32) / 2;
-            canvas.draw_part(&sheet, (l, qy, w, qh), x, DLG_QUESTION_Y, false, 255);
+            let x = ds.question_center - w as i32 / 2;
+            canvas.draw_part(&sheet, (l, qy, w, qh), x, ds.question_y, false, 255);
         }
         for a in &self.dialog {
             let st = ui.state(Button::Dialog(a.id), true, false) as u32;
             match a.id {
-                YES => DLG_YES.draw(canvas, &sheet, st.min(2), a),
-                NO => DLG_NO.draw(canvas, &sheet, st.min(2), a),
+                YES => ds.yes.draw(canvas, &sheet, st.min(2), a),
+                NO => ds.no.draw(canvas, &sheet, st.min(2), a),
                 DONT_ASK => {
                     let row = if d.dont_ask { 3 } else { st.min(2) };
-                    let y = a.top + (a.height() as i32 - DLG_CHECK.h as i32) / 2;
-                    canvas.draw_part(&sheet, DLG_CHECK.part(row), a.left, y, false, 255);
+                    let y = a.top + (a.height() as i32 - ds.check.h as i32) / 2;
+                    canvas.draw_part(&sheet, ds.check.part(row), a.left, y, false, 255);
                 }
                 _ => {}
             }
@@ -890,7 +1056,14 @@ impl Screens {
 
 /// Draws a save row, leaving out the black text field of the sheet: the
 /// field is filled with the row colour next to it.
-fn draw_row_cell(canvas: &mut Canvas, sheet: &Image, part: (u32, u32, u32, u32), x: i32, y: i32) {
+fn draw_row_cell(
+    canvas: &mut Canvas,
+    sheet: &Image,
+    part: (u32, u32, u32, u32),
+    fill: u32,
+    x: i32,
+    y: i32,
+) {
     let (sx, sy, w, h) = part;
     let (fx, fy, fw, fh) = ROW_FIELD;
     let pieces = [
@@ -912,7 +1085,7 @@ fn draw_row_cell(canvas: &mut Canvas, sheet: &Image, part: (u32, u32, u32, u32),
     for col in 0..fw {
         canvas.draw_part(
             sheet,
-            (sx + fx - 4, sy + fy, 1, fh),
+            (sx + fill, sy + fy, 1, fh),
             x + (fx + col) as i32,
             y + fy as i32,
             false,
@@ -922,13 +1095,13 @@ fn draw_row_cell(canvas: &mut Canvas, sheet: &Image, part: (u32, u32, u32, u32),
 }
 
 /// Draws a date in the small digits of the sheet, right-aligned at `right`.
-fn draw_digits(canvas: &mut Canvas, sheet: &Image, s: &str, right: i32, y: i32) {
+fn draw_digits(canvas: &mut Canvas, sheet: &Image, sl: &SaveStyle, s: &str, right: i32, y: i32) {
     let cell = |c: char| -> Option<(u32, u32)> {
         match c {
-            '/' => Some(SL_SLASH),
-            ':' => Some(SL_COLON),
+            '/' => Some(sl.slash),
+            ':' => Some(sl.colon),
             '0'..='9' => {
-                let (x, w, pitch) = SL_DIGITS;
+                let (x, w, pitch) = sl.digits;
                 Some((x + pitch * (c as u32 - '0' as u32), w))
             }
             _ => None,
@@ -942,12 +1115,40 @@ fn draw_digits(canvas: &mut Canvas, sheet: &Image, s: &str, right: i32, y: i32) 
     for c in s.chars() {
         match cell(c) {
             Some((sx, w)) => {
-                canvas.draw_part(sheet, (sx, SL_DIGIT_Y, w, SL_DIGIT_H), x, y, false, 255);
+                canvas.draw_part(sheet, (sx, sl.digit_y, w, sl.digit_h), x, y, false, 255);
                 x += w as i32;
             }
             None => x += 6,
         }
     }
+}
+
+/// A gem thumb running down a scroll track (きまぐれテンプテーション2).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn draw_gem_thumb(
+    canvas: &mut Canvas,
+    sheet: &Image,
+    gem: Cells,
+    track: (i32, i32, i32, i32),
+    pos: usize,
+    max: usize,
+    pressed: bool,
+    hover: bool,
+) {
+    let (x, y, w, h) = track;
+    let travel = h - gem.h as i32;
+    let top = y + if max == 0 {
+        travel
+    } else {
+        travel * pos.min(max) as i32 / max as i32
+    };
+    let row = match (pressed, hover) {
+        (true, _) => 2,
+        (_, true) => 1,
+        _ => 0,
+    };
+    let left = x + (w - gem.w as i32) / 2;
+    canvas.draw_part(sheet, gem.part(row), left, top, false, 255);
 }
 
 pub(crate) fn draw_scroll_thumb(

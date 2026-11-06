@@ -182,6 +182,43 @@ pub fn with_ext(name: &str) -> String {
 }
 
 /// `title_bg_00.akb` -> `title_bg_00_en.akb`.
+/// Tooltip lines of a screen: a `.MAP` table (ふゆから、くるる。) or an
+/// `.HLG` table (きまぐれテンプテーション2), indexed the same way.
+pub enum HelpLines {
+    Map(silky_format::map::MapFile),
+    Hlg(silky_format::hlg::HelpTable),
+}
+
+impl HelpLines {
+    /// Loads `<stem>.map`, else `<stem>.hlg`.
+    pub fn load(assets: &Assets, stem: &str) -> Option<Self> {
+        if let Some(m) = assets
+            .data(&format!("{stem}.map"))
+            .ok()
+            .and_then(|d| silky_format::map::MapFile::parse(&d).ok())
+        {
+            return Some(Self::Map(m));
+        }
+        let d = assets.data(&format!("{stem}.hlg")).ok()?;
+        silky_format::hlg::HelpTable::parse(&d).ok().map(Self::Hlg)
+    }
+
+    pub fn line(&self, language: Language, index: usize) -> Option<&str> {
+        use silky_format::hlg::{CHINESE, ENGLISH, JAPANESE};
+        match self {
+            Self::Map(m) => m.line(language.map_section(), index),
+            Self::Hlg(h) => {
+                let column = match language {
+                    Language::Japanese => JAPANESE,
+                    Language::English => ENGLISH,
+                    _ => CHINESE,
+                };
+                h.line(column, index)
+            }
+        }
+    }
+}
+
 pub fn localized_name(name: &str, lang: Language) -> String {
     match name.rsplit_once('.') {
         Some((stem, ext)) => format!("{stem}_{}.{ext}", lang.suffix()),

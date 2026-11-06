@@ -12,6 +12,7 @@ use silky_format::game::Game;
 use silky_format::mes::Profile;
 use silky_vm::{Stop, Vm};
 
+use crate::archive::{self, Archive, ArchiveAction, ArchiveScreen, Book, CostumeScreen};
 use crate::audio::Bus;
 use crate::menus::{self, extras_ids, ids as set_ids, ExtrasScreen, Menus, Page, SettingsScreen};
 use crate::movie::Movie;
@@ -87,6 +88,8 @@ pub struct Session {
     /// Marked voices still to play from the backlog.
     voice_queue: VecDeque<String>,
     menus: Menus,
+    /// きまぐれテンプテーション2's notebook, collection and costume screens.
+    archive: Archive,
     /// Movie playing.
     movie: Option<MoviePlay>,
     /// Messages shown since the start or the last load (the backlog
@@ -144,6 +147,7 @@ impl Session {
         let layout = Layout::load(&assets, config.language)?;
         let screens = Screens::load(&assets, config.language);
         let menus = Menus::load(&assets, config.language);
+        let archive = Archive::load(&assets);
         let mut renderer = Renderer::new(text, config.language);
         renderer.set_title(assets.game().title);
         let rt = Runtime::new(assets, config);
@@ -171,6 +175,7 @@ impl Session {
             thumb: None,
             playing_marked: false,
             menus,
+            archive,
             movie: None,
             logged: 0,
             choice_points: Vec::new(),
@@ -701,7 +706,7 @@ impl Session {
         self.frame = None;
         if id == set_ids::SCROLL {
             let max = self.menus.max_scroll(&mut self.rt.assets, s.page);
-            let (_, ty, _, th) = menus::SETTINGS_TRACK;
+            let (_, ty, _, th) = self.menus.track();
             let f = ((y - ty) as f32 / th as f32).clamp(0.0, 1.0);
             s.scroll = (f * max as f32).round() as i32;
             return;
@@ -891,6 +896,11 @@ impl Session {
                 let max = self.menus.max_scroll(&mut self.rt.assets, s.page);
                 s.scroll = (s.scroll + d as i32 * menus::SCROLL_STEP).clamp(0, max);
             }
+            Some(Screen::Archive(s)) => {
+                let max = self.archive.max_scroll(&mut self.rt.assets, s);
+                Archive::wheel(s, up, max);
+            }
+            Some(Screen::Costume(_)) => return,
             Some(Screen::Extras(e)) => match e.kind {
                 Extras::Music => {
                     e.scroll = (e.scroll as isize + d).clamp(0, Menus::music_max_scroll() as isize)
@@ -957,9 +967,77 @@ impl Session {
         self.frame = None;
     }
 
+    /// きまぐれテンプテーション2's costume screen (from the button bar).
+    fn open_costume(&mut self) {
+        if self.state != State::Text {
+            return;
+        }
+        let vm = &self.vm;
+        self.screen = Some(Screen::Costume(CostumeScreen::new(|i| vm.var_b(i))));
+        self.ui.hover = None;
+        self.frame = None;
+    }
+
+    /// The notebook or collection; from the title menu it shows what is
+    /// kept outside a game.
+    fn open_archive(&mut self, book: Book) {
+        let global = self.state == State::Title;
+        let vm = &self.vm;
+        self.screen = Some(Screen::Archive(ArchiveScreen::new(
+            book,
+            |i| vm.var_b(i),
+            global,
+        )));
+        self.ui.hover = None;
+        self.frame = None;
+    }
+
+    fn press_archive(&mut self, id: i32, x: i32, y: i32) -> Result<()> {
+        let action = match &mut self.screen {
+            Some(Screen::Archive(s)) => {
+                let max = self.archive.max_scroll(&mut self.rt.assets, s);
+                if id == archive::ids::TEXT_SCROLL {
+                    if let Some(f) = self.archive.track_fraction(s, x, y) {
+                        s.scroll = (f * max as f32).round() as i32;
+                    }
+                    ArchiveAction::None
+                } else {
+                    self.archive.press(s, id, max)
+                }
+            }
+            Some(Screen::Costume(c)) => Archive::press_costume(c, id),
+            _ => ArchiveAction::None,
+        };
+        if action == ArchiveAction::Close {
+            self.close_screen();
+        }
+        Ok(())
+    }
+
+    /// Whether some notebook entry and some collection item are open, for
+    /// the buttons that lead there.
+    fn refresh_archive_flags(&mut self) {
+        let any = |base: usize, n: usize| (base..base + n).any(|i| self.vm.var_b(i) != 0);
+        let notebook = any(archive::NOTEBOOK_VAR, archive::NOTEBOOK_ENTRIES);
+        let collection = any(archive::ITEM_VAR, archive::ITEMS);
+        if (notebook, collection) != (self.ui.notebook, self.ui.collection) {
+            self.ui.notebook = notebook;
+            self.ui.collection = collection;
+            self.frame = None;
+        }
+    }
+
     fn close_screen(&mut self) {
-        if matches!(self.screen, Some(Screen::Settings(_))) {
-            self.flush_system();
+        match &self.screen {
+            Some(Screen::Settings(_)) => self.flush_system(),
+            // The costume screen writes its choice back when it closes.
+            Some(Screen::Costume(c)) => {
+                for (i, v) in c.result() {
+                    self.vm.set_var_b(i, v);
+                }
+                self.base = None;
+            }
+            _ => {}
         }
         self.screen = None;
         self.thumb = None;
@@ -1066,6 +1144,7 @@ impl Session {
         match &self.screen {
             Some(Screen::Settings(_)) => return self.press_settings(id, x, y),
             Some(Screen::Extras(_)) => return self.press_extras(id, y),
+            Some(Screen::Archive(_) | Screen::Costume(_)) => return self.press_archive(id, x, y),
             _ => {}
         }
         let mut ask = None;
@@ -1187,6 +1266,7 @@ impl Session {
                 }
             }
             Some(Screen::Settings(_) | Screen::Extras(_)) | None => {}
+            Some(Screen::Archive(_) | Screen::Costume(_)) => {}
         }
         if close {
             self.close_screen();
@@ -1324,6 +1404,8 @@ impl Session {
                 title::CONTINUE => self.load_latest()?,
                 title::LOAD => self.open_save_load(Mode::Load),
                 title::BACK => self.ui.title = Some(false),
+                // The engine's own screen; the script does nothing with 261.
+                title::NOTEBOOK => self.open_archive(Book::Notebook),
                 i => {
                     if let Some(result) = title::result(i) {
                         self.ui.title = None;
@@ -1391,6 +1473,9 @@ impl Session {
                 }
                 bar::PREVIOUS_CHOICE => self.previous_choice()?,
                 bar::CONFIG => self.open_settings(),
+                bar::COSTUME => self.open_costume(),
+                bar::NOTEBOOK => self.open_archive(Book::Notebook),
+                bar::COLLECTION => self.open_archive(Book::Items),
                 bar::HIDE | bar::CLOSE => {
                     self.ui.window_hidden = true;
                     self.base = None;
@@ -1421,6 +1506,8 @@ impl Session {
             Some(Screen::Backlog(b)) => return self.screens.hit_backlog(b, &self.log, x, y),
             Some(Screen::Settings(s)) => return self.menus.hit_settings(s, x, y).map(|h| h.0),
             Some(Screen::Extras(e)) => return self.menus.hit_extras(e, &self.rt.system, x, y),
+            Some(Screen::Archive(s)) => return self.archive.hit(s, x, y),
+            Some(Screen::Costume(c)) => return self.archive.hit_costume(c, x, y),
             None => {}
         }
         if matches!(self.state, State::Busy | State::Movie | State::Extras) {
@@ -1444,6 +1531,9 @@ impl Session {
                     self.frame = None;
                 }
             }
+        }
+        if self.layout.is_kimaten2() {
+            self.refresh_archive_flags();
         }
         if self.rt.system_changed && self.ui.clock >= self.system_stored + SYSTEM_STORE_MS {
             self.flush_system();
@@ -1596,6 +1686,10 @@ impl Session {
                                 max,
                                 text,
                             )?
+                        }
+                        Screen::Archive(s) => self.archive.draw(&mut c, assets, &self.ui, s)?,
+                        Screen::Costume(k) => {
+                            self.archive.draw_costume(&mut c, assets, &self.ui, k)?
                         }
                         Screen::Extras(e) => {
                             let pos = self.rt.audio.position(Bus::Music, 0);
