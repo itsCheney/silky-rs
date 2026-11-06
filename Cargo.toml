@@ -12,8 +12,10 @@ repository = "https://github.com/itsCheney/silky-rs"
 [workspace.dependencies]
 silky-format = { path = "crates/silky-format" }
 silky-vm = { path = "crates/silky-vm" }
+silky-runtime = { path = "crates/silky-runtime" }
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }
 encoding_rs = "0.8"
+fontdue = "0.9"
 png = "0.17"
 thiserror = "2"

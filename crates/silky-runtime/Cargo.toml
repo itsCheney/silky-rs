@@ -1,0 +1,14 @@
+[package]
+name = "silky-runtime"
+description = "Engine functions of Silky's engine games: scene state, text, and a software renderer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+silky-format.workspace = true
+silky-vm.workspace = true
+fontdue.workspace = true
+thiserror.workspace = true

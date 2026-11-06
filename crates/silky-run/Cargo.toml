@@ -16,3 +16,5 @@ silky-format.workspace = true
 silky-vm.workspace = true
 anyhow.workspace = true
 clap.workspace = true
+silky-runtime.workspace = true
+png.workspace = true

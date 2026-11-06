@@ -16,10 +16,13 @@ Early. What works today:
 - `.MES` scripts and `LIBLARY.LIB`: header, offset tables and the full byte code decoder.
 - `.VSD` movie containers (an MPEG-1 program stream inside).
 - The script VM: stack, variable banks, functions, script calls and selections. Engine functions go to a host.
+- First engine functions and a software renderer: backgrounds, event pictures with their difference pictures, standing characters with expressions, the message window and its text, localized file names, the title picture.
 
 On ふゆから、くるる。 all 56 scripts (7.9 million instructions) decode with every jump landing on an instruction, and all 3,255 images decode. Headless, the VM boots `start.mes` through the logo, caution and title scripts, and plays the story from `fk001.mes` on with its text in all three languages.
 
-Not done yet: the engine functions themselves (images, text window, sound, movies, saves), rendering and the desktop player.
+Not done yet: the title menu buttons, the message window portrait and name plate, transitions and effects, sound, movies, the backlog, saves, configuration, and the desktop player. `silky-run snap` lists every engine call the runtime does not carry out yet.
+
+Provisional (not yet compared with the original): the message text position and the standing character layout.
 
 ## Layout
 
@@ -27,10 +30,11 @@ Not done yet: the engine functions themselves (images, text window, sound, movie
 | --- | --- |
 | `silky-format` | File formats. No platform code. |
 | `silky-vm` | Byte code interpreter. Engine functions are handed to a host. |
+| `silky-runtime` | Engine functions on a scene model, and a software renderer. No platform code. |
 | `silky-tool` | Command line tool to inspect a game folder. |
 | `silky-run` | Headless runner. Today it runs the scripts and logs every engine call. |
 
-Planned: `silky-runtime` (engine functions, scene, text, sound) and `silky-player` (desktop player: winit, wgpu, cpal).
+Planned: `silky-player` (desktop player: winit, wgpu, cpal).
 
 ## Building
 
@@ -60,6 +64,13 @@ silky-run trace <game folder>                        # boot log until the title 
 silky-run trace <game folder> --result 29.110=1      # pick "Start" on the title menu
 silky-run trace <game folder> --result 29.110=1 --text-only --lang 1 --max-calls 50000
 ```
+
+```sh
+silky-run snap <game folder> --out snaps --font DejaVuSans.ttf --lines 0,10,50
+silky-run snap <game folder> --lang 1 --font msyh.ttc --lines 170
+```
+
+`snap` runs the game with `silky-runtime` and saves PNG frames of the title screen and of the listed message lines (counted from the first line of the game). Fonts are not part of the game files: pass one or more with `--font`, in fallback order; without a font the text is left out.
 
 `trace` performs no engine function; it logs each call with its arguments. Calls whose result the scripts use return 0 unless `--result CLASS.SUB=VALUE` says otherwise. Selections take `--choose` (default the first option). `--lang` picks the text section of the `.MAP` tables (0 English, 1 Simplified Chinese, 2 Traditional Chinese in this build).
 

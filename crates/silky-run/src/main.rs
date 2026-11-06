@@ -50,6 +50,33 @@ enum Command {
         #[arg(long = "result", value_parser = parse_result)]
         results: Vec<((i32, i32), i32)>,
     },
+    /// Run the game headless with the runtime and save frames as PNG: the
+    /// title screen and the chosen message lines.
+    Snap {
+        /// Game folder (with Patch.xml or the archives).
+        game: PathBuf,
+        /// Folder for the PNG files.
+        #[arg(long, default_value = "snaps")]
+        out: PathBuf,
+        /// Message lines to save, counted from the start of the game
+        /// (0 = first line), comma separated.
+        #[arg(
+            long,
+            value_delimiter = ',',
+            default_value = "0,1,2,3,4,5,10,20,50,100"
+        )]
+        lines: Vec<u64>,
+        /// Text language: 0 English, 1 Simplified Chinese, 2 Traditional Chinese.
+        #[arg(long, default_value_t = 0)]
+        lang: usize,
+        /// Font files for the message text, in fallback order. Without
+        /// one, the text is left out of the frames.
+        #[arg(long)]
+        font: Vec<PathBuf>,
+        /// Option to take at every selection.
+        #[arg(long, default_value_t = 0)]
+        choose: usize,
+    },
 }
 
 fn main() -> Result<()> {
@@ -78,7 +105,105 @@ fn main() -> Result<()> {
             };
             trace(game, profile, &start, options)
         }
+        Command::Snap {
+            game,
+            out,
+            lines,
+            lang,
+            font,
+            choose,
+        } => {
+            let game = Game::open(&game)
+                .with_context(|| format!("cannot open game folder {}", game.display()))?;
+            snap(game, &out, &lines, lang, &font, choose)
+        }
     }
+}
+
+fn snap(
+    game: Game,
+    out: &std::path::Path,
+    lines: &[u64],
+    lang: usize,
+    fonts: &[PathBuf],
+    choose: usize,
+) -> Result<()> {
+    use silky_runtime::render::Renderer;
+    use silky_runtime::text::TextRenderer;
+    use silky_runtime::{Assets, Config, Language, Pause, Runtime};
+
+    std::fs::create_dir_all(out)?;
+    let language = Language::from_section(lang).context("--lang must be 0, 1 or 2")?;
+    let text = if fonts.is_empty() {
+        println!("no --font given: frames are saved without message text");
+        None
+    } else {
+        let files = fonts
+            .iter()
+            .map(|f| std::fs::read(f).with_context(|| format!("reading {}", f.display())))
+            .collect::<Result<Vec<_>>>()?;
+        Some(TextRenderer::new(&files)?)
+    };
+    let mut renderer = Renderer::new(text);
+    let config = Config {
+        language,
+        ..Config::default()
+    };
+    let mut rt = Runtime::new(Assets::new(game), config);
+    let mut vm = Vm::new(Profile::default());
+    rt.boot(&mut vm, "start.mes")?;
+    let last = lines.iter().copied().max().unwrap_or(0);
+    let mut line_no = 0u64;
+    let mut title_saved = false;
+    loop {
+        match vm.run(&mut rt, 50_000_000)? {
+            Stop::Yield => match rt.pause.take() {
+                Some(Pause::Title) if !title_saved => {
+                    let frame = renderer.render(&rt.scene, &mut rt.assets)?;
+                    let path = out.join("title.png");
+                    write_png(&path, &frame)?;
+                    println!("{}", path.display());
+                    title_saved = true;
+                }
+                Some(Pause::Text { index }) => {
+                    if lines.contains(&line_no) {
+                        let frame = renderer.render(&rt.scene, &mut rt.assets)?;
+                        let script = vm.script_name().unwrap_or("x").replace('.', "_");
+                        let path = out.join(format!("line{line_no:05}-{script}-{index}.png"));
+                        write_png(&path, &frame)?;
+                        println!("{}", path.display());
+                    }
+                    if line_no >= last {
+                        break;
+                    }
+                    line_no += 1;
+                }
+                _ => {}
+            },
+            Stop::Options => vm.choose(choose.min(vm.options().len() - 1))?,
+            Stop::Ended => break,
+            Stop::Budget => anyhow::bail!("no message line within the step budget"),
+        }
+    }
+    println!(
+        "{} engine calls carried out; not yet carried out:",
+        rt.handled
+    );
+    let mut skipped: Vec<_> = rt.unhandled.iter().collect();
+    skipped.sort_by(|a, b| b.1.cmp(a.1));
+    for (name, count) in skipped {
+        println!("  {name:<16} {count}");
+    }
+    Ok(())
+}
+
+fn write_png(path: &std::path::Path, frame: &silky_runtime::render::Canvas) -> Result<()> {
+    let file = std::io::BufWriter::new(std::fs::File::create(path)?);
+    let mut enc = png::Encoder::new(file, frame.width, frame.height);
+    enc.set_color(png::ColorType::Rgba);
+    enc.set_depth(png::BitDepth::Eight);
+    enc.write_header()?.write_image_data(&frame.rgba)?;
+    Ok(())
 }
 
 fn load_script(game: &Game, name: &str) -> Result<Script> {
