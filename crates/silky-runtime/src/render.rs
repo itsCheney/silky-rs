@@ -106,12 +106,13 @@ pub struct Renderer {
     /// Name plate rows by speaker name (きまぐれテンプテーション2), for the
     /// language they were made for.
     speaker_rows: Option<(Language, HashMap<String, usize>)>,
-    /// E-mote standing picture (きまぐれテンプテーション2).
+    /// E-mote pictures (きまぐれテンプテーション2): the standing models by
+    /// slot and the companion under [`COMPANION`].
     #[cfg(feature = "emote")]
-    emote: Option<crate::emote::Stage>,
+    emote: std::collections::BTreeMap<i32, crate::emote::Stage>,
     /// Files that failed to open, not tried again.
     #[cfg(feature = "emote")]
-    emote_failed: Option<[String; 2]>,
+    emote_failed: std::collections::HashSet<[String; 2]>,
     /// Where E-mote models are drawn, if not in software.
     #[cfg(feature = "emote")]
     emote_gpu: Option<crate::emote::Gpu>,
@@ -130,9 +131,9 @@ impl Renderer {
             text_layout: TextLayout::for_title(Title::Fuyukuru),
             speaker_rows: None,
             #[cfg(feature = "emote")]
-            emote: None,
+            emote: Default::default(),
             #[cfg(feature = "emote")]
-            emote_failed: None,
+            emote_failed: Default::default(),
             #[cfg(feature = "emote")]
             emote_gpu: None,
         };
@@ -293,52 +294,74 @@ impl Renderer {
 
     /// Renders the scene with the message window, without engine-drawn
     /// buttons (see [`crate::ui`]).
-    /// Brings the E-mote picture up to date with the scene and returns it.
+    /// Brings the E-mote pictures up to date with the scene and returns
+    /// the visible ones, back to front, with the screen position of their
+    /// top left corners.
     #[cfg(feature = "emote")]
-    fn emote_image(&mut self, scene: &Scene, assets: &Assets) -> Option<(Arc<Image>, f32, f32)> {
-        let emote = scene.emote.as_ref()?;
-        if self.emote.as_ref().map(|s| s.files()) != Some(&emote.files) {
-            self.emote = None;
-            if self.emote_failed.as_ref() == Some(&emote.files) {
-                return None;
+    fn emote_images(&mut self, scene: &Scene, assets: &Assets) -> Vec<(Arc<Image>, f32, f32)> {
+        let wanted = emote_order(scene);
+        self.emote
+            .retain(|k, s| wanted.iter().any(|(w, e)| w == k && s.files() == &e.files));
+        for (key, emote) in &wanted {
+            if self.emote.contains_key(key) || self.emote_failed.contains(&emote.files) {
+                continue;
             }
             match crate::emote::Stage::open(emote, |name| assets.data(name).ok()) {
-                Ok(stage) => self.emote = Some(stage),
+                Ok(stage) => {
+                    self.emote.insert(*key, stage);
+                }
                 Err(e) => {
                     eprintln!("E-mote {}: {e}", emote.files[0]);
-                    self.emote_failed = Some(emote.files.clone());
-                    return None;
+                    self.emote_failed.insert(emote.files.clone());
                 }
             }
         }
-        let stage = self.emote.as_mut()?;
-        stage.apply(emote);
-        if !emote.visible {
-            return None;
+        #[cfg(feature = "gpu")]
+        if let Some(gpu) = &mut self.emote_gpu {
+            gpu.retain(&self.emote.values().flat_map(|s| s.model_ids()).collect());
         }
-        stage.image(self.emote_gpu.as_mut())
+        let mut out = Vec::new();
+        for (key, emote) in wanted {
+            let Some(stage) = self.emote.get_mut(&key) else {
+                continue;
+            };
+            stage.apply(emote);
+            if emote.visible {
+                out.extend(stage.image(self.emote_gpu.as_mut()));
+            }
+        }
+        out
     }
 
     /// Draws E-mote models on `gpu` from now on.
     #[cfg(feature = "emote")]
     pub fn set_emote_gpu(&mut self, gpu: crate::emote::Gpu) {
         self.emote_gpu = Some(gpu);
-        if let Some(stage) = &mut self.emote {
-            stage.redraw();
-        }
+        self.emote.values_mut().for_each(|s| s.redraw());
     }
 
-    /// Runs the E-mote animation for `ms`; true when the picture changed.
+    /// Runs the E-mote animation for `ms`; true when a picture changed.
     /// `talking` is the mouth opening while a voice plays.
     pub fn progress_emote(&mut self, scene: &Scene, ms: u64, talking: Option<f32>) -> bool {
         #[cfg(feature = "emote")]
-        if let (Some(stage), Some(e)) = (&mut self.emote, &scene.emote) {
+        {
             // In software about 15 frames a second, on a GPU 30.
             let interval = if self.emote_gpu.is_some() { 33.0 } else { 66.0 };
-            return e.visible && stage.progress(ms as f32, talking, interval);
+            let mut changed = false;
+            for (key, emote) in emote_order(scene) {
+                if let Some(stage) = self.emote.get_mut(&key) {
+                    if emote.visible {
+                        changed |= stage.progress(ms as f32, talking, interval);
+                    }
+                }
+            }
+            changed
         }
-        let _ = (scene, ms, talking);
-        false
+        #[cfg(not(feature = "emote"))]
+        {
+            let _ = (scene, ms, talking);
+            false
+        }
     }
 
     pub fn render(&mut self, scene: &Scene, assets: &mut Assets) -> Result<Canvas> {
@@ -398,7 +421,7 @@ impl Renderer {
         }
 
         #[cfg(feature = "emote")]
-        if let Some((img, x, y)) = self.emote_image(scene, assets) {
+        for (img, x, y) in self.emote_images(scene, assets) {
             canvas.draw(&img, x.round() as i32, y.round() as i32, false);
         }
 
@@ -472,6 +495,24 @@ fn overlay_rgba(canvas: &mut Canvas, top: &Image) {
         }
         d[3] = out_a as u8;
     }
+}
+
+/// Key of the companion E-mote picture among the slots.
+#[cfg(feature = "emote")]
+const COMPANION: i32 = i32::MIN;
+
+/// The scene's E-mote pictures back to front: standing models from the
+/// last slot to slot 0 (0x4577a0 gives slot 0 the highest order), then the
+/// companion.
+#[cfg(feature = "emote")]
+fn emote_order(scene: &Scene) -> Vec<(i32, &crate::scene::Emote)> {
+    scene
+        .emotes
+        .iter()
+        .rev()
+        .map(|(k, e)| (*k, e))
+        .chain(scene.emote.iter().map(|e| (COMPANION, e)))
+        .collect()
 }
 
 #[cfg(test)]

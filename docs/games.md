@@ -1,0 +1,50 @@
+# Games
+
+English | [简体中文](games.zh-CN.md)
+
+How far each game runs on silky-rs. The engine features shared by all games are listed in the [README](../README.md#status). `silky-run snap` lists every engine call the runtime does not carry out yet.
+
+## ふゆから、くるる。
+
+International build 1.0.1.0, Japanese, English and Simplified Chinese.
+
+All 56 scripts (7.9 million instructions) decode with every jump landing on an instruction, and all 3,255 images decode. Headless, the VM boots `start.mes` through the logo, caution and title scripts, and plays the story from `fk001.mes` on with its text in all three languages. Every route plays to its ending.
+
+Compared with screenshots of the original (Windows, Simplified Chinese): the message window, name plate, window portrait, the position and pitch of Chinese text, and the size and position of standing characters. Still provisional: English text metrics (no English screenshots to compare with yet), the line pitch of two-line messages, the wrap width, and where selections sit on screen.
+
+Not done yet: other effects. The "fixed window" setting is kept but changes nothing, since the window never moves here.
+
+## きまぐれテンプテーション2
+
+Japanese build 2024 with patch 1.02; the fan Simplified Chinese patch (folder `kimaten2_chs`) is read as a language.
+
+All 64 scripts and 712 images decode. Headless, `silky-run trace` boots to the title menu and plays the story text with speaker names, in Japanese and, with the fan patch folder, in Simplified Chinese. Each game adds its own commands to the engine (native class 29); for this one the commands that return a value were read from its executable.
+
+### Interface
+
+The player and `silky-run snap` open it. The title menu, the message window with the speaker's name plate (the fan patch's redrawn plates for its Chinese names too), the window buttons, the side menu, the selections, the action menu and the map (with the second map's panels) are drawn from the game's sheets. The window, action menu and map layouts are read from the executable, and the text is placed as on screenshots of the game. The backlog, the save and load screen, the settings pages and the yes/no dialog have the game's own look, with its help lines (`.HLG` tables) and its nine voice groups on the sound page. Saving at an action menu or the map saves the message before it.
+
+### Costume, notebook and collection
+
+These screens are drawn from their sheets and read the script's byte variables the way the executable does:
+
+- Notebook entry `i` is open when byte `900 + i` is set, collection item `i` when byte `801 + i` is set.
+- The costume is bytes 701 (form) and 708 (outfit), written back when the screen closes. Forms C and D open with bytes 711 and 712.
+- From the title menu the notebook shows the copies the scripts keep at `1000 +`. Bytes from 1000 on are kept outside a game in `system.json`, so they survive loads and new games.
+- Some notebook entries grow during the story: byte `940 + i` says how many parts are open, the rest of the text is cut off, and a "New" mark stands before the newest part (cut and mark positions from the executable). From the title menu the mark goes away once the entry was opened there (byte 2020 + i).
+- The last collection item, a voice recording, is a play/pause button over its picture that plays five voice files in turn. The executable names them `kt_*.ogg`; they are not in the copy of the game tested, so they are reported as missing.
+
+### E-mote
+
+Anneliese is an E-mote 4 model (`.psb`, header encrypted): two files per costume, `ta`/`tb` + form + outfit (the ones the costume screen chooses between), with `_h0007` holding faces 0 to 7 and `_h0813` faces 8 to 13. [Eluna](https://github.com/xmoezzz/eluna) (vendored in `vendor/eluna_rs`, MPL-2.0, the copy siglus_rs uses) decrypts them and runs their timelines and physics. Its sprites (textured triangles, the six blend modes, stencil masks; DXT5 textures) are drawn by wgpu in the player and by a small software rasterizer headless; both give the same picture. The key of this game is built in; for other games the runtime searches the 2^32 keys once (a few seconds to a minute).
+
+Two commands show her, both read from the executable:
+
+- `Game.10` is Anneliese walking along with the protagonist, at the bottom left: sub 6 loads a costume, 7 sets the face and the timeline after the faces, 13 (and 12) the pose, 16 the `a` timelines, 9 and 11 show and hide. Size 0.35, position given as (500, -930).
+- `Game.40` holds standing models by slot: sub 0 (and 12) loads a costume into a slot at a size in percent from the script (50 and 100 in the middle, 60 on the right), 1 sets the face, 15 the pose, 14 the `a` timelines, 3 removes one slot and 4 all. The slot gives x (0 middle, 1 left, 2 right) and the size gives y, so the feet stay on the same line.
+
+How these positions map to the screen was measured on two screenshots of the game (one of each layout); both agree. Fades in and out of these models are not played yet, the mouth opens and closes while a voice plays instead of following its loudness, and the animation runs at 30 frames a second on the GPU (15 in software). Turning off E-mote animation in the settings keeps the picture still. Built without the default `emote` feature, the runtime leaves these pictures out.
+
+### Not done yet
+
+The line pitch of two-line messages, voice loop and skipping unread text, the eight E-mote H-scene animations (`hg030100_*.psb`), and the `Game.40` lip sync files (`k2*.csv`).

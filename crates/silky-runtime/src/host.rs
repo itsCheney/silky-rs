@@ -96,6 +96,8 @@ mod cmd {
     pub const TITLE: i32 = 110;
     /// Localized file name: `x.akb` -> `x_en.akb` when that exists.
     pub const LOCALIZE: i32 = 223;
+    /// きまぐれテンプテーション2: E-mote standing models by slot.
+    pub const EMOTES: i32 = 40;
 }
 
 /// What a save file holds besides its header.
@@ -516,6 +518,67 @@ impl Runtime {
         true
     }
 
+    /// きまぐれテンプテーション2's standing E-mote models (command 40, read
+    /// from the executable at 0x4c6000; the slot is the last value except
+    /// for sub 1): 0 and 12 load into a slot (frames, size in percent,
+    /// the two files, slot; 12 has one more value first), 1 face (slot,
+    /// extra, face), 15 main timeline, 14 `a` timeline, 13 a number kept
+    /// on the model, 3 remove one, 4 remove all, 2 apply. Fades are not
+    /// played. False for the others.
+    fn kimaten2_emotes(&mut self, args: &[Value], sub: i32) -> bool {
+        let args = &args[..args.len().saturating_sub(1)];
+        let n = |i: usize| args.get(i).map(Value::int).unwrap_or(0);
+        let last = n(args.len().saturating_sub(1));
+        let emotes = &mut self.scene.emotes;
+        match (sub, args.len()) {
+            (0, 5) | (12, 6) => {
+                let names: Vec<String> = args
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(|s| s.to_ascii_lowercase())
+                    .collect();
+                let first = names.iter().find(|n| n.contains("_h0007"));
+                let second = names.iter().find(|n| n.contains("_h0813"));
+                let (Some(a), Some(b)) = (first, second) else {
+                    return false;
+                };
+                let scale = n(args.len() - 4);
+                let place = crate::scene::Place::standing(last, scale, a);
+                let files = [a.clone(), b.clone()];
+                emotes.insert(
+                    last,
+                    crate::scene::Emote {
+                        files,
+                        visible: true,
+                        place: Some(place),
+                        ..Default::default()
+                    },
+                );
+            }
+            (1, 3) => {
+                if let Some(e) = emotes.get_mut(&n(0)) {
+                    e.face = Some((n(2), n(1)));
+                }
+            }
+            (13..=15, 2) => {
+                if let Some(e) = emotes.get_mut(&last) {
+                    match sub {
+                        14 => e.sub = Some(n(0)),
+                        15 => e.pose = Some(n(0)),
+                        _ => {}
+                    }
+                }
+            }
+            (3, 2) => {
+                emotes.remove(&last);
+            }
+            (4, 1) => emotes.clear(),
+            (2, 0) => {}
+            _ => return false,
+        }
+        true
+    }
+
     fn skip(&mut self, name: String, vm: &mut Vm, class: i32, sub: i32) {
         *self.unhandled.entry(name).or_default() += 1;
         if native::returns_value(self.assets.game().title, class, sub) {
@@ -732,6 +795,10 @@ impl Runtime {
             return Ok(Flow::Yield);
         }
         if title == Title::Kimaten2 && command == cmd::PORTRAIT && self.kimaten2_emote(&args, sub) {
+            self.handled += 1;
+            return Ok(Flow::Continue);
+        }
+        if title == Title::Kimaten2 && command == cmd::EMOTES && self.kimaten2_emotes(&args, sub) {
             self.handled += 1;
             return Ok(Flow::Continue);
         }

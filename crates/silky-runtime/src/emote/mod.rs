@@ -370,13 +370,12 @@ impl Character {
         Ok(())
     }
 
+    /// Ids of the models, whose textures a [`Gpu`] keeps.
+    pub fn model_ids(&self) -> impl Iterator<Item = u64> + '_ {
+        self.models.iter().map(|m| m.id)
+    }
+
     pub fn render(&self, scale: f32, gpu: Option<&mut Gpu>) -> Option<(Image, f32, f32)> {
-        #[cfg(feature = "gpu")]
-        let mut gpu = gpu;
-        #[cfg(feature = "gpu")]
-        if let Some(g) = gpu.as_deref_mut() {
-            g.retain(&self.models.iter().map(|m| m.id).collect());
-        }
         self.models.get(self.active)?.render(scale, gpu)
     }
 }
@@ -537,12 +536,6 @@ fn decode_dxt(src: &[u8], w: u32, h: u32, bc3: bool) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// Size of the E-mote standing picture: game pixels per model unit.
-pub const STAGE_SCALE: f32 = 0.35;
-/// Where the model's origin lands on the 1280 x 720 screen. Provisional:
-/// centred, feet at the bottom edge; not yet checked against the game.
-pub const STAGE_ORIGIN: (f32, f32) = (640.0, 400.0);
-
 /// The E-mote picture of a scene: the open models and the last image.
 pub struct Stage {
     character: Character,
@@ -581,6 +574,10 @@ impl Stage {
 
     pub fn files(&self) -> &[String; 2] {
         &self.applied.files
+    }
+
+    pub fn model_ids(&self) -> impl Iterator<Item = u64> + '_ {
+        self.character.model_ids()
     }
 
     /// Plays what changed in `emote` since the last call.
@@ -635,12 +632,10 @@ impl Stage {
     /// The picture and the screen position of its top left corner.
     pub fn image(&mut self, gpu: Option<&mut Gpu>) -> Option<(std::sync::Arc<Image>, f32, f32)> {
         if self.image.is_none() {
-            let (img, left, top) = self.character.render(STAGE_SCALE, gpu)?;
-            self.image = Some((
-                std::sync::Arc::new(img),
-                STAGE_ORIGIN.0 + left,
-                STAGE_ORIGIN.1 + top,
-            ));
+            let place = self.applied.place.unwrap_or(crate::scene::Place::COMPANION);
+            let (x, y) = place.origin();
+            let (img, left, top) = self.character.render(place.scale as f32 / 100.0, gpu)?;
+            self.image = Some((std::sync::Arc::new(img), x + left, y + top));
         }
         self.image.clone()
     }

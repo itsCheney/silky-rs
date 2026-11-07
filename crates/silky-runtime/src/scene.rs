@@ -17,8 +17,59 @@ pub struct Character {
     pub offset: (i32, i32),
 }
 
-/// An E-mote standing picture (きまぐれテンプテーション2, command 10): the
-/// timelines the script chose, by the game's numbers (see
+/// Where an E-mote model stands: its size in percent and the position the
+/// game hands the E-mote driver (read from the executable).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Place {
+    pub scale: i32,
+    pub x: i32,
+    pub y: i32,
+}
+
+impl Place {
+    /// Anneliese at the bottom left while she walks around with the
+    /// protagonist (command 10; 0x45c170 is given 500, -930 and sets the
+    /// size to 0.35).
+    pub const COMPANION: Place = Place {
+        scale: 35,
+        x: 500,
+        y: -930,
+    };
+
+    /// A standing model in `slot` at `scale` percent (command 40, sub 0;
+    /// 0x4577a0): x by slot, y keeps the feet at the same line whatever
+    /// the size. `name` is the first file: H scene models (`?g...`) have
+    /// their own place.
+    pub fn standing(slot: i32, scale: i32, name: &str) -> Place {
+        let s = scale as f32 / 100.0;
+        let x = match slot {
+            1 => 360,
+            2 => -360,
+            3 => 400,
+            _ => 0,
+        };
+        if name.as_bytes().get(1) == Some(&b'g') {
+            return Place {
+                scale,
+                x: 1,
+                y: -683,
+            };
+        }
+        let y = ((1.0 - s) * 800.0 - 1200.0) as i32;
+        Place { scale, x, y }
+    }
+
+    /// Where the model's origin lands on the 1280 x 720 screen. The driver
+    /// takes the position as a camera offset, hence the signs; the
+    /// constants were measured on screenshots of the game (0.35 at the
+    /// bottom left and 0.6 on the right agree).
+    pub fn origin(&self) -> (f32, f32) {
+        (640.0 - self.x as f32, -258.0 - self.y as f32)
+    }
+}
+
+/// An E-mote standing picture (きまぐれテンプテーション2, commands 10 and
+/// 40): the timelines the script chose, by the game's numbers (see
 /// [`crate::emote::Character`]).
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
@@ -32,6 +83,8 @@ pub struct Emote {
     /// `a` timeline (sub 16).
     pub sub: Option<i32>,
     pub visible: bool,
+    /// None for the companion picture of command 10.
+    pub place: Option<Place>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -56,8 +109,10 @@ pub struct Scene {
     /// bottom left over the window while `portrait_visible` is set.
     pub portrait: Option<(String, Option<String>)>,
     pub portrait_visible: bool,
-    /// E-mote standing picture.
+    /// E-mote picture of Anneliese walking along (command 10).
     pub emote: Option<Emote>,
+    /// E-mote standing models by slot (command 40).
+    pub emotes: BTreeMap<i32, Emote>,
     /// Speaker of the current line: row of the nameplate sheet (command
     /// 11). Cleared at every message.
     pub speaker: Option<i32>,
