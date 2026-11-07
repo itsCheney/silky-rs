@@ -273,6 +273,10 @@ fn snap(
                         println!("{}", path.display());
                         after_movie = None;
                     }
+                    // Second steps of effects end at once too.
+                    while rt.follow_up() {
+                        rt.pause = None;
+                    }
                 }
                 Some(Pause::Frame) => {
                     if let Some(name) = &after_movie {

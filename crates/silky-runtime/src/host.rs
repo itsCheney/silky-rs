@@ -103,6 +103,15 @@ mod cmd {
     /// ふゆから、くるる。: `(colour, time, rule)`, fade out to a colour
     /// through a rule mask.
     pub const RULE_FADE_OUT: i32 = 111;
+    /// ふゆから、くるる。: auto save point.
+    pub const AUTO_SAVE: i32 = 14;
+    /// ふゆから、くるる。: `(mode, time)` white wipe into and out of the
+    /// future scenes.
+    pub const FUTURE: i32 = 112;
+    /// ふゆから、くるる。: heartbeat zoom.
+    pub const PULSE: i32 = 113;
+    /// ふゆから、くるる。: slash flash.
+    pub const SLASH: i32 = 114;
     /// ふゆから、くるる。: snow, 0 starts it and 1 stops it.
     pub const SNOW: i32 = 115;
 }
@@ -274,6 +283,20 @@ pub struct Runtime {
     pub map: Option<crate::kimaten2::map::Map>,
     /// Sprite animations (class 19, subs 16 to 28).
     sprites: crate::sprite::Sprites,
+    /// Second step of an effect, after the transition that started it.
+    then: Option<FollowUp>,
+    /// Set by the game's auto save point (ふゆから、くるる。, command 14);
+    /// the frontend saves at the next message.
+    pub auto_save: bool,
+}
+
+/// Second step of a two-step effect.
+#[derive(Debug, Clone, Copy)]
+enum FollowUp {
+    /// Take the flash picture away through a rule mask.
+    EndFlash { frames: i32, rule: u32 },
+    /// Back to normal size, over `frames`.
+    EndZoom { frames: i32 },
 }
 
 fn host_error(msg: impl Into<String>) -> silky_vm::Error {
@@ -311,7 +334,32 @@ impl Runtime {
             actions: Vec::new(),
             map: None,
             sprites: Default::default(),
+            then: None,
+            auto_save: false,
         }
+    }
+
+    /// Runs the second step of an effect if one is due: changes the scene
+    /// and sets [`Runtime::pause`] to its transition (or leaves it empty
+    /// when effects are turned off). False if none is due.
+    pub fn follow_up(&mut self) -> bool {
+        let Some(step) = self.then.take() else {
+            return false;
+        };
+        let flow = match step {
+            FollowUp::EndFlash { frames, rule } => {
+                self.scene.flash = None;
+                self.transition(frames, Some(rule))
+            }
+            FollowUp::EndZoom { frames } => {
+                self.scene.zoom = None;
+                self.transition(frames, None)
+            }
+        };
+        if matches!(flow, Flow::Continue) {
+            self.pause = None;
+        }
+        true
     }
 
     /// Script the current message is in (lowercase).
@@ -1010,6 +1058,36 @@ impl Runtime {
                 return Ok(self.transition(n(1), Some(rule.max(0) as u32)));
             }
             (cmd::SNOW, on @ (0 | 1), 0) if title == Title::Fuyukuru => scene.snow = on == 0,
+            // Auto save point.
+            (cmd::AUTO_SAVE, -1, 0) if title == Title::Fuyukuru => self.auto_save = true,
+            // (time) with 0 first: the picture goes white through rule 17
+            // ("future_in"); with 1 or 2 it comes back ("future_out"). The
+            // original also shrinks the picture to nothing and grows it
+            // back; that is left out.
+            (cmd::FUTURE, mode @ 0..=2, 1) if title == Title::Fuyukuru => {
+                scene.cover = (mode == 0).then_some(0xff_ffff);
+                self.handled += 1;
+                return Ok(self.transition(n(0), Some(17)));
+            }
+            // "doki": the screen jumps to 1.2 times its size and shrinks
+            // back over 8 frames.
+            (cmd::PULSE, -1, 0) if title == Title::Fuyukuru => {
+                scene.zoom = Some(120);
+                self.then = Some(FollowUp::EndZoom { frames: 8 });
+                self.handled += 1;
+                return Ok(self.transition(1, None));
+            }
+            // "slash": the picture of sprite 6 (`Sprite.1`) comes in over a
+            // black screen through rule 0 in 4 frames and goes in 6.
+            (cmd::SLASH, -1, 0) if title == Title::Fuyukuru => {
+                self.handled += 1;
+                let Some(name) = scene.layers.remove(&6) else {
+                    return Ok(Flow::Continue);
+                };
+                scene.flash = Some(name);
+                self.then = Some(FollowUp::EndFlash { frames: 6, rule: 0 });
+                return Ok(self.transition(4, Some(0)));
+            }
             (cmd::PICTURE, 0, 1) => {
                 scene.background = s(0);
                 if let Some(name) = &scene.background {

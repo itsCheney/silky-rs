@@ -407,7 +407,14 @@ impl Session {
     fn run(&mut self) -> Result<()> {
         let mut budgets = 0;
         loop {
-            let stop = self.vm.run(&mut self.rt, STEP_BUDGET).map_err(vm_error)?;
+            let stop = if self.rt.follow_up() {
+                if self.rt.pause.is_none() {
+                    continue;
+                }
+                Stop::Yield
+            } else {
+                self.vm.run(&mut self.rt, STEP_BUDGET).map_err(vm_error)?
+            };
             match stop {
                 Stop::Yield => match self.rt.pause.take() {
                     Some(Pause::Text { .. }) => {
@@ -424,6 +431,11 @@ impl Session {
                                 state: self.rt.save_state(&self.vm),
                                 marked: false,
                             });
+                        }
+                        if std::mem::take(&mut self.rt.auto_save)
+                            && self.rt.system.settings.auto_save_at_choices
+                        {
+                            self.auto_save();
                         }
                         self.state = State::Text;
                         self.ui.waiting = true;

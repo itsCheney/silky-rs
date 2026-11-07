@@ -457,6 +457,17 @@ impl Renderer {
                 .get_or_insert_with(Default::default)
                 .draw(&mut canvas, assets);
         }
+        if let Some(z) = scene.zoom.filter(|&z| z > 100) {
+            let z = z as f32 / 100.0;
+            let img = silky_format::akb::Image {
+                width: canvas.width,
+                height: canvas.height,
+                rgba: std::mem::take(&mut canvas.rgba),
+            };
+            let (w, h) = (SCREEN_WIDTH as f32, SCREEN_HEIGHT as f32);
+            canvas = Canvas::with_scale(SCREEN_WIDTH, SCREEN_HEIGHT, self.scale);
+            canvas.draw_zoomed(&img, -w * (z - 1.0) / 2.0, -h * (z - 1.0) / 2.0, z);
+        }
 
         if scene.text.is_some() && window && self.title == Title::Kimaten2 {
             self.kimaten2_window(&mut canvas, scene, assets)?;
@@ -494,6 +505,11 @@ impl Renderer {
         if let Some(c) = scene.cover {
             let rgb = [(c >> 16) as u8, (c >> 8) as u8, c as u8, 255];
             canvas.fill(0, 0, canvas.width, canvas.height, rgb);
+        }
+        if let Some(name) = &scene.flash {
+            canvas.fill(0, 0, canvas.width, canvas.height, [0, 0, 0, 255]);
+            let img = assets.image(name)?;
+            canvas.draw(&img, 0, 0, false);
         }
         if scene.shake != (0, 0) {
             canvas.shift(scene.shake.0, scene.shake.1);

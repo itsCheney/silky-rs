@@ -138,4 +138,12 @@ pub struct Scene {
     /// sub 7). Not saved.
     #[serde(skip)]
     pub jolts: BTreeMap<i32, (i32, i32)>,
+    /// Whole screen enlarged from its centre, in percent (ふゆから、
+    /// くるる。, command 113). Not saved.
+    #[serde(skip)]
+    pub zoom: Option<u32>,
+    /// Picture shown over a black screen, above everything (ふゆから、
+    /// くるる。, command 114). Not saved.
+    #[serde(skip)]
+    pub flash: Option<String>,
 }
