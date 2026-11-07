@@ -12,7 +12,9 @@ All 56 scripts (7.9 million instructions) decode with every jump landing on an i
 
 Compared with screenshots of the original (Windows, Simplified Chinese): the message window, name plate, window portrait, the position and pitch of Chinese text, and the size and position of standing characters. Still provisional: English text metrics (no English screenshots to compare with yet), the line pitch of two-line messages, the wrap width, and where selections sit on screen.
 
-Not done yet: other effects. The "fixed window" setting is kept but changes nothing, since the window never moves here.
+Effects read from the executable: rule-mask wipes and screen dimming (sprite animations), snow, the future flash, pulse zoom, slash, white zoom flash, screen quake, character swing, and the pictures that change while a voice line plays (`.vo` files). Approximate: the picture does not shrink during the future flash, queued music starts without its fade-in, and the step time of character hops is a guess.
+
+Not done yet: the `Flag` calls, which keep flags in a system file across play-throughs. The "fixed window" setting is kept but changes nothing, since the window never moves here.
 
 ## きまぐれテンプテーション2
 
