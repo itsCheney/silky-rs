@@ -1647,12 +1647,28 @@ impl Session {
             return Ok(self.frame.is_none());
         }
         if self.screen.is_none() && self.rt.system.settings.emote_animation {
-            // Mouth of the E-mote picture while a voice plays: a provisional
-            // open and close every 160 ms, not the voice's loudness.
-            let talking = self.rt.voice_playing().then(|| {
-                let t = (self.ui.clock % 160) as f32 / 160.0;
-                (t * std::f32::consts::PI).sin()
-            });
+            // Mouth of the E-mote pictures: the voice's track (command 40,
+            // sub 16), 60 values a second, while the voice plays. The
+            // script starts the voice before it hands over the track.
+            let playing = self.rt.voice_playing();
+            let talking = match &mut self.rt.lip {
+                Some((track, played)) if playing => {
+                    *played += ms as f32;
+                    let value = track.get((*played * 0.06) as usize).copied();
+                    if value.is_none() {
+                        self.rt.lip = None;
+                    }
+                    value.map(|v| v.max(0.0))
+                }
+                // Ended, or not started yet.
+                Some((_, played)) => {
+                    if *played > 0.0 {
+                        self.rt.lip = None;
+                    }
+                    None
+                }
+                None => None,
+            };
             if self.renderer.progress_emote(&self.rt.scene, ms, talking) {
                 self.frame = None;
             }

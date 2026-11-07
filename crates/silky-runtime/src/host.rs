@@ -193,6 +193,19 @@ pub struct Transition {
 /// Offsets of the four steps of a character jolt.
 pub type Jolt = [(i32, i32); 4];
 
+/// Reads a mouth track: UTF-16 text of comma separated numbers.
+fn parse_lip(bytes: &[u8]) -> Vec<f32> {
+    let units: Vec<u16> = bytes
+        .chunks_exact(2)
+        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .collect();
+    String::from_utf16_lossy(&units)
+        .trim_start_matches('\u{feff}')
+        .split(',')
+        .filter_map(|v| v.trim().parse().ok())
+        .collect()
+}
+
 /// Mixer channel of movie sound.
 const MOVIE_AUDIO: i32 = 99;
 
@@ -222,6 +235,10 @@ pub struct Runtime {
     pub audio: Mixer,
     /// Voice file of the current message, for the backlog.
     pub voice: Option<String>,
+    /// Mouth track of the voice playing (きまぐれテンプテーション2, command
+    /// 40 sub 16): `face_talk` values, 60 a second, and the milliseconds
+    /// played.
+    pub lip: Option<(Vec<f32>, f32)>,
     /// Settings and what was seen, kept across saves.
     pub system: crate::system::SystemData,
     /// Set when the system data changed and should be stored.
@@ -269,6 +286,7 @@ impl Runtime {
             jolts: Vec::new(),
             audio,
             voice: None,
+            lip: None,
             system: Default::default(),
             system_changed: false,
             read_before: false,
@@ -362,6 +380,7 @@ impl Runtime {
         self.option_count = 0;
         self.choices.clear();
         self.character_time = 0;
+        self.lip = None;
         self.jolts.clear();
         self.clicked = false;
     }
@@ -523,13 +542,13 @@ impl Runtime {
     /// for sub 1): 0 and 12 load into a slot (frames, size in percent,
     /// the two files, slot; 12 has one more value first), 1 face (slot,
     /// extra, face), 15 main timeline, 14 `a` timeline, 13 a number kept
-    /// on the model, 3 remove one, 4 remove all, 2 apply. Fades are not
-    /// played. False for the others.
+    /// on the model, 3 remove one (frames, slot), 4 remove all (frames),
+    /// 16 the mouth track of the voice. The frames are kept for sub 2,
+    /// which crossfades like command 13. False for the others.
     fn kimaten2_emotes(&mut self, args: &[Value], sub: i32) -> bool {
         let args = &args[..args.len().saturating_sub(1)];
         let n = |i: usize| args.get(i).map(Value::int).unwrap_or(0);
         let last = n(args.len().saturating_sub(1));
-        let emotes = &mut self.scene.emotes;
         match (sub, args.len()) {
             (0, 5) | (12, 6) => {
                 let names: Vec<String> = args
@@ -543,9 +562,10 @@ impl Runtime {
                     return false;
                 };
                 let scale = n(args.len() - 4);
+                self.character_time = self.character_time.max(n(args.len() - 5));
                 let place = crate::scene::Place::standing(last, scale, a);
                 let files = [a.clone(), b.clone()];
-                emotes.insert(
+                self.scene.emotes.insert(
                     last,
                     crate::scene::Emote {
                         files,
@@ -556,12 +576,12 @@ impl Runtime {
                 );
             }
             (1, 3) => {
-                if let Some(e) = emotes.get_mut(&n(0)) {
+                if let Some(e) = self.scene.emotes.get_mut(&n(0)) {
                     e.face = Some((n(2), n(1)));
                 }
             }
             (13..=15, 2) => {
-                if let Some(e) = emotes.get_mut(&last) {
+                if let Some(e) = self.scene.emotes.get_mut(&last) {
                     match sub {
                         14 => e.sub = Some(n(0)),
                         15 => e.pose = Some(n(0)),
@@ -570,10 +590,25 @@ impl Runtime {
                 }
             }
             (3, 2) => {
-                emotes.remove(&last);
+                self.scene.emotes.remove(&last);
+                self.character_time = self.character_time.max(n(0));
             }
-            (4, 1) => emotes.clear(),
-            (2, 0) => {}
+            (4, 1) => {
+                self.scene.emotes.clear();
+                self.character_time = self.character_time.max(n(0));
+            }
+            (16, 1) => {
+                let Some(name) = args[0].as_str() else {
+                    return false;
+                };
+                self.lip = match self.assets.data(name) {
+                    Ok(bytes) => Some((parse_lip(&bytes), 0.0)),
+                    Err(_) => {
+                        self.note_unhandled(format!("missing {name}"));
+                        None
+                    }
+                };
+            }
             _ => return false,
         }
         true
@@ -797,6 +832,11 @@ impl Runtime {
         if title == Title::Kimaten2 && command == cmd::PORTRAIT && self.kimaten2_emote(&args, sub) {
             self.handled += 1;
             return Ok(Flow::Continue);
+        }
+        if title == Title::Kimaten2 && command == cmd::EMOTES && sub == 2 && args.len() == 1 {
+            let t = std::mem::take(&mut self.character_time);
+            self.handled += 1;
+            return Ok(self.transition(t, None));
         }
         if title == Title::Kimaten2 && command == cmd::EMOTES && self.kimaten2_emotes(&args, sub) {
             self.handled += 1;
@@ -1181,5 +1221,17 @@ impl Host for Runtime {
             self.audio.stop_bus(Bus::Voice);
         }
         Ok(Flow::Continue)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn lip_track() {
+        let text: Vec<u8> = "\u{feff}+0.0, 0.45, 5.5,"
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        assert_eq!(super::parse_lip(&text), vec![0.0, 0.45, 5.5]);
     }
 }

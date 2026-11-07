@@ -41,10 +41,10 @@ Anneliese is an E-mote 4 model (`.psb`, header encrypted): two files per costume
 Two commands show her, both read from the executable:
 
 - `Game.10` is Anneliese walking along with the protagonist, at the bottom left: sub 6 loads a costume, 7 sets the face and the timeline after the faces, 13 (and 12) the pose, 16 the `a` timelines, 9 and 11 show and hide. Size 0.35, position given as (500, -930).
-- `Game.40` holds standing models by slot: sub 0 (and 12) loads a costume into a slot at a size in percent from the script (50 and 100 in the middle, 60 on the right), 1 sets the face, 15 the pose, 14 the `a` timelines, 3 removes one slot and 4 all. The slot gives x (0 middle, 1 left, 2 right) and the size gives y, so the feet stay on the same line.
+- `Game.40` holds standing models by slot: sub 0 (and 12) loads a costume into a slot at a size in percent from the script (50 and 100 in the middle, 60 on the right), 1 sets the face, 15 the pose, 14 the `a` timelines, 3 removes one slot and 4 all, and 2 crossfades to the new picture over the frames those calls gave, as `Game.13` does for standing characters. Sub 16 hands over the mouth track of the voice that just started (`k2*.csv`: UTF-16 numbers, 60 a second, the model's `face_talk` value from 0 to 5); it moves the mouth of every Anneliese on screen while the voice plays. The slot gives x (0 middle, 1 left, 2 right) and the size gives y, so the feet stay on the same line.
 
-How these positions map to the screen was measured on two screenshots of the game (one of each layout); both agree. Fades in and out of these models are not played yet, the mouth opens and closes while a voice plays instead of following its loudness, and the animation runs at 30 frames a second on the GPU (15 in software). Turning off E-mote animation in the settings keeps the picture still. Built without the default `emote` feature, the runtime leaves these pictures out.
+How these positions map to the screen was measured on two screenshots of the game (one of each layout); both agree. The animation runs at 30 frames a second on the GPU (15 in software). Turning off E-mote animation in the settings keeps the picture still. Built without the default `emote` feature, the runtime leaves these pictures out.
 
 ### Not done yet
 
-The line pitch of two-line messages, voice loop and skipping unread text, the eight E-mote H-scene animations (`hg030100_*.psb`), and the `Game.40` lip sync files (`k2*.csv`).
+The line pitch of two-line messages, voice loop and skipping unread text, the eight E-mote H-scene animations (`hg030100_*.psb`), `Game.40` sub 8 (moves a model; used once), and `Game.10` sub 4, which every scene calls but whose handler does not touch the model (meaning not read yet).
