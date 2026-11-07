@@ -1102,7 +1102,8 @@ impl EmoteModelSchema {
             .and_then(PsbValue::as_list)
             .ok_or(EmoteSchemaError::MissingBaseObject)?;
 
-        let effective_time = effective_motion_time(motion, time_ticks);
+        let effective_time = motion_parameter_time(motion, variables)
+            .unwrap_or_else(|| effective_motion_time(motion, time_ticks));
         let priority_ranks = Arc::new(motion_priority_ranks(motion, effective_time));
         let mut sprites = Vec::new();
         let mut layer_states = Vec::new();
@@ -3599,6 +3600,37 @@ impl Default for DynamicFrameState {
     }
 }
 
+/// A motion whose own `parameterize` names one of its `parameter` entries
+/// (eyelids by face_eye_open, mouths by face_talk, brows by face_eyebrow)
+/// is not played in time: its time is that variable mapped onto
+/// [0, division], as for a parameterized layer.
+fn motion_parameter_time(motion: &PsbValue, variables: &BTreeMap<String, f32>) -> Option<f32> {
+    let table = motion.field("parameter").and_then(PsbValue::as_list);
+    let parameter = resolve_parameterize(motion.field("parameterize")?, table)?;
+    let id = parameter
+        .field_str("id")
+        .or_else(|| parameter.field_str("key"))
+        .or_else(|| parameter.field_str("name"))
+        .filter(|s| !s.is_empty())?;
+    let begin = parameter.field_f32("rangeBegin").unwrap_or(0.0);
+    let end = parameter.field_f32("rangeEnd").unwrap_or(1.0);
+    let division = parameter.field_f32("division").unwrap_or(1.0);
+    if !division.is_finite()
+        || division <= 0.0
+        || !begin.is_finite()
+        || !end.is_finite()
+        || (end - begin).abs() <= f32::EPSILON
+    {
+        return None;
+    }
+    let mut value = variables.get(id).copied().unwrap_or(0.0);
+    if content_bool_like(parameter, "discretization").unwrap_or(false) {
+        value = value.trunc();
+    }
+    let value = value.min(begin.max(end)).max(begin.min(end));
+    Some((value - begin) * division / (end - begin))
+}
+
 fn effective_motion_time(motion: &PsbValue, time_ticks: f32) -> f32 {
     // MMotionPlayer::Progress (sub_10350870) keeps accumulated time (+280)
     // separate from effective motion time (+284).  Forward playback wraps at
@@ -4553,7 +4585,11 @@ fn layer_parameter_eval(
     _frame_list: &[PsbValue],
     fallback_time_ticks: f32,
 ) -> Option<LayerParameterEval> {
-    if let Some(parameterize) = layer.field("parameterize") {
+    // A null or negative `parameterize` is an ordinary, time-played layer.
+    if let Some(parameterize) = layer
+        .field("parameterize")
+        .filter(|p| !matches!(p, PsbValue::Null) && !matches!(p, PsbValue::Int(i) if *i < 0))
+    {
         let Some(parameter) = resolve_parameterize(parameterize, parameter_table) else {
             return Some(LayerParameterEval {
                 id: None,
@@ -4969,8 +5005,17 @@ fn travel_layer_at(
             state.shear_x,
             state.shear_y,
         );
-        draw_ctx = ctx_with_opacity(draw_ctx, state.opa);
-        child_ctx = ctx_with_opacity(child_ctx, state.opa);
+        // A type-0 key with more keys after it is a gap: the layer (and
+        // what hangs off it) is not shown until the next key, as when an
+        // eyelid motion hides the eye white for closed eyes. The last type-0
+        // key only ends the list and keeps the layer as it was.
+        let opacity = if state.serialized_frame_type == 0 && state.next_frame_index.is_some() {
+            0.0
+        } else {
+            state.opa
+        };
+        draw_ctx = ctx_with_opacity(draw_ctx, opacity);
+        child_ctx = ctx_with_opacity(child_ctx, opacity);
 
         if draw_ctx.layer_type == 12 {
             if let Some(wipe) = state.stencil_wipe {
@@ -5822,12 +5867,43 @@ fn apply_ready_to_draw_specialized_pass(
     // For each structural index, retain its nearest ready ancestor (including
     // itself). Borrow the stable paths/keys rather than copying five maps of
     // layer metadata on each of the three scene evaluations per host frame.
+    // A nested player's top layers have no parent inside their own scope:
+    // their nearest ready ancestor is that of the type-3 layer that plays
+    // the nested motion (itself when ready), so a stencil around that layer
+    // (an eye white around the iris motion) still clips them.
+    let (outer, scope) = layer_states.split_at_mut(begin);
+    let outer: &[EmoteStepFrameLayerState] = outer;
+    let enclosing_owner = |key: &[u64]| -> Option<(&str, i64, &[u64])> {
+        let (_, prefix) = key.split_last()?;
+        let host = outer
+            .iter()
+            .rev()
+            .find(|s| s.draw_frame_info.native_draw_key.as_slice() == prefix)?;
+        if host.draw_frame_info.ready_to_draw {
+            return Some((
+                host.path.as_str(),
+                host.draw_frame_info.layer_type,
+                host.draw_frame_info.native_draw_key.as_slice(),
+            ));
+        }
+        let owner_key = host.draw_frame_info.stencil_parent_native_key.as_deref()?;
+        let owner = outer
+            .iter()
+            .rev()
+            .find(|s| s.draw_frame_info.native_draw_key.as_slice() == owner_key)?;
+        Some((
+            owner.path.as_str(),
+            owner.draw_frame_info.layer_type,
+            owner.draw_frame_info.native_draw_key.as_slice(),
+        ))
+    };
     let mut ready_ancestors = BTreeMap::<&str, Option<(&str, i64, &[u64])>>::new();
-    for state in layer_states[begin..end].iter_mut() {
-        let parent_owner = state
-            .scope_index_path
-            .rsplit_once('/')
-            .and_then(|(parent, _)| ready_ancestors.get(parent).copied().flatten());
+    for state in scope[..end - begin].iter_mut() {
+        let parent_owner = match state.scope_index_path.rsplit_once('/') {
+            Some((parent, _)) => ready_ancestors.get(parent).copied().flatten(),
+            None if begin > 0 => enclosing_owner(&state.draw_frame_info.native_draw_key),
+            None => None,
+        };
 
         // sub_103390C0 writes DrawFrameInfo+120 as
         //     layer+724 ? (layer+724)->+732 : NULL
@@ -7024,7 +7100,8 @@ fn recurse_motion_at(
         .field("parameter")
         .and_then(PsbValue::as_list)
         .or(parameter_table);
-    let effective_time = effective_motion_time(motion, time_ticks);
+    let effective_time = motion_parameter_time(motion, variables)
+        .unwrap_or_else(|| effective_motion_time(motion, time_ticks));
     let priority_ranks = Arc::new(motion_priority_ranks(motion, effective_time));
     let scope_start = layer_states.len();
     let sprite_scope_start = out.len();

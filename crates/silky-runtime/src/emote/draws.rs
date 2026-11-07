@@ -170,11 +170,23 @@ fn stencil_groups(
     (groups, initial, last)
 }
 
+/// The frame's `bm` in the form the rasterizers take: the 0x10 MODULATE2X
+/// bit and the blend equation in the low nibble. The models' shading parts
+/// (eye and hair shadows) use 0x118, drawn as multiply; other high bits are
+/// dropped.
+fn blend_mode(bm: u32) -> u32 {
+    let low = match bm & 0xF {
+        8 => 3,
+        low => low,
+    };
+    (bm & 0xF0) | low
+}
+
 fn sprite_mesh(sprite: &EmoteStaticSprite) -> Mesh {
     let info = &sprite.draw_frame_info;
     let style = Style {
         texture: sprite.texture_resource_index,
-        blend_mode: sprite.blend_mode,
+        blend_mode: blend_mode(sprite.blend_mode),
         clip: info.clip_rect.unwrap_or([-1.0e30, -1.0e30, 1.0e30, 1.0e30]),
         wipe: info
             .stencil_wipe_enabled
