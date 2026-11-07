@@ -285,6 +285,8 @@ fn snap(
                         rt.clicked = true;
                     }
                 }
+                // Headless: H mode is left at once with its finish button.
+                Some(Pause::HMode) => println!("H mode (finished at once)"),
                 Some(Pause::Choice) => {
                     let choose = path.get(selections).copied().unwrap_or(choose);
                     selections += 1;

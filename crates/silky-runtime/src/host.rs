@@ -98,6 +98,8 @@ mod cmd {
     pub const LOCALIZE: i32 = 223;
     /// きまぐれテンプテーション2: E-mote standing models by slot.
     pub const EMOTES: i32 = 40;
+    /// きまぐれテンプテーション2's H mode.
+    pub const H_MODE: i32 = 49;
 }
 
 /// What a save file holds besides its header.
@@ -158,6 +160,9 @@ pub enum Pause {
     /// きまぐれテンプテーション2's map is up ([`Runtime::map`]); answer
     /// with [`Runtime::answer_action`].
     Map,
+    /// きまぐれテンプテーション2's H mode (`Game.49`, see
+    /// [`crate::hmode`]); the scripts go on when it ends.
+    HMode,
 }
 
 /// A button of きまぐれテンプテーション2's action menu (`Game.42`).
@@ -239,6 +244,8 @@ pub struct Runtime {
     /// 40 sub 16): `face_talk` values, 60 a second, and the milliseconds
     /// played.
     pub lip: Option<(Vec<f32>, f32)>,
+    /// The last mouth track, for the voice loop.
+    lip_track: Option<Vec<f32>>,
     /// Settings and what was seen, kept across saves.
     pub system: crate::system::SystemData,
     /// Set when the system data changed and should be stored.
@@ -287,6 +294,7 @@ impl Runtime {
             audio,
             voice: None,
             lip: None,
+            lip_track: None,
             system: Default::default(),
             system_changed: false,
             read_before: false,
@@ -470,6 +478,20 @@ impl Runtime {
         self.play(Bus::Voice, Kind::Voice, 0, file)
     }
 
+    /// Plays the mouth track of the voice again from its start.
+    pub fn restart_lip(&mut self) {
+        if let Some((_, played)) = &mut self.lip {
+            *played = 0.0;
+        } else if let Some(track) = self.lip_track.clone() {
+            self.lip = Some((track, 0.0));
+        }
+    }
+
+    /// Plays a sound effect.
+    pub fn play_sound(&mut self, file: &str) -> crate::Result<()> {
+        self.play(Bus::Effect, Kind::Effect, 0, file)
+    }
+
     /// Stops the voice.
     pub fn stop_sound_voice(&mut self) {
         self.audio.stop_bus(Bus::Voice);
@@ -530,6 +552,10 @@ impl Runtime {
             (12 | 13, 1) => emote.iter_mut().for_each(|e| e.pose = Some(n(0))),
             (16, 1) => emote.iter_mut().for_each(|e| e.sub = Some(n(0))),
             (17, 1) => {}
+            // Scene skip point (0x497410): with the original's "skip H
+            // scenes" setting on, it ends the scene here. That setting is
+            // not offered, so it does nothing, as with the setting off.
+            (4, 0) => {}
             (9, 0) => emote.iter_mut().for_each(|e| e.visible = true),
             (11, 0) => emote.iter_mut().for_each(|e| e.visible = false),
             _ => return false,
@@ -542,7 +568,7 @@ impl Runtime {
     /// for sub 1): 0 and 12 load into a slot (frames, size in percent,
     /// the two files, slot; 12 has one more value first), 1 face (slot,
     /// extra, face), 15 main timeline, 14 `a` timeline, 13 a number kept
-    /// on the model, 3 remove one (frames, slot), 4 remove all (frames),
+    /// on the model, 8 move by (dy, dx), 3 remove one (frames, slot), 4 remove all (frames),
     /// 16 the mouth track of the voice. The frames are kept for sub 2,
     /// which crossfades like command 13. False for the others.
     fn kimaten2_emotes(&mut self, args: &[Value], sub: i32) -> bool {
@@ -556,10 +582,18 @@ impl Runtime {
                     .filter_map(Value::as_str)
                     .map(|s| s.to_ascii_lowercase())
                     .collect();
-                let first = names.iter().find(|n| n.contains("_h0007"));
-                let second = names.iter().find(|n| n.contains("_h0813"));
-                let (Some(a), Some(b)) = (first, second) else {
-                    return false;
+                // Standing models pair `_h0007` (first file) with
+                // `_h0813`; H mode models (`hg030100_10`, `_11`) come in
+                // the same places, and the script keeps `_10` first.
+                let (a, b) = match (
+                    names.iter().find(|n| n.contains("_h0007")),
+                    names.iter().find(|n| n.contains("_h0813")),
+                ) {
+                    (Some(a), Some(b)) => (a, b),
+                    _ if names.len() == 2 && names.iter().all(|n| n.starts_with("hg")) => {
+                        (names.iter().min().unwrap(), names.iter().max().unwrap())
+                    }
+                    _ => return false,
                 };
                 let scale = n(args.len() - 4);
                 self.character_time = self.character_time.max(n(args.len() - 5));
@@ -589,6 +623,18 @@ impl Runtime {
                     }
                 }
             }
+            // (dy, dx, slot): moves the driver position (0x45aa00).
+            (8, 3) => {
+                if let Some(p) = self
+                    .scene
+                    .emotes
+                    .get_mut(&last)
+                    .and_then(|e| e.place.as_mut())
+                {
+                    p.x += n(1);
+                    p.y += n(0);
+                }
+            }
             (3, 2) => {
                 self.scene.emotes.remove(&last);
                 self.character_time = self.character_time.max(n(0));
@@ -601,8 +647,13 @@ impl Runtime {
                 let Some(name) = args[0].as_str() else {
                     return false;
                 };
+                self.lip_track = None;
                 self.lip = match self.assets.data(name) {
-                    Ok(bytes) => Some((parse_lip(&bytes), 0.0)),
+                    Ok(bytes) => {
+                        let track = parse_lip(&bytes);
+                        self.lip_track = Some(track.clone());
+                        Some((track, 0.0))
+                    }
                     Err(_) => {
                         self.note_unhandled(format!("missing {name}"));
                         None
@@ -827,6 +878,11 @@ impl Runtime {
             });
             self.handled += 1;
             self.pause = Some(Pause::Map);
+            return Ok(Flow::Yield);
+        }
+        if title == Title::Kimaten2 && command == cmd::H_MODE {
+            self.handled += 1;
+            self.pause = Some(Pause::HMode);
             return Ok(Flow::Yield);
         }
         if title == Title::Kimaten2 && command == cmd::PORTRAIT && self.kimaten2_emote(&args, sub) {
@@ -1215,6 +1271,7 @@ impl Host for Runtime {
         self.scene.speaker = None;
         self.scene.speaker_name = None;
         self.voice = None;
+        self.lip_track = None;
         // A new message cuts the voice of the last one, unless the player
         // turned that off.
         if self.system.settings.cut_voice {

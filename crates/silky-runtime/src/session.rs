@@ -114,6 +114,8 @@ pub struct Session {
     thumb: Option<Image>,
     /// The backlog plays the marked voices one after another.
     playing_marked: bool,
+    /// きまぐれテンプテーション2's H mode, over the game.
+    hmode: Option<crate::hmode::HMode>,
 }
 
 struct MoviePlay {
@@ -185,6 +187,7 @@ impl Session {
             shown_chars: None,
             system_stored: 0,
             jolts: Vec::new(),
+            hmode: None,
         };
         s.restart()?;
         Ok(s)
@@ -502,6 +505,10 @@ impl Session {
                         self.base = None;
                         break;
                     }
+                    Some(Pause::HMode) => {
+                        self.open_hmode();
+                        break;
+                    }
                     Some(Pause::Extras(kind)) => {
                         self.ui.title = None;
                         self.ui.skip = false;
@@ -678,6 +685,10 @@ impl Session {
 
     /// Pointer moved to (x, y) in screen pixels.
     pub fn pointer_move(&mut self, x: i32, y: i32) {
+        if let Some(h) = &mut self.hmode {
+            h.pointer_move(x, y);
+            return;
+        }
         if let Some(Screen::Settings(SettingsScreen {
             dragging: Some(id), ..
         })) = &self.screen
@@ -695,6 +706,12 @@ impl Session {
 
     /// Primary button pressed at (x, y).
     pub fn pointer_down(&mut self, x: i32, y: i32) {
+        if let Some(h) = &mut self.hmode {
+            let mut ops = Vec::new();
+            h.pointer_down(x, y, &mut ops);
+            self.apply_hmode(ops);
+            return;
+        }
         self.ui.pressed = self.hit(x, y);
         self.frame = None;
         if let (Some(Screen::Settings(s)), Some(Button::Screen(id))) =
@@ -738,6 +755,12 @@ impl Session {
 
     /// Primary button released at (x, y): a click.
     pub fn pointer_up(&mut self, x: i32, y: i32) -> Result<()> {
+        if let Some(h) = &mut self.hmode {
+            let mut ops = Vec::new();
+            h.pointer_up(x, y, &mut ops);
+            self.apply_hmode(ops);
+            return Ok(());
+        }
         let pressed = self.ui.pressed.take();
         self.frame = None;
         if let Some(Screen::Settings(s)) = &mut self.screen {
@@ -837,6 +860,10 @@ impl Session {
     /// Closes the dialog or screen that is up, or ends a movie (Escape,
     /// right click). Returns false if there was none.
     pub fn back(&mut self) -> Result<bool> {
+        // H mode ends only with its own finish button.
+        if self.hmode.is_some() {
+            return Ok(true);
+        }
         if self.dialog.take().is_some() {
             self.frame = None;
             return Ok(true);
@@ -1049,6 +1076,105 @@ impl Session {
     }
 
     /// Plays the voice recording on: the next part when one ends.
+    /// Starts H mode (`Game.49`) over the scene.
+    fn open_hmode(&mut self) {
+        let assets = &self.rt.assets;
+        let areas = crate::screens::area_file(assets, "hmode.area");
+        let carea = assets.data("anne_h.carea").unwrap_or_default();
+        let vm = &self.vm;
+        let seed = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(1, |d| d.as_nanos() as u64);
+        self.hmode = Some(crate::hmode::HMode::new(
+            areas,
+            carea,
+            |i| vm.var_b(i),
+            seed,
+        ));
+        self.ui.waiting = false;
+        self.ui.skip = false;
+        self.ui.auto = false;
+        self.skip_to_choice = false;
+        self.state = State::Choice;
+        self.base = None;
+        self.frame = None;
+    }
+
+    fn tick_hmode(&mut self, ms: u64) -> Result<()> {
+        let voice = self.rt.voice_playing();
+        #[cfg(feature = "emote")]
+        // Without a model yet (not drawn), nothing is started on it.
+        let main = match self.hmode_slot() {
+            Some(s) => self
+                .renderer
+                .emote_stage(s)
+                .is_none_or(|st| st.character().main_playing()),
+            None => true,
+        };
+        #[cfg(not(feature = "emote"))]
+        let main = true;
+        let mut ops = Vec::new();
+        let Some(h) = &mut self.hmode else {
+            return Ok(());
+        };
+        h.tick(ms, voice, main, &mut ops);
+        let done = h.done;
+        self.apply_hmode(ops);
+        self.frame = None;
+        if done {
+            self.hmode = None;
+            self.base = None;
+            self.state = State::Busy;
+            self.run()?;
+        }
+        Ok(())
+    }
+
+    /// The standing slot that holds the H mode model (the first one).
+    fn hmode_slot(&self) -> Option<i32> {
+        self.rt.scene.emotes.keys().next().copied()
+    }
+
+    fn apply_hmode(&mut self, ops: Vec<crate::hmode::Op>) {
+        use crate::hmode::Op;
+        for op in ops {
+            match op {
+                Op::Voice(name) => {
+                    if let Err(e) = self.rt.replay_voice(&format!("{name}.ogg")) {
+                        self.rt.note_unhandled(format!("H mode voice {name}: {e}"));
+                    }
+                }
+                Op::Sound(name) => {
+                    if let Err(e) = self.rt.play_sound(name) {
+                        self.rt.note_unhandled(format!("H mode sound {name}: {e}"));
+                    }
+                }
+                #[cfg(feature = "emote")]
+                op => {
+                    let Some(slot) = self.hmode_slot() else {
+                        continue;
+                    };
+                    let Some(stage) = self.renderer.emote_stage(slot) else {
+                        continue;
+                    };
+                    let c = stage.character();
+                    match op {
+                        Op::Main { index, file, cut } => c.h_main(index, file, cut),
+                        Op::StopMain => c.h_stop_main(),
+                        Op::Diff { index, file } => c.h_diff(index, file),
+                        Op::StopDiff(i) => c.h_stop_diff(i),
+                        Op::Face(f) => c.h_face(f),
+                        Op::Voice(_) | Op::Sound(_) => {}
+                    }
+                    self.base = None;
+                }
+                #[cfg(not(feature = "emote"))]
+                _ => {}
+            }
+        }
+        self.frame = None;
+    }
+
     fn advance_recording(&mut self) {
         let Some(Screen::Archive(s)) = &mut self.screen else {
             return;
@@ -1552,10 +1678,18 @@ impl Session {
                     self.shown_ms = 0;
                 }
                 bar::SKIP => {
-                    self.ui.skip = !self.ui.skip;
+                    self.ui.skip = !self.ui.skip || self.ui.skip_all;
+                    self.ui.skip_all = false;
                     self.skip_to_choice = false;
                     self.ui.auto = false;
                 }
+                bar::SKIP_ALL => {
+                    self.ui.skip = !(self.ui.skip && self.ui.skip_all);
+                    self.ui.skip_all = self.ui.skip;
+                    self.skip_to_choice = false;
+                    self.ui.auto = false;
+                }
+                bar::LOOP_VOICE => self.ui.loop_voice = !self.ui.loop_voice,
                 bar::NEXT_CHOICE => {
                     self.ui.skip = true;
                     self.skip_to_choice = true;
@@ -1622,6 +1756,17 @@ impl Session {
                 }
             }
         }
+        if self.ui.loop_voice
+            && self.state == State::Text
+            && !self.ui.skip
+            && !self.playing_marked
+            && !self.rt.voice_playing()
+        {
+            if let Some(file) = self.rt.voice.clone() {
+                self.rt.replay_voice(&file)?;
+                self.rt.restart_lip();
+            }
+        }
         if self.layout.is_kimaten2() {
             self.refresh_archive_flags();
             self.store_global_bytes();
@@ -1645,6 +1790,9 @@ impl Session {
                 self.frame = None;
             }
             return Ok(self.frame.is_none());
+        }
+        if self.hmode.is_some() {
+            self.tick_hmode(ms)?;
         }
         if self.screen.is_none() && self.rt.system.settings.emote_animation {
             // Mouth of the E-mote pictures: the voice's track (command 40,
@@ -1718,6 +1866,7 @@ impl Session {
         if self.state == State::Text
             && self.ui.skip
             && !self.skip_to_choice
+            && !self.ui.skip_all
             && st.skip_read_only
             && !self.rt.read_before
         {
@@ -1844,6 +1993,7 @@ impl Session {
         {
             // The action menu takes the message window away.
             let window = !self.ui.window_hidden
+                && self.hmode.is_none()
                 && self.state != State::Title
                 && self.ui.actions.is_empty()
                 && self.ui.map.is_none();
@@ -1873,6 +2023,19 @@ impl Session {
             if window {
                 self.renderer
                     .draw_text(&mut frame, &self.rt.scene, self.shown_chars);
+            }
+            if let Some(h) = &self.hmode {
+                let assets = &mut self.rt.assets;
+                let img = |assets: &mut crate::Assets, n: &str| assets.image(n).ok();
+                let images = [
+                    img(assets, "action_p.akb"),
+                    img(assets, "hg030100_hand.akb"),
+                    img(assets, "hg030100_tongue.akb"),
+                    img(assets, "yume.akb"),
+                    img(assets, "white.akb"),
+                ];
+                h.draw(&mut frame, images.each_ref().map(|i| i.as_deref()));
+                return Ok(frame);
             }
             let text_shown =
                 matches!(self.state, State::Text | State::Choice) && self.rt.scene.text.is_some();

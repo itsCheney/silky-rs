@@ -25,8 +25,8 @@ use std::path::Path;
 use eluna::{
     bruteforce_emote_key, collect_emote_runtime_pipeline, collect_emote_timelines,
     collect_emote_variables, ElunaPlayer, EmoteModelSchema, EmotePlayerControl, EmoteStaticScene,
-    EmoteTextureSource, PsbBruteforceOptions, PsbDecryptionKey, PsbFile, PsbNormalizeOptions,
-    PsbValue, TimelinePlayMode,
+    EmoteTextureSource, EmoteTimeline, PsbBruteforceOptions, PsbDecryptionKey, PsbFile,
+    PsbNormalizeOptions, PsbValue, TimelinePlayMode,
 };
 use silky_format::akb::Image;
 
@@ -67,6 +67,27 @@ pub fn find_key(sample: &[u8], cache: Option<&Path>) -> Option<u32> {
         let _ = std::fs::write(p, format!("0x{:08X}\n", found.key));
     }
     Some(found.key)
+}
+
+/// The main one-shots of きまぐれテンプテーション2's `hg` models (`…１ショット`)
+/// say a `lastTime` of 3 ticks while their frames run to 50 or 55; the
+/// game waits for them to end (0x48bda0), so they end at their last frame.
+fn one_shots_to_last_frame(mut timelines: Vec<EmoteTimeline>) -> Vec<EmoteTimeline> {
+    for t in &mut timelines {
+        if t.is_difference || t.loop_begin_ticks >= 0.0 {
+            continue;
+        }
+        let last = t
+            .variables
+            .iter()
+            .flat_map(|v| v.frames.iter().map(|f| f.time_ticks))
+            .fold(0.0f32, f32::max);
+        if last > t.last_time_ticks {
+            t.last_time_ticks = last;
+            t.duration_ticks = last;
+        }
+    }
+    timelines
 }
 
 /// One E-mote model with its player.
@@ -117,7 +138,7 @@ impl Model {
         let player = ElunaPlayer::from_scene_variables_timelines_runtime(
             scene,
             variables,
-            collect_emote_timelines(&psb),
+            one_shots_to_last_frame(collect_emote_timelines(&psb)),
             collect_emote_runtime_pipeline(&psb),
         );
         let (mut main, mut diff) = (Vec::new(), Vec::new());
@@ -222,6 +243,43 @@ impl Model {
             self.player
                 .play_timeline(&name, TimelinePlayMode::from_flags(1));
         }
+    }
+
+    /// Main timeline `index` after `previous`, cut at once (0x452ac0 with
+    /// its last value set).
+    fn cut_main(&mut self, index: usize, previous: Option<usize>) {
+        if let Some(old) = previous.and_then(|i| self.main.get(i)).cloned() {
+            self.player.stop_timeline(&old);
+        }
+        if let Some(name) = self.main.get(index).cloned() {
+            self.player
+                .play_timeline(&name, TimelinePlayMode::from_flags(0));
+        }
+    }
+
+    fn stop_main(&mut self, index: usize) {
+        if let Some(name) = self.main.get(index).cloned() {
+            self.player.stop_timeline(&name);
+        }
+    }
+
+    /// Whether a main timeline still runs (one-shots end by themselves).
+    fn main_playing(&self) -> bool {
+        self.main.iter().any(|n| self.player.is_timeline_playing(n))
+    }
+
+    /// Main and difference timeline names, in the game's order.
+    pub fn timelines(&self) -> (&[String], &[String]) {
+        (&self.main, &self.diff)
+    }
+
+    /// Variable names with their ranges.
+    pub fn variables(&self) -> Vec<(String, Option<f32>, Option<f32>)> {
+        self.player
+            .variables()
+            .iter()
+            .map(|(k, v)| (k.clone(), v.info.min_value, v.info.max_value))
+            .collect()
     }
 
     pub fn set_variable(&mut self, name: &str, value: f32) {
@@ -353,6 +411,73 @@ impl Character {
             m.play_diff(base + n, previous.map(|p| p + base));
         }
         self.sub = Some(n);
+    }
+
+    // H mode (command 49). Both files of an `hg` model hold the same
+    // timelines; the game shows one of them (file 1 in dream mode) and
+    // plays most timelines on both (0x457d70, 0x45a760).
+
+    /// Main timeline `index` on both models; `cut` stops the one before
+    /// instead of fading it out.
+    pub fn h_main(&mut self, index: usize, file: usize, cut: bool) {
+        let previous = self.pose;
+        for m in &mut self.models {
+            if cut {
+                m.cut_main(index, previous);
+            } else {
+                m.play_main(index, previous);
+            }
+        }
+        self.pose = Some(index);
+        self.show(file);
+    }
+
+    /// Stops the main timeline (0x457fe0).
+    pub fn h_stop_main(&mut self) {
+        if let Some(p) = self.pose.take() {
+            for m in &mut self.models {
+                m.stop_main(p);
+            }
+        }
+    }
+
+    /// Difference timeline `index` on both models, beside the others.
+    pub fn h_diff(&mut self, index: usize, file: usize) {
+        for m in &mut self.models {
+            m.play_diff(index, None);
+        }
+        self.show(file);
+    }
+
+    /// Stops difference timeline `index` on both models (0x457ec0).
+    pub fn h_stop_diff(&mut self, index: usize) {
+        for m in &mut self.models {
+            if let Some(name) = m.diff.get(index).cloned() {
+                m.player.stop_timeline(&name);
+            }
+        }
+    }
+
+    /// Face 0 to 13 (0x458630): 0 to 6 on the first file, 7 to 13 on the
+    /// second, each the difference timelines `f00` (13) down to `f06` (7).
+    pub fn h_face(&mut self, face: usize) {
+        let file = usize::from(face >= 7);
+        let index = 13 - face % 7;
+        if let Some(m) = self.models.get_mut(file) {
+            m.play_diff(index, None);
+        }
+        self.show(file);
+    }
+
+    /// Whether the shown model plays a main timeline (0x48bda0).
+    pub fn main_playing(&self) -> bool {
+        self.models
+            .get(self.active)
+            .is_some_and(Model::main_playing)
+    }
+
+    fn show(&mut self, file: usize) {
+        self.active = file.min(self.models.len() - 1);
     }
 
     /// The mouth while the voice speaks (0 closed .. 1 open).
@@ -622,6 +747,12 @@ impl Stage {
         }
         self.image = None;
         true
+    }
+
+    /// The models, for H mode; the picture is drawn again.
+    pub fn character(&mut self) -> &mut Character {
+        self.image = None;
+        &mut self.character
     }
 
     /// Draws the picture again on the next call to [`Stage::image`].

@@ -87,9 +87,8 @@ pub mod bar {
     pub const HIDE: i32 = 13;
     pub const CLOSE: i32 = 14;
     /// きまぐれテンプテーション2 only: the side menu button, the costume
-    /// screen, the notebook and collection, and buttons whose functions
-    /// are not done yet (pin the button bar, loop the voice, skip unread
-    /// text too).
+    /// screen, the notebook and collection, loop the voice, skip unread
+    /// text too, and the pin of the button bar (not done yet).
     pub const MENU: i32 = 15;
     pub const PIN: i32 = 16;
     pub const COSTUME: i32 = 17;
@@ -111,6 +110,12 @@ pub struct Ui {
     pub window_hidden: bool,
     pub auto: bool,
     pub skip: bool,
+    /// Skip goes through unread text too (きまぐれテンプテーション2's
+    /// skip-all button).
+    pub skip_all: bool,
+    /// The voice of the message plays again each time it ends
+    /// (きまぐれテンプテーション2's voice loop button).
+    pub loop_voice: bool,
     /// A message waits for a click: the indicator animates.
     pub waiting: bool,
     /// Animation clock in milliseconds.
@@ -857,7 +862,9 @@ impl Kimaten2 {
         for c in &self.bar {
             let active = match c.id {
                 bar::AUTO => ui.auto,
-                bar::SKIP => ui.skip,
+                bar::SKIP => ui.skip && !ui.skip_all,
+                bar::SKIP_ALL => ui.skip && ui.skip_all,
+                bar::LOOP_VOICE => ui.loop_voice,
                 bar::MENU => ui.side_menu,
                 _ => false,
             };

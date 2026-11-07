@@ -22,7 +22,7 @@ All 64 scripts and 712 images decode. Headless, `silky-run trace` boots to the t
 
 ### Interface
 
-The player and `silky-run snap` open it. The title menu, the message window with the speaker's name plate (the fan patch's redrawn plates for its Chinese names too), the window buttons, the side menu, the selections, the action menu and the map (with the second map's panels) are drawn from the game's sheets. The window, action menu and map layouts are read from the executable, and the text is placed as on screenshots of the game. The backlog, the save and load screen, the settings pages and the yes/no dialog have the game's own look, with its help lines (`.HLG` tables) and its nine voice groups on the sound page. Saving at an action menu or the map saves the message before it.
+The player and `silky-run snap` open it. The title menu, the message window with the speaker's name plate (the fan patch's redrawn plates for its Chinese names too), the window buttons, the side menu, the selections, the action menu and the map (with the second map's panels) are drawn from the game's sheets. The window, action menu and map layouts are read from the executable, and the text is placed as on screenshots of the game. The backlog, the save and load screen, the settings pages and the yes/no dialog have the game's own look, with its help lines (`.HLG` tables) and its nine voice groups on the sound page. Saving at an action menu or the map saves the message before it. The bar's voice loop button plays the message's voice again each time it ends, and its skip-all button skips unread text too.
 
 ### Costume, notebook and collection
 
@@ -41,10 +41,20 @@ Anneliese is an E-mote 4 model (`.psb`, header encrypted): two files per costume
 Two commands show her, both read from the executable:
 
 - `Game.10` is Anneliese walking along with the protagonist, at the bottom left: sub 6 loads a costume, 7 sets the face and the timeline after the faces, 13 (and 12) the pose, 16 the `a` timelines, 9 and 11 show and hide. Size 0.35, position given as (500, -930).
-- `Game.40` holds standing models by slot: sub 0 (and 12) loads a costume into a slot at a size in percent from the script (50 and 100 in the middle, 60 on the right), 1 sets the face, 15 the pose, 14 the `a` timelines, 3 removes one slot and 4 all, and 2 crossfades to the new picture over the frames those calls gave, as `Game.13` does for standing characters. Sub 16 hands over the mouth track of the voice that just started (`k2*.csv`: UTF-16 numbers, 60 a second, the model's `face_talk` value from 0 to 5); it moves the mouth of every Anneliese on screen while the voice plays. The slot gives x (0 middle, 1 left, 2 right) and the size gives y, so the feet stay on the same line.
+- `Game.40` holds standing models by slot: sub 0 (and 12) loads a costume into a slot at a size in percent from the script (50 and 100 in the middle, 60 on the right), 1 sets the face, 15 the pose, 14 the `a` timelines, 8 moves a model, 3 removes one slot and 4 all, and 2 crossfades to the new picture over the frames those calls gave, as `Game.13` does for standing characters. Sub 16 hands over the mouth track of the voice that just started (`k2*.csv`: UTF-16 numbers, 60 a second, the model's `face_talk` value from 0 to 5); it moves the mouth of every Anneliese on screen while the voice plays. The slot gives x (0 middle, 1 left, 2 right) and the size gives y, so the feet stay on the same line.
 
 How these positions map to the screen was measured on two screenshots of the game (one of each layout); both agree. The animation runs at 30 frames a second on the GPU (15 in software). Turning off E-mote animation in the settings keeps the picture still. Built without the default `emote` feature, the runtime leaves these pictures out.
 
+`Game.10` sub 4, called at the start of every H scene, is the original's scene skip point: with its "skip H scenes" setting on, it ends the scene there. That setting is not offered, so the call does nothing, as in the game with the setting off.
+
+### H mode
+
+`Game.49` is an interactive screen of the engine, read from the executable. The script first loads an `hg030100_*` model pair into slot 0. The player picks a tool on the right (insertion, hand, mouth, rotor, vibrator; the last two open with bytes 3010 and 3015) and clicks a body region of the touch map `anne_h.carea` (seven regions). Each tool and region plays the timelines, face and voice the executable gives for it (about 160 voice files in its tables, chosen by her gauge). Her gauge rises with every action and his with insertion. Holding the button turns an action into its loop once its one-shot ends, with the hand and mouth sprites. A full gauge plays the climax and waits for its voice. The buttons switch clothes and horns, dream mode (byte 3014: the second model file and a pink mist), inside or outside, auto repeat, climax together, and lock either gauge. The finish button picks a closing line by how often each climaxed and returns to the script.
+
+The one-shot timelines of these models give a length of 3 ticks while their frames run to 50 or 55; they are played to their last frame, since the game waits for them to end.
+
 ### Not done yet
 
-The line pitch of two-line messages, voice loop and skipping unread text, the eight E-mote H-scene animations (`hg030100_*.psb`), `Game.40` sub 8 (moves a model; used once), and `Game.10` sub 4, which every scene calls but whose handler does not touch the model (meaning not read yet).
+- The line pitch of two-line messages: it is not in the executable, so it needs a screenshot of a two-line message.
+- The pin of the button bar.
+- In H mode: the mouse cursor per tool and region, and one model call of the right breast rotor (meaning not read). The mist's scroll speed and the white flash's length are guesses. The screen has not been compared with the game yet.

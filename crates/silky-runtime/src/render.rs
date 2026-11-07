@@ -334,6 +334,12 @@ impl Renderer {
     }
 
     /// Draws E-mote models on `gpu` from now on.
+    /// The E-mote picture of standing slot `slot`, once drawn.
+    #[cfg(feature = "emote")]
+    pub fn emote_stage(&mut self, slot: i32) -> Option<&mut crate::emote::Stage> {
+        self.emote.get_mut(&slot)
+    }
+
     #[cfg(feature = "emote")]
     pub fn set_emote_gpu(&mut self, gpu: crate::emote::Gpu) {
         self.emote_gpu = Some(gpu);
