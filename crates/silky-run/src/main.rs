@@ -237,6 +237,7 @@ fn snap(
                 }
                 Some(Pause::Text { index }) => {
                     rt.jolts.clear();
+                    rt.vo_steps.clear();
                     after_movie = None;
                     let name = rt.message_script();
                     if name != script {

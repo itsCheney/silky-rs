@@ -20,6 +20,7 @@ const SCREEN: i32 = 20;
 const UI: i32 = 26;
 const MOVIE: i32 = 23;
 const MESWND: i32 = 2;
+const MOUSE: i32 = 12;
 const BACKLOG: i32 = 22;
 
 /// Game commands of ふゆから、くるる。 that きまぐれテンプテーション2 uses
@@ -103,6 +104,12 @@ mod cmd {
     /// ふゆから、くるる。: `(colour, time, rule)`, fade out to a colour
     /// through a rule mask.
     pub const RULE_FADE_OUT: i32 = 111;
+    /// ふゆから、くるる。: screen quake ("thread_shake").
+    pub const QUAKE: i32 = 993;
+    /// ふゆから、くるる。: zoom and white flash ("pic_flush").
+    pub const FLUSH: i32 = 1005;
+    /// ふゆから、くるる。: `.vo` pictures that change with a voice line.
+    pub const VOICE_PICTURES: i32 = 1007;
     /// ふゆから、くるる。: auto save point.
     pub const AUTO_SAVE: i32 = 14;
     /// ふゆから、くるる。: `(mode, time)` white wipe into and out of the
@@ -209,8 +216,12 @@ pub struct Transition {
     pub rule: Option<u32>,
 }
 
-/// Offsets of the four steps of a character jolt.
-pub type Jolt = [(i32, i32); 4];
+/// A character jolt: offsets, one for each step of `step_ms`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Jolt {
+    pub steps: Vec<(i32, i32)>,
+    pub step_ms: u64,
+}
 
 /// Reads a mouth track: UTF-16 text of comma separated numbers.
 fn parse_lip(bytes: &[u8]) -> Vec<f32> {
@@ -285,6 +296,14 @@ pub struct Runtime {
     sprites: crate::sprite::Sprites,
     /// Second step of an effect, after the transition that started it.
     then: Option<FollowUp>,
+    /// Pictures of the `.vo` timeline still to come, with their time
+    /// from now in milliseconds (ふゆから、くるる。, command 1007), for the
+    /// frontend to show.
+    pub vo_steps: Vec<(u32, crate::vo::Step)>,
+    /// Size of the screen quake to start (command 993, sub 2).
+    quake_mode: i32,
+    /// Music set up by `Music.5`, by channel, for `Music.4` to start.
+    queued_music: BTreeMap<i32, String>,
     /// Set by the game's auto save point (ふゆから、くるる。, command 14);
     /// the frontend saves at the next message.
     pub auto_save: bool,
@@ -297,6 +316,42 @@ enum FollowUp {
     EndFlash { frames: i32, rule: u32 },
     /// Back to normal size, over `frames`.
     EndZoom { frames: i32 },
+    /// "pic_flush": from the enlarged screen to white for a frame.
+    FlushWhite,
+    /// "pic_flush": from white back to the scene over `frames`.
+    FlushEnd { frames: i32 },
+}
+
+/// Engine calls of ふゆから、くるる。 that need nothing from this runtime,
+/// read from the executable and the library scripts.
+fn fuyukuru_nothing_to_do(class: i32, sub: i32) -> bool {
+    matches!(
+        (class, sub),
+        // Set up at the start: message window (MesWnd.1 clears its text
+        // for a new page; this runtime lays out each message itself), font
+        // size, input, sound channels, the one-line message, menus.
+        (MESWND, 1)
+            | (10, 0 | 1)
+            | (12, 5)
+            | (17, 0)
+            | (24, 0 | 2)
+            | (UI, 2..=4)
+            // Select.0(-1): selection settings; the selection itself is
+            // `Game.20`.
+            | (1, 0)
+            // The original rebuilds its scene after a load from a store of
+            // variables (Save.2 reads one, 4 writes, 5 and 6 delete) and
+            // keeps its own backlog (BackLog.0..3) and message records
+            // (MesWnd.3 with `Game.23` text); this runtime saves the scene
+            // and keeps its own backlog.
+            | (27, 2 | 4 | 5 | 6)
+            | (BACKLOG, 0..=3)
+            | (MESWND, 3)
+            // Settings read from the original's XML configuration: scene
+            // skip, movie playback, auto read, the one-line message. Read
+            // as 0 (off).
+            | (25, 0 | 1)
+    )
 }
 
 fn host_error(msg: impl Into<String>) -> silky_vm::Error {
@@ -335,6 +390,9 @@ impl Runtime {
             map: None,
             sprites: Default::default(),
             then: None,
+            vo_steps: Vec::new(),
+            quake_mode: 0,
+            queued_music: BTreeMap::new(),
             auto_save: false,
         }
     }
@@ -353,6 +411,16 @@ impl Runtime {
             }
             FollowUp::EndZoom { frames } => {
                 self.scene.zoom = None;
+                self.transition(frames, None)
+            }
+            FollowUp::FlushWhite => {
+                self.scene.zoom = None;
+                self.scene.cover = Some(0xff_ffff);
+                self.then = Some(FollowUp::FlushEnd { frames: 16 });
+                self.transition(1, None)
+            }
+            FollowUp::FlushEnd { frames } => {
+                self.scene.cover = None;
                 self.transition(frames, None)
             }
         };
@@ -925,6 +993,21 @@ impl Runtime {
                     self.scene.music.remove(&ch);
                 }
             }
+            // (channel, file): music to start with the next `Music.4`.
+            (5, [_, Value::Str(file)]) if bus == Bus::Music => {
+                self.queued_music.insert(ch, file.clone());
+            }
+            // (channel, time): start the queued music. The original fades
+            // it in over the time; it starts at full volume here.
+            (4, [_, _]) if bus == Bus::Music => {
+                if let Some(file) = self.queued_music.remove(&ch) {
+                    self.scene.music.insert(ch, file.clone());
+                    if self.system.music.insert(file.to_ascii_lowercase()) {
+                        self.system_changed = true;
+                    }
+                    self.play(bus, kind, ch, &file)?;
+                }
+            }
             // Scripts poll this once a frame to wait for a sound to end.
             (sound::PLAYING, [_]) => vm.push(self.audio.is_playing(bus, ch) as i32),
             _ => return Ok(false),
@@ -1058,6 +1141,47 @@ impl Runtime {
                 return Ok(self.transition(n(1), Some(rule.max(0) as u32)));
             }
             (cmd::SNOW, on @ (0 | 1), 0) if title == Title::Fuyukuru => scene.snow = on == 0,
+            // "pic_flush": the screen jumps to 1.2 times its size, turns
+            // white and comes back over 16 frames.
+            (cmd::FLUSH, 0, 0) if title == Title::Fuyukuru => {
+                scene.zoom = Some(120);
+                self.then = Some(FollowUp::FlushWhite);
+                self.handled += 1;
+                return Ok(self.transition(1, None));
+            }
+            // "thread_shake": 0 sets up, 2 (size) picks 4 or 16 pixels, 3
+            // starts the screen shaking up and down, 1 stops it.
+            (cmd::QUAKE, 0, 0) if title == Title::Fuyukuru => self.quake_mode = 0,
+            (cmd::QUAKE, 2, 1) if title == Title::Fuyukuru => self.quake_mode = n(0),
+            (cmd::QUAKE, 3, 0) if title == Title::Fuyukuru => {
+                scene.quake = Some(if self.quake_mode == 1 { 16 } else { 4 });
+            }
+            (cmd::QUAKE, 1, 0) if title == Title::Fuyukuru => {
+                scene.quake = None;
+                scene.shake = (0, 0);
+            }
+            // (file, 0): pictures that change with the voice line; 1 ends
+            // them.
+            (cmd::VOICE_PICTURES, 0, 1) if title == Title::Fuyukuru => {
+                let steps = s(0)
+                    .and_then(|f| self.assets.data(&f).ok())
+                    .map(|b| crate::vo::parse(&b))
+                    .unwrap_or_default();
+                self.vo_steps.clear();
+                for (at, step) in steps {
+                    if at == 0 {
+                        step.apply(&mut self.scene);
+                    } else {
+                        self.vo_steps.push((at, step));
+                    }
+                }
+            }
+            (cmd::VOICE_PICTURES, 1, 0) if title == Title::Fuyukuru => self.vo_steps.clear(),
+            // Back to the whole picture after a close-up.
+            (cmd::PICTURE, 6, 0) => {
+                scene.background_offset = (0, 0);
+                scene.background_zoom = 0;
+            }
             // Auto save point.
             (cmd::AUTO_SAVE, -1, 0) if title == Title::Fuyukuru => self.auto_save = true,
             // (time) with 0 first: the picture goes white through rule 17
@@ -1164,11 +1288,37 @@ impl Runtime {
             (cmd::CHARACTER, 7, 3) => {
                 let p = n(0);
                 let steps = if n(1) == 0 {
-                    [(0, -p / 2), (0, -p), (0, -p / 2), (0, 0)]
+                    vec![(0, -p / 2), (0, -p), (0, -p / 2), (0, 0)]
                 } else {
-                    [(-p, 0), (p, 0), (0, 0), (0, 0)]
+                    vec![(-p, 0), (p, 0), (0, 0), (0, 0)]
                 };
-                self.jolts.push((n(2), steps));
+                // 50 ms a step is a guess: the engine's timing is not
+                // read yet.
+                self.jolts.push((n(2), Jolt { steps, step_ms: 50 }));
+            }
+            // ふゆから、くるる。 "char_swing" (time, pixels, across, slot):
+            // the character swings out by the pixels (sideways if
+            // `across` is 1, else up and down) over the time in frames, to
+            // the other side over twice that and back over the time.
+            (cmd::CHARACTER, 15, 4) if title == Title::Fuyukuru => {
+                let (t, d) = (n(0).max(1), n(1));
+                let at = |f: i32| -> i32 {
+                    match f {
+                        f if f <= t => d * f / t,
+                        f if f <= 3 * t => d - 2 * d * (f - t) / (2 * t),
+                        f => -d + d * (f - 3 * t) / t,
+                    }
+                };
+                let steps = (1..=4 * t)
+                    .map(|f| if n(2) == 1 { (at(f), 0) } else { (0, at(f)) })
+                    .collect();
+                self.jolts.push((
+                    n(3),
+                    Jolt {
+                        steps,
+                        step_ms: 1000 / 60,
+                    },
+                ));
             }
             // (time, new slot, slot): a character moves to another slot.
             (cmd::CHARACTER, 10, 3) => {
@@ -1272,6 +1422,19 @@ impl Runtime {
                     .any(|&k| self.assets.exists(k, &local));
                 vm.push(if found { local } else { name }.as_str());
             }
+            // Nothing to do here (read from the executable):
+            // - 10.4 ends the scene when the original's "skip scenes"
+            //   setting is on, and 10.5 turns that setting off; the
+            //   setting is not offered.
+            // - 12.7 and 961.1 reset engine tables at the start.
+            // - 116 shows a picture again after a save is loaded (this
+            //   runtime keeps the scene in the save); 1 takes it away.
+            // - 1003 sets up the original's message window text.
+            // - 1006.11 clears a list of animations no script adds to;
+            //   it returns 0.
+            (10, 4 | 5, 0) | (12, 7, 0) | (961, 1, 1) | (116, 1, 0) | (1003, _, _)
+                if title == Title::Fuyukuru => {}
+            (1006, 11, 0) if title == Title::Fuyukuru => vm.push(0),
             _ => {
                 self.skip(format!("Game.{command}.{sub}"), vm, GAME, command);
                 return Ok(Flow::Continue);
@@ -1405,6 +1568,21 @@ impl Host for Runtime {
                 if matches!(class, MUSIC | EFFECT | VOICE) && self.sound(vm, class, sub, &args)? {
                     self.handled += 1;
                     return Ok(Flow::Continue);
+                }
+                if title == Title::Fuyukuru && fuyukuru_nothing_to_do(class, sub) {
+                    if native::returns_value(title, class, sub) {
+                        vm.push(0);
+                    }
+                    self.handled += 1;
+                    return Ok(Flow::Continue);
+                }
+                // (): whether the player clicked, polled once a frame while
+                // a voice plays.
+                if title == Title::Fuyukuru && class == MOUSE && sub == 4 && args.is_empty() {
+                    vm.push(std::mem::take(&mut self.clicked) as i32);
+                    self.pause = Some(Pause::Frame);
+                    self.handled += 1;
+                    return Ok(Flow::Yield);
                 }
                 let name = native::class_name(class).unwrap_or("?");
                 self.skip(format!("{name}.{sub}"), vm, class, sub);

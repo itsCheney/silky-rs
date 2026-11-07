@@ -32,6 +32,7 @@ pub mod sprite;
 pub mod system;
 pub mod text;
 pub mod ui;
+pub mod vo;
 
 pub use assets::{Assets, Language};
 pub use host::{ActionButton, Config, Extras, Pause, Runtime, SaveState, Transition};

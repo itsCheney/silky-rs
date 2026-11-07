@@ -146,4 +146,8 @@ pub struct Scene {
     /// くるる。, command 114). Not saved.
     #[serde(skip)]
     pub flash: Option<String>,
+    /// Screen shaking up and down by this many pixels until stopped
+    /// (ふゆから、くるる。, command 993).
+    #[serde(default)]
+    pub quake: Option<i32>,
 }

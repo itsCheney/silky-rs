@@ -50,9 +50,6 @@ pub enum State {
 /// script that never stops.
 const STEP_BUDGET: u64 = 50_000_000;
 const MAX_BUDGETS: u32 = 20;
-/// Length of one step of a character jolt (a guess: the engine's step
-/// timing is not read yet).
-const JOLT_STEP_MS: u64 = 50;
 /// Time between writes of changed system data.
 const SYSTEM_STORE_MS: u64 = 3000;
 /// Extra time after punctuation (in characters) with the pause setting.
@@ -110,6 +107,8 @@ pub struct Session {
     system_stored: u64,
     /// Character jolts playing: slot, offsets, start time.
     jolts: Vec<(i32, crate::host::Jolt, u64)>,
+    /// `.vo` pictures still to come: clock time and picture.
+    vo_steps: Vec<(u64, crate::vo::Step)>,
     /// Thumbnail of the game as it was when a screen opened.
     thumb: Option<Image>,
     /// The backlog plays the marked voices one after another.
@@ -187,6 +186,7 @@ impl Session {
             shown_chars: None,
             system_stored: 0,
             jolts: Vec::new(),
+            vo_steps: Vec::new(),
             hmode: None,
         };
         s.restart()?;
@@ -358,6 +358,7 @@ impl Session {
         self.skip_to_choice = false;
         self.movie = None;
         self.jolts.clear();
+        self.vo_steps.clear();
         self.base = None;
         self.frame = None;
         self.update_previous_choice();
@@ -395,6 +396,7 @@ impl Session {
         self.voice_queue.clear();
         self.movie = None;
         self.jolts.clear();
+        self.vo_steps.clear();
         self.skip_to_choice = false;
         self.ui = Ui {
             has_saves: self.ui.has_saves,
@@ -564,6 +566,15 @@ impl Session {
             }
         }
         let now = self.ui.clock;
+        // A new message ends the pictures of the last voice line.
+        if self.state == State::Text || !self.rt.vo_steps.is_empty() {
+            self.vo_steps = self
+                .rt
+                .vo_steps
+                .drain(..)
+                .map(|(at, step)| (now + at as u64, step))
+                .collect();
+        }
         self.jolts.extend(
             self.rt
                 .jolts
@@ -576,6 +587,36 @@ impl Session {
         Ok(())
     }
 
+    /// Shows the `.vo` pictures that are due and moves a quaking screen
+    /// (8 frames a cycle: down, up, then six still).
+    fn play_effects(&mut self) {
+        let clock = self.ui.clock;
+        if self.vo_steps.first().is_some_and(|(at, _)| *at <= clock) {
+            let n = self
+                .vo_steps
+                .iter()
+                .take_while(|(at, _)| *at <= clock)
+                .count();
+            let due: Vec<_> = self.vo_steps.drain(..n).collect();
+            for (_, step) in due {
+                step.apply(&mut self.rt.scene);
+            }
+            self.base = None;
+            self.frame = None;
+        }
+        if let Some(a) = self.rt.scene.quake {
+            let y = match (clock * 60 / 1000) % 8 {
+                0 => a,
+                1 => -a,
+                _ => 0,
+            };
+            if self.rt.scene.shake != (0, y) {
+                self.rt.scene.shake = (0, y);
+                self.frame = None;
+            }
+        }
+    }
+
     /// Moves jolting characters to their offset for the clock time.
     fn play_jolts(&mut self) {
         if self.jolts.is_empty() && self.rt.scene.jolts.is_empty() {
@@ -584,8 +625,8 @@ impl Session {
         let clock = self.ui.clock;
         let mut now = std::collections::BTreeMap::new();
         self.jolts.retain(|(slot, steps, start)| {
-            let step = ((clock - start) / JOLT_STEP_MS) as usize;
-            if let Some(&o) = steps.get(step) {
+            let step = ((clock - start) / steps.step_ms.max(1)) as usize;
+            if let Some(&o) = steps.steps.get(step) {
                 now.insert(*slot, o);
                 true
             } else {
@@ -1848,6 +1889,7 @@ impl Session {
             return Ok(self.frame.is_none());
         }
         self.play_jolts();
+        self.play_effects();
         self.shown_ms += ms;
         if self.state == State::Busy {
             // Several short steps (input polls) may fit in one tick.
