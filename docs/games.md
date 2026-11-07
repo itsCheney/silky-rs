@@ -10,7 +10,7 @@ International build 1.0.1.0, Japanese, English and Simplified Chinese.
 
 All 56 scripts (7.9 million instructions) decode with every jump landing on an instruction, and all 3,255 images decode. Headless, the VM boots `start.mes` through the logo, caution and title scripts, and plays the story from `fk001.mes` on with its text in all three languages. Every route plays to its ending.
 
-Compared with screenshots of the original (Windows, Simplified Chinese): the message window, name plate, window portrait, the position and pitch of Chinese text, and the size and position of standing characters. Still provisional: English text metrics (no English screenshots to compare with yet), the line pitch of two-line messages, the wrap width, and where selections sit on screen.
+Compared with screenshots of the original (Windows, Simplified Chinese): the message window, name plate, window portrait, the position and pitch of Chinese text, the line pitch of two-line messages, and the size and position of standing characters. Still provisional: English text metrics (no English screenshots to compare with yet), the wrap width, and where selections sit on screen.
 
 Not done yet: other effects. The "fixed window" setting is kept but changes nothing, since the window never moves here.
 
@@ -49,12 +49,11 @@ How these positions map to the screen was measured on two screenshots of the gam
 
 ### H mode
 
-`Game.49` is an interactive screen of the engine, read from the executable. The script first loads an `hg030100_*` model pair into slot 0. The player picks a tool on the right (insertion, hand, mouth, rotor, vibrator; the last two open with bytes 3010 and 3015) and clicks a body region of the touch map `anne_h.carea` (seven regions). Each tool and region plays the timelines, face and voice the executable gives for it (about 160 voice files in its tables, chosen by her gauge). Her gauge rises with every action and his with insertion. Holding the button turns an action into its loop once its one-shot ends, with the hand and mouth sprites. A full gauge plays the climax and waits for its voice. The buttons switch clothes and horns, dream mode (byte 3014: the second model file and a pink mist), inside or outside, auto repeat, climax together, and lock either gauge. The finish button picks a closing line by how often each climaxed and returns to the script.
+`Game.49` is an interactive screen of the engine, read from the executable. The script first loads an `hg030100_*` model pair into slot 0. The player picks an action from the column on the right and clicks a region of the touch map `anne_h.carea`. Each action and region plays the timelines, expression and voice the executable gives for it. Two gauges rise as the player acts; a full gauge plays a closing animation and waits for its voice. The buttons switch costume, an alternate model and background, auto repeat, and gauge locks. The finish button picks a closing line and returns to the script.
 
 The one-shot timelines of these models give a length of 3 ticks while their frames run to 50 or 55; they are played to their last frame, since the game waits for them to end.
 
 ### Not done yet
 
-- The line pitch of two-line messages: it is not in the executable, so it needs a screenshot of a two-line message.
 - The pin of the button bar.
-- In H mode: the mouse cursor per tool and region, and one model call of the right breast rotor (meaning not read). The mist's scroll speed and the white flash's length are guesses. The screen has not been compared with the game yet.
+- In H mode: the mouse cursor per action and region, and one model call whose meaning is not read yet. Two effect timings are guesses. The screen has not been compared with the game yet.

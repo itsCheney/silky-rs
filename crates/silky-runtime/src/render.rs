@@ -78,13 +78,13 @@ impl TextLayout {
                 wide_advance: TEXT_WIDE_ADVANCE,
             },
             // Measured on PC screenshots of the Chinese patch: 24 pixel
-            // glyphs every 28 pixels from x = 180. Line pitch and line
-            // length are not measured yet.
+            // glyphs every 28 pixels from x = 180, lines 36 pixels apart.
+            // The line length is not measured yet.
             Title::Kimaten2 => Self {
                 left: kimaten2::window::TEXT_LEFT,
                 baseline: kimaten2::window::TEXT_BASELINE,
                 width: 30.0 * 28.0,
-                line: 40.0,
+                line: 36.0,
                 size: 24.0,
                 wide_advance: 28.0 / 24.0,
             },
