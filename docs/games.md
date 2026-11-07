@@ -10,7 +10,7 @@ International build 1.0.1.0, Japanese, English and Simplified Chinese.
 
 All 56 scripts (7.9 million instructions) decode with every jump landing on an instruction, and all 3,255 images decode. Headless, the VM boots `start.mes` through the logo, caution and title scripts, and plays the story from `fk001.mes` on with its text in all three languages. Every route plays to its ending.
 
-Compared with screenshots of the original (Windows, Simplified Chinese): the message window, name plate, window portrait, the position and pitch of Chinese text, the line pitch of two-line messages, and the size and position of standing characters. Still provisional: English text metrics (no English screenshots to compare with yet), the wrap width, and where selections sit on screen.
+Compared with screenshots of the original (Windows, Simplified Chinese): the message window, name plate, window portrait, the position and pitch of Chinese text, and the size and position of standing characters. Still provisional: English text metrics (no English screenshots to compare with yet), the line pitch of two-line messages, the wrap width, and where selections sit on screen.
 
 Not done yet: other effects. The "fixed window" setting is kept but changes nothing, since the window never moves here.
 
@@ -22,7 +22,7 @@ All 64 scripts and 712 images decode. Headless, `silky-run trace` boots to the t
 
 ### Interface
 
-The player and `silky-run snap` open it. The title menu, the message window with the speaker's name plate (the fan patch's redrawn plates for its Chinese names too), the window buttons, the side menu, the selections, the action menu and the map (with the second map's panels) are drawn from the game's sheets. The window, action menu and map layouts are read from the executable, and the text is placed as on screenshots of the game. The backlog, the save and load screen, the settings pages and the yes/no dialog have the game's own look, with its help lines (`.HLG` tables) and its nine voice groups on the sound page. Saving at an action menu or the map saves the message before it. The bar's voice loop button plays the message's voice again each time it ends, and its skip-all button skips unread text too.
+The player and `silky-run snap` open it. The title menu, the message window with the speaker's name plate (the fan patch's redrawn plates for its Chinese names too), the window buttons, the side menu, the selections, the action menu and the map (with the second map's panels) are drawn from the game's sheets. The window, action menu and map layouts are read from the executable, and the text is placed as on screenshots of the game, two-line messages included. The backlog, the save and load screen, the settings pages and the yes/no dialog have the game's own look, with its help lines (`.HLG` tables) and its nine voice groups on the sound page. Saving at an action menu or the map saves the message before it. The bar's voice loop button plays the message's voice again each time it ends, and its skip-all button skips unread text too.
 
 ### Costume, notebook and collection
 
