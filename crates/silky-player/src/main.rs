@@ -249,7 +249,8 @@ struct App {
     error: Option<anyhow::Error>,
 }
 
-const FRAME: Duration = Duration::from_millis(16);
+const FRAME: Duration = Duration::from_micros(16_667);
+const FRAME_SLACK: Duration = Duration::from_millis(3);
 
 impl App {
     fn fail(&mut self, event_loop: &ActiveEventLoop, e: impl Into<anyhow::Error>) {
@@ -407,10 +408,13 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // Timers wake a little early or late (on Windows in steps of about
+        // 15.6 ms), so a tick goes out when the frame is nearly due, and
+        // only whole milliseconds are taken off the clock.
         let now = Instant::now();
         let ms = now.duration_since(self.last_tick).as_millis() as u64;
-        if ms >= FRAME.as_millis() as u64 {
-            self.last_tick = now;
+        if now + FRAME_SLACK >= self.last_tick + FRAME && ms > 0 {
+            self.last_tick += Duration::from_millis(ms);
             match self.session.tick(ms) {
                 Ok(true) => self.after_input(event_loop, Ok(())),
                 Ok(false) => {}

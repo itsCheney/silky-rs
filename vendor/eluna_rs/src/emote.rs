@@ -7215,8 +7215,11 @@ fn evaluate_one_combinator(
         }
     });
     let neutral_index = combinator.field_i64("neutralIndex").unwrap_or(-1);
-    let resource_index = combinator.field("rawMeshList")?.as_u32()? as usize;
-    let raw = psb.resource_bytes(psb_data, resource_index)?;
+    // Newer models (PSB v4) store the mesh list as an extra resource.
+    let raw = match combinator.field("rawMeshList")? {
+        PsbValue::ExtraResource(index) => psb.extra_resource_bytes(psb_data, *index as usize)?,
+        other => psb.resource_bytes(psb_data, other.as_u32()? as usize)?,
+    };
     let meshes = decode_raw_mesh_list(raw, mesh_count, is_delta)?;
     if meshes.is_empty() {
         return None;

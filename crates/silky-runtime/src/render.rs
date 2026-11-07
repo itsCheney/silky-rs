@@ -364,8 +364,8 @@ impl Renderer {
     pub fn progress_emote(&mut self, scene: &Scene, ms: u64, talking: Option<f32>) -> bool {
         #[cfg(feature = "emote")]
         {
-            // In software about 15 frames a second, on a GPU 30.
-            let interval = if self.emote_gpu.is_some() { 33.0 } else { 66.0 };
+            // In software about 15 frames a second, on a GPU 60.
+            let interval = if self.emote_gpu.is_some() { 1000.0 / 60.0 } else { 66.0 };
             let mut changed = false;
             for (key, emote) in emote_order(scene) {
                 if let Some(stage) = self.emote.get_mut(&key) {
@@ -408,6 +408,14 @@ impl Renderer {
         window: bool,
         text: bool,
     ) -> Result<Canvas> {
+        let under = self.render_under(scene, assets)?;
+        self.render_over(under, scene, assets, window, text)
+    }
+
+    /// The scene below the E-mote pictures: background, overlays and
+    /// characters. Kept by the session so that an E-mote frame only
+    /// redraws what lies above it.
+    pub fn render_under(&mut self, scene: &Scene, assets: &mut Assets) -> Result<Canvas> {
         let mut canvas = Canvas::with_scale(SCREEN_WIDTH, SCREEN_HEIGHT, self.scale);
         if let Some(bg) = &scene.background {
             let img = assets.image(bg)?;
@@ -438,7 +446,19 @@ impl Renderer {
             let y = 300.0 - 700.0 * s + (c.offset.1 + jolt.1) as f32;
             canvas.draw_scaled(&img, x, y, s);
         }
+        Ok(canvas)
+    }
 
+    /// Draws the E-mote pictures and everything above them (layers,
+    /// effects, the message window) over [`Renderer::render_under`].
+    pub fn render_over(
+        &mut self,
+        mut canvas: Canvas,
+        scene: &Scene,
+        assets: &mut Assets,
+        window: bool,
+        text: bool,
+    ) -> Result<Canvas> {
         #[cfg(feature = "emote")]
         for (img, x, y) in self.emote_images(scene, assets) {
             canvas.draw(&img, x.round() as i32, y.round() as i32, false);

@@ -42,6 +42,8 @@ const PSB_FLAG_BODY_ENCRYPTED: u16 = 0x0002;
 const PSB_HEADER_FIXED_SIZE_V2: usize = 0x28;
 const PSB_HEADER_ENCRYPTED_BYTES_V2: usize = 0x20;
 const PSB_HEADER_ENCRYPTED_BYTES_V3: usize = 0x24;
+/// v4 headers also encrypt the three extra-chunk words after the checksum.
+const PSB_HEADER_ENCRYPTED_BYTES_V4: usize = 0x30;
 const MAX_WRAPPER_DEPTH: usize = 4;
 const MAX_VALUE_DEPTH: usize = 512;
 
@@ -579,7 +581,7 @@ impl PsbFile {
             header.resource_length_offset as u64,
             header.resource_data_offset as u64,
         )?;
-        let extra_resources = Vec::new();
+        let extra_resources = read_extra_resource_ranges(data, header);
         let root = read_value_at(data, &names, &strings, header.root_offset as u64, 0)?;
 
         Ok(Self {
@@ -695,7 +697,9 @@ fn emote_key_candidate_fast_check(data: &[u8], key: u32) -> bool {
     let mut cipher = PsbDecryptor::new(PsbDecryptionKey::emote_key(key));
 
     if header.flags & PSB_FLAG_HEADER_ENCRYPTED != 0 {
-        let encrypted_header_len = if header.version >= 3 {
+        let encrypted_header_len = if header.version >= 4 {
+            PSB_HEADER_ENCRYPTED_BYTES_V4
+        } else if header.version >= 3 {
             PSB_HEADER_ENCRYPTED_BYTES_V3
         } else {
             PSB_HEADER_ENCRYPTED_BYTES_V2
@@ -885,7 +889,9 @@ fn apply_psb_decryption(data: &mut [u8], key: Option<PsbDecryptionKey>) -> Resul
     let mut cipher = PsbDecryptor::new(key);
 
     if header.flags & PSB_FLAG_HEADER_ENCRYPTED != 0 {
-        let encrypted_header_len = if header.version >= 3 {
+        let encrypted_header_len = if header.version >= 4 {
+            PSB_HEADER_ENCRYPTED_BYTES_V4
+        } else if header.version >= 3 {
             PSB_HEADER_ENCRYPTED_BYTES_V3
         } else {
             PSB_HEADER_ENCRYPTED_BYTES_V2
@@ -1060,6 +1066,25 @@ fn read_strings_at(
     }
 
     Ok(out)
+}
+
+/// PSB v4 headers add three words after the v3 checksum: the extra chunk
+/// offset array, length array and data pool (E-mote stores mesh lists there).
+fn read_extra_resource_ranges(data: &[u8], header: PsbHeader) -> Vec<PsbResourceRange> {
+    if header.version < 4 {
+        return Vec::new();
+    }
+    let (Ok(offsets), Ok(lengths), Ok(start)) = (
+        read_u32_at(data, 0x2c),
+        read_u32_at(data, 0x30),
+        read_u32_at(data, 0x34),
+    ) else {
+        return Vec::new();
+    };
+    if offsets == 0 || lengths == 0 {
+        return Vec::new();
+    }
+    read_resource_ranges_at(data, offsets as u64, lengths as u64, start as u64).unwrap_or_default()
 }
 
 fn read_resource_ranges_at(

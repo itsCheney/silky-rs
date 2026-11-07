@@ -67,6 +67,11 @@ pub struct Session {
     state: State,
     /// Scene without the interface, rendered again only when it changes.
     base: Option<Canvas>,
+    /// The part of `base` below the E-mote pictures, and whether those
+    /// moved since `base` was drawn: an E-mote frame redraws only what
+    /// lies above them.
+    under: Option<Canvas>,
+    emote_moved: bool,
     frame: Option<Canvas>,
     /// Time the current message has been shown.
     shown_ms: u64,
@@ -163,6 +168,8 @@ impl Session {
             start: start.to_string(),
             state: State::Text,
             base: None,
+            under: None,
+            emote_moved: false,
             frame: None,
             shown_ms: 0,
             saves: None,
@@ -2072,6 +2079,7 @@ impl Session {
                 None => None,
             };
             if self.renderer.progress_emote(&self.rt.scene, ms, talking) {
+                self.emote_moved = true;
                 self.frame = None;
             }
         }
@@ -2260,8 +2268,23 @@ impl Session {
                 && self.state != State::Title
                 && self.ui.actions.is_empty()
                 && self.ui.map.is_none();
-            if self.base.is_none() {
-                self.base = Some(self.renderer.render_parts(
+            let moved = std::mem::take(&mut self.emote_moved);
+            if self.base.is_none() || (moved && self.under.is_none()) {
+                let under = self
+                    .renderer
+                    .render_under(&self.rt.scene, &mut self.rt.assets)?;
+                self.base = Some(self.renderer.render_over(
+                    under.clone(),
+                    &self.rt.scene,
+                    &mut self.rt.assets,
+                    window,
+                    false,
+                )?);
+                self.under = Some(under);
+            } else if moved {
+                let under = self.under.clone().expect("checked");
+                self.base = Some(self.renderer.render_over(
+                    under,
                     &self.rt.scene,
                     &mut self.rt.assets,
                     window,
