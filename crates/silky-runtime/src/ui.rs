@@ -51,6 +51,16 @@ pub mod title {
     pub const NOTEBOOK: usize = 11;
     pub const ROOM: usize = 12;
 
+    /// きまぐれテンプテーション2: extras entries and the byte variable that
+    /// unlocks each (from the executable's title menu, 0x4be440): music
+    /// mode, アンネViewer, 捜査手帳, アンネの部屋. The endings set 3007.
+    pub const KIMATEN2_UNLOCK: [(usize, usize); 4] = [
+        (MUSIC_MODE, 3004),
+        (VIEWER, 3007),
+        (NOTEBOOK, 3006),
+        (ROOM, 3007),
+    ];
+
     /// Value the title menu call returns to the script for an entry, if
     /// the script handles it. Continue, Load and Settings open engine
     /// screens instead; Extras and Back switch the menu page.
@@ -136,6 +146,12 @@ pub struct Ui {
     /// item is open (enables their buttons).
     pub notebook: bool,
     pub collection: bool,
+    /// Title menu entries shown gray and not clickable (きまぐれテンプテーション2's
+    /// extras before the game unlocks them).
+    pub locked_titles: Vec<usize>,
+    /// Clock when the current title menu page came up (its buttons jump
+    /// in from below in きまぐれテンプテーション2).
+    pub title_shown: u64,
 }
 
 /// Button state, as the row of the sprite sheet.
@@ -163,6 +179,7 @@ impl Ui {
     /// Whether a button does anything right now.
     pub fn enabled(&self, b: Button) -> bool {
         match b {
+            Button::Title(t) if self.locked_titles.contains(&t) => false,
             Button::Title(title::CONTINUE | title::LOAD) => self.has_saves,
             Button::Bar(bar::LOAD | bar::QUICK_LOAD) => self.has_saves,
             Button::Bar(bar::PREVIOUS_CHOICE) => self.previous_choice,
@@ -393,6 +410,31 @@ struct Kimaten2Title {
     /// (entry, screen area, sheet cell top left).
     main: Vec<(usize, Area, (u32, u32))>,
     extras: Vec<(usize, Area, (u32, u32))>,
+}
+
+/// How long the title buttons of きまぐれテンプテーション2 take to jump in:
+/// the last of seven starts after 600 ms and settles within two seconds.
+pub const TITLE_JUMP_MS: u64 = 2600;
+
+/// Height of a title button of きまぐれテンプテーション2 `ms` after its
+/// jump starts, from the executable (0x4bed40, one step per 60 Hz frame):
+/// it leaves y = 720 at -16 pixels a frame, falls back by 0.98 a frame,
+/// and bounces on its place (y = 636) at half its speed until it stops.
+fn title_jump_y(ms: u64) -> f32 {
+    const PLACE: f32 = 636.0;
+    let (mut y, mut v) = (720.0f32, -16.0f32);
+    for _ in 0..ms * 60 / 1000 {
+        v += 0.98;
+        y += v;
+        if v > 0.0 && y >= PLACE {
+            y = PLACE;
+            v *= -0.5;
+            if v as i32 == 0 {
+                return PLACE;
+            }
+        }
+    }
+    y
 }
 
 impl Kimaten2Title {
@@ -1016,11 +1058,18 @@ impl Layout {
         }
         if let (Some(extras), Some(k)) = (ui.title, &self.kimaten2) {
             let sheet = assets.image("title_p.akb")?;
-            for &(entry, a, (sx, sy)) in k.title.entries(extras) {
+            let shown = ui.clock.saturating_sub(ui.title_shown);
+            for (k, &(entry, a, (sx, sy))) in k.title.entries(extras).iter().enumerate() {
                 let b = Button::Title(entry);
                 let state = ui.state(b, ui.enabled(b), false) as u32;
                 let part = (sx, sy + Kimaten2Title::ROW * state, a.width(), a.height());
-                canvas.draw_part(&sheet, part, a.left, a.top, false, 255);
+                // Each button starts its jump 100 ms after the one before.
+                let y = match shown.checked_sub(100 * k as u64) {
+                    Some(ms) => title_jump_y(ms),
+                    None => 720.0,
+                };
+                let top = a.top + (y - 636.0) as i32;
+                canvas.draw_part(&sheet, part, a.left, top, false, 255);
             }
             return Ok(());
         }
@@ -1098,5 +1147,17 @@ impl Layout {
             );
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn title_buttons_jump_and_settle() {
+        assert_eq!(title_jump_y(0), 720.0);
+        assert!(title_jump_y(200) < 636.0);
+        assert_eq!(title_jump_y(TITLE_JUMP_MS - 600), 636.0);
     }
 }

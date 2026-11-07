@@ -224,6 +224,19 @@ impl Vm {
         self.options.clear();
     }
 
+    /// Drops the running scripts and calls and starts `script`, keeping the
+    /// variables and defined functions (the engine's way back to the
+    /// title menu).
+    pub fn restart_at(&mut self, name: &str, script: Script) {
+        self.stack.clear();
+        self.statement_base = 0;
+        self.locals.clear();
+        self.contexts.clear();
+        self.line_break = false;
+        self.option_labels.clear();
+        self.jump_script(name, script);
+    }
+
     /// Runs `script` from its start; its `ret` comes back here.
     pub fn call_script(&mut self, name: &str, script: Script) {
         if let Some(cur) = self.current.clone() {

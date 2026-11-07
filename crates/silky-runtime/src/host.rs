@@ -249,6 +249,8 @@ pub struct Runtime {
     pub pause: Option<Pause>,
     /// Engine calls not carried out yet, by name, with counts.
     pub unhandled: BTreeMap<String, u64>,
+    /// Sound files the scripts asked for that are not in the game.
+    pub missing_sounds: std::collections::BTreeSet<String>,
     /// Engine calls carried out.
     pub handled: u64,
     /// Position of the last text line shown in its table.
@@ -370,6 +372,7 @@ impl Runtime {
             text_table: None,
             pause: None,
             unhandled: BTreeMap::new(),
+            missing_sounds: Default::default(),
             handled: 0,
             last_text: None,
             option_count: 0,
@@ -922,7 +925,16 @@ impl Runtime {
             return Ok(());
         }
         let key = file.to_ascii_lowercase();
-        let data = self.assets.read(kind, file)?;
+        // Some sounds the scripts play are not in the archives (in
+        // きまぐれテンプテーション2 `ses_007_03a.wav` in A01.mes); the
+        // original plays nothing then and goes on.
+        let data = match self.assets.read(kind, file) {
+            Err(crate::Error::Missing(_)) => {
+                self.missing_sounds.insert(key);
+                return Ok(());
+            }
+            r => r?,
+        };
         let gain = match bus {
             Bus::Voice => {
                 let st = &self.system.settings;

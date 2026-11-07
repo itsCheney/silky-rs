@@ -390,6 +390,26 @@ impl Session {
         self.rt.reset();
         self.rt.boot(&mut self.vm, &self.start)?;
         self.apply_global_bytes();
+        self.clear_play()
+    }
+
+    /// Back to the title menu, as the game menu's "title" button does: the
+    /// executable starts `main.mes` again (the title loop of both games)
+    /// with the variables kept, so the logos do not play again.
+    pub fn to_title(&mut self) -> Result<()> {
+        const TITLE: &str = "main.mes";
+        let Ok(script) = self.rt.assets.script(TITLE) else {
+            return self.restart();
+        };
+        self.rt.reset();
+        self.vm.restart_at(TITLE, script);
+        self.apply_global_bytes();
+        self.clear_play()
+    }
+
+    /// Forgets the game in play (log, screens, queued effects) and runs
+    /// the scripts from where they now stand.
+    fn clear_play(&mut self) -> Result<()> {
         self.busy = None;
         self.screen = None;
         self.dialog = None;
@@ -453,6 +473,16 @@ impl Session {
                         self.skip_to_choice = false;
                         self.state = State::Title;
                         self.ui.title = Some(false);
+                        self.ui.title_shown = self.ui.clock;
+                        self.ui.locked_titles = if self.layout.is_kimaten2() {
+                            crate::ui::title::KIMATEN2_UNLOCK
+                                .iter()
+                                .filter(|&&(_, var)| self.vm.var_b(var) == 0)
+                                .map(|&(entry, _)| entry)
+                                .collect()
+                        } else {
+                            Vec::new()
+                        };
                         self.ui.auto = false;
                         self.ui.skip = false;
                         break;
@@ -1401,7 +1431,7 @@ impl Session {
                     self.restore(state)?;
                 }
             }
-            Action::Title => self.restart()?,
+            Action::Title => self.to_title()?,
             Action::Quit => {
                 self.flush_system();
                 self.state = State::Ended;
@@ -1671,11 +1701,17 @@ impl Session {
         }
         match b {
             Button::Title(i) => match i {
-                title::EXTRAS => self.ui.title = Some(true),
+                title::EXTRAS => {
+                    self.ui.title = Some(true);
+                    self.ui.title_shown = self.ui.clock;
+                }
                 title::SETTINGS => self.open_settings(),
                 title::CONTINUE => self.load_latest()?,
                 title::LOAD => self.open_save_load(Mode::Load),
-                title::BACK => self.ui.title = Some(false),
+                title::BACK => {
+                    self.ui.title = Some(false);
+                    self.ui.title_shown = self.ui.clock;
+                }
                 // The engine's own screen; the script does nothing with 261.
                 title::NOTEBOOK => self.open_archive(Book::Notebook),
                 i => {
@@ -1953,6 +1989,13 @@ impl Session {
                 self.advance()?;
                 return Ok(true);
             }
+        }
+        if self.ui.title.is_some()
+            && self.layout.is_kimaten2()
+            && before < self.ui.title_shown + crate::ui::TITLE_JUMP_MS
+        {
+            self.frame = None;
+            return Ok(true);
         }
         let animating = self.ui.waiting && self.state == State::Text && !self.ui.window_hidden;
         if animating && before / 100 != self.ui.clock / 100 {
