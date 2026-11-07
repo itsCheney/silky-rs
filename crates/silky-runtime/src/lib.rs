@@ -23,6 +23,7 @@ mod host;
 pub mod kimaten2;
 pub mod menus;
 pub mod movie;
+pub mod omake;
 pub mod render;
 pub mod save;
 pub mod scene;

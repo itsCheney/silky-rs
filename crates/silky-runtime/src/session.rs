@@ -783,6 +783,12 @@ impl Session {
             self.drag_settings(id, x, y);
             return;
         }
+        if let Some(Screen::Extras(e)) = &self.screen {
+            if e.k2.dragging_volume {
+                self.drag_omake_volume(x);
+                return;
+            }
+        }
         let hover = self.hit(x, y);
         if hover != self.ui.hover {
             self.ui.hover = hover;
@@ -800,6 +806,19 @@ impl Session {
         }
         self.ui.pressed = self.hit(x, y);
         self.frame = None;
+        if let (Some(Screen::Extras(e)), Some(Button::Screen(id))) =
+            (&mut self.screen, self.ui.pressed)
+        {
+            if self.menus.is_kimaten2()
+                && e.kind == Extras::Music
+                && e.k2.view.is_none()
+                && id == crate::omake::ids::VOLUME
+            {
+                e.k2.dragging_volume = true;
+                self.drag_omake_volume(x);
+                return;
+            }
+        }
         if let (Some(Screen::Settings(s)), Some(Button::Screen(id))) =
             (&mut self.screen, self.ui.pressed)
         {
@@ -858,6 +877,21 @@ impl Session {
             return self.end_movie();
         }
         if let Some(Screen::Extras(e)) = &mut self.screen {
+            if e.k2.dragging_volume {
+                e.k2.dragging_volume = false;
+                return Ok(());
+            }
+            if let Some(v) = &mut e.k2.view {
+                if let Some(p) = v.picture {
+                    // The next picture of the entry, then back to its grid
+                    // (or to the screen when the entry has one picture).
+                    v.picture = crate::omake::next_seen(&self.vm.bytes, v.entry, p);
+                    if v.picture.is_none() && crate::omake::CG_ENTRIES[v.entry].1 == 1 {
+                        e.k2.view = None;
+                    }
+                    return Ok(());
+                }
+            }
             if let Some((entry, pos)) = e.view {
                 e.view = ExtrasScreen::next_picture(&self.rt.system, entry, Some(pos))
                     .map(|p| (entry, p));
@@ -967,6 +1001,14 @@ impl Session {
                 e.view = None;
                 self.frame = None;
             }
+            Some(Screen::Extras(e)) if e.k2.view.is_some() => {
+                let v = e.k2.view.as_mut().expect("checked");
+                if v.picture.take().is_none() || crate::omake::CG_ENTRIES[v.entry].1 == 1 {
+                    e.k2.view = None;
+                }
+                self.ui.hover = None;
+                self.frame = None;
+            }
             Some(Screen::Extras(_)) => self.leave_extras(-1)?,
             Some(_) => self.close_screen(),
             None => return Ok(false),
@@ -1024,6 +1066,24 @@ impl Session {
                 Archive::wheel(s, up, max);
             }
             Some(Screen::Costume(_)) => return,
+            Some(Screen::Extras(e)) if self.menus.is_kimaten2() => {
+                use crate::omake;
+                match (&mut e.k2.view, e.kind) {
+                    (Some(v), _) if v.picture.is_none() => {
+                        let max = omake::view_pages(v.entry) as isize - 1;
+                        v.page = (v.page as isize + d).clamp(0, max) as usize;
+                    }
+                    (Some(_), _) | (None, Extras::Scenes) => return,
+                    (None, Extras::Music) => {
+                        e.scroll =
+                            (e.scroll as isize + d).clamp(0, omake::MAX_SCROLL as isize) as usize;
+                    }
+                    (None, Extras::Gallery) => {
+                        e.page =
+                            (e.page as isize + d).clamp(0, omake::CG_PAGES as isize - 1) as usize;
+                    }
+                }
+            }
             Some(Screen::Extras(e)) => match e.kind {
                 Extras::Music => {
                     e.scroll = (e.scroll as isize + d).clamp(0, Menus::music_max_scroll() as isize)
@@ -1358,7 +1418,8 @@ impl Session {
 
     /// Asks before doing something, unless the player said not to ask.
     fn ask(&mut self, action: Action) -> Result<()> {
-        if !self.rt.system.settings.confirm[action.question()] {
+        let always = matches!(action, Action::Unlock(_));
+        if !always && !self.rt.system.settings.confirm[action.question()] {
             return self.carry_out(action);
         }
         self.dialog = Some(Dialog {
@@ -1375,7 +1436,7 @@ impl Session {
         match id {
             dialog_ids::YES => {
                 if let Some(d) = self.dialog.take() {
-                    if d.dont_ask {
+                    if d.dont_ask && d.action.question() < self.rt.system.settings.confirm.len() {
                         self.rt.system.settings.confirm[d.action.question()] = false;
                         self.rt.system_changed = true;
                     }
@@ -1437,6 +1498,12 @@ impl Session {
                 self.state = State::Ended;
             }
             Action::Scene(i) => self.leave_extras(i as i32)?,
+            Action::Unlock(kind) => {
+                for (i, v) in crate::omake::unlock_all(kind) {
+                    self.vm.set_var_b(i, v);
+                }
+                self.store_global_bytes();
+            }
         }
         Ok(())
     }
@@ -1628,6 +1695,9 @@ impl Session {
     }
 
     fn press_extras(&mut self, id: i32, y: i32) -> Result<()> {
+        if self.menus.is_kimaten2() {
+            return self.press_omake(id, y);
+        }
         use crate::game_tables::MUSIC;
         use extras_ids::*;
         let Some(Screen::Extras(s)) = &mut self.screen else {
@@ -1681,6 +1751,91 @@ impl Session {
             _ => {}
         }
         Ok(())
+    }
+
+    /// A button of きまぐれテンプテーション2's extras.
+    fn press_omake(&mut self, id: i32, y: i32) -> Result<()> {
+        use crate::omake::{self, ids::*, View};
+        let Some(Screen::Extras(s)) = &mut self.screen else {
+            return Ok(());
+        };
+        self.frame = None;
+        if let Some(v) = &mut s.k2.view {
+            if id == omake::VIEW_CLOSE {
+                s.k2.view = None;
+                self.ui.hover = None;
+            } else if id >= omake::VIEW_CELL {
+                v.picture = Some(v.page * 12 + (id - omake::VIEW_CELL) as usize);
+                self.ui.hover = None;
+            }
+            return Ok(());
+        }
+        match id {
+            _ if (MODE..MODE + 3).contains(&id) => {
+                let kind = [Extras::Gallery, Extras::Scenes, Extras::Music][(id - MODE) as usize];
+                if kind != s.kind {
+                    self.rt.stop_music();
+                    *s = ExtrasScreen::new(kind);
+                }
+            }
+            BACK => return self.leave_extras(-1),
+            UNLOCK => {
+                let kind = s.kind;
+                return self.ask(Action::Unlock(kind));
+            }
+            _ if s.kind == Extras::Music => match id {
+                PREVIOUS => s.scroll = s.scroll.saturating_sub(1),
+                NEXT => s.scroll = (s.scroll + 1).min(omake::MAX_SCROLL),
+                SCROLL => s.scroll = omake::scroll_at(y),
+                VOLUME => s.k2.dragging_volume = true,
+                _ if (0..7).contains(&id) => {
+                    let Some(t) = omake::item(Extras::Music, 0, s.scroll, id as usize) else {
+                        return Ok(());
+                    };
+                    if s.playing == Some(t) {
+                        s.playing = None;
+                        self.rt.stop_music();
+                    } else {
+                        s.playing = Some(t);
+                        self.rt.play_music(&omake::track_file(t))?;
+                    }
+                }
+                _ => {}
+            },
+            PREVIOUS => s.page = s.page.saturating_sub(1),
+            NEXT => s.page = (s.page + 1).min(omake::CG_PAGES - 1),
+            _ if (PAGE..PAGE + omake::CG_PAGES as i32).contains(&id) => {
+                s.page = (id - PAGE) as usize;
+            }
+            _ if (0..12).contains(&id) => {
+                let Some(item) = omake::item(s.kind, s.page, 0, id as usize) else {
+                    return Ok(());
+                };
+                match s.kind {
+                    // The engine plays the scene without asking.
+                    Extras::Scenes => return self.leave_extras(item as i32),
+                    _ => {
+                        let single = omake::CG_ENTRIES[item].1 == 1;
+                        s.k2.view = Some(View {
+                            entry: item,
+                            page: 0,
+                            picture: single.then_some(0),
+                        });
+                        self.ui.hover = None;
+                    }
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// The music volume bar of きまぐれテンプテーション2 follows the pointer.
+    fn drag_omake_volume(&mut self, x: i32) {
+        let old = self.rt.system.settings.clone();
+        self.rt.system.settings.music = crate::omake::volume_at(x);
+        self.settings_changed(old);
+        self.frame = None;
     }
 
     /// Key that goes on (Enter, Space).
@@ -1814,14 +1969,18 @@ impl Session {
     }
 
     fn hit(&self, x: i32, y: i32) -> Option<Button> {
-        if self.dialog.is_some() {
-            return self.screens.hit_dialog(x, y);
+        if let Some(d) = &self.dialog {
+            return self.screens.hit_dialog(d, x, y);
         }
         match &self.screen {
             Some(Screen::SaveLoad(s)) => return self.screens.hit_save_load(s, x, y),
             Some(Screen::Backlog(b)) => return self.screens.hit_backlog(b, &self.log, x, y),
             Some(Screen::Settings(s)) => return self.menus.hit_settings(s, x, y).map(|h| h.0),
-            Some(Screen::Extras(e)) => return self.menus.hit_extras(e, &self.rt.system, x, y),
+            Some(Screen::Extras(e)) => {
+                return self
+                    .menus
+                    .hit_extras(e, &self.rt.system, &self.vm.bytes, x, y)
+            }
             Some(Screen::Archive(s)) => return self.archive.hit(s, x, y),
             Some(Screen::Costume(c)) => return self.archive.hit_costume(c, x, y),
             None => {}
@@ -2070,6 +2229,7 @@ impl Session {
                                 &self.ui,
                                 e,
                                 &self.rt.system,
+                                &self.vm.bytes,
                                 pos,
                                 text,
                             )?

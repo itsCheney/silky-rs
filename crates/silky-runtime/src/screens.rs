@@ -76,6 +76,9 @@ pub mod question {
     pub const DELETE_ALL: usize = 6;
     pub const JUMP: usize = 7;
     pub const SCENE_SELECT: usize = 8;
+    /// きまぐれテンプテーション2: unlock all CG, scenes, music (two lines
+    /// each under a "!注意!" line).
+    pub const UNLOCK: usize = 10;
 }
 
 /// Rows the save screen shows at once, entries the backlog shows.
@@ -309,6 +312,15 @@ const KIMATEN2_DIALOG: DialogStyle = DialogStyle {
     question_y: 278,
 };
 
+/// Unlock dialog of きまぐれテンプテーション2's `dialog_p.akb`: the second
+/// box (no question bar), the "!注意!" line (top, height) and blocks of
+/// three small lines, one per screen (CG, scenes, music), 51 rows apart.
+const K2_UNLOCK_BOX: (u32, u32, u32, u32) = (0, 368, 724, 312);
+const K2_UNLOCK_NOTE: (u32, u32) = (361, 29);
+const K2_UNLOCK_NOTE_Y: i32 = 236;
+const K2_UNLOCK_TEXT: (u32, u32, u32, u32) = (830, 643, 590, 51);
+const K2_UNLOCK_TEXT_POS: (i32, i32) = (421, 266);
+
 /// The save screen is for saving or for loading.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -442,6 +454,8 @@ pub enum Action {
     Quit,
     /// Replay a scene of the scene mode.
     Scene(usize),
+    /// きまぐれテンプテーション2: mark everything of an extras screen seen.
+    Unlock(crate::Extras),
 }
 
 impl Action {
@@ -456,6 +470,7 @@ impl Action {
             Action::Title => question::TITLE,
             Action::Quit => question::QUIT,
             Action::Scene(_) => question::SCENE_SELECT,
+            Action::Unlock(k) => question::UNLOCK + *k as usize,
         }
     }
 }
@@ -1004,9 +1019,11 @@ impl Screens {
 
     // Dialog.
 
-    pub fn hit_dialog(&self, x: i32, y: i32) -> Option<Button> {
+    pub fn hit_dialog(&self, d: &Dialog, x: i32, y: i32) -> Option<Button> {
+        let unlock = matches!(d.action, Action::Unlock(_));
         self.dialog
             .iter()
+            .filter(|a| !(unlock && a.id == dialog_ids::DONT_ASK))
             .find(|a| a.contains(x, y))
             .map(|a| Button::Dialog(a.id))
     }
@@ -1028,20 +1045,49 @@ impl Screens {
             true => self.sheet(assets, ds.sheet)?,
             false => assets.image(ds.sheet)?,
         };
-        canvas.draw_part(&sheet, ds.box_part, ds.box_pos.0, ds.box_pos.1, false, 255);
-        // Question: centre the drawn part of its strip.
-        let (qx, qy, qw, qh) = ds.question;
-        let qy = qy + ds.question_pitch * d.action.question() as u32;
-        if let Some((l, r)) = opaque_columns(&sheet, qx, qy, qw, qh) {
-            let w = r - l;
-            let x = ds.question_center - w as i32 / 2;
-            canvas.draw_part(&sheet, (l, qy, w, qh), x, ds.question_y, false, 255);
+        if let Action::Unlock(k) = d.action {
+            // The box without the question bar, "!注意!" centred, then
+            // three small lines from the left.
+            canvas.draw_part(
+                &sheet,
+                K2_UNLOCK_BOX,
+                ds.box_pos.0,
+                ds.box_pos.1,
+                false,
+                255,
+            );
+            let (ny, nh) = K2_UNLOCK_NOTE;
+            if let Some((l, r)) = opaque_columns(&sheet, ds.question.0, ny, ds.question.2, nh) {
+                let x = ds.question_center - (r - l) as i32 / 2;
+                canvas.draw_part(&sheet, (l, ny, r - l, nh), x, K2_UNLOCK_NOTE_Y, false, 255);
+            }
+            let (bx, by, bw, bh) = K2_UNLOCK_TEXT;
+            let part = (bx, by + bh * k as u32, bw, bh);
+            canvas.draw_part(
+                &sheet,
+                part,
+                K2_UNLOCK_TEXT_POS.0,
+                K2_UNLOCK_TEXT_POS.1,
+                false,
+                255,
+            );
+        } else {
+            canvas.draw_part(&sheet, ds.box_part, ds.box_pos.0, ds.box_pos.1, false, 255);
+            // Question: centre the drawn part of its strip.
+            let (qx, qy, qw, qh) = ds.question;
+            let qy = qy + ds.question_pitch * d.action.question() as u32;
+            if let Some((l, r)) = opaque_columns(&sheet, qx, qy, qw, qh) {
+                let w = r - l;
+                let x = ds.question_center - w as i32 / 2;
+                canvas.draw_part(&sheet, (l, qy, w, qh), x, ds.question_y, false, 255);
+            }
         }
         for a in &self.dialog {
             let st = ui.state(Button::Dialog(a.id), true, false) as u32;
             match a.id {
                 YES => ds.yes.draw(canvas, &sheet, st.min(2), a),
                 NO => ds.no.draw(canvas, &sheet, st.min(2), a),
+                DONT_ASK if matches!(d.action, Action::Unlock(_)) => {}
                 DONT_ASK => {
                     let row = if d.dont_ask { 3 } else { st.min(2) };
                     let y = a.top + (a.height() as i32 - ds.check.h as i32) / 2;

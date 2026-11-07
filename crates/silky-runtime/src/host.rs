@@ -31,7 +31,17 @@ const BACKLOG: i32 = 22;
 const ACTION_MENU: i32 = 42;
 /// きまぐれテンプテーション2's map.
 const MAP: i32 = 43;
-const KIMATEN2_SHARED: [i32; 4] = [cmd::SPEAKER, cmd::PICTURE, cmd::SELECT, cmd::TITLE];
+/// Game commands of きまぐれテンプテーション2 handled like ふゆから、くるる。's
+/// (30 to 32 open the CG, scene and music modes, see [`crate::omake`]).
+const KIMATEN2_SHARED: [i32; 7] = [
+    cmd::SPEAKER,
+    cmd::PICTURE,
+    cmd::SELECT,
+    cmd::TITLE,
+    30,
+    31,
+    32,
+];
 
 /// Screen calls (class 20). Times are in frames of 1/60 s (provisional).
 mod screen {
@@ -851,6 +861,22 @@ impl Runtime {
         }
     }
 
+    /// きまぐれテンプテーション2: marks the picture on screen as seen in
+    /// the CG mode when it is one of its pictures (the engine does this as
+    /// a picture change is committed).
+    fn register_cg(&mut self, vm: &mut Vm) {
+        if self.assets.game().title != Title::Kimaten2 {
+            return;
+        }
+        let Some(bg) = &self.scene.background else {
+            return;
+        };
+        let layers = self.scene.overlays.values().map(String::as_str);
+        if crate::omake::register_cg(&mut vm.bytes, bg, layers).is_some() {
+            vm.set_var_b(crate::omake::CG_ANY, 1);
+        }
+    }
+
     /// Pauses for a transition of `frames`, or goes on at once.
     fn transition(&mut self, frames: i32, rule: Option<u32>) -> Flow {
         let scale = self.system.settings.effect_scale();
@@ -1258,9 +1284,14 @@ impl Runtime {
             // Size in percent; the picture grows from its top left corner.
             (cmd::PICTURE, 5, 1) => scene.background_zoom = n(0),
             // 2 sets up the change, 11 closes it; nothing to draw.
-            (cmd::PICTURE, 2, 0) | (cmd::PICTURE, 11, 0) => {}
+            (cmd::PICTURE, 2, 0) | (cmd::PICTURE, 11, 0) => {
+                if sub == 2 {
+                    self.register_cg(vm);
+                }
+            }
             // (time): crossfade to the new picture.
             (cmd::PICTURE, 3, 1) => {
+                self.register_cg(vm);
                 self.handled += 1;
                 return Ok(self.transition(n(0), None));
             }

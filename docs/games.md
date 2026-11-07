@@ -36,6 +36,17 @@ These screens are drawn from their sheets and read the script's byte variables t
 - Some notebook entries grow during the story: byte `940 + i` says how many parts are open, the rest of the text is cut off, and a "New" mark stands before the newest part (cut and mark positions from the executable). From the title menu the mark goes away once the entry was opened there (byte 2020 + i).
 - The last collection item, a voice recording, is a play/pause button over its picture that plays five voice files in turn. The executable names them `kt_*.ogg`; they are not in the copy of the game tested, so they are reported as missing.
 
+### Title menu and extras
+
+The title buttons drop in one after another and bounce into place, with the timing read from the executable. Back to title from the game menu returns to the menu itself, without the logos. On the extras page, the music mode needs byte 3004, the notebook byte 3006, and the Anne Viewer and Anne's Room byte 3007 (set by the endings); until then they are grey. A missing sound file is reported once and skipped, as the game does.
+
+The CG, scene and music modes (`Game.30` to `Game.32`) are screens of the engine; their layouts and tables were read from the executable. All three are drawn from `mode_p.akb` and keep what was seen in byte variables from 1000 on, which `system.json` keeps across games:
+
+- CG mode: 29 entries of 268 pictures, 12 entries a page, each with a seen/total count, and the completion in per cent. Picture `i` is seen when bit `i % 8` of byte `3300 + i / 8` is set. The engine sets it when the picture on screen, with its layers, matches a row of its table; the runtime does the same. An entry opens a grid of its pictures; a click shows one, the next click the next one seen.
+- Scene mode: six scenes, seen when bytes 3101 to 3106 are set. A click plays the scene through `scmode.mes`.
+- Music mode: 29 tracks (`kima2_01.wav` to `kima2_29.wav`), heard when bytes 3051 to 3079 are set (the scripts set them), seven rows with a scroll bar, and the music volume.
+- Each mode's unlock button asks first, then sets every byte of its mode, as the game does.
+
 ### E-mote
 
 Anneliese is an E-mote 4 model (`.psb`, header encrypted): two files per costume, `ta`/`tb` + form + outfit (the ones the costume screen chooses between), with `_h0007` holding faces 0 to 7 and `_h0813` faces 8 to 13. [Eluna](https://github.com/xmoezzz/eluna) (vendored in `vendor/eluna_rs`, MPL-2.0, the copy siglus_rs uses) decrypts them and runs their timelines and physics. Its sprites (textured triangles, the six blend modes, stencil masks; DXT5 textures) are drawn by wgpu in the player and by a small software rasterizer headless; both give the same picture. The key of this game is built in; for other games the runtime searches the 2^32 keys once (a few seconds to a minute).

@@ -202,6 +202,7 @@ impl ExtrasScreen {
             scroll: 0,
             view: None,
             playing: None,
+            k2: crate::omake::Omake::default(),
         }
     }
 
@@ -226,6 +227,8 @@ pub struct ExtrasScreen {
     /// Gallery: entry being viewed and the picture of it.
     pub view: Option<(usize, usize)>,
     pub playing: Option<usize>,
+    /// きまぐれテンプテーション2's screens, see [`crate::omake`].
+    pub k2: crate::omake::Omake,
 }
 
 pub struct Menus {
@@ -288,6 +291,10 @@ impl Menus {
     /// tables in [`crate::game_tables`] are for one game).
     pub fn has_extras(&self) -> bool {
         !self.gallery.is_empty()
+    }
+
+    pub fn is_kimaten2(&self) -> bool {
+        self.kimaten2
     }
 
     fn sheet(&self, assets: &mut Assets, name: &str) -> Result<Arc<Image>> {
@@ -839,9 +846,14 @@ impl Menus {
         &self,
         s: &ExtrasScreen,
         data: &SystemData,
+        bytes: &[u8],
         x: i32,
         y: i32,
     ) -> Option<Button> {
+        if self.kimaten2 {
+            let areas = self.extras_areas(s.kind);
+            return crate::omake::hit(areas, s.kind, s.page, s.scroll, &s.k2, bytes, x, y);
+        }
         if s.view.is_some() {
             return None;
         }
@@ -871,9 +883,26 @@ impl Menus {
         ui: &Ui,
         s: &ExtrasScreen,
         data: &SystemData,
+        bytes: &[u8],
         music_pos: Option<(f64, f64)>,
         text: Option<&TextRenderer>,
     ) -> Result<()> {
+        if self.kimaten2 {
+            let volume = data.settings.music;
+            return crate::omake::draw(
+                canvas,
+                assets,
+                self.language,
+                ui,
+                s.kind,
+                s.page,
+                s.scroll,
+                s.playing,
+                &s.k2,
+                bytes,
+                volume,
+            );
+        }
         if let Some((entry, pos)) = s.view {
             return self.draw_picture(canvas, assets, entry, pos);
         }
