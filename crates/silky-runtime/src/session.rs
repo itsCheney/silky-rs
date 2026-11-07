@@ -210,6 +210,13 @@ impl Session {
         self.rt.system_changed = false;
     }
 
+    /// Draws E-mote characters on `gpu` instead of in software.
+    #[cfg(feature = "emote")]
+    pub fn set_emote_gpu(&mut self, gpu: crate::emote::Gpu) {
+        self.renderer.set_emote_gpu(gpu);
+        self.frame = None;
+    }
+
     /// Writes changed system data now (call before quitting).
     pub fn flush_system(&mut self) {
         if !self.rt.system_changed {

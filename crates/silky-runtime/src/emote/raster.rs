@@ -286,6 +286,21 @@ fn union(a: Rect, b: Rect) -> Rect {
     }
 }
 
+/// Premultiplied RGBA8 to straight, in place.
+#[cfg_attr(not(feature = "gpu"), allow(dead_code))]
+pub fn unpremultiply(rgba: &mut [u8]) {
+    for p in rgba.chunks_exact_mut(4) {
+        let a = p[3] as u32;
+        if a == 0 {
+            p[..3].fill(0);
+        } else if a < 255 {
+            for c in &mut p[..3] {
+                *c = ((*c as u32 * 255 + a / 2) / a).min(255) as u8;
+            }
+        }
+    }
+}
+
 /// The pixel shader: wipe, the texture stage of the blend mode, alpha test.
 fn fragment(mut c: [f32; 4], style: &Style) -> Option<[f32; 4]> {
     if let Some((scale, bias)) = style.wipe {

@@ -8,7 +8,16 @@
 //! face picks the model that is drawn.
 
 mod draws;
+#[cfg(feature = "gpu")]
+pub mod gpu;
 mod raster;
+
+/// The GPU E-mote models are drawn on (feature `gpu`).
+#[cfg(feature = "gpu")]
+pub use gpu::GpuRaster as Gpu;
+/// Without the `gpu` feature there is none.
+#[cfg(not(feature = "gpu"))]
+pub enum Gpu {}
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -73,7 +82,12 @@ pub struct Model {
     diff: Vec<String>,
     /// Textures by resource index, reduced by `1 << level`.
     textures: HashMap<u32, Texture>,
+    /// Names the model's textures on a GPU.
+    #[cfg_attr(not(feature = "gpu"), allow(dead_code))]
+    id: u64,
 }
+
+static NEXT_MODEL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 impl Model {
     /// Opens a model; textures are kept halved `level` times.
@@ -145,6 +159,7 @@ impl Model {
             main,
             diff,
             textures,
+            id: NEXT_MODEL.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         };
         model.rebuild(0.0)?;
         Ok(model)
@@ -216,7 +231,7 @@ impl Model {
     /// Draws the model into a new image: model point (x, y) lands on
     /// (x * scale - left, y * scale - top) of the image, where (left, top)
     /// is returned with it.
-    pub fn render(&self, scale: f32) -> Option<(Image, f32, f32)> {
+    pub fn render(&self, scale: f32, gpu: Option<&mut Gpu>) -> Option<(Image, f32, f32)> {
         let scene = self.player.scene();
         let draws = draws::plan(scene, |i| self.textures.contains_key(&i));
         let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
@@ -234,16 +249,30 @@ impl Model {
         let (left, top) = ((x0 * scale).floor(), (y0 * scale).floor());
         let width = ((x1 * scale).ceil() - left).clamp(1.0, 8192.0) as u32;
         let height = ((y1 * scale).ceil() - top).clamp(1.0, 8192.0) as u32;
+        let at = Placement {
+            scale,
+            dx: -left,
+            dy: -top,
+        };
+        #[cfg(feature = "gpu")]
+        if let Some(gpu) = gpu {
+            gpu.upload(self.id, &self.textures);
+            let mut rgba = gpu.draw_all(self.id, &draws, at, width, height);
+            raster::unpremultiply(&mut rgba);
+            return Some((
+                Image {
+                    width,
+                    height,
+                    rgba,
+                },
+                left,
+                top,
+            ));
+        }
+        #[cfg(not(feature = "gpu"))]
+        let _ = gpu;
         let mut target = Target::new(width, height);
-        target.draw_all(
-            &draws,
-            &self.textures,
-            Placement {
-                scale,
-                dx: -left,
-                dy: -top,
-            },
-        );
+        target.draw_all(&draws, &self.textures, at);
         let image = Image {
             width,
             height,
@@ -341,8 +370,14 @@ impl Character {
         Ok(())
     }
 
-    pub fn render(&self, scale: f32) -> Option<(Image, f32, f32)> {
-        self.models.get(self.active)?.render(scale)
+    pub fn render(&self, scale: f32, gpu: Option<&mut Gpu>) -> Option<(Image, f32, f32)> {
+        #[cfg(feature = "gpu")]
+        let mut gpu = gpu;
+        #[cfg(feature = "gpu")]
+        if let Some(g) = gpu.as_deref_mut() {
+            g.retain(&self.models.iter().map(|m| m.id).collect());
+        }
+        self.models.get(self.active)?.render(scale, gpu)
     }
 }
 
@@ -572,16 +607,16 @@ impl Stage {
         self.applied = emote.clone();
     }
 
-    /// Runs the animation; true when the picture changed.
-    pub fn progress(&mut self, ms: f32, talking: Option<f32>) -> bool {
+    /// Runs the animation in steps of at least `interval` ms; true when
+    /// the picture changed.
+    pub fn progress(&mut self, ms: f32, talking: Option<f32>, interval: f32) -> bool {
         let talk = talking.unwrap_or(0.0);
         if talk != self.talk {
             self.talk = talk;
             self.character.set_talk(talk);
         }
         self.pending += ms;
-        // Drawn in software: about 15 frames a second.
-        if self.pending < 66.0 {
+        if self.pending < interval {
             return false;
         }
         let step = std::mem::take(&mut self.pending).min(250.0);
@@ -592,10 +627,15 @@ impl Stage {
         true
     }
 
+    /// Draws the picture again on the next call to [`Stage::image`].
+    pub fn redraw(&mut self) {
+        self.image = None;
+    }
+
     /// The picture and the screen position of its top left corner.
-    pub fn image(&mut self) -> Option<(std::sync::Arc<Image>, f32, f32)> {
+    pub fn image(&mut self, gpu: Option<&mut Gpu>) -> Option<(std::sync::Arc<Image>, f32, f32)> {
         if self.image.is_none() {
-            let (img, left, top) = self.character.render(STAGE_SCALE)?;
+            let (img, left, top) = self.character.render(STAGE_SCALE, gpu)?;
             self.image = Some((
                 std::sync::Arc::new(img),
                 STAGE_ORIGIN.0 + left,

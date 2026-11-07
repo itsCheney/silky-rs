@@ -11,18 +11,24 @@ repository.workspace = true
 default = ["emote"]
 # E-mote characters through Eluna.
 emote = ["dep:eluna"]
+# E-mote characters drawn with wgpu (Metal, Vulkan, D3D12) when a frontend
+# hands over a device; the software rasterizer stays for headless use.
+gpu = ["emote", "dep:wgpu", "dep:pollster", "dep:bytemuck"]
 
 [dependencies]
 eluna = { package = "eluna_rs", path = "../../vendor/eluna_rs", optional = true }
+bytemuck = { workspace = true, optional = true }
 chrono.workspace = true
 silky-format.workspace = true
 silky-vm.workspace = true
 fontdue.workspace = true
 lewton.workspace = true
 png.workspace = true
+pollster = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+wgpu = { workspace = true, optional = true }
 
 [build-dependencies]
 cc.workspace = true

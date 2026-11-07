@@ -1,12 +1,15 @@
 //! Desktop player: a window that shows a [`Session`] and forwards mouse and
 //! keyboard input to it.
 //!
-//! Frames come from the software renderer and are scaled to the window in
-//! software, letterboxed to 16:9.
+//! Frames come from the software renderer and are scaled to the window by
+//! the GPU through wgpu (in software with `--software`, or when there is
+//! no GPU), letterboxed to 16:9. The GPU also draws E-mote characters.
+
+mod gpu;
 
 use std::num::NonZeroU32;
 use std::path::PathBuf;
-use std::rc::Rc;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
@@ -44,6 +47,9 @@ struct Cli {
     /// folder in the user's data folder.
     #[arg(long)]
     saves: Option<PathBuf>,
+    /// Draw and scale everything in software, without the GPU.
+    #[arg(long)]
+    software: bool,
 }
 
 /// `%APPDATA%\silky-rs\<game>` on Windows, `~/Library/Application
@@ -142,6 +148,7 @@ fn main() -> Result<()> {
     }
     let event_loop = EventLoop::new()?;
     let mut app = App {
+        software: cli.software,
         session,
         view: None,
         last_tick: Instant::now(),
@@ -218,14 +225,20 @@ fn start_audio() -> Option<(cpal::Stream, Mixer)> {
     }
 }
 
+enum Output {
+    Gpu(Box<gpu::GpuView>),
+    Soft(softbuffer::Surface<Arc<Window>, Arc<Window>>),
+}
+
 struct View {
-    window: Rc<Window>,
-    surface: softbuffer::Surface<Rc<Window>, Rc<Window>>,
+    window: Arc<Window>,
+    output: Output,
     /// Where the game picture sits in the window: x, y, width, height.
     rect: (u32, u32, u32, u32),
 }
 
 struct App {
+    software: bool,
     session: Session,
     view: Option<View>,
     last_tick: Instant,
@@ -262,18 +275,18 @@ impl App {
         let (Some(w), Some(h)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) else {
             return Ok(());
         };
-        view.surface
-            .resize(w, h)
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
         view.rect = letterbox(size.width, size.height);
         self.session.set_output_height(view.rect.3);
         let frame = self.session.frame()?;
-        let mut buf = view
-            .surface
-            .buffer_mut()
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
-        blit(frame, &mut buf, size.width, size.height, view.rect);
-        buf.present().map_err(|e| anyhow::anyhow!("{e}"))?;
+        match &mut view.output {
+            Output::Gpu(g) => g.present(frame, size.width, size.height, view.rect)?,
+            Output::Soft(surface) => {
+                surface.resize(w, h).map_err(|e| anyhow::anyhow!("{e}"))?;
+                let mut buf = surface.buffer_mut().map_err(|e| anyhow::anyhow!("{e}"))?;
+                blit(frame, &mut buf, size.width, size.height, view.rect);
+                buf.present().map_err(|e| anyhow::anyhow!("{e}"))?;
+            }
+        }
         Ok(())
     }
 
@@ -300,22 +313,38 @@ impl ApplicationHandler for App {
             .with_inner_size(LogicalSize::new(SCREEN_WIDTH, SCREEN_HEIGHT))
             .with_min_inner_size(LogicalSize::new(SCREEN_WIDTH / 4, SCREEN_HEIGHT / 4));
         let window = match event_loop.create_window(attrs) {
-            Ok(w) => Rc::new(w),
+            Ok(w) => Arc::new(w),
             Err(e) => return self.fail(event_loop, e),
         };
-        let surface = softbuffer::Context::new(window.clone())
-            .and_then(|ctx| softbuffer::Surface::new(&ctx, window.clone()));
-        match surface {
-            Ok(surface) => {
-                let size = window.inner_size();
-                self.view = Some(View {
-                    window,
-                    surface,
-                    rect: letterbox(size.width, size.height),
-                });
+        let gpu = if self.software {
+            None
+        } else {
+            match gpu::GpuView::new(window.clone()) {
+                Ok(g) => Some(g),
+                Err(e) => {
+                    eprintln!("no GPU ({e}): drawing in software");
+                    None
+                }
             }
-            Err(e) => self.fail(event_loop, anyhow::anyhow!("{e}")),
-        }
+        };
+        let output = match gpu {
+            Some(g) => {
+                self.session.set_emote_gpu(g.emote());
+                Output::Gpu(Box::new(g))
+            }
+            None => match softbuffer::Context::new(window.clone())
+                .and_then(|ctx| softbuffer::Surface::new(&ctx, window.clone()))
+            {
+                Ok(surface) => Output::Soft(surface),
+                Err(e) => return self.fail(event_loop, anyhow::anyhow!("{e}")),
+            },
+        };
+        let size = window.inner_size();
+        self.view = Some(View {
+            window,
+            output,
+            rect: letterbox(size.width, size.height),
+        });
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {

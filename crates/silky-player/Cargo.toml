@@ -13,9 +13,11 @@ path = "src/main.rs"
 
 [dependencies]
 silky-format.workspace = true
-silky-runtime.workspace = true
+silky-runtime = { workspace = true, features = ["gpu"] }
 anyhow.workspace = true
 clap.workspace = true
 cpal = "0.15"
+pollster.workspace = true
 softbuffer = "0.4"
+wgpu.workspace = true
 winit = "0.30"

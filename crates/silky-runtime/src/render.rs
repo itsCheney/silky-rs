@@ -112,6 +112,9 @@ pub struct Renderer {
     /// Files that failed to open, not tried again.
     #[cfg(feature = "emote")]
     emote_failed: Option<[String; 2]>,
+    /// Where E-mote models are drawn, if not in software.
+    #[cfg(feature = "emote")]
+    emote_gpu: Option<crate::emote::Gpu>,
 }
 
 impl Renderer {
@@ -130,6 +133,8 @@ impl Renderer {
             emote: None,
             #[cfg(feature = "emote")]
             emote_failed: None,
+            #[cfg(feature = "emote")]
+            emote_gpu: None,
         };
         r.set_language(language);
         r
@@ -311,7 +316,16 @@ impl Renderer {
         if !emote.visible {
             return None;
         }
-        stage.image()
+        stage.image(self.emote_gpu.as_mut())
+    }
+
+    /// Draws E-mote models on `gpu` from now on.
+    #[cfg(feature = "emote")]
+    pub fn set_emote_gpu(&mut self, gpu: crate::emote::Gpu) {
+        self.emote_gpu = Some(gpu);
+        if let Some(stage) = &mut self.emote {
+            stage.redraw();
+        }
     }
 
     /// Runs the E-mote animation for `ms`; true when the picture changed.
@@ -319,7 +333,9 @@ impl Renderer {
     pub fn progress_emote(&mut self, scene: &Scene, ms: u64, talking: Option<f32>) -> bool {
         #[cfg(feature = "emote")]
         if let (Some(stage), Some(e)) = (&mut self.emote, &scene.emote) {
-            return e.visible && stage.progress(ms as f32, talking);
+            // In software about 15 frames a second, on a GPU 30.
+            let interval = if self.emote_gpu.is_some() { 33.0 } else { 66.0 };
+            return e.visible && stage.progress(ms as f32, talking, interval);
         }
         let _ = (scene, ms, talking);
         false
