@@ -223,6 +223,15 @@ impl Session {
         self.rt.system_changed = false;
     }
 
+    /// Records frames for a GPU compositor ([`crate::canvas::Op`]) instead
+    /// of drawing them: [`Session::frame`] then returns a recording.
+    pub fn set_recording(&mut self, record: bool) {
+        self.renderer.record = record;
+        self.base = None;
+        self.under = None;
+        self.frame = None;
+    }
+
     /// Draws E-mote characters on `gpu` instead of in software.
     #[cfg(feature = "emote")]
     pub fn set_emote_gpu(&mut self, gpu: crate::emote::Gpu) {
@@ -300,6 +309,7 @@ impl Session {
             &mut self.rt.assets,
             !self.ui.window_hidden && self.state != State::Title,
         )?;
+        let canvas = canvas.rasterize();
         Ok(save::thumbnail(&canvas.rgba, canvas.width, canvas.height))
     }
 
@@ -2188,11 +2198,9 @@ impl Session {
     /// [`Session::set_output_height`]), RGBA.
     pub fn frame(&mut self) -> Result<&Canvas> {
         if self.frame.is_none() {
-            let scale = self.renderer.scale;
             let mut frame = match &self.screen {
                 Some(screen) => {
-                    let mut c =
-                        Canvas::with_scale(crate::SCREEN_WIDTH, crate::SCREEN_HEIGHT, scale);
+                    let mut c = self.renderer.canvas();
                     let text = self.renderer.text();
                     let assets = &mut self.rt.assets;
                     match screen {
@@ -2246,7 +2254,7 @@ impl Session {
                     c
                 }
                 None => match &self.movie {
-                    Some(p) => movie_frame(&p.movie, scale),
+                    Some(p) => movie_frame(&p.movie, self.renderer.canvas()),
                     None => self.game_frame()?,
                 },
             };
@@ -2254,7 +2262,11 @@ impl Session {
                 self.screens
                     .draw_dialog(&mut frame, &mut self.rt.assets, &self.ui, d)?;
             }
-            self.frame = Some(frame.present());
+            self.frame = Some(if frame.ops().is_some() {
+                frame
+            } else {
+                frame.present()
+            });
         }
         Ok(self.frame.as_ref().unwrap())
     }
@@ -2298,11 +2310,11 @@ impl Session {
                     ms,
                     elapsed,
                     ..
-                }) => Canvas::blend(
+                }) => Canvas::blend_shared(
                     from,
                     self.base.as_ref().unwrap(),
                     *elapsed as f32 / (*ms).max(1) as f32,
-                    rule.as_deref().map(Vec::as_slice),
+                    rule.clone(),
                 ),
                 _ => self.base.clone().unwrap(),
             };
@@ -2320,7 +2332,7 @@ impl Session {
                     img(assets, "yume.akb"),
                     img(assets, "white.akb"),
                 ];
-                h.draw(&mut frame, images.each_ref().map(|i| i.as_deref()));
+                h.draw(&mut frame, images.each_ref().map(|i| i.as_ref()));
                 return Ok(frame);
             }
             let text_shown =
@@ -2338,14 +2350,13 @@ impl Session {
 }
 
 /// The movie picture scaled to fit the screen, on black.
-fn movie_frame(m: &Movie, scale: f32) -> Canvas {
-    let mut c = Canvas::with_scale(crate::SCREEN_WIDTH, crate::SCREEN_HEIGHT, scale);
+fn movie_frame(m: &Movie, mut c: Canvas) -> Canvas {
     c.fill(0, 0, c.width, c.height, [0, 0, 0, 255]);
-    let img = Image {
+    let img = Arc::new(Image {
         width: m.width,
         height: m.height,
         rgba: m.rgba.clone(),
-    };
+    });
     let scale = (c.width as f32 / m.width as f32).min(c.height as f32 / m.height as f32);
     let x = (c.width as f32 - m.width as f32 * scale) / 2.0;
     let y = (c.height as f32 - m.height as f32 * scale) / 2.0;

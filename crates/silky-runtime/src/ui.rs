@@ -6,6 +6,7 @@
 //! title layout below is copied from tables in the game executable; the
 //! message window buttons come from `mes_o.area` and `message_p.akb`.
 
+use std::sync::Arc;
 use silky_format::area::{self, Area};
 
 use crate::assets::{Assets, Language};
@@ -518,7 +519,7 @@ struct Cell {
 }
 
 impl Cell {
-    fn draw(&self, canvas: &mut Canvas, sheet: &silky_format::akb::Image, ui: &Ui, active: bool) {
+    fn draw(&self, canvas: &mut Canvas, sheet: &Arc<silky_format::akb::Image>, ui: &Ui, active: bool) {
         let b = Button::Bar(self.id);
         let state = match ui.state(b, ui.enabled(b), active) {
             // The side menu button shows dimmed while the menu is open.

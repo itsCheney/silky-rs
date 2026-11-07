@@ -330,7 +330,7 @@ impl ApplicationHandler for App {
         };
         let output = match gpu {
             Some(g) => {
-                self.session.set_emote_gpu(g.emote());
+                self.session.set_recording(true);
                 Output::Gpu(Box::new(g))
             }
             None => match softbuffer::Context::new(window.clone())

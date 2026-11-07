@@ -1,6 +1,7 @@
 //! E-mote draws with wgpu: the same passes as the software rasterizer
-//! (`raster.rs`), drawn into an offscreen target and read back as an
-//! image, so the rest of the frame is composed as before.
+//! (`raster.rs`), drawn into an offscreen target. The compositor
+//! ([`crate::compose`]) draws that target into the frame; without it the
+//! target is read back as an image.
 
 use std::collections::{HashMap, HashSet};
 
@@ -294,41 +295,12 @@ impl GpuRaster {
         width: u32,
         height: u32,
     ) -> Vec<u8> {
-        let (vertices, batches) = self.batches(id, draws, at, width, height);
         let size = wgpu::Extent3d {
             width,
             height,
             depth_or_array_layers: 1,
         };
-        let target = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("emote target"),
-            size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: COLOR,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-        });
-        let stencil = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("emote stencil"),
-            size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: STENCIL,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
-        let vertex_buffer = (!vertices.is_empty()).then(|| {
-            use wgpu::util::DeviceExt;
-            self.device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("emote vertices"),
-                    contents: bytemuck::cast_slice(&vertices),
-                    usage: wgpu::BufferUsages::VERTEX,
-                })
-        });
+        let target = self.target(width, height, wgpu::TextureUsages::COPY_SRC);
         let row = (width * 4).div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
             * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
         let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -337,59 +309,12 @@ impl GpuRaster {
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
-        let color_view = target.create_view(&Default::default());
-        let stencil_view = stencil.create_view(&Default::default());
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("emote"),
             });
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("emote"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &color_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &stencil_view,
-                    depth_ops: None,
-                    stencil_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(0),
-                        store: wgpu::StoreOp::Discard,
-                    }),
-                }),
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-            if let Some(buffer) = &vertex_buffer {
-                pass.set_vertex_buffer(0, buffer.slice(..));
-            }
-            for b in &batches {
-                let (pipeline, reference) = match b.pass {
-                    Pass::Fill(r) => (&self.fill, r),
-                    Pass::Increment(r) => (&self.increment, r),
-                    Pass::Decrement(r) => (&self.decrement, r),
-                    Pass::Color(mode, r) => (
-                        &self.color[mode as usize][r.is_some() as usize],
-                        r.unwrap_or(0),
-                    ),
-                };
-                pass.set_pipeline(pipeline);
-                pass.set_stencil_reference(reference as u32);
-                if let Some(key) = b.texture {
-                    let Some(group) = self.textures.get(&key) else {
-                        continue;
-                    };
-                    pass.set_bind_group(0, group, &[]);
-                }
-                pass.draw(b.range.clone(), 0..1);
-            }
-        }
+        self.encode(&mut encoder, id, draws, at, &target);
         encoder.copy_texture_to_buffer(
             target.as_image_copy(),
             wgpu::TexelCopyBufferInfo {
@@ -415,6 +340,104 @@ impl GpuRaster {
         drop(mapped);
         readback.unmap();
         out
+    }
+
+    /// A transparent target for [`GpuRaster::encode`], usable as
+    /// `usage` too.
+    pub fn target(&self, width: u32, height: u32, usage: wgpu::TextureUsages) -> wgpu::Texture {
+        self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("emote target"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: COLOR,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | usage,
+            view_formats: &[],
+        })
+    }
+
+    /// Records the draws of model `id` (uploaded) into `target` (from
+    /// [`GpuRaster::target`]), premultiplied, cleared first.
+    pub fn encode(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        id: u64,
+        draws: &[Draw],
+        at: Placement,
+        target: &wgpu::Texture,
+    ) {
+        let (width, height) = (target.width(), target.height());
+        let (vertices, batches) = self.batches(id, draws, at, width, height);
+        let stencil = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("emote stencil"),
+            size: target.size(),
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: STENCIL,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let vertex_buffer = (!vertices.is_empty()).then(|| {
+            use wgpu::util::DeviceExt;
+            self.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("emote vertices"),
+                    contents: bytemuck::cast_slice(&vertices),
+                    usage: wgpu::BufferUsages::VERTEX,
+                })
+        });
+        let color_view = target.create_view(&Default::default());
+        let stencil_view = stencil.create_view(&Default::default());
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("emote"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &color_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &stencil_view,
+                depth_ops: None,
+                stencil_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(0),
+                    store: wgpu::StoreOp::Discard,
+                }),
+            }),
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+        if let Some(buffer) = &vertex_buffer {
+            pass.set_vertex_buffer(0, buffer.slice(..));
+        }
+        for b in &batches {
+            let (pipeline, reference) = match b.pass {
+                Pass::Fill(r) => (&self.fill, r),
+                Pass::Increment(r) => (&self.increment, r),
+                Pass::Decrement(r) => (&self.decrement, r),
+                Pass::Color(mode, r) => (
+                    &self.color[mode as usize][r.is_some() as usize],
+                    r.unwrap_or(0),
+                ),
+            };
+            pass.set_pipeline(pipeline);
+            pass.set_stencil_reference(reference as u32);
+            if let Some(key) = b.texture {
+                let Some(group) = self.textures.get(&key) else {
+                    continue;
+                };
+                pass.set_bind_group(0, group, &[]);
+            }
+            pass.draw(b.range.clone(), 0..1);
+        }
     }
 
     /// The vertices and draw calls of `draws`, in the order of

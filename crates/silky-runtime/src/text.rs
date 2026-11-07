@@ -5,8 +5,13 @@
 //! the game files, so the frontend passes font files in; glyphs missing
 //! from the first font are taken from the next.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use fontdue::{Font, FontSettings};
 
+use crate::canvas::Glyph;
 use crate::render::Canvas;
 use crate::{Error, Result};
 
@@ -17,7 +22,12 @@ pub struct TextRenderer {
     /// set it for Chinese text only. A screen with its own spacing changes
     /// it for a while with [`TextRenderer::with_wide_advance`].
     wide_advance: std::cell::Cell<Option<f32>>,
+    /// Rasterized glyphs by font, character and size (bits of the f32).
+    glyphs: RefCell<HashMap<(usize, char, u32), Arc<Glyph>>>,
 }
+
+/// Glyphs kept before the cache starts over.
+const GLYPH_CACHE: usize = 4096;
 
 impl TextRenderer {
     /// Loads fonts from file contents, in fallback order. A `.ttc` uses its
@@ -36,6 +46,7 @@ impl TextRenderer {
         Ok(Self {
             fonts,
             wide_advance: Default::default(),
+            glyphs: Default::default(),
         })
     }
 
@@ -54,10 +65,37 @@ impl TextRenderer {
     }
 
     fn font_for(&self, c: char) -> &Font {
+        &self.fonts[self.font_index(c)]
+    }
+
+    fn font_index(&self, c: char) -> usize {
         self.fonts
             .iter()
-            .find(|f| f.lookup_glyph_index(c) != 0)
-            .unwrap_or(&self.fonts[0])
+            .position(|f| f.lookup_glyph_index(c) != 0)
+            .unwrap_or(0)
+    }
+
+    /// The coverage mask of `c` at `size` pixels, kept for later frames.
+    fn glyph(&self, c: char, size: f32) -> Arc<Glyph> {
+        let font = self.font_index(c);
+        let key = (font, c, size.to_bits());
+        if let Some(g) = self.glyphs.borrow().get(&key) {
+            return g.clone();
+        }
+        let (m, mask) = self.fonts[font].rasterize(c, size);
+        let g = Arc::new(Glyph {
+            xmin: m.xmin,
+            ymin: m.ymin,
+            width: m.width,
+            height: m.height,
+            mask,
+        });
+        let mut cache = self.glyphs.borrow_mut();
+        if cache.len() >= GLYPH_CACHE {
+            cache.clear();
+        }
+        cache.insert(key, g.clone());
+        g
     }
 
     fn advance(&self, c: char, size: f32) -> f32 {
@@ -179,17 +217,16 @@ impl TextRenderer {
         for &(dx, dy, c) in layers {
             let mut pen = x + dx;
             for ch in line.chars() {
-                let font = self.font_for(ch);
                 if s > 1.0 {
-                    let (m, bitmap) = font.rasterize(ch, size * s);
-                    let gx = (pen * s).round() as i32 + m.xmin;
-                    let gy = ((y + dy) * s).round() as i32 - m.height as i32 - m.ymin;
-                    canvas.blend_mask_sharp(gx, gy, m.width, m.height, &bitmap, c);
+                    let g = self.glyph(ch, size * s);
+                    let gx = (pen * s).round() as i32 + g.xmin;
+                    let gy = ((y + dy) * s).round() as i32 - g.height as i32 - g.ymin;
+                    canvas.draw_glyph(&g, gx, gy, true, c);
                 } else {
-                    let (m, bitmap) = font.rasterize(ch, size);
-                    let gx = pen.round() as i32 + m.xmin;
-                    let gy = (y + dy).round() as i32 - m.height as i32 - m.ymin;
-                    canvas.blend_mask(gx, gy, m.width, m.height, &bitmap, c);
+                    let g = self.glyph(ch, size);
+                    let gx = pen.round() as i32 + g.xmin;
+                    let gy = (y + dy).round() as i32 - g.height as i32 - g.ymin;
+                    canvas.draw_glyph(&g, gx, gy, false, c);
                 }
                 pen += self.advance(ch, size);
             }

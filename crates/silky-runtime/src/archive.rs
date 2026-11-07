@@ -459,7 +459,7 @@ impl Archive {
             Book::Notebook => "archivebg.akb",
             Book::Items => "itembg.akb",
         };
-        canvas.draw(&*assets.image(bg)?, 0, 0, false);
+        canvas.draw(&assets.image(bg)?, 0, 0, false);
         let sheet = assets.image("item_p.akb")?;
         let max = self.max_scroll(assets, s);
         let state = |id: i32, active: bool| {
@@ -689,7 +689,7 @@ impl Archive {
         c: &CostumeScreen,
     ) -> Result<()> {
         use costume_ids::*;
-        canvas.draw(&*assets.image("coschangebg.akb")?, 0, 0, false);
+        canvas.draw(&assets.image("coschangebg.akb")?, 0, 0, false);
         let figure = match c.second_outfit {
             false => format!("cos{:02}f.akb", c.form),
             true => format!("cos{:02}fh.akb", c.form),

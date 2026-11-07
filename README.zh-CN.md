@@ -42,7 +42,7 @@
 | `silky-runtime` | 基于场景模型的引擎函数和软件渲染器。不含平台相关代码。 |
 | `silky-tool` | 查看游戏目录的命令行工具。 |
 | `silky-run` | 无界面运行器：记录引擎调用，或把画面保存为 PNG。 |
-| `silky-player` | 桌面播放器（winit；画面由软件合成，经 wgpu 缩放显示，E-mote 也由 wgpu 绘制）。 |
+| `silky-player` | 桌面播放器（winit；画面由 wgpu 在 GPU 上合成，包括 E-mote）。 |
 
 `silky-runtime::Session` 持有一个运行中的游戏（解释器、运行时、渲染器和界面），接收指针、按键和时钟输入；桌面播放器以及以后的嵌入方式只负责转发输入并显示它的画面。
 
@@ -54,7 +54,7 @@ silky-player <游戏目录> --lang zh-hans     # 简体中文（或 1）
 silky-player <游戏目录> --font msyh.ttc --font arial.ttf
 ```
 
-存档保存在 Windows 的 `%APPDATA%\silky-rs\<游戏目录名>`（macOS 为 `~/Library/Application Support/silky-rs/...`，其他系统为 `~/.local/share/silky-rs/...`），可用 `--saves <目录>` 指定其他位置。不指定 `--font` 时，播放器会先在 Windows 字体目录中查找游戏设置里使用的字体（Arial、微软雅黑、微软正黑体），再查找 macOS 和 Linux 上的常见字体。单击、回车或空格继续；右键隐藏对话框（可在设置中更改）；Esc 关闭画面或结束视频。播放器通过 wgpu（Metal、Vulkan、D3D12）显示画面；加 `--software`（或机器没有可用的 GPU）时改为软件缩放。
+存档保存在 Windows 的 `%APPDATA%\silky-rs\<游戏目录名>`（macOS 为 `~/Library/Application Support/silky-rs/...`，其他系统为 `~/.local/share/silky-rs/...`），可用 `--saves <目录>` 指定其他位置。不指定 `--font` 时，播放器会先在 Windows 字体目录中查找游戏设置里使用的字体（Arial、微软雅黑、微软正黑体），再查找 macOS 和 Linux 上的常见字体。单击、回车或空格继续；右键隐藏对话框（可在设置中更改）；Esc 关闭画面或结束视频。播放器通过 wgpu（Metal、Vulkan、D3D12）在 GPU 上合成画面：运行时记录每帧要绘制的内容，由 `silky_runtime::compose` 按窗口尺寸绘制，图片、字形和 E-mote 模型都保留在 GPU 上。加 `--software`（或机器没有可用的 GPU）时改为软件绘制。
 
 ## 构建
 

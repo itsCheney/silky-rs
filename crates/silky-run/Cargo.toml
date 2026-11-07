@@ -11,6 +11,10 @@ repository.workspace = true
 name = "silky-run"
 path = "src/main.rs"
 
+[features]
+# Frames drawn by the GPU compositor (`snap --renderer gpu`).
+gpu = ["silky-runtime/gpu"]
+
 [dependencies]
 silky-format.workspace = true
 silky-vm.workspace = true

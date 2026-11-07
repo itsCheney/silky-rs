@@ -386,7 +386,7 @@ impl Menus {
             Page::System => ("system_bg.akb", "system_p.akb"),
             Page::Sound => ("sound_bg.akb", "sound_p.akb"),
         };
-        canvas.draw(&*self.sheet(assets, bg)?, 0, 0, false);
+        canvas.draw(&self.sheet(assets, bg)?, 0, 0, false);
         self.draw_cover(canvas, assets, s, st, WINDOW_SAMPLE)?;
         let sheet = self.sheet(assets, sheet)?;
         for a in self.settings_areas(s.page) {
@@ -500,7 +500,7 @@ impl Menus {
             Page::System => "systembg.akb",
             Page::Sound => "soundbg.akb",
         };
-        canvas.draw(&*assets.image(bg)?, 0, 0, false);
+        canvas.draw(&assets.image(bg)?, 0, 0, false);
         self.draw_cover(canvas, assets, s, st, K2_WINDOW_SAMPLE)?;
         let sheet = assets.image("systemsound_p.akb")?;
         for a in self.settings_areas(s.page) {
@@ -510,7 +510,7 @@ impl Menus {
             let id = a.id;
             let b = Button::Screen(id);
             let row = |active: bool| ui.state(b, true, active) as u32;
-            let sheet = &*sheet;
+            let sheet = &sheet;
             match id {
                 ids::SYSTEM_TAB => {
                     K2_TAB_SYSTEM.draw(canvas, sheet, row(s.page == Page::System), &a)
@@ -574,7 +574,7 @@ impl Menus {
     fn draw_k2_system(
         &self,
         canvas: &mut Canvas,
-        sheet: &Image,
+        sheet: &Arc<Image>,
         ui: &Ui,
         id: i32,
         a: &Area,
@@ -618,12 +618,12 @@ impl Menus {
         }
     }
 
-    fn draw_toggle(canvas: &mut Canvas, sheet: &Image, ui: &Ui, a: &Area, on: bool) {
+    fn draw_toggle(canvas: &mut Canvas, sheet: &Arc<Image>, ui: &Ui, a: &Area, on: bool) {
         let st = (ui.state(Button::Screen(a.id), true, false) as u32).min(2);
         SYS_TOGGLE.draw(canvas, sheet, if on { st } else { 3 + st }, a);
     }
 
-    fn draw_knob(canvas: &mut Canvas, sheet: &Image, ui: &Ui, a: &Area, v: f32) {
+    fn draw_knob(canvas: &mut Canvas, sheet: &Arc<Image>, ui: &Ui, a: &Area, v: f32) {
         let st = (ui.state(Button::Screen(a.id), true, false) as u32).min(2);
         let x = a.left + 10 + (v.clamp(0.0, 1.0) * (a.width() as f32 - 20.0)) as i32;
         let y = a.top + (a.height() as i32 - SYS_KNOB.h as i32) / 2;
@@ -640,7 +640,7 @@ impl Menus {
     fn draw_system_control(
         &self,
         canvas: &mut Canvas,
-        sheet: &Image,
+        sheet: &Arc<Image>,
         ui: &Ui,
         id: i32,
         a: &Area,
@@ -683,7 +683,7 @@ impl Menus {
     fn draw_sound_control(
         &self,
         canvas: &mut Canvas,
-        sheet: &Image,
+        sheet: &Arc<Image>,
         ui: &Ui,
         id: i32,
         a: &Area,
@@ -911,7 +911,7 @@ impl Menus {
             Extras::Scenes => ("scenemode_bg.akb", "scenemode_p.akb"),
             Extras::Music => ("musicmode_bg.akb", "musicmode_p.akb"),
         };
-        canvas.draw(&*self.sheet(assets, bg)?, 0, 0, false);
+        canvas.draw(&self.sheet(assets, bg)?, 0, 0, false);
         let sheet = self.sheet(assets, sheet)?;
         let state = |id: i32, enabled: bool, active: bool| {
             ui.state(Button::Screen(id), enabled, active) as u32
@@ -1095,7 +1095,7 @@ fn draw_scroll_thumb_color(
 
 /// The system page's toggles.
 /// A volume bar of きまぐれテンプテーション2 with its value in per cent.
-fn draw_k2_volume(canvas: &mut Canvas, sheet: &Image, id: i32, a: &Area, v: f32) {
+fn draw_k2_volume(canvas: &mut Canvas, sheet: &Arc<Image>, id: i32, a: &Area, v: f32) {
     let small = id >= 1280;
     let ((bx, by, bw, bh), left, value) = match small {
         true => (K2_BAR_SMALL, K2_BAR_LEFT.1, K2_VALUE_SMALL),

@@ -9,6 +9,13 @@
 //! anything drawn over such a place later is drawn into both buffers, so
 //! the order of drawing holds. [`Canvas::present`] scales the picture up
 //! once and puts the sharp parts on top.
+//!
+//! A canvas can also record instead of drawing ([`Canvas::recording`]):
+//! it then keeps the list of what was drawn ([`Op`]) for a GPU compositor,
+//! which draws everything at output size. [`Canvas::rasterize`] plays such
+//! a list back in software, with the same result as drawing directly.
+
+use std::sync::Arc;
 
 use silky_format::akb::Image;
 
@@ -21,11 +28,84 @@ const TILE: u32 = 16;
 pub struct Canvas {
     pub width: u32,
     pub height: u32,
+    /// The pixels; empty while recording.
     pub rgba: Vec<u8>,
     /// Output pixels per game pixel; 1 keeps everything at game size.
     scale: f32,
     /// The parts at output size, made when text is first drawn.
     sharp: Option<Box<Sharp>>,
+    /// What was drawn, over black, when recording. Shared until changed,
+    /// so a compositor can tell an unchanged list by its address.
+    ops: Option<Arc<Vec<Op>>>,
+}
+
+/// A glyph's coverage mask.
+#[derive(Debug)]
+pub struct Glyph {
+    pub xmin: i32,
+    pub ymin: i32,
+    pub width: usize,
+    pub height: usize,
+    pub mask: Vec<u8>,
+}
+
+/// How an image is put on the canvas, in game pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Placing {
+    /// 1:1 with the top left at (x, y), alpha scaled by `opacity`.
+    Part { x: i32, y: i32, opacity: u8 },
+    /// Reduced by `scale`, averaging ([`Canvas::draw_scaled`]).
+    Scaled { x: f32, y: f32, scale: f32 },
+    /// Enlarged by `scale`, bilinear ([`Canvas::draw_zoomed`]).
+    Zoomed { x: f32, y: f32, scale: f32 },
+}
+
+/// One drawing step of a recorded canvas.
+#[derive(Clone)]
+pub enum Op {
+    /// The `part` (left, top, width, height) of an image; with `green_key`
+    /// pure green is transparent.
+    Image {
+        image: Arc<Image>,
+        part: (u32, u32, u32, u32),
+        placing: Placing,
+        green_key: bool,
+    },
+    /// A rectangle in a colour, alpha blended.
+    Fill {
+        x: i32,
+        y: i32,
+        w: u32,
+        h: u32,
+        color: [u8; 4],
+    },
+    /// A glyph in `color` with its top left at (x, y): output pixels when
+    /// `sharp`, game pixels otherwise.
+    Glyph {
+        glyph: Arc<Glyph>,
+        x: i32,
+        y: i32,
+        sharp: bool,
+        color: [u8; 4],
+    },
+    /// An E-mote model as it stands.
+    #[cfg(feature = "emote")]
+    Model(Arc<crate::emote::ModelFrame>),
+    /// Two frames mixed, as [`Canvas::blend`]; replaces what was drawn.
+    Blend {
+        from: Arc<Vec<Op>>,
+        to: Arc<Vec<Op>>,
+        t: f32,
+        rule: Option<Arc<Vec<u8>>>,
+    },
+    /// The frame so far scaled by `scale` and moved by (dx, dy) game
+    /// pixels, over black; replaces what was drawn.
+    Transform {
+        ops: Arc<Vec<Op>>,
+        scale: f32,
+        dx: f32,
+        dy: f32,
+    },
 }
 
 #[derive(Clone)]
@@ -124,6 +204,98 @@ impl Canvas {
             rgba,
             scale: 1.0,
             sharp: None,
+            ops: None,
+        }
+    }
+
+    /// A black frame that records what is drawn instead of drawing it.
+    pub fn recording(width: u32, height: u32, scale: f32) -> Self {
+        Self {
+            width,
+            height,
+            rgba: Vec::new(),
+            scale: if scale > 1.0 { scale } else { 1.0 },
+            sharp: None,
+            ops: Some(Arc::default()),
+        }
+    }
+
+    /// The recorded steps, if recording.
+    pub fn ops(&self) -> Option<&Arc<Vec<Op>>> {
+        self.ops.as_ref()
+    }
+
+    fn record(&mut self, op: Op) -> bool {
+        match &mut self.ops {
+            Some(ops) => {
+                Arc::make_mut(ops).push(op);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The frame drawn in software: itself, or its recording played back.
+    pub fn rasterize(&self) -> Canvas {
+        match &self.ops {
+            None => self.clone(),
+            Some(ops) => {
+                let mut c = Canvas::with_scale(self.width, self.height, self.scale);
+                c.replay(ops);
+                c
+            }
+        }
+    }
+
+    fn replay(&mut self, ops: &[Op]) {
+        for op in ops {
+            match op {
+                Op::Image {
+                    image,
+                    part,
+                    placing,
+                    green_key,
+                } => match *placing {
+                    Placing::Part { x, y, opacity } => {
+                        self.draw_part(image, *part, x, y, *green_key, opacity)
+                    }
+                    Placing::Scaled { x, y, scale } => self.draw_scaled(image, x, y, scale),
+                    Placing::Zoomed { x, y, scale } => self.draw_zoomed(image, x, y, scale),
+                },
+                Op::Fill { x, y, w, h, color } => self.fill(*x, *y, *w, *h, *color),
+                Op::Glyph {
+                    glyph,
+                    x,
+                    y,
+                    sharp,
+                    color,
+                } => self.draw_glyph(glyph, *x, *y, *sharp, *color),
+                #[cfg(feature = "emote")]
+                Op::Model(m) => self.draw_model(m),
+                Op::Blend { from, to, t, rule } => {
+                    let mut a = Canvas::with_scale(self.width, self.height, self.scale);
+                    a.replay(from);
+                    let mut b = Canvas::with_scale(self.width, self.height, self.scale);
+                    b.replay(to);
+                    *self = Canvas::blend(&a, &b, *t, rule.as_deref().map(Vec::as_slice));
+                }
+                Op::Transform {
+                    ops,
+                    scale,
+                    dx,
+                    dy,
+                } => {
+                    let mut inner = Canvas::with_scale(self.width, self.height, self.scale);
+                    inner.replay(ops);
+                    if *scale == 1.0 {
+                        inner.shift(dx.round() as i32, dy.round() as i32);
+                        *self = inner;
+                    } else {
+                        inner.zoom_whole(*scale, *dx, *dy);
+                        *self = inner;
+                    }
+                }
+            }
         }
     }
 
@@ -286,6 +458,9 @@ impl Canvas {
     /// The frame at output size: the picture scaled up, with the parts
     /// that hold text at full resolution.
     pub fn present(&self) -> Canvas {
+        if self.ops.is_some() {
+            return self.rasterize().present();
+        }
         if self.scale <= 1.0 {
             return Canvas::from_rgba(self.width, self.height, self.rgba.clone());
         }
@@ -326,7 +501,7 @@ impl Canvas {
 
     /// Draws an image at (x, y), 1:1. Pure green (0, 255, 0) counts as
     /// transparent when `green_key` is set, as in event difference pictures.
-    pub fn draw(&mut self, img: &Image, x: i32, y: i32, green_key: bool) {
+    pub fn draw(&mut self, img: &Arc<Image>, x: i32, y: i32, green_key: bool) {
         self.draw_part(img, (0, 0, img.width, img.height), x, y, green_key, 255);
     }
 
@@ -334,13 +509,21 @@ impl Canvas {
     /// with its alpha scaled by `opacity` (255 = as stored).
     pub fn draw_part(
         &mut self,
-        img: &Image,
+        img: &Arc<Image>,
         part: (u32, u32, u32, u32),
         x: i32,
         y: i32,
         green_key: bool,
         opacity: u8,
     ) {
+        if self.record(Op::Image {
+            image: img.clone(),
+            part,
+            placing: Placing::Part { x, y, opacity },
+            green_key,
+        }) {
+            return;
+        }
         let (pl, pt, pw, ph) = part;
         let pw = pw.min(img.width.saturating_sub(pl));
         let ph = ph.min(img.height.saturating_sub(pt));
@@ -370,7 +553,15 @@ impl Canvas {
 
     /// Draws an image scaled by `scale` with its top left at (x, y),
     /// averaging the source pixels under each target pixel.
-    pub fn draw_scaled(&mut self, img: &Image, x: f32, y: f32, scale: f32) {
+    pub fn draw_scaled(&mut self, img: &Arc<Image>, x: f32, y: f32, scale: f32) {
+        if self.record(Op::Image {
+            image: img.clone(),
+            part: (0, 0, img.width, img.height),
+            placing: Placing::Scaled { x, y, scale },
+            green_key: false,
+        }) {
+            return;
+        }
         let dw = (img.width as f32 * scale).round() as i32;
         let dh = (img.height as f32 * scale).round() as i32;
         let (x0, y0) = (x.round() as i32, y.round() as i32);
@@ -425,7 +616,15 @@ impl Canvas {
 
     /// Draws an opaque picture enlarged by `scale` (> 1) with its top left
     /// at (x, y), with bilinear filtering.
-    pub fn draw_zoomed(&mut self, img: &Image, x: f32, y: f32, scale: f32) {
+    pub fn draw_zoomed(&mut self, img: &Arc<Image>, x: f32, y: f32, scale: f32) {
+        if self.record(Op::Image {
+            image: img.clone(),
+            part: (0, 0, img.width, img.height),
+            placing: Placing::Zoomed { x, y, scale },
+            green_key: false,
+        }) {
+            return;
+        }
         if img.width == 0 || img.height == 0 {
             return;
         }
@@ -464,6 +663,15 @@ impl Canvas {
 
     /// Moves the picture by (dx, dy), filling the uncovered edge with black.
     pub fn shift(&mut self, dx: i32, dy: i32) {
+        if let Some(ops) = self.ops.take() {
+            self.ops = Some(Arc::new(vec![Op::Transform {
+                ops,
+                scale: 1.0,
+                dx: dx as f32,
+                dy: dy as f32,
+            }]));
+            return;
+        }
         if self.sharp.is_some() {
             // Rare (a shake over drawn text): keep the text sharp by
             // shifting the whole output-size frame.
@@ -501,10 +709,53 @@ impl Canvas {
         }
     }
 
+    /// Enlarges the whole frame by `scale` with its top left moved to
+    /// (x, y), over black. Text drawn so far is not kept sharp.
+    pub fn zoom_whole(&mut self, scale: f32, x: f32, y: f32) {
+        if let Some(ops) = self.ops.take() {
+            self.ops = Some(Arc::new(vec![Op::Transform {
+                ops,
+                scale,
+                dx: x,
+                dy: y,
+            }]));
+            return;
+        }
+        let img = Arc::new(Image {
+            width: self.width,
+            height: self.height,
+            rgba: std::mem::take(&mut self.rgba),
+        });
+        *self = Canvas::with_scale(self.width, self.height, self.scale);
+        self.draw_zoomed(&img, x, y, scale);
+    }
+
     /// Mixes two frames of the same size: `t` from 0 (all `from`) to 1
     /// (all `to`). With a rule mask (one byte per pixel), pixels change in
     /// the order of their mask value, with a soft edge.
     pub fn blend(from: &Canvas, to: &Canvas, t: f32, rule: Option<&[u8]>) -> Canvas {
+        Self::blend_shared(from, to, t, rule.map(|r| Arc::new(r.to_vec())))
+    }
+
+    /// [`Canvas::blend`] with a rule mask a recording can keep.
+    pub fn blend_shared(
+        from: &Canvas,
+        to: &Canvas,
+        t: f32,
+        rule: Option<Arc<Vec<u8>>>,
+    ) -> Canvas {
+        if let (Some(f), Some(g)) = (&from.ops, &to.ops) {
+            let mut c = Canvas::recording(to.width, to.height, from.scale.max(to.scale));
+            c.record(Op::Blend {
+                from: f.clone(),
+                to: g.clone(),
+                t: t.clamp(0.0, 1.0),
+                rule,
+            });
+            return c;
+        }
+        let (from, to) = (&from.rasterize(), &to.rasterize());
+        let rule = rule.as_deref().map(Vec::as_slice);
         const EDGE: f32 = 32.0;
         let t = t.clamp(0.0, 1.0);
         let mut out = to.clone();
@@ -578,6 +829,9 @@ impl Canvas {
 
     /// Fills a rectangle with a colour (alpha blended).
     pub fn fill(&mut self, x: i32, y: i32, w: u32, h: u32, color: [u8; 4]) {
+        if self.record(Op::Fill { x, y, w, h, color }) {
+            return;
+        }
         for row in 0..h as i32 {
             for col in 0..w as i32 {
                 self.blend_px(x + col, y + row, color);
@@ -587,8 +841,39 @@ impl Canvas {
         self.paint_sharp((fx, fy, fx + w as f32, fy + h as f32), |_, _| Some(color));
     }
 
+    /// Draws an E-mote model as it stands.
+    #[cfg(feature = "emote")]
+    pub fn draw_model(&mut self, m: &Arc<crate::emote::ModelFrame>) {
+        if self.record(Op::Model(m.clone())) {
+            return;
+        }
+        if let Some((img, x, y)) = m.rasterize() {
+            self.draw(&Arc::new(img), x.round() as i32, y.round() as i32, false);
+        }
+    }
+
+    /// Blends a glyph in `color` with its top left at (x, y): output
+    /// pixels when `sharp` (on a canvas with an output scale above 1),
+    /// game pixels otherwise.
+    pub fn draw_glyph(&mut self, g: &Arc<Glyph>, x: i32, y: i32, sharp: bool, color: [u8; 4]) {
+        if self.record(Op::Glyph {
+            glyph: g.clone(),
+            x,
+            y,
+            sharp,
+            color,
+        }) {
+            return;
+        }
+        if sharp {
+            self.blend_mask_sharp(x, y, g.width, g.height, &g.mask, color);
+        } else {
+            self.blend_mask(x, y, g.width, g.height, &g.mask, color);
+        }
+    }
+
     /// Blends a coverage mask (a glyph) in `color`, in game pixels.
-    pub fn blend_mask(&mut self, x: i32, y: i32, w: usize, h: usize, mask: &[u8], color: [u8; 4]) {
+    fn blend_mask(&mut self, x: i32, y: i32, w: usize, h: usize, mask: &[u8], color: [u8; 4]) {
         for row in 0..h {
             for col in 0..w {
                 let cov = mask[row * w + col] as u32;
@@ -608,7 +893,7 @@ impl Canvas {
     /// Blends a coverage mask (a glyph rasterized at output size) with its
     /// top left at output pixel (x, y). Only for a canvas with an output
     /// scale above 1 (see [`Canvas::scale`]).
-    pub fn blend_mask_sharp(
+    fn blend_mask_sharp(
         &mut self,
         x: i32,
         y: i32,

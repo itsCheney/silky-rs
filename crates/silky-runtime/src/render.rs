@@ -100,6 +100,8 @@ pub struct Renderer {
     pub window: ([f32; 3], f32),
     /// Output pixels per game pixel, for text (see [`Canvas::present`]).
     pub scale: f32,
+    /// Frames are recorded for a GPU compositor instead of drawn.
+    pub record: bool,
     /// Game whose message window is drawn.
     title: Title,
     pub text_layout: TextLayout,
@@ -129,6 +131,7 @@ impl Renderer {
             characters: HashMap::new(),
             window: ([0.0; 3], WINDOW_OPACITY as f32 / 255.0),
             scale: 1.0,
+            record: false,
             title: Title::Fuyukuru,
             text_layout: TextLayout::for_title(Title::Fuyukuru),
             speaker_rows: None,
@@ -142,6 +145,15 @@ impl Renderer {
         };
         r.set_language(language);
         r
+    }
+
+    /// An empty (black) frame: drawn, or recorded for a compositor.
+    pub fn canvas(&self) -> Canvas {
+        if self.record {
+            Canvas::recording(SCREEN_WIDTH, SCREEN_HEIGHT, self.scale)
+        } else {
+            Canvas::with_scale(SCREEN_WIDTH, SCREEN_HEIGHT, self.scale)
+        }
     }
 
     /// Draws the message window of this game.
@@ -301,7 +313,31 @@ impl Renderer {
     /// the visible ones, back to front, with the screen position of their
     /// top left corners.
     #[cfg(feature = "emote")]
-    fn emote_images(&mut self, scene: &Scene, assets: &Assets) -> Vec<(Arc<Image>, f32, f32)> {
+    fn draw_emotes(&mut self, canvas: &mut Canvas, scene: &Scene, assets: &Assets) {
+        if canvas.ops().is_none() {
+            for (img, x, y) in self.emote_images(scene, assets) {
+                canvas.draw(&img, x.round() as i32, y.round() as i32, false);
+            }
+            return;
+        }
+        // A compositor draws the models itself.
+        self.open_emotes(scene, assets);
+        for (key, emote) in emote_order(scene) {
+            let Some(stage) = self.emote.get_mut(&key) else {
+                continue;
+            };
+            stage.apply(emote);
+            if emote.visible {
+                if let Some(frame) = stage.frame() {
+                    canvas.draw_model(&frame);
+                }
+            }
+        }
+    }
+
+    /// Opens the E-mote pictures the scene shows and closes the others.
+    #[cfg(feature = "emote")]
+    fn open_emotes(&mut self, scene: &Scene, assets: &Assets) {
         let wanted = emote_order(scene);
         self.emote
             .retain(|k, s| wanted.iter().any(|(w, e)| w == k && s.files() == &e.files));
@@ -319,6 +355,12 @@ impl Renderer {
                 }
             }
         }
+    }
+
+    #[cfg(feature = "emote")]
+    fn emote_images(&mut self, scene: &Scene, assets: &Assets) -> Vec<(Arc<Image>, f32, f32)> {
+        self.open_emotes(scene, assets);
+        let wanted = emote_order(scene);
         #[cfg(feature = "gpu")]
         if let Some(gpu) = &mut self.emote_gpu {
             gpu.retain(&self.emote.values().flat_map(|s| s.model_ids()).collect());
@@ -365,7 +407,8 @@ impl Renderer {
         #[cfg(feature = "emote")]
         {
             // In software about 15 frames a second, on a GPU 60.
-            let interval = if self.emote_gpu.is_some() { 1000.0 / 60.0 } else { 66.0 };
+            let gpu = self.emote_gpu.is_some() || self.record;
+            let interval = if gpu { 1000.0 / 60.0 } else { 66.0 };
             let mut changed = false;
             for (key, emote) in emote_order(scene) {
                 if let Some(stage) = self.emote.get_mut(&key) {
@@ -416,7 +459,7 @@ impl Renderer {
     /// characters. Kept by the session so that an E-mote frame only
     /// redraws what lies above it.
     pub fn render_under(&mut self, scene: &Scene, assets: &mut Assets) -> Result<Canvas> {
-        let mut canvas = Canvas::with_scale(SCREEN_WIDTH, SCREEN_HEIGHT, self.scale);
+        let mut canvas = self.canvas();
         if let Some(bg) = &scene.background {
             let img = assets.image(bg)?;
             let x = (SCREEN_WIDTH as i32 - img.width as i32) / 2 + scene.background_offset.0;
@@ -460,9 +503,7 @@ impl Renderer {
         text: bool,
     ) -> Result<Canvas> {
         #[cfg(feature = "emote")]
-        for (img, x, y) in self.emote_images(scene, assets) {
-            canvas.draw(&img, x.round() as i32, y.round() as i32, false);
-        }
+        self.draw_emotes(&mut canvas, scene, assets);
 
         for name in scene.layers.values() {
             let img = assets.image(name)?;
@@ -479,14 +520,8 @@ impl Renderer {
         }
         if let Some(z) = scene.zoom.filter(|&z| z > 100) {
             let z = z as f32 / 100.0;
-            let img = silky_format::akb::Image {
-                width: canvas.width,
-                height: canvas.height,
-                rgba: std::mem::take(&mut canvas.rgba),
-            };
             let (w, h) = (SCREEN_WIDTH as f32, SCREEN_HEIGHT as f32);
-            canvas = Canvas::with_scale(SCREEN_WIDTH, SCREEN_HEIGHT, self.scale);
-            canvas.draw_zoomed(&img, -w * (z - 1.0) / 2.0, -h * (z - 1.0) / 2.0, z);
+            canvas.zoom_whole(z, -w * (z - 1.0) / 2.0, -h * (z - 1.0) / 2.0);
         }
 
         if scene.text.is_some() && window && self.title == Title::Kimaten2 {
@@ -594,9 +629,9 @@ mod tests {
     #[test]
     fn green_key_and_alpha() {
         let mut c = Canvas::new(4, 1);
-        c.draw(&solid(2, 1, [0, 255, 0, 255]), 0, 0, true);
+        c.draw(&Arc::new(solid(2, 1, [0, 255, 0, 255])), 0, 0, true);
         assert_eq!(&c.rgba[..4], &[0, 0, 0, 255]);
-        c.draw(&solid(2, 1, [200, 100, 50, 128]), 2, 0, false);
+        c.draw(&Arc::new(solid(2, 1, [200, 100, 50, 128])), 2, 0, false);
         assert_eq!(&c.rgba[8..12], &[100, 50, 25, 255]);
     }
 
@@ -605,7 +640,7 @@ mod tests {
         let mut img = solid(2, 2, [255, 255, 255, 255]);
         img.rgba[0..4].copy_from_slice(&[0, 0, 0, 255]);
         let mut c = Canvas::new(1, 1);
-        c.draw_scaled(&img, 0.0, 0.0, 0.5);
+        c.draw_scaled(&Arc::new(img), 0.0, 0.0, 0.5);
         assert_eq!(c.rgba[0], 191);
     }
 
@@ -628,7 +663,7 @@ mod tests {
         let mut img = solid(2, 1, [0, 0, 0, 255]);
         img.rgba[4..8].copy_from_slice(&[200, 200, 200, 255]);
         let mut c = Canvas::new(4, 1);
-        c.draw_zoomed(&img, 0.0, 0.0, 2.0);
+        c.draw_zoomed(&Arc::new(img), 0.0, 0.0, 2.0);
         assert_eq!((c.rgba[0], c.rgba[12]), (0, 200));
         assert!(c.rgba[4] > 0 && c.rgba[4] < 200);
     }

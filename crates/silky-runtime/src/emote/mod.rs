@@ -102,10 +102,62 @@ pub struct Model {
     main: Vec<String>,
     diff: Vec<String>,
     /// Textures by resource index, reduced by `1 << level`.
-    textures: HashMap<u32, Texture>,
+    textures: std::sync::Arc<HashMap<u32, Texture>>,
     /// Names the model's textures on a GPU.
     #[cfg_attr(not(feature = "gpu"), allow(dead_code))]
     id: u64,
+}
+
+/// A model as it stands, for a compositor: its draws, its textures, and
+/// where it goes. Model point (mx, my) lands on game pixel
+/// `origin + (mx, my) * scale`.
+pub struct ModelFrame {
+    pub(crate) id: u64,
+    pub(crate) draws: Vec<draws::Draw>,
+    pub(crate) textures: std::sync::Arc<HashMap<u32, Texture>>,
+    pub scale: f32,
+    pub origin: (f32, f32),
+    /// Model-space bounds of the draws (x0, y0, x1, y1).
+    pub bounds: [f32; 4],
+}
+
+impl ModelFrame {
+    /// Drawn in software at game size: the image and the game position of
+    /// its top left corner.
+    pub fn rasterize(&self) -> Option<(Image, f32, f32)> {
+        let [x0, y0, x1, y1] = self.bounds;
+        let s = self.scale;
+        let (left, top) = ((x0 * s).floor(), (y0 * s).floor());
+        let width = ((x1 * s).ceil() - left).clamp(1.0, 8192.0) as u32;
+        let height = ((y1 * s).ceil() - top).clamp(1.0, 8192.0) as u32;
+        let at = Placement {
+            scale: s,
+            dx: -left,
+            dy: -top,
+        };
+        let mut target = Target::new(width, height);
+        target.draw_all(&self.draws, &self.textures, at);
+        let image = Image {
+            width,
+            height,
+            rgba: target.to_rgba(),
+        };
+        Some((image, self.origin.0 + left, self.origin.1 + top))
+    }
+}
+
+/// Model-space bounds of draws, `None` when there is nothing to draw.
+fn draws_bounds(draws: &[draws::Draw]) -> Option<[f32; 4]> {
+    let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for d in draws {
+        for v in &d.mesh.vertices {
+            x0 = x0.min(v.x);
+            y0 = y0.min(v.y);
+            x1 = x1.max(v.x);
+            y1 = y1.max(v.y);
+        }
+    }
+    (x0 <= x1 && (x1 - x0).is_finite() && (y1 - y0).is_finite()).then_some([x0, y0, x1, y1])
 }
 
 static NEXT_MODEL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -179,7 +231,7 @@ impl Model {
             player,
             main,
             diff,
-            textures,
+            textures: std::sync::Arc::new(textures),
             id: NEXT_MODEL.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         };
         model.rebuild(0.0)?;
@@ -286,24 +338,28 @@ impl Model {
         self.player.set_variable_immediate(name, value);
     }
 
+    /// The model as it stands, placed at `origin` with `scale` game
+    /// pixels per model unit.
+    pub fn frame(&self, scale: f32, origin: (f32, f32)) -> Option<ModelFrame> {
+        let draws = draws::plan(self.player.scene(), |i| self.textures.contains_key(&i));
+        let bounds = draws_bounds(&draws)?;
+        Some(ModelFrame {
+            id: self.id,
+            draws,
+            textures: self.textures.clone(),
+            scale,
+            origin,
+            bounds,
+        })
+    }
+
     /// Draws the model into a new image: model point (x, y) lands on
     /// (x * scale - left, y * scale - top) of the image, where (left, top)
     /// is returned with it.
     pub fn render(&self, scale: f32, gpu: Option<&mut Gpu>) -> Option<(Image, f32, f32)> {
         let scene = self.player.scene();
         let draws = draws::plan(scene, |i| self.textures.contains_key(&i));
-        let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
-        for d in &draws {
-            for v in &d.mesh.vertices {
-                x0 = x0.min(v.x);
-                y0 = y0.min(v.y);
-                x1 = x1.max(v.x);
-                y1 = y1.max(v.y);
-            }
-        }
-        if x0 > x1 || !(x1 - x0).is_finite() || !(y1 - y0).is_finite() {
-            return None;
-        }
+        let [x0, y0, x1, y1] = draws_bounds(&draws)?;
         let (left, top) = ((x0 * scale).floor(), (y0 * scale).floor());
         let width = ((x1 * scale).ceil() - left).clamp(1.0, 8192.0) as u32;
         let height = ((y1 * scale).ceil() - top).clamp(1.0, 8192.0) as u32;
@@ -503,6 +559,10 @@ impl Character {
     pub fn render(&self, scale: f32, gpu: Option<&mut Gpu>) -> Option<(Image, f32, f32)> {
         self.models.get(self.active)?.render(scale, gpu)
     }
+
+    pub fn frame(&self, scale: f32, origin: (f32, f32)) -> Option<ModelFrame> {
+        self.models.get(self.active)?.frame(scale, origin)
+    }
 }
 
 /// Decodes a texture resource: DXT1/DXT5, A8, or raw 32-bit (`RL`
@@ -666,6 +726,8 @@ pub struct Stage {
     character: Character,
     applied: crate::scene::Emote,
     image: Option<(std::sync::Arc<Image>, f32, f32)>,
+    /// The model for a compositor, as of the last change.
+    frame: Option<std::sync::Arc<ModelFrame>>,
     /// Milliseconds of animation not yet run.
     pending: f32,
     talk: f32,
@@ -688,6 +750,7 @@ impl Stage {
                 ..Default::default()
             },
             image: None,
+            frame: None,
             pending: 0.0,
             talk: 0.0,
         };
@@ -724,7 +787,7 @@ impl Stage {
             }
         }
         if *emote != self.applied {
-            self.image = None;
+            self.forget();
         }
         self.applied = emote.clone();
     }
@@ -745,19 +808,35 @@ impl Stage {
         if self.character.progress(step).is_err() {
             return false;
         }
-        self.image = None;
+        self.forget();
         true
     }
 
     /// The models, for H mode; the picture is drawn again.
     pub fn character(&mut self) -> &mut Character {
-        self.image = None;
+        self.forget();
         &mut self.character
     }
 
     /// Draws the picture again on the next call to [`Stage::image`].
     pub fn redraw(&mut self) {
+        self.forget();
+    }
+
+    fn forget(&mut self) {
         self.image = None;
+        self.frame = None;
+    }
+
+    /// The model for a compositor (see [`crate::canvas::Op::Model`]).
+    pub fn frame(&mut self) -> Option<std::sync::Arc<ModelFrame>> {
+        if self.frame.is_none() {
+            let place = self.applied.place.unwrap_or(crate::scene::Place::COMPANION);
+            let (x, y) = place.origin();
+            let f = self.character.frame(place.scale as f32 / 100.0, (x, y))?;
+            self.frame = Some(std::sync::Arc::new(f));
+        }
+        self.frame.clone()
     }
 
     /// The picture and the screen position of its top left corner.

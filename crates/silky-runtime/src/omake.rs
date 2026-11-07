@@ -14,6 +14,7 @@
 //! `musicmodebg`); this module draws them too, as it keeps the screens
 //! itself while switching between modes.
 
+use std::sync::Arc;
 use silky_format::akb::Image;
 use silky_format::area::Area;
 
@@ -287,10 +288,10 @@ pub fn draw(
         Extras::Scenes => "scenemodebg.akb",
         Extras::Music => "musicmodebg.akb",
     };
-    canvas.draw(&*assets.image(bg)?, 0, 0, false);
+    canvas.draw(&assets.image(bg)?, 0, 0, false);
     let sheet = assets.image(&sheet_name("mode_p", assets, language))?;
     let st = |id: i32, enabled: bool| ui.state(Button::Screen(id), enabled, false) as u32;
-    let part = |c: &mut Canvas, img: &Image, src: (u32, u32), dst: (i32, i32), size: (u32, u32)| {
+    let part = |c: &mut Canvas, img: &Arc<Image>, src: (u32, u32), dst: (i32, i32), size: (u32, u32)| {
         c.draw_part(
             img,
             (src.0, src.1, size.0, size.1),
@@ -343,7 +344,7 @@ pub fn draw(
 }
 
 /// Big digits of the completion, right aligned before the per cent sign.
-fn draw_percent(canvas: &mut Canvas, sheet: &Image, row: u32, mut value: u32) {
+fn draw_percent(canvas: &mut Canvas, sheet: &Arc<Image>, row: u32, mut value: u32) {
     canvas.draw_part(sheet, (480, row, 48, 56), 1175, 52, false, 255);
     let mut x = 1127;
     loop {
@@ -357,7 +358,7 @@ fn draw_percent(canvas: &mut Canvas, sheet: &Image, row: u32, mut value: u32) {
 }
 
 /// Hover frame over a cell (normal frames at `x`, rows 0..2).
-fn draw_hover(canvas: &mut Canvas, sheet: &Image, ui: &Ui, id: i32, x: u32, at: (i32, i32)) {
+fn draw_hover(canvas: &mut Canvas, sheet: &Arc<Image>, ui: &Ui, id: i32, x: u32, at: (i32, i32)) {
     let row = match ui.state(Button::Screen(id), true, false) as u32 {
         0 => return,
         r => r.min(2),
@@ -372,7 +373,7 @@ fn draw_hover(canvas: &mut Canvas, sheet: &Image, ui: &Ui, id: i32, x: u32, at: 
 fn draw_cg(
     canvas: &mut Canvas,
     assets: &mut Assets,
-    sheet: &Image,
+    sheet: &Arc<Image>,
     ui: &Ui,
     page: usize,
     bytes: &[u8],
@@ -452,7 +453,7 @@ fn draw_cg(
 fn draw_scenes(
     canvas: &mut Canvas,
     assets: &mut Assets,
-    sheet: &Image,
+    sheet: &Arc<Image>,
     ui: &Ui,
     bytes: &[u8],
 ) -> Result<()> {
@@ -481,7 +482,7 @@ fn draw_music(
     canvas: &mut Canvas,
     assets: &mut Assets,
     language: Language,
-    sheet: &Image,
+    sheet: &Arc<Image>,
     ui: &Ui,
     scroll: usize,
     playing: Option<usize>,
@@ -563,7 +564,7 @@ pub fn scroll_at(y: i32) -> usize {
 fn draw_view(
     canvas: &mut Canvas,
     assets: &mut Assets,
-    sheet: &Image,
+    sheet: &Arc<Image>,
     ui: &Ui,
     v: &View,
     bytes: &[u8],

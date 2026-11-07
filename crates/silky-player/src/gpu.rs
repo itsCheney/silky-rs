@@ -1,10 +1,13 @@
-//! Shows frames through wgpu (Metal, Vulkan, D3D12 or GL): the frame is
-//! uploaded as a texture and scaled into its rectangle of the window by
-//! the GPU. The same device draws the E-mote characters.
+//! Shows frames through wgpu (Metal, Vulkan, D3D12 or GL). Recorded frames
+//! are drawn by the compositor of silky-runtime on this device (pictures,
+//! text and E-mote models all on the GPU); a frame drawn in software is
+//! uploaded as a texture. Either is scaled into its rectangle of the
+//! window by the GPU.
 
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
+use silky_runtime::compose::Compositor;
 use silky_runtime::render::Canvas;
 use winit::window::Window;
 
@@ -30,6 +33,16 @@ fn vs_main(@builtin(vertex_index) i: u32) -> Out {
 fn fs_main(v: Out) -> @location(0) vec4<f32> {
     return vec4<f32>(textureSample(frame, samp, v.uv).rgb, 1.0);
 }
+
+// A compositor frame (plain bytes) on an sRGB surface: decoded here so the
+// surface's encoding gives the bytes back.
+@fragment
+fn fs_decode(v: Out) -> @location(0) vec4<f32> {
+    let c = textureSample(frame, samp, v.uv).rgb;
+    let low = c / 12.92;
+    let high = pow((c + 0.055) / 1.055, vec3<f32>(2.4));
+    return vec4<f32>(select(high, low, c <= vec3<f32>(0.04045)), 1.0);
+}
 "#;
 
 pub struct GpuView {
@@ -38,12 +51,15 @@ pub struct GpuView {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
+    /// For compositor frames: decodes them on an sRGB surface.
+    composed_pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     /// Format of the frame texture: sRGB when the surface encodes, so the
     /// bytes reach the screen unchanged.
     texture_format: wgpu::TextureFormat,
     frame: Option<(wgpu::Texture, wgpu::BindGroup)>,
+    compositor: Compositor,
 }
 
 impl GpuView {
@@ -116,49 +132,51 @@ impl GpuView {
             bind_group_layouts: &[&layout],
             push_constant_ranges: &[],
         });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("present"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(format.into())],
-                compilation_options: Default::default(),
-            }),
-            primitive: Default::default(),
-            depth_stencil: None,
-            multisample: Default::default(),
-            multiview: None,
-            cache: None,
-        });
+        let make = |fs: &str| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("present"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some(fs),
+                    targets: &[Some(format.into())],
+                    compilation_options: Default::default(),
+                }),
+                primitive: Default::default(),
+                depth_stencil: None,
+                multisample: Default::default(),
+                multiview: None,
+                cache: None,
+            })
+        };
+        let pipeline = make("fs_main");
+        let composed_pipeline = make(if format.is_srgb() { "fs_decode" } else { "fs_main" });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("present"),
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
+        let compositor = Compositor::new(device.clone(), queue.clone());
         Ok(Self {
             surface,
             device,
             queue,
             config,
             pipeline,
+            composed_pipeline,
             layout,
             sampler,
             texture_format,
             frame: None,
+            compositor,
         })
-    }
-
-    /// A drawer of E-mote models on this device.
-    pub fn emote(&self) -> silky_runtime::emote::Gpu {
-        silky_runtime::emote::Gpu::new(self.device.clone(), self.queue.clone())
     }
 
     /// Shows `frame` in `rect` (x, y, width, height) of a `width` x
@@ -175,6 +193,74 @@ impl GpuView {
             self.config.height = height;
             self.surface.configure(&self.device, &self.config);
         }
+        let (group, pipeline) = match self.compositor.render(frame) {
+            Some(texture) => {
+                let view = texture.create_view(&Default::default());
+                let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("composed frame"),
+                    layout: &self.layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(&self.sampler),
+                        },
+                    ],
+                });
+                (group, &self.composed_pipeline)
+            }
+            None => (self.upload(frame), &self.pipeline),
+        };
+        let output = match self.surface.get_current_texture() {
+            Ok(t) => t,
+            Err(wgpu::SurfaceError::Outdated | wgpu::SurfaceError::Lost) => {
+                self.surface.configure(&self.device, &self.config);
+                return Ok(());
+            }
+            Err(wgpu::SurfaceError::Timeout) => return Ok(()),
+            Err(e) => return Err(e.into()),
+        };
+        let view = output.texture.create_view(&Default::default());
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("present"),
+            });
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("present"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            let (x, y, w, h) = rect;
+            let w = w.min(width.saturating_sub(x));
+            let h = h.min(height.saturating_sub(y));
+            if w > 0 && h > 0 {
+                pass.set_viewport(x as f32, y as f32, w as f32, h as f32, 0.0, 1.0);
+                pass.set_pipeline(pipeline);
+                pass.set_bind_group(0, &group, &[]);
+                pass.draw(0..3, 0..1);
+            }
+        }
+        self.queue.submit([encoder.finish()]);
+        output.present();
+        Ok(())
+    }
+
+    /// Uploads a frame drawn in software.
+    fn upload(&mut self, frame: &Canvas) -> wgpu::BindGroup {
         let size = wgpu::Extent3d {
             width: frame.width,
             height: frame.height,
@@ -219,48 +305,6 @@ impl GpuView {
             },
             size,
         );
-        let output = match self.surface.get_current_texture() {
-            Ok(t) => t,
-            Err(wgpu::SurfaceError::Outdated | wgpu::SurfaceError::Lost) => {
-                self.surface.configure(&self.device, &self.config);
-                return Ok(());
-            }
-            Err(wgpu::SurfaceError::Timeout) => return Ok(()),
-            Err(e) => return Err(e.into()),
-        };
-        let view = output.texture.create_view(&Default::default());
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("present"),
-            });
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("present"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-            let (x, y, w, h) = rect;
-            let w = w.min(width.saturating_sub(x));
-            let h = h.min(height.saturating_sub(y));
-            if w > 0 && h > 0 {
-                pass.set_viewport(x as f32, y as f32, w as f32, h as f32, 0.0, 1.0);
-                pass.set_pipeline(&self.pipeline);
-                pass.set_bind_group(0, group, &[]);
-                pass.draw(0..3, 0..1);
-            }
-        }
-        self.queue.submit([encoder.finish()]);
-        output.present();
-        Ok(())
+        group.clone()
     }
 }

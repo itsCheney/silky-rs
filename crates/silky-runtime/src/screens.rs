@@ -106,7 +106,7 @@ impl Cells {
     }
 
     /// Draws row `row` centred on an area.
-    pub fn draw(self, canvas: &mut Canvas, sheet: &Image, row: u32, a: &Area) {
+    pub fn draw(self, canvas: &mut Canvas, sheet: &Arc<Image>, row: u32, a: &Area) {
         let x = a.left + (a.width() as i32 - self.w as i32) / 2;
         let y = a.top + (a.height() as i32 - self.h as i32) / 2;
         canvas.draw_part(sheet, self.part(row), x, y, false, 255);
@@ -617,7 +617,7 @@ impl Screens {
             Mode::Save => sl.save_bg,
             Mode::Load => sl.load_bg,
         };
-        canvas.draw(&*self.style_image(assets, sl, bg)?, 0, 0, false);
+        canvas.draw(&self.style_image(assets, sl, bg)?, 0, 0, false);
         let sheet = self.style_image(assets, sl, sl.sheet)?;
         let state = |id: i32, active: bool| {
             let b = Button::Screen(id);
@@ -830,7 +830,7 @@ impl Screens {
         if self.kimaten2 {
             return self.draw_backlog_kimaten2(canvas, assets, ui, b, log, playing, text);
         }
-        canvas.draw(&*self.sheet(assets, "log_bg.akb")?, 0, 0, false);
+        canvas.draw(&self.sheet(assets, "log_bg.akb")?, 0, 0, false);
         let sheet = self.sheet(assets, "log_p.akb")?;
         let nameplate = self.sheet(assets, "nameplate.akb")?;
         let state = |id: i32, active: bool| {
@@ -857,7 +857,7 @@ impl Screens {
                 let mut baseline = a.top as f32 + 40.0;
                 if let Some(row) = e.speaker {
                     let (w, h) = NAMEPLATE;
-                    let plate = inked(&nameplate, (0, h * row as u32, w, h));
+                    let plate = Arc::new(inked(&nameplate, (0, h * row as u32, w, h)));
                     canvas.draw(&plate, a.left, a.top, false);
                     baseline = a.top as f32 + h as f32 + 30.0;
                 }
@@ -924,7 +924,7 @@ impl Screens {
         text: Option<&TextRenderer>,
     ) -> Result<()> {
         use log_ids::*;
-        canvas.draw(&*assets.image("logbg.akb")?, 0, 0, false);
+        canvas.draw(&assets.image("logbg.akb")?, 0, 0, false);
         let sheet = assets.image("log_p.akb")?;
         let state = |id: i32, active: bool| {
             let btn = Button::Screen(id);
@@ -1104,7 +1104,7 @@ impl Screens {
 /// field is filled with the row colour next to it.
 fn draw_row_cell(
     canvas: &mut Canvas,
-    sheet: &Image,
+    sheet: &Arc<Image>,
     part: (u32, u32, u32, u32),
     fill: u32,
     x: i32,
@@ -1141,7 +1141,7 @@ fn draw_row_cell(
 }
 
 /// Draws a date in the small digits of the sheet, right-aligned at `right`.
-fn draw_digits(canvas: &mut Canvas, sheet: &Image, sl: &SaveStyle, s: &str, right: i32, y: i32) {
+fn draw_digits(canvas: &mut Canvas, sheet: &Arc<Image>, sl: &SaveStyle, s: &str, right: i32, y: i32) {
     let cell = |c: char| -> Option<(u32, u32)> {
         match c {
             '/' => Some(sl.slash),
@@ -1173,7 +1173,7 @@ fn draw_digits(canvas: &mut Canvas, sheet: &Image, sl: &SaveStyle, s: &str, righ
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn draw_gem_thumb(
     canvas: &mut Canvas,
-    sheet: &Image,
+    sheet: &Arc<Image>,
     gem: Cells,
     track: (i32, i32, i32, i32),
     pos: usize,

@@ -14,6 +14,8 @@ pub mod archive;
 pub mod assets;
 pub mod audio;
 pub mod canvas;
+#[cfg(feature = "gpu")]
+pub mod compose;
 #[cfg(feature = "emote")]
 pub mod emote;
 pub mod flag;

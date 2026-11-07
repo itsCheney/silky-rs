@@ -21,6 +21,7 @@
 //! rotor (vtable +0x140, meaning not read). The mist's scroll speed and
 //! the white flash's length are guesses.
 
+use std::sync::Arc;
 use silky_format::akb::Image;
 use silky_format::area::Area;
 
@@ -961,7 +962,7 @@ impl HMode {
     /// Draws the dream mist, the action sprites and the buttons. `images`
     /// are `action_p`, `hg030100_hand`, `hg030100_tongue`, `yume`,
     /// `white` (missing ones are left out).
-    pub fn draw(&self, c: &mut Canvas, images: [Option<&Image>; 5]) {
+    pub fn draw(&self, c: &mut Canvas, images: [Option<&Arc<Image>>; 5]) {
         let [sheet, hand, tongue, mist, white] = images;
         if let (true, Some(m)) = (self.dream, mist) {
             let off = ((self.now / 16) % 1280) as u32;
@@ -1012,7 +1013,7 @@ impl HMode {
     }
 
     /// 0x486600 and the gauges 0x489740, 0x489870.
-    fn draw_buttons(&self, c: &mut Canvas, s: &Image) {
+    fn draw_buttons(&self, c: &mut Canvas, s: &Arc<Image>) {
         let mut put = |sx: u32, sy: u32, w: u32, h: u32, x: i32, y: i32| {
             c.draw_part(s, (sx, sy, w, h), x, y, false, 255);
         };
