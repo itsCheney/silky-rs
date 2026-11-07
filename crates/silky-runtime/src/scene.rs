@@ -123,6 +123,10 @@ pub struct Scene {
     pub music: BTreeMap<i32, String>,
     /// Screen covered by a colour (0xRRGGBB) after a fade out.
     pub cover: Option<u32>,
+    /// Colour (0xRRGGBB) and opacity laid over the pictures by sprite 6,
+    /// under the message window.
+    #[serde(default)]
+    pub dim: Option<(u32, u8)>,
     /// Screen shake offset in pixels.
     pub shake: (i32, i32),
     /// Current message text.

@@ -100,6 +100,9 @@ mod cmd {
     pub const EMOTES: i32 = 40;
     /// きまぐれテンプテーション2's H mode.
     pub const H_MODE: i32 = 49;
+    /// ふゆから、くるる。: `(colour, time, rule)`, fade out to a colour
+    /// through a rule mask.
+    pub const RULE_FADE_OUT: i32 = 111;
 }
 
 /// What a save file holds besides its header.
@@ -267,6 +270,8 @@ pub struct Runtime {
     pub actions: Vec<ActionButton>,
     /// The map that is up.
     pub map: Option<crate::kimaten2::map::Map>,
+    /// Sprite animations (class 19, subs 16 to 28).
+    sprites: crate::sprite::Sprites,
 }
 
 fn host_error(msg: impl Into<String>) -> silky_vm::Error {
@@ -303,6 +308,7 @@ impl Runtime {
             message_script: String::new(),
             actions: Vec::new(),
             map: None,
+            sprites: Default::default(),
         }
     }
 
@@ -665,6 +671,57 @@ impl Runtime {
         true
     }
 
+    /// Sprite calls of ふゆから、くるる。 besides loading the title
+    /// picture (see [`crate::sprite`]). `None` for calls it does not know.
+    fn sprite(&mut self, vm: &mut Vm, sub: i32, args: &[Value]) -> Option<Flow> {
+        use crate::sprite::{Call, Effect};
+        let n = |i: usize| args.get(i).map(Value::int).unwrap_or(0);
+        match (sub, args.len()) {
+            // Set up at the start: create (0), clear (2), order (13).
+            (0, 5) | (2, 1) | (13, 2) => return Some(Flow::Continue),
+            // (sprite): hide (10), show (11). Hiding sprite 6 takes the
+            // dimming away.
+            (10, 1) => {
+                if n(0) == 6 {
+                    self.scene.dim = None;
+                }
+                return Some(Flow::Continue);
+            }
+            (11, 1) => return Some(Flow::Continue),
+            // Copy between sprites, at every picture change: the new
+            // picture is drawn over sprite 6, which ends a dimming.
+            (3, 9) => {
+                self.scene.dim = None;
+                return Some(Flow::Continue);
+            }
+            _ => {}
+        }
+        match self.sprites.call(sub, args)? {
+            Call::Done => Some(Flow::Continue),
+            Call::Value(v) => {
+                vm.push(v);
+                Some(Flow::Continue)
+            }
+            Call::Run(effects) => {
+                let mut flow = Flow::Continue;
+                for e in effects {
+                    flow = match e {
+                        Effect::Wipe { frames, rule } => self.transition(frames, Some(rule)),
+                        Effect::Dim {
+                            frames,
+                            color,
+                            opacity,
+                        } => {
+                            self.scene.dim = Some((color, opacity));
+                            self.transition(frames, None)
+                        }
+                    };
+                }
+                Some(flow)
+            }
+        }
+    }
+
     fn skip(&mut self, name: String, vm: &mut Vm, class: i32, sub: i32) {
         *self.unhandled.entry(name).or_default() += 1;
         if native::returns_value(self.assets.game().title, class, sub) {
@@ -943,6 +1000,13 @@ impl Runtime {
                 scene.speaker = None;
             }
             (cmd::PORTRAIT, 11, 0) => scene.portrait_visible = false,
+            // (colour, time) with the rule last: fade out to the colour
+            // through a rule mask.
+            (cmd::RULE_FADE_OUT, rule, 2) if title == Title::Fuyukuru => {
+                scene.cover = Some(n(0) as u32 & 0xff_ffff);
+                self.handled += 1;
+                return Ok(self.transition(n(1), Some(rule.max(0) as u32)));
+            }
             (cmd::PICTURE, 0, 1) => {
                 scene.background = s(0);
                 if let Some(name) = &scene.background {
@@ -1162,11 +1226,8 @@ impl Host for Runtime {
                 // Sprite.1 (layer, image): the title screen picture. In
                 // きまぐれテンプテーション2 it loads the title's button
                 // sheet, which the title screen draws in cells itself.
-                if class == SPRITE
-                    && sub == 1
-                    && args.len() == 2
-                    && self.assets.game().title == Title::Fuyukuru
-                {
+                let title = self.assets.game().title;
+                if class == SPRITE && sub == 1 && args.len() == 2 && title == Title::Fuyukuru {
                     let layer = args[0].int();
                     match args[1].as_str() {
                         Some(name) if !name.is_empty() => {
@@ -1178,6 +1239,12 @@ impl Host for Runtime {
                     }
                     self.handled += 1;
                     return Ok(Flow::Continue);
+                }
+                if class == SPRITE && title == Title::Fuyukuru {
+                    if let Some(flow) = self.sprite(vm, sub, &args) {
+                        self.handled += 1;
+                        return Ok(flow);
+                    }
                 }
                 if matches!(class, SCREEN | UI | SHAKE) {
                     if let Some(flow) = self.screen(vm, class, sub, &args) {

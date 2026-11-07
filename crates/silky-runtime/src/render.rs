@@ -435,6 +435,10 @@ impl Renderer {
             let img = assets.image(name)?;
             canvas.draw(&img, 0, 0, false);
         }
+        if let Some((c, a)) = scene.dim {
+            let rgba = [(c >> 16) as u8, (c >> 8) as u8, c as u8, a];
+            canvas.fill(0, 0, canvas.width, canvas.height, rgba);
+        }
 
         if scene.text.is_some() && window && self.title == Title::Kimaten2 {
             self.kimaten2_window(&mut canvas, scene, assets)?;
