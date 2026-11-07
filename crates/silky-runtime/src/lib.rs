@@ -27,6 +27,7 @@ pub mod save;
 pub mod scene;
 pub mod screens;
 pub mod session;
+pub mod snow;
 pub mod sprite;
 pub mod system;
 pub mod text;

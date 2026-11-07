@@ -103,6 +103,8 @@ mod cmd {
     /// ふゆから、くるる。: `(colour, time, rule)`, fade out to a colour
     /// through a rule mask.
     pub const RULE_FADE_OUT: i32 = 111;
+    /// ふゆから、くるる。: snow, 0 starts it and 1 stops it.
+    pub const SNOW: i32 = 115;
 }
 
 /// What a save file holds besides its header.
@@ -1007,6 +1009,7 @@ impl Runtime {
                 self.handled += 1;
                 return Ok(self.transition(n(1), Some(rule.max(0) as u32)));
             }
+            (cmd::SNOW, on @ (0 | 1), 0) if title == Title::Fuyukuru => scene.snow = on == 0,
             (cmd::PICTURE, 0, 1) => {
                 scene.background = s(0);
                 if let Some(name) = &scene.background {

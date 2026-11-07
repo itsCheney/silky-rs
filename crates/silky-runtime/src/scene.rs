@@ -127,6 +127,9 @@ pub struct Scene {
     /// under the message window.
     #[serde(default)]
     pub dim: Option<(u32, u8)>,
+    /// Snow falls (ふゆから、くるる。, command 115).
+    #[serde(default)]
+    pub snow: bool,
     /// Screen shake offset in pixels.
     pub shake: (i32, i32),
     /// Current message text.

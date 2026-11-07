@@ -243,6 +243,8 @@ fn snap(
                         script = name.to_string();
                         println!("script {script}");
                     }
+                    // Snow falls on for a second each message.
+                    renderer.progress_snow(&rt.scene, 1000);
                     if lines.contains(&line_no) {
                         let mut frame = renderer.render(&rt.scene, &mut rt.assets)?;
                         let ui = Ui {

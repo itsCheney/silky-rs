@@ -1794,6 +1794,9 @@ impl Session {
         if self.hmode.is_some() {
             self.tick_hmode(ms)?;
         }
+        if self.screen.is_none() && self.renderer.progress_snow(&self.rt.scene, ms) {
+            self.frame = None;
+        }
         if self.screen.is_none() && self.rt.system.settings.emote_animation {
             // Mouth of the E-mote pictures: the voice's track (command 40,
             // sub 16), 60 values a second, while the voice plays. The

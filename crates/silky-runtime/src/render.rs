@@ -116,6 +116,8 @@ pub struct Renderer {
     /// Where E-mote models are drawn, if not in software.
     #[cfg(feature = "emote")]
     emote_gpu: Option<crate::emote::Gpu>,
+    /// Snow while the scene has it.
+    snow: Option<crate::snow::Snow>,
 }
 
 impl Renderer {
@@ -136,6 +138,7 @@ impl Renderer {
             emote_failed: Default::default(),
             #[cfg(feature = "emote")]
             emote_gpu: None,
+            snow: None,
         };
         r.set_language(language);
         r
@@ -346,6 +349,16 @@ impl Renderer {
         self.emote.values_mut().for_each(|s| s.redraw());
     }
 
+    /// Runs the snow for `ms`; true when it moved.
+    pub fn progress_snow(&mut self, scene: &Scene, ms: u64) -> bool {
+        if !scene.snow {
+            return self.snow.take().is_some();
+        }
+        self.snow
+            .get_or_insert_with(Default::default)
+            .progress(ms as f32)
+    }
+
     /// Runs the E-mote animation for `ms`; true when a picture changed.
     /// `talking` is the mouth opening while a voice plays.
     pub fn progress_emote(&mut self, scene: &Scene, ms: u64, talking: Option<f32>) -> bool {
@@ -438,6 +451,11 @@ impl Renderer {
         if let Some((c, a)) = scene.dim {
             let rgba = [(c >> 16) as u8, (c >> 8) as u8, c as u8, a];
             canvas.fill(0, 0, canvas.width, canvas.height, rgba);
+        }
+        if scene.snow {
+            self.snow
+                .get_or_insert_with(Default::default)
+                .draw(&mut canvas, assets);
         }
 
         if scene.text.is_some() && window && self.title == Title::Kimaten2 {
