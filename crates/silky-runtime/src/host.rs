@@ -21,6 +21,7 @@ const UI: i32 = 26;
 const MOVIE: i32 = 23;
 const MESWND: i32 = 2;
 const MOUSE: i32 = 12;
+const FLAG: i32 = 14;
 const BACKLOG: i32 = 22;
 
 /// Game commands of ふゆから、くるる。 that きまぐれテンプテーション2 uses
@@ -1568,6 +1569,14 @@ impl Host for Runtime {
                 if matches!(class, MUSIC | EFFECT | VOICE) && self.sound(vm, class, sub, &args)? {
                     self.handled += 1;
                     return Ok(Flow::Continue);
+                }
+                if title == Title::Fuyukuru && class == FLAG {
+                    if let Some(changed) = crate::flag::call(&mut self.system.flags, vm, sub, &args)
+                    {
+                        self.system_changed |= changed;
+                        self.handled += 1;
+                        return Ok(Flow::Continue);
+                    }
                 }
                 if title == Title::Fuyukuru && fuyukuru_nothing_to_do(class, sub) {
                     if native::returns_value(title, class, sub) {

@@ -16,6 +16,7 @@ pub mod audio;
 pub mod canvas;
 #[cfg(feature = "emote")]
 pub mod emote;
+pub mod flag;
 pub mod game_tables;
 pub mod hmode;
 mod host;

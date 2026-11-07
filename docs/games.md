@@ -14,7 +14,7 @@ Compared with screenshots of the original (Windows, Simplified Chinese): the mes
 
 Effects read from the executable: rule-mask wipes and screen dimming (sprite animations), snow, the future flash, pulse zoom, slash, white zoom flash, screen quake, character swing, and the pictures that change while a voice line plays (`.vo` files). Approximate: the picture does not shrink during the future flash, queued music starts without its fade-in, and the step time of character hops is a guess.
 
-Not done yet: the `Flag` calls, which keep flags in a system file across play-throughs. The "fixed window" setting is kept but changes nothing, since the window never moves here.
+The `Flag` calls keep the flags from byte 1000 on across games in the system data, as the executable does with its system flag file. A run through every route leaves no engine call undone. The "fixed window" setting is kept but changes nothing, since the window never moves here.
 
 ## きまぐれテンプテーション2
 

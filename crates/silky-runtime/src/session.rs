@@ -202,6 +202,9 @@ impl Session {
         data.seen.extend(seen.seen);
         data.music.extend(seen.music);
         data.read.extend(seen.read);
+        if data.flags.is_empty() {
+            data.flags = seen.flags;
+        }
         self.rt.system = data;
         self.saves = Some(saves);
         self.apply_global_bytes();

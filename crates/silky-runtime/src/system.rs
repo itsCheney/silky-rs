@@ -3,10 +3,11 @@
 //! read lines for "skip read text only"). Stored as `system.json` in the
 //! save folder.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use crate::assets::Language;
+use crate::flag::FlagFile;
 use crate::{Error, Result};
 
 /// What a right click does (system settings).
@@ -179,6 +180,8 @@ pub struct SystemData {
     /// Byte variables from [`GLOBAL_BYTES`] on, which きまぐれテンプテーション2
     /// keeps across games (notebook and collection copies, clear flags).
     pub global_bytes: Vec<u8>,
+    /// Flag files by number (ふゆから、くるる。, see [`crate::flag`]).
+    pub flags: BTreeMap<i32, FlagFile>,
 }
 
 /// First byte variable kept outside a game (きまぐれテンプテーション2).
