@@ -3038,20 +3038,21 @@ fn build_sprite(
     let width = icon.resolved_width();
     let height = icon.resolved_height();
 
-    // FreeMote's win-path static painter applies this subtraction only for
-    // MeshTransform.None. Keep that static behavior here. Dynamic traversal
-    // evaluates recovered mesh deformation and child-mesh-sync semantics; this
-    // static preview path does not re-evaluate parameterized mesh state.
+    // MeshTransform.None keeps FreeMote's static painter convention (the
+    // top-left in center_x/center_y). With a mesh the icon still hangs from
+    // its origin: the rect is [-originX, -originY, w, h] around the layer
+    // point, the space the mesh domain is authored in. Centering it there
+    // instead put eye whites and irises (origins near their top) too high.
     let subtract_icon_origin = ctx.mesh_transform == 0;
     let center_x = if subtract_icon_origin {
         ox - icon.origin_x
     } else {
-        ox
+        ox - icon.origin_x * icon.resolution + width * 0.5
     };
     let center_y = if subtract_icon_origin {
         oy - icon.origin_y
     } else {
-        oy
+        oy - icon.origin_y * icon.resolution + height * 0.5
     };
 
     Some(EmoteStaticSprite {

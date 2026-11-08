@@ -225,11 +225,19 @@ fn mesh_vertices(
         for ix in 0..=nx {
             let u = ix as f32 / nx as f32;
             let v = iy as f32 / ny as f32;
-            let p = mesh.sample(u, v);
-            let [x, y] = transform(
-                sprite,
-                [left + p[0] * sprite.width, top + p[1] * sprite.height],
-            );
+            let local = match mesh.domain {
+                Some([dl, dt, dw, dh]) if dw.abs() > f32::EPSILON && dh.abs() > f32::EPSILON => {
+                    let lx = left + u * sprite.width;
+                    let ly = top + v * sprite.height;
+                    let p = mesh.sample((lx - dl) / dw, (ly - dt) / dh);
+                    [dl + p[0] * dw, dt + p[1] * dh]
+                }
+                _ => {
+                    let p = mesh.sample(u, v);
+                    [left + p[0] * sprite.width, top + p[1] * sprite.height]
+                }
+            };
+            let [x, y] = transform(sprite, local);
             grid.push(Vertex {
                 x,
                 y,
