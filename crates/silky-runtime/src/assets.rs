@@ -8,8 +8,7 @@ use silky_format::mes::Script;
 use crate::{Error, Result};
 
 /// Text and art language. International builds carry English and Chinese
-/// in their `.MAP` tables; Japanese builds carry Japanese in the scripts,
-/// and Chinese only through a fan translation folder.
+/// in their `.MAP` tables; Japanese builds carry Japanese in the scripts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum Language {
     #[default]
@@ -36,15 +35,6 @@ impl Language {
             Language::SimplifiedChinese => "cn",
             Language::TraditionalChinese => "tw",
             Language::Japanese => "jp",
-        }
-    }
-
-    /// Tag of a fan translation folder (`kimaten2_chs`) in this language.
-    pub fn translation_tag(self) -> Option<&'static str> {
-        match self {
-            Language::SimplifiedChinese => Some("chs"),
-            Language::TraditionalChinese => Some("cht"),
-            _ => None,
         }
     }
 
@@ -91,15 +81,6 @@ impl Assets {
     /// Languages this game can be played in, the default first.
     pub fn languages(&self) -> Vec<Language> {
         languages(&self.game)
-    }
-
-    /// Picks the files for a language: a fan translation folder, or the
-    /// original files. Cached images are dropped.
-    pub fn set_language(&mut self, language: Language) {
-        if !self.game.has_text_tables() {
-            self.game.use_translation(language.translation_tag());
-            self.images.clear();
-        }
     }
 
     pub fn script(&self, name: &str) -> Result<Script> {
@@ -158,18 +139,7 @@ pub fn languages(game: &Game) -> Vec<Language> {
             Language::TraditionalChinese,
         ];
     }
-    let mut list = vec![Language::Japanese];
-    for l in [Language::SimplifiedChinese, Language::TraditionalChinese] {
-        let tag = l.translation_tag();
-        if game
-            .translations
-            .iter()
-            .any(|t| Some(t.tag.as_str()) == tag)
-        {
-            list.push(l);
-        }
-    }
-    list
+    vec![Language::Japanese]
 }
 
 /// Base names and script arguments may leave out the extension.

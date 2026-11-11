@@ -18,13 +18,13 @@ The `Flag` calls keep the flags from byte 1000 on across games in the system dat
 
 ## きまぐれテンプテーション2
 
-Japanese build 2024 with patch 1.02; the fan Simplified Chinese patch (folder `kimaten2_chs`) is read as a language.
+Japanese build 2024 with patch 1.02. Fan translation patches are not supported here (see the [MikageSilky](https://github.com/Mikage-Next/MikageSilky) fork).
 
-All 64 scripts and 712 images decode. Headless, `silky-run trace` boots to the title menu and plays the story text with speaker names, in Japanese and, with the fan patch folder, in Simplified Chinese. Each game adds its own commands to the engine (native class 29); for this one the commands that return a value were read from its executable.
+All 64 scripts and 712 images decode. Headless, `silky-run trace` boots to the title menu and plays the story text with speaker names, in Japanese. Each game adds its own commands to the engine (native class 29); for this one the commands that return a value were read from its executable.
 
 ### Interface
 
-The player and `silky-run snap` open it. The title menu, the message window with the speaker's name plate (the fan patch's redrawn plates for its Chinese names too), the window buttons, the side menu, the selections, the action menu and the map (with the second map's panels) are drawn from the game's sheets. The window, action menu and map layouts are read from the executable, and the text is placed as on screenshots of the game, two-line messages included. The backlog, the save and load screen, the settings pages and the yes/no dialog have the game's own look, with its help lines (`.HLG` tables) and its nine voice groups on the sound page. Saving at an action menu or the map saves the message before it. The bar's voice loop button plays the message's voice again each time it ends, and its skip-all button skips unread text too.
+The player and `silky-run snap` open it. The title menu, the message window with the speaker's name plate, the window buttons, the side menu, the selections, the action menu and the map (with the second map's panels) are drawn from the game's sheets. The window, action menu and map layouts are read from the executable, and the text is placed as on screenshots of the game, two-line messages included. The backlog, the save and load screen, the settings pages and the yes/no dialog have the game's own look, with its help lines (`.HLG` tables) and its nine voice groups on the sound page. Saving at an action menu or the map saves the message before it. The bar's voice loop button plays the message's voice again each time it ends, and its skip-all button skips unread text too.
 
 ### Costume, notebook and collection
 

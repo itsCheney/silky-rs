@@ -107,7 +107,7 @@ pub struct Renderer {
     pub text_layout: TextLayout,
     /// Name plate rows by speaker name (きまぐれテンプテーション2), for the
     /// language they were made for.
-    speaker_rows: Option<(Language, HashMap<String, usize>)>,
+    speaker_rows: Option<HashMap<String, usize>>,
     /// E-mote pictures (きまぐれテンプテーション2): the standing models by
     /// slot and the companion under [`COMPANION`].
     #[cfg(feature = "emote")]
@@ -212,16 +212,11 @@ impl Renderer {
     }
 
     /// Name plate row of a speaker given by name.
-    fn speaker_row(&mut self, assets: &Assets, name: &str) -> Option<usize> {
-        if self
-            .speaker_rows
-            .as_ref()
-            .is_none_or(|(l, _)| *l != self.language)
-        {
-            let rows = kimaten2::speaker_rows(assets.game());
-            self.speaker_rows = Some((self.language, rows));
-        }
-        self.speaker_rows.as_ref()?.1.get(name).copied()
+    fn speaker_row(&mut self, name: &str) -> Option<usize> {
+        self.speaker_rows
+            .get_or_insert_with(kimaten2::speaker_rows)
+            .get(name)
+            .copied()
     }
 
     /// Draws the message text of the scene, only its first `limit`
@@ -260,7 +255,7 @@ impl Renderer {
         if let Some(name) = &scene.speaker_name {
             let (x, y) = window::NAME;
             let (w, h) = window::NAME_SIZE;
-            match self.speaker_row(assets, name) {
+            match self.speaker_row(name) {
                 Some(row) => {
                     let sheet = assets.image("name_p.akb")?;
                     canvas.draw_part(&sheet, (0, h * row as u32, w, h), x, y, false, 255);

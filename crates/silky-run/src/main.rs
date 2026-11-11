@@ -118,15 +118,12 @@ fn main() -> Result<()> {
             push_le,
             results,
         } => {
-            let mut game = Game::open(&game)
+            let game = Game::open(&game)
                 .with_context(|| format!("cannot open game folder {}", game.display()))?;
             let profile = Profile {
                 push_big_endian: !push_le,
             };
             let language = pick_language(&silky_runtime::assets::languages(&game), lang)?;
-            if !game.has_text_tables() {
-                game.use_translation(language.translation_tag());
-            }
             let options = TraceOptions {
                 lang: language.map_section(),
                 choose,
