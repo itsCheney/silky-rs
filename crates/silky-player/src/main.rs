@@ -390,9 +390,9 @@ impl ApplicationHandler for App {
                     MouseScrollDelta::PixelDelta(p) => p.y,
                 };
                 if self.wheel.abs() >= 40.0 {
-                    self.session.wheel(self.wheel > 0.0);
+                    let r = self.session.wheel(self.wheel > 0.0);
                     self.wheel = 0.0;
-                    self.after_input(event_loop, Ok(()));
+                    self.after_input(event_loop, r);
                 }
             }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {

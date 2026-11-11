@@ -120,10 +120,17 @@ impl Settings {
         (20.0 + (1.0 - self.skip_speed.clamp(0.0, 1.0)) * 200.0) as u64
     }
 
-    /// Auto mode: time per message and per character.
-    pub fn auto_ms(&self, chars: u64) -> u64 {
-        let slow = 1.0 - self.auto_speed.clamp(0.0, 1.0);
-        (600.0 + slow * 2400.0) as u64 + chars * (20.0 + slow * 80.0) as u64
+    /// Auto mode: how long a message stays, counted from when it comes up
+    /// (from the executable): 500 ms, plus `(1 - speed) * 250` ms for each
+    /// two bytes of its Shift-JIS text after the first.
+    pub fn auto_ms(&self, text: &str) -> u64 {
+        let per = ((1.0 - self.auto_speed.clamp(0.0, 1.0)) * 250.0).round() as u64;
+        let bytes: u64 = text
+            .chars()
+            .filter(|&c| c != '\n')
+            .map(|c| if c.is_ascii() { 1 } else { 2 })
+            .sum();
+        500 + bytes.saturating_sub(1) / 2 * per
     }
 
     /// Factor on transition times.

@@ -1066,10 +1066,11 @@ impl Session {
     }
 
     /// Mouse wheel: `up` towards older text. Up on a message opens the
-    /// backlog; down at its newest entry closes it.
-    pub fn wheel(&mut self, up: bool) {
+    /// backlog; down at its newest entry closes it, and on a message of
+    /// きまぐれテンプテーション2 goes on like a click.
+    pub fn wheel(&mut self, up: bool) -> Result<()> {
         if self.dialog.is_some() {
-            return;
+            return Ok(());
         }
         let d = if up { -1 } else { 1 };
         match &mut self.screen {
@@ -1082,7 +1083,7 @@ impl Session {
                 let max = self.archive.max_scroll(&mut self.rt.assets, s);
                 Archive::wheel(s, up, max);
             }
-            Some(Screen::Costume(_)) => return,
+            Some(Screen::Costume(_)) => return Ok(()),
             Some(Screen::Extras(e)) if self.menus.is_kimaten2() => {
                 use crate::omake;
                 match (&mut e.k2.view, e.kind) {
@@ -1090,7 +1091,7 @@ impl Session {
                         let max = omake::view_pages(v.entry) as isize - 1;
                         v.page = (v.page as isize + d).clamp(0, max) as usize;
                     }
-                    (Some(_), _) | (None, Extras::Scenes) => return,
+                    (Some(_), _) | (None, Extras::Scenes) => return Ok(()),
                     (None, Extras::Music) => {
                         e.scroll =
                             (e.scroll as isize + d).clamp(0, omake::MAX_SCROLL as isize) as usize;
@@ -1109,7 +1110,7 @@ impl Session {
                 _ if e.view.is_none() => {
                     e.page = (e.page as isize + d).clamp(0, menus::CG_PAGES as isize - 1) as usize;
                 }
-                _ => return,
+                _ => return Ok(()),
             },
             Some(Screen::Backlog(b)) => {
                 if !up && b.top >= Backlog::max_top(self.log.len()) {
@@ -1119,9 +1120,14 @@ impl Session {
                 }
             }
             None if up && self.state == State::Text => self.open_backlog(),
-            None => return,
+            // きまぐれテンプテーション2: down goes on like a click.
+            None if self.layout.is_kimaten2() && self.state == State::Text => {
+                return self.proceed();
+            }
+            None => return Ok(()),
         }
         self.frame = None;
+        Ok(())
     }
 
     fn open_save_load(&mut self, mode: Mode) {
@@ -2015,6 +2021,7 @@ impl Session {
     pub fn tick(&mut self, ms: u64) -> Result<bool> {
         let before = self.ui.clock;
         self.ui.clock += ms;
+        self.ui.tooltips = self.rt.system.settings.tooltips;
         if self.playing_marked && !self.rt.voice_playing() {
             match self.voice_queue.pop_front() {
                 Some(file) => self.rt.replay_voice(&file)?,
@@ -2136,29 +2143,28 @@ impl Session {
             }
         }
         let st = &self.rt.system.settings;
-        if self.state == State::Text
-            && self.ui.skip
-            && !self.skip_to_choice
-            && !self.ui.skip_all
-            && st.skip_read_only
-            && !self.rt.read_before
-        {
-            // Unread text: skipping stops here.
+        // Where unread text stops skipping: always for the jump button of
+        // きまぐれテンプテーション2 (to the next unread text or selection),
+        // never for skipping to the next selection of ふゆから、くるる。,
+        // else as the settings say.
+        let stops_at_unread = if self.skip_to_choice {
+            self.layout.is_kimaten2()
+        } else {
+            !self.ui.skip_all && st.skip_read_only
+        };
+        if self.state == State::Text && self.ui.skip && stops_at_unread && !self.rt.read_before {
             self.ui.skip = false;
+            self.skip_to_choice = false;
             self.frame = None;
         }
         if self.state == State::Text && !self.ui.window_hidden {
             let st = &self.rt.system.settings;
-            let chars = self
-                .rt
-                .scene
-                .text
-                .as_deref()
-                .map_or(0, |t| t.chars().count()) as u64;
+            let text = self.rt.scene.text.as_deref().unwrap_or("");
             let due = if self.ui.skip {
                 Some(st.skip_ms())
-            } else if self.ui.auto {
-                Some(self.reveal_ms() + st.auto_ms(chars))
+            } else if self.ui.auto && !self.rt.voice_playing() {
+                // Auto mode waits for the whole text and for the voice.
+                Some(self.reveal_ms().max(st.auto_ms(text)))
             } else {
                 None
             };

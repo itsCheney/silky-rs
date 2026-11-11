@@ -6,8 +6,8 @@
 //! title layout below is copied from tables in the game executable; the
 //! message window buttons come from `mes_o.area` and `message_p.akb`.
 
-use std::sync::Arc;
 use silky_format::area::{self, Area};
+use std::sync::Arc;
 
 use crate::assets::{Assets, Language};
 use crate::render::Canvas;
@@ -153,6 +153,8 @@ pub struct Ui {
     /// Clock when the current title menu page came up (its buttons jump
     /// in from below in きまぐれテンプテーション2).
     pub title_shown: u64,
+    /// Show tooltips over the window's buttons (the setting).
+    pub tooltips: bool,
 }
 
 /// Button state, as the row of the sprite sheet.
@@ -519,7 +521,13 @@ struct Cell {
 }
 
 impl Cell {
-    fn draw(&self, canvas: &mut Canvas, sheet: &Arc<silky_format::akb::Image>, ui: &Ui, active: bool) {
+    fn draw(
+        &self,
+        canvas: &mut Canvas,
+        sheet: &Arc<silky_format::akb::Image>,
+        ui: &Ui,
+        active: bool,
+    ) {
         let b = Button::Bar(self.id);
         let state = match ui.state(b, ui.enabled(b), active) {
             // The side menu button shows dimmed while the menu is open.
@@ -548,6 +556,10 @@ struct Kimaten2 {
     /// buttons), `map03.area` (panels of the second map).
     map_areas: [Vec<Area>; 2],
     panel_areas: Vec<Area>,
+    /// Tooltip lines of the bar and side menu (`MesButtonHelp.hlg`).
+    help: Option<crate::assets::HelpLines>,
+    /// The last tooltip balloon put together, by its size and point.
+    balloon: std::sync::Mutex<Option<((i32, i32, BalloonPoint), Arc<silky_format::akb::Image>)>>,
 }
 
 /// Map sheets: places are 304 x 184 cells side by side, four state rows;
@@ -712,6 +724,8 @@ impl Kimaten2 {
                 area::parse(&assets.data("map02.area")?)?,
             ],
             panel_areas: area::parse(&assets.data("map03.area")?)?,
+            help: crate::assets::HelpLines::load(assets, "MesButtonHelp"),
+            balloon: Default::default(),
         })
     }
 
@@ -900,7 +914,13 @@ impl Kimaten2 {
             .map(|c| Button::Bar(c.id))
     }
 
-    fn draw(&self, canvas: &mut Canvas, assets: &mut Assets, ui: &Ui) -> Result<()> {
+    fn draw(
+        &self,
+        canvas: &mut Canvas,
+        assets: &mut Assets,
+        ui: &Ui,
+        help: Option<(&TextRenderer, Language)>,
+    ) -> Result<()> {
         let sheet = assets.image("message_p.akb")?;
         for c in &self.bar {
             let active = match c.id {
@@ -921,9 +941,210 @@ impl Kimaten2 {
                 c.draw(canvas, &sheet, ui, false);
             }
         }
+        if let Some((tr, language)) = help {
+            self.draw_help(canvas, &sheet, ui, tr, language);
+        }
         Ok(())
     }
+
+    /// The tooltip of the button under the pointer: a balloon above a bar
+    /// button with its point at the button's middle, or left of a side menu
+    /// entry pointing right (layout from the executable).
+    fn draw_help(
+        &self,
+        canvas: &mut Canvas,
+        sheet: &Arc<silky_format::akb::Image>,
+        ui: &Ui,
+        tr: &TextRenderer,
+        language: Language,
+    ) {
+        let Some(Button::Bar(id)) = ui.hover else {
+            return;
+        };
+        let menu = if ui.side_menu { &self.menu[..] } else { &[] };
+        let Some(cell) = menu.iter().chain(&self.bar).find(|c| c.id == id) else {
+            return;
+        };
+        // Side menu entries that are off show none.
+        let in_menu = (MENU_ID..MENU_ID + 0x100).contains(&cell.area.id);
+        if in_menu && !ui.enabled(Button::Bar(id)) {
+            return;
+        }
+        // While a mode is on, its button offers to stop it.
+        let stop = match id {
+            bar::SKIP_ALL if ui.skip && ui.skip_all => Some("既読・未読両方スキップを停止します"),
+            bar::SKIP if ui.skip && !ui.skip_all => Some("既読文章スキップを停止します"),
+            bar::AUTO if ui.auto => Some("文章の自動再生を停止します"),
+            bar::LOOP_VOICE if ui.loop_voice => Some("音声のループ再生を停止します"),
+            bar::NOTEBOOK if !ui.notebook => Some("未解放"),
+            bar::COLLECTION if !ui.collection => Some("未解放"),
+            _ => None,
+        };
+        let line = |index| self.help.as_ref()?.line(language, index);
+        let text = match stop {
+            Some(s) => Some(s),
+            None => line(match id {
+                bar::SKIP_ALL => 0,
+                bar::SKIP => 1,
+                bar::CONFIG => 2,
+                bar::NEXT_CHOICE => 3,
+                bar::AUTO => 4,
+                bar::BACKLOG => 5,
+                bar::LOOP_VOICE => 6,
+                bar::SAVE => 7,
+                bar::QUICK_SAVE => 8,
+                bar::LOAD => 9,
+                bar::QUICK_LOAD => 10,
+                bar::HIDE => 11,
+                bar::PIN => 12,
+                bar::TITLE => 13,
+                bar::QUIT => 14,
+                bar::COSTUME => 15,
+                bar::MENU => 16,
+                bar::NOTEBOOK => 17,
+                bar::COLLECTION => 18,
+                _ => return,
+            }),
+        };
+        let Some(text) = text else {
+            return;
+        };
+        // `\` breaks the line. Characters take 16 pixels, single-byte
+        // ones 8; the frame grows in 16 pixel steps around the text.
+        let lines: Vec<&str> = text.split('\\').collect();
+        let advance = |c: char| {
+            if c.is_ascii() || ('\u{ff61}'..='\u{ff9f}').contains(&c) {
+                8
+            } else {
+                16
+            }
+        };
+        let text_w = lines
+            .iter()
+            .map(|l| l.chars().map(advance).sum::<i32>())
+            .max()
+            .unwrap_or(0);
+        let text_h = 16 * lines.len() as i32;
+        let cols = (text_w + 15) / 16;
+        let (x, y, point) = if in_menu {
+            // Side menu: left of the entry, pointing right.
+            let k = cell.area.id - MENU_ID;
+            let (px, py) = (1016, 24 + 66 * k);
+            (
+                px - (text_w + 60),
+                py,
+                (text_w + 30, 30, (140, 773, 30, 16)),
+            )
+        } else if id == bar::HIDE {
+            let top = cell.area.top - text_h - 45;
+            (
+                cell.area.left - text_w,
+                top,
+                (text_w, text_h + 30, (140, 796, 30, 30)),
+            )
+        } else {
+            let half = (text_w + 60) / 2;
+            let quarter = half / 2;
+            let x = cell.area.left + cell.area.width() as i32 / 2 - quarter - half;
+            let top = cell.area.top - text_h - 45;
+            (
+                x,
+                top,
+                (half - 15 + quarter, text_h + 30, (140, 796, 30, 30)),
+            )
+        };
+        let key = (cols, text_h, point);
+        let mut cache = self.balloon.lock().unwrap_or_else(|e| e.into_inner());
+        let img = match &*cache {
+            Some((k, img)) if *k == key => img.clone(),
+            _ => {
+                let img = Arc::new(balloon(sheet, cols, text_h, point));
+                *cache = Some((key, img.clone()));
+                img
+            }
+        };
+        drop(cache);
+        canvas.draw_part(&img, (0, 0, img.width, img.height), x, y, false, 255);
+        for (i, l) in lines.iter().enumerate() {
+            let mut gx = x + 30;
+            let base = (y + 30 + 16 * i as i32) as f32 + HELP_BASELINE;
+            for c in l.chars() {
+                let mut buf = [0; 4];
+                tr.draw_outlined(
+                    canvas,
+                    c.encode_utf8(&mut buf),
+                    gx as f32,
+                    base,
+                    HELP_SIZE,
+                    [255, 255, 255, 255],
+                    [0, 0, 0, 200],
+                );
+                gx += advance(c);
+            }
+        }
+    }
 }
+
+/// Places of a balloon: where its point goes and the point's cell.
+type BalloonPoint = (i32, i32, (u32, u32, u32, u32));
+
+/// A tooltip balloon put together from the pieces on `message_p.akb`:
+/// 30 pixel corners, 16 pixel edges and middle, then the point. The pieces
+/// replace what is under them, as the engine composes the balloon on its
+/// own sprite before showing it.
+fn balloon(
+    sheet: &silky_format::akb::Image,
+    cols: i32,
+    text_h: i32,
+    point: BalloonPoint,
+) -> silky_format::akb::Image {
+    let width = (16 * cols + 60) as u32;
+    let height = (text_h + 60) as u32;
+    let mut rgba = vec![0u8; (width * height * 4) as usize];
+    let mut copy = |(sx, sy, w, h): (u32, u32, u32, u32), dx: i32, dy: i32| {
+        for row in 0..h {
+            for col in 0..w {
+                let (tx, ty) = (dx + col as i32, dy + row as i32);
+                if tx < 0 || ty < 0 || tx >= width as i32 || ty >= height as i32 {
+                    continue;
+                }
+                let (px, py) = (sx + col, sy + row);
+                if px >= sheet.width || py >= sheet.height {
+                    continue;
+                }
+                let s = ((py * sheet.width + px) * 4) as usize;
+                let d = ((ty as u32 * width + tx as u32) * 4) as usize;
+                rgba[d..d + 4].copy_from_slice(&sheet.rgba[s..s + 4]);
+            }
+        }
+    };
+    let rows = [(736, 30), (766, 16), (796, 30)];
+    let mut dy = 0;
+    for (r, &(sy, h)) in rows.iter().enumerate() {
+        let count = if r == 1 { text_h / 16 } else { 1 };
+        for _ in 0..count {
+            copy((50, sy, 30, h), 0, dy);
+            for i in 0..cols {
+                copy((80, sy, 16, h), 30 + 16 * i, dy);
+            }
+            copy((110, sy, 30, h), 30 + 16 * cols, dy);
+            dy += h as i32;
+        }
+    }
+    let (ax, ay, part) = point;
+    copy(part, ax, ay);
+    silky_format::akb::Image {
+        width,
+        height,
+        rgba,
+    }
+}
+
+/// Side menu entries of きまぐれテンプテーション2 (`mesmenu.area` ids).
+const MENU_ID: i32 = 3840;
+/// Tooltip glyph size and baseline below the top of a line.
+const HELP_SIZE: f32 = 12.0;
+const HELP_BASELINE: f32 = 11.0;
 
 impl Layout {
     pub fn is_kimaten2(&self) -> bool {
@@ -1092,7 +1313,8 @@ impl Layout {
             return Ok(());
         }
         if let Some(k) = &self.kimaten2 {
-            return k.draw(canvas, assets, ui);
+            let help = text.filter(|_| ui.tooltips).map(|t| (t, self.language));
+            return k.draw(canvas, assets, ui, help);
         }
         let sheet = assets.image("message_p.akb")?;
         for a in &self.bar {
