@@ -63,6 +63,6 @@ The archive, LZSS, AKB and VSD layouts follow [GARbro](https://github.com/morkt/
 
 ## License
 
-GPL-3.0-or-later. See [LICENSE](LICENSE). `vendor/eluna_rs` and `crates/silky-runtime/src/emote/draws.rs` (adapted from siglus_rs) are MPL-2.0.
+GPL-3.0-or-later. See [LICENSE](LICENSE). `vendor/eluna_rs` (a patched copy of [Eluna](https://github.com/xmoezzz/eluna), see its `README.silky.md`) and `crates/silky-runtime/src/emote/draws.rs` (adapted from [siglus_rs](https://github.com/xmoezzz/siglus_rs)) are MPL-2.0.
 
 The license gives no rights to the original games, their programs, pictures, sound or scripts.

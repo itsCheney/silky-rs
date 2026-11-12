@@ -63,6 +63,6 @@ cargo run --release -p silky-player -- <游戏目录> --lang zh-hans
 
 ## 许可证
 
-GPL-3.0-or-later，见 [LICENSE](LICENSE)。`vendor/eluna_rs` 和 `crates/silky-runtime/src/emote/draws.rs`（改编自 siglus_rs）为 MPL-2.0。
+GPL-3.0-or-later，见 [LICENSE](LICENSE)。`vendor/eluna_rs`（[Eluna](https://github.com/xmoezzz/eluna) 的修改版副本，见其中的 `README.silky.md`）和 `crates/silky-runtime/src/emote/draws.rs`（改编自 [siglus_rs](https://github.com/xmoezzz/siglus_rs)）为 MPL-2.0。
 
 本项目的许可证不授予原版游戏的程序、图片、声音或脚本的任何权利。
