@@ -2,7 +2,7 @@
 
 English | [简体中文](games.zh-CN.md)
 
-How far each game runs on silky-rs. The engine features shared by all games are listed in the [README](../README.md#status). `silky-run snap` lists every engine call the runtime does not carry out yet.
+How far each game runs on silky-rs. The engine features shared by all games are listed in [features.md](features.md). `silky-run snap` lists every engine call the runtime does not carry out yet.
 
 ## ふゆから、くるる。
 
@@ -24,7 +24,7 @@ All 64 scripts and 712 images decode. Headless, `silky-run trace` boots to the t
 
 ### Interface
 
-The player and `silky-run snap` open it. The title menu, the message window with the speaker's name plate, the window buttons, the side menu, the selections, the action menu and the map (with the second map's panels) are drawn from the game's sheets. The window, action menu and map layouts are read from the executable, and the text is placed as on screenshots of the game, two-line messages included. The backlog, the save and load screen, the settings pages and the yes/no dialog have the game's own look, with its help lines (`.HLG` tables) and its nine voice groups on the sound page. Saving at an action menu or the map saves the message before it. The bar's voice loop button plays the message's voice again each time it ends, and its skip-all button skips unread text too.
+The player and `silky-run snap` open it. The title menu, the message window with the speaker's name plate, the window buttons, the side menu, the selections, the action menu and the map (with the second map's panels) are drawn from the game's sheets. The window, action menu and map layouts are read from the executable, and the text is placed as on screenshots of the game, two-line messages included. The backlog, the save and load screen, the settings pages and the yes/no dialog have the game's own look, with its help lines (`.HLG` tables) and its nine voice groups on the sound page. Saving at an action menu or the map saves the message before it. The bar's voice loop button plays the message's voice again each time it ends, and its skip-all button skips unread text too. Its jump button skips to the next unread text or selection. The buttons and side menu entries show the game's tooltips (`MesButtonHelp.hlg`) in its balloon, placed as the executable does. Auto mode waits for the voice and keeps a message for the time the executable gives, and wheel down on a message goes on like a click.
 
 ### Costume, notebook and collection
 

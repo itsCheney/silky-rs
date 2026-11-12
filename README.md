@@ -1,36 +1,41 @@
+> [!WARNING]
+> Work in progress. Two games run; other Silky Engine games are untested.
+
 # silky-rs
 
 English | [简体中文](README.zh-CN.md)
 
-A cross-platform reimplementation of the Silky's engine (the "Silky Engine" used by SILKY'S PLUS and elf titles from 2014 on), written in Rust. It reads the original game files; you need your own copy of the game.
-
-The first target game is ふゆから、くるる。 (Fuyukara, Kururu.), 2026 international build 1.0.1.0. The second is きまぐれテンプテーション2 (2024, Japanese build with patch 1.02), whose interface is partly done. The first desktop platform is Windows.
+A cross-platform reimplementation of the Silky's engine (the "Silky Engine" used by SILKY'S PLUS and elf titles from 2014 on), written in Rust. It reads the original game files; you need your own copy of the game. Engine behaviour is taken from the game files and, where needed, from the engine executable, which the runtime itself never loads.
 
 ## Status
 
-Early. What works today:
+| Game | What works | Main gaps |
+| --- | --- | --- |
+| ふゆから、くるる。 (2026 international build 1.0.1.0) | All scripts and images decode; every route plays to its ending in English and both Chinese; title, message window, selections, saves, backlog, settings, extras, movies and the effects read from the executable | English text metrics and selection placement not compared with the game; a few effect timings are approximate |
+| きまぐれテンプテーション2 (2024 Japanese build, patch 1.02) | Story text, interface, action menu and map, costume, notebook and collection, extras, E-mote models, H mode | Pin of the button bar; parts of H mode; investigations need the right answers at selections when run headless |
+| Other Silky Engine games | Not tested | Each game adds its own engine commands |
 
-- `.arc` archives, including the LZSS compression and the override order from `Patch.xml` or `FileInfo.xml` (`script.arc;script1.arc`: the later archive wins). `update.arc` is read as the newest data archive.
-- AKB images, including `AKB+` difference images on top of a base image.
-- `.MAP` text tables (one section per language).
-- `.MES` scripts and `LIBLARY.LIB`: header, offset tables and the full byte code decoder. Japanese builds keep their text in the scripts (line breaks by the `text` opcode).
-- `.VSD` movie containers (an MPEG-1 program stream inside).
-- The script VM: stack, variable banks, functions, script calls and selections. Engine functions go to a host.
-- First engine functions and a software renderer: backgrounds, event pictures with their difference pictures, standing characters with expressions, the message window with its name plate, portrait and text, localized file names, the title picture.
-- The engine-drawn interface: title menu buttons (layout taken from the executable, per language), the button bar and icons of the message window (`mes_o.area`), the click-wait indicator, and selections (`Game.20`).
-- A desktop player: click or Enter to go on, right click to hide the window, the mouse wheel for the backlog, Escape to close a screen, auto and skip modes, the title menu and selections.
-- Sound: music (looping at the `smpl` loop points of the WAV files), sound effects and voices, mixed in software; the desktop player plays them with cpal.
-- Timing and transitions: timed waits (a click skips them), fades to and from a colour, crossfades of pictures and characters, rule wipes with the game's `NN.bin` masks, screen shake, and waits for a sound to end. Times are read as frames of 1/60 s for now.
-- The save and load screen as the engine draws it (from `saveload.area` and its sheets): save, auto save and quick save tabs, thumbnails, dates, the newest-save badge, overwriting, deleting one or all saves, help lines from `saveloadhelp.map`, and the yes/no dialog with "do not ask again". An auto save is made when a selection comes up; Continue opens the newest save. Saves are this runtime's own JSON files, with a PNG thumbnail each.
-- The backlog (`backlog00.area`): the last 300 messages with their nameplates, replaying a line's voice, playing marked voices one after another, and jumping back to a message.
-- The settings screen (`config00.area`, `config01.area`), opened from the title menu, the window's settings button or a right click: text speed and letter-by-letter text with an optional pause after punctuation, skip (read text only, speed, keep after selections), auto mode, message window colour and opacity, effect speed, which questions to ask, what a right click does, the language (switched while playing), and the volumes of all sound, music, effects, voices and each character's voice. Help lines come from `confighelp.map` and `soundconfighelp.map`.
-- The extras of the title menu: the CG gallery (`cgmode.area`, nine pages of thumbnails, click through the pictures of an entry), scene replay (`scmode.area`) and the music room (`soundmode.area`, with a progress bar). What unlocks them is kept with the settings in `system.json` in the save folder: pictures and music met in the story, and lines read. The tables of gallery pictures, scenes and tracks are taken from the executable of ふゆから、くるる。.
-- Movies (`.vsd`): MPEG-1 video and MP2 sound decoded with [pl_mpeg](https://github.com/phoboslab/pl_mpeg) (MIT, in `crates/silky-runtime/vendor`); the picture follows the sound clock, and a click ends the movie.
-- Output size apart from the game's 1280 x 720 layout: pictures are composed at the game's size and scaled once, text is drawn at the output size (the player's window height, 1080 for `silky-run snap` by default, `--height` to change), so it stays sharp. Clicks and areas stay in game pixels.
-- The window's previous choice button (back to the message before the last selection) and next choice button (skip to the next selection, through unread text too).
-- Close-ups and character moves, read from the engine's handlers: event pictures moved and enlarged (`Game.12` subs 4 and 5), characters that hop or shake (`Game.13` sub 7; the step length of 50 ms is a guess), change slot (sub 10) or stand off their slot position (sub 14).
+Desktop: Windows first; macOS and Linux build and pass the tests in CI. The core crates also build for iOS. Details per game are in [docs/games.md](docs/games.md), shared engine features in [docs/features.md](docs/features.md).
 
-How far each game runs, and what is left for it, is in [docs/games.md](docs/games.md).
+## Getting started
+
+Rust 1.85 or newer.
+
+```sh
+cargo build --release
+cargo run --release -p silky-player -- <game folder>
+cargo run --release -p silky-player -- <game folder> --lang zh-hans
+```
+
+Click, Enter or Space goes on, right click hides the message window, the mouse wheel opens the backlog, Escape closes a screen. Fonts, saves and other options are in [docs/running.md](docs/running.md); the inspection tool and headless runner in [docs/cli.md](docs/cli.md).
+
+## Docs
+
+- [Games](docs/games.md): how far each game runs and what is left.
+- [Features](docs/features.md): file formats, VM, renderer and engine screens shared by all games.
+- [Running](docs/running.md): the desktop player, fonts, saves and the GPU or software renderer.
+- [Command line](docs/cli.md): `silky-tool` and `silky-run`.
+- [Third-party references](THIRD_PARTY.md).
 
 ## Layout
 
@@ -38,68 +43,19 @@ How far each game runs, and what is left for it, is in [docs/games.md](docs/game
 | --- | --- |
 | `silky-format` | File formats. No platform code. |
 | `silky-vm` | Byte code interpreter. Engine functions are handed to a host. |
-| `silky-runtime` | Engine functions on a scene model, and a software renderer. No platform code. |
+| `silky-runtime` | Engine functions on a scene model, the renderer and the engine screens. No platform code. `Session` takes input and gives frames. |
 | `silky-tool` | Command line tool to inspect a game folder. |
 | `silky-run` | Headless runner: logs engine calls, or saves frames as PNG. |
-| `silky-player` | Desktop player (winit; frames composed on the GPU with wgpu, E-mote included). |
+| `silky-player` | Desktop player (winit, wgpu). |
 
-`silky-runtime::Session` holds a running game (interpreter, runtime, renderer, interface) and takes pointer, key and clock input; the desktop player and future embeddings only forward input and show its frames.
-
-## silky-player
-
-```sh
-silky-player <game folder>                 # the game's first language
-silky-player <game folder> --lang zh-hans  # Simplified Chinese (or 1)
-silky-player <game folder> --font msyh.ttc --font arial.ttf
-```
-
-Saves go to `%APPDATA%\silky-rs\<game folder name>` on Windows (`~/Library/Application Support/silky-rs/...` on macOS, `~/.local/share/silky-rs/...` elsewhere); `--saves <folder>` picks another. Without `--font` the player looks for the fonts the game names (Arial, Microsoft YaHei, Microsoft JhengHei in the Windows fonts folder), then common fonts on macOS and Linux. Left click, Enter or Space goes on; right click hides the message window (the settings can change that); Escape closes a screen or ends a movie. The player composes frames on the GPU through wgpu (Metal, Vulkan, D3D12): the runtime records what each frame draws and `silky_runtime::compose` draws it at window size, keeping pictures, glyphs and E-mote models on the GPU. `--software` (or a machine without a usable GPU) draws frames in software instead.
-
-## Building
-
-Rust 1.85 or newer.
-
-```sh
-cargo build --release
-cargo test
-```
-
-## silky-tool
-
-```sh
-silky-tool info  <game folder>                  # archives and file counts
-silky-tool check <game folder> [--images]       # decode every script, MAP and image
-silky-tool dis   <game folder> FK001.MES        # disassemble a script
-silky-tool map   <game folder> FK001.MAP --section 1
-silky-tool akb   <game folder> TITLE_BG_01.AKB title.png
-silky-tool ls      <file.arc>
-silky-tool extract <file.arc> <out folder>
-```
-
-## silky-run
-
-```sh
-silky-run trace <game folder>                        # boot log until the title menu
-silky-run trace <game folder> --result 29.110=1      # pick "Start" on the title menu
-silky-run trace <game folder> --result 29.110=1 --text-only --lang zh-hans --max-calls 50000
-silky-run trace <kimaten2 folder> --result 29.110=1 --result 29.42=1,2 --result 29.43=1 --text-only
-```
-
-```sh
-silky-run snap <game folder> --out snaps --font DejaVuSans.ttf --lines 0,10,50
-silky-run snap <game folder> --lang 1 --font msyh.ttc --lines 170
-silky-run snap <game folder> --lines 99999999 --path 0,1,1   # play a route to its ending
-```
-
-`snap` runs the game with `silky-runtime` and saves PNG frames of the title screen and of the listed message lines (counted from the first line of the game). Fonts are not part of the game files: pass one or more with `--font`, in fallback order; without a font the text is left out. `--path` gives the options for the first selections in order (later ones take `--choose`); with it the run stops when the game comes back to the title, and the frame held after each movie is saved too. On ふゆから、くるる。 the routes `--path 1` and `--path 0,0` end at the two bad endings, `--path 0,1,0` and `--path 0,1,1` at the true ending with its ending movie and end card. On きまぐれテンプテーション2, `--actions` gives the buttons to take at the first action menus (later ones take the buttons not done yet in turn) and the map goes to the first place not done yet; the first five menus and maps are saved as `actionsN.png` and `mapN.png`. Its investigations need the right answers at their selections, which `--path` and `--choose` do not know, so a run can go round in one.
-
-`trace` performs no engine function; it logs each call with its arguments. Calls whose result the scripts use return 0 unless `--result CLASS.SUB=VALUE` says otherwise; with several values (`29.42=1,1,2`) successive calls get them in turn and the last one stays. Selections (`Game.20`) take `--choose`, counted from 0 (default the first option). `--lang` is `en`, `zh-hans`, `zh-hant` or `ja` (0, 1, 2 still name the `.MAP` sections); a game offers the languages it has text for: ふゆから、くるる。 English and both Chinese, きまぐれテンプテーション2 Japanese. Fan translation patches are not read. On きまぐれテンプテーション2, `29.42` answers the action menu and `29.43` the map.
+Before committing, run `cargo test --workspace`.
 
 ## Rules for this project
 
 - Game data never goes into the repository: no images, scripts, sound, executables or dumps. Tests use small files built in code.
-- Engine behaviour is learned from the game's own files and, where needed, by reading the engine executable. The runtime never needs or loads the executable, and copy protection is out of scope.
+- The runtime never needs or loads the executable, and copy protection is out of scope.
 - Unknown opcodes and engine functions are reported with their arguments. They are never treated as success just to keep a script going.
+- Only what the original engine reads is supported; fan translation patches are not.
 
 ## Credits
 
@@ -108,3 +64,5 @@ The archive, LZSS, AKB and VSD layouts follow [GARbro](https://github.com/morkt/
 ## License
 
 GPL-3.0-or-later. See [LICENSE](LICENSE). `vendor/eluna_rs` and `crates/silky-runtime/src/emote/draws.rs` (adapted from siglus_rs) are MPL-2.0.
+
+The license gives no rights to the original games, their programs, pictures, sound or scripts.
