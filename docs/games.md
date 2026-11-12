@@ -18,7 +18,7 @@ The `Flag` calls keep the flags from byte 1000 on across games in the system dat
 
 ## きまぐれテンプテーション2
 
-Japanese build 2024 with patch 1.02. Fan translation patches are not supported.
+Japanese build 2024 with patch 1.02.
 
 All 64 scripts and 712 images decode. Headless, `silky-run trace` boots to the title menu and plays the story text with speaker names, in Japanese. Each game adds its own commands to the engine (native class 29); for this one the commands that return a value were read from its executable.
 
