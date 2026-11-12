@@ -55,7 +55,6 @@ Before committing, run `cargo test --workspace`.
 - Game data never goes into the repository: no images, scripts, sound, executables or dumps. Tests use small files built in code.
 - The runtime never needs or loads the executable, and copy protection is out of scope.
 - Unknown opcodes and engine functions are reported with their arguments. They are never treated as success just to keep a script going.
-- Only what the original engine reads is supported; fan translation patches are not.
 
 ## Credits
 
