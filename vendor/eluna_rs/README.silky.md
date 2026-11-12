@@ -2,8 +2,9 @@
 
 [Eluna](https://github.com/xmoezzz/eluna) by xmoezzz (`eluna_rs` 0.1.0,
 MPL-2.0) is an E-mote player. This copy starts from the one siglus_rs
-vendors, with its speed and physics changes (see `README.siglus.md`).
-silky-rs adds:
+vendors, whose source is the same as upstream commit 9a00029 (2026-09-26;
+the speed and physics changes in `README.siglus.md` are upstream now).
+`runtime.rs` and `sdk.rs` differ from it only by rustfmt. silky-rs adds:
 
 - `MEmotePlayer::PlayTimeline` without the parallel flag stops the other
   main timelines but leaves difference timelines (faces) playing. The game
