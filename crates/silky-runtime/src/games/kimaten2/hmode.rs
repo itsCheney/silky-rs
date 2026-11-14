@@ -1,7 +1,6 @@
 //! きまぐれテンプテーション2's H mode (game command 49, read from the
-//! executable: object vtable 0x542c60, init 0x4844b0, frame 0x484a50,
-//! buttons 0x4852f0, actions 0x486b10, held actions 0x48a090, climax
-//! 0x48ab90).
+//! executable; where each part is is listed in
+//! `docs/games/kimaten2.md`).
 //!
 //! The script loads Anneliese's `hg` model into standing slot 0 and calls
 //! the command; the engine then runs its own screen until the finish
@@ -21,13 +20,13 @@
 //! rotor (vtable +0x140, meaning not read). The mist's scroll speed and
 //! the white flash's length are guesses.
 
-use std::sync::Arc;
 use silky_format::akb::Image;
 use silky_format::area::Area;
+use std::sync::Arc;
 
 use crate::render::Canvas;
 
-/// Voice files (without `.ogg`) of the tables at 0x58bc50..0x58ea44.
+/// Voice files (without `.ogg`) of the executable's voice tables.
 /// Tables of three are by her gauge: below 300, below 600, the rest.
 pub mod voices {
     /// Breathing between actions by gauge band (48bbc0).
@@ -406,7 +405,7 @@ impl HMode {
         (self.rng % n.max(1) as u64) as usize
     }
 
-    /// 0x48ba00: one of `n`, not `picks[slot]` again.
+    /// One of `n`, not `picks[slot]` again.
     fn pick(&mut self, n: usize, slot: usize) -> usize {
         let r = match self.picks[slot] {
             Some(p) if n > 1 && p < n => {
@@ -461,7 +460,7 @@ impl HMode {
         self.set_face(ops, f);
     }
 
-    /// 0x48b6b0: plays now, or after the voice playing.
+    /// Plays now, or after the voice playing.
     fn voice(&mut self, ops: &mut Vec<Op>, name: &str) {
         if self.voice_busy {
             self.queued = Some(name.to_string());
@@ -471,7 +470,7 @@ impl HMode {
         }
     }
 
-    /// 0x48b8e0: plays now, dropping a queued one.
+    /// Plays now, dropping a queued one.
     fn voice_now(&mut self, ops: &mut Vec<Op>, name: &str) {
         self.queued = None;
         self.voice_busy = true;
@@ -519,7 +518,7 @@ impl HMode {
         self.anim_at = self.now;
     }
 
-    /// 0x486b10: `tool` on body `region`.
+    /// `tool` on body `region`.
     fn act(&mut self, region: usize, tool: usize, ops: &mut Vec<Op>) {
         use voices::*;
         self.last = Some((region, tool));
@@ -665,7 +664,7 @@ impl HMode {
         };
     }
 
-    /// 0x4852f0: a button.
+    /// A button.
     fn press(&mut self, id: i32, ops: &mut Vec<Op>) {
         use voices::*;
         let index = (id & 0xff) as usize;
@@ -719,7 +718,7 @@ impl HMode {
         }
     }
 
-    /// 0x48bbc0: breathing between actions.
+    /// Breathing between actions.
     fn breath(&mut self, ops: &mut Vec<Op>) {
         use voices::*;
         let name = match (self.hers > 0, self.dream) {
@@ -731,7 +730,7 @@ impl HMode {
         self.voice(ops, name);
     }
 
-    /// 0x48bb10: back to the waiting loop of what is inserted.
+    /// Back to the waiting loop of what is inserted.
     fn resume(&mut self, ops: &mut Vec<Op>) {
         let (index, cut) = match self.inserted {
             Some(Inserted::Penis) => (2, true),
@@ -743,7 +742,7 @@ impl HMode {
         self.idle_at = self.now;
     }
 
-    /// His gauge full (0x48ab90).
+    /// His gauge full.
     fn his_climax(&mut self, ops: &mut Vec<Op>) {
         self.his += 1;
         self.flash = Some(self.now);
@@ -816,7 +815,7 @@ impl HMode {
         }
     }
 
-    /// One frame (0x484a50): `voice` and `main` tell whether a voice and
+    /// One frame: `voice` and `main` tell whether a voice and
     /// a main timeline of the model play.
     pub fn tick(&mut self, ms: u64, voice: bool, main: bool, ops: &mut Vec<Op>) {
         use voices::*;
@@ -864,7 +863,7 @@ impl HMode {
             self.act(r, t, ops);
             return;
         }
-        // Held actions (0x48a090).
+        // Held actions.
         if self.holding {
             if !self.pointer_down {
                 if self.looped {
@@ -968,7 +967,7 @@ impl HMode {
             let off = ((self.now / 16) % 1280) as u32;
             c.draw_part(m, (off, 0, 1280, 720), 0, 0, false, 255);
         }
-        // 0x48a940: 22 frames, one each 16 ms, 11 to a column.
+        // 22 frames, one each 16 ms, 11 to a column.
         let frame = ((self.now.saturating_sub(self.anim_at) / 16) % 22) as u32;
         match (self.action, hand, tongue) {
             (1, Some(h), _) => c.draw_part(
@@ -1012,7 +1011,7 @@ impl HMode {
         }
     }
 
-    /// 0x486600 and the gauges 0x489740, 0x489870.
+    /// The buttons and the gauges.
     fn draw_buttons(&self, c: &mut Canvas, s: &Arc<Image>) {
         let mut put = |sx: u32, sy: u32, w: u32, h: u32, x: i32, y: i32| {
             c.draw_part(s, (sx, sy, w, h), x, y, false, 255);

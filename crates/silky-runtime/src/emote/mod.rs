@@ -71,7 +71,7 @@ pub fn find_key(sample: &[u8], cache: Option<&Path>) -> Option<u32> {
 
 /// The main one-shots of きまぐれテンプテーション2's `hg` models (`…１ショット`)
 /// say a `lastTime` of 3 ticks while their frames run to 50 or 55; the
-/// game waits for them to end (0x48bda0), so they end at their last frame.
+/// game waits for them to end, so they end at their last frame.
 fn one_shots_to_last_frame(mut timelines: Vec<EmoteTimeline>) -> Vec<EmoteTimeline> {
     for t in &mut timelines {
         if t.is_difference || t.loop_begin_ticks >= 0.0 {
@@ -297,8 +297,7 @@ impl Model {
         }
     }
 
-    /// Main timeline `index` after `previous`, cut at once (0x452ac0 with
-    /// its last value set).
+    /// Main timeline `index` after `previous`, cut at once.
     fn cut_main(&mut self, index: usize, previous: Option<usize>) {
         if let Some(old) = previous.and_then(|i| self.main.get(i)).cloned() {
             self.player.stop_timeline(&old);
@@ -471,7 +470,7 @@ impl Character {
 
     // H mode (command 49). Both files of an `hg` model hold the same
     // timelines; the game shows one of them (file 1 in dream mode) and
-    // plays most timelines on both (0x457d70, 0x45a760).
+    // plays most timelines on both.
 
     /// Main timeline `index` on both models; `cut` stops the one before
     /// instead of fading it out.
@@ -488,7 +487,7 @@ impl Character {
         self.show(file);
     }
 
-    /// Stops the main timeline (0x457fe0).
+    /// Stops the main timeline.
     pub fn h_stop_main(&mut self) {
         if let Some(p) = self.pose.take() {
             for m in &mut self.models {
@@ -505,7 +504,7 @@ impl Character {
         self.show(file);
     }
 
-    /// Stops difference timeline `index` on both models (0x457ec0).
+    /// Stops difference timeline `index` on both models.
     pub fn h_stop_diff(&mut self, index: usize) {
         for m in &mut self.models {
             if let Some(name) = m.diff.get(index).cloned() {
@@ -514,7 +513,7 @@ impl Character {
         }
     }
 
-    /// Face 0 to 13 (0x458630): 0 to 6 on the first file, 7 to 13 on the
+    /// Face 0 to 13: 0 to 6 on the first file, 7 to 13 on the
     /// second, each the difference timelines `f00` (13) down to `f06` (7).
     pub fn h_face(&mut self, face: usize) {
         let file = usize::from(face >= 7);
@@ -525,7 +524,7 @@ impl Character {
         self.show(file);
     }
 
-    /// Whether the shown model plays a main timeline (0x48bda0).
+    /// Whether the shown model plays a main timeline.
     pub fn main_playing(&self) -> bool {
         self.models
             .get(self.active)

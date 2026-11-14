@@ -354,7 +354,7 @@ fn snap(
                     rt.answer_action(&mut vm, pick);
                 }
                 Some(Pause::Map) => {
-                    use silky_runtime::kimaten2::map::{Click, BACK};
+                    use silky_runtime::games::kimaten2::map::{Click, BACK};
                     let mut m = rt.map.clone().unwrap();
                     // The first place not done yet, through its panel on
                     // the second map; else back.

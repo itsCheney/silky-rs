@@ -53,7 +53,7 @@ pub mod title {
     pub const ROOM: usize = 12;
 
     /// きまぐれテンプテーション2: extras entries and the byte variable that
-    /// unlocks each (from the executable's title menu, 0x4be440): music
+    /// unlocks each (from the executable's title menu): music
     /// mode, アンネViewer, 捜査手帳, アンネの部屋. The endings set 3007.
     pub const KIMATEN2_UNLOCK: [(usize, usize); 4] = [
         (MUSIC_MODE, 3004),
@@ -142,7 +142,7 @@ pub struct Ui {
     /// Buttons of きまぐれテンプテーション2's action menu, while it is up.
     pub actions: Vec<crate::ActionButton>,
     /// きまぐれテンプテーション2's map, while it is up.
-    pub map: Option<crate::kimaten2::map::Map>,
+    pub map: Option<crate::games::kimaten2::map::Map>,
     /// きまぐれテンプテーション2: some notebook entry, some collection
     /// item is open (enables their buttons).
     pub notebook: bool,
@@ -420,7 +420,7 @@ struct Kimaten2Title {
 pub const TITLE_JUMP_MS: u64 = 2600;
 
 /// Height of a title button of きまぐれテンプテーション2 `ms` after its
-/// jump starts, from the executable (0x4bed40, one step per 60 Hz frame):
+/// jump starts, from the executable (one step per 60 Hz frame):
 /// it leaves y = 720 at -16 pixels a frame, falls back by 0.98 a frame,
 /// and bounces on its place (y = 636) at half its speed until it stops.
 fn title_jump_y(ms: u64) -> f32 {
@@ -611,7 +611,7 @@ fn action_cell(icon: u32) -> (u32, u32) {
 
 impl Kimaten2 {
     fn load(assets: &Assets) -> Result<Self> {
-        let window = crate::kimaten2::window::TOP;
+        let window = crate::games::kimaten2::window::TOP;
         let mut bar = Vec::new();
         for a in area::parse(&assets.data("mes_o.area")?)? {
             // Buttons 0..8 left to right: costume, quick save, quick load,
@@ -740,7 +740,13 @@ impl Kimaten2 {
         })
     }
 
-    fn hit_map(&self, ui: &Ui, m: &crate::kimaten2::map::Map, x: i32, y: i32) -> Option<Button> {
+    fn hit_map(
+        &self,
+        ui: &Ui,
+        m: &crate::games::kimaten2::map::Map,
+        x: i32,
+        y: i32,
+    ) -> Option<Button> {
         let areas = &self.map_areas[m.second as usize];
         let found = |list: &[Area], id: i32| {
             list.iter()
@@ -779,7 +785,7 @@ impl Kimaten2 {
         canvas: &mut Canvas,
         assets: &mut Assets,
         ui: &Ui,
-        m: &crate::kimaten2::map::Map,
+        m: &crate::games::kimaten2::map::Map,
     ) -> Result<()> {
         let areas = &self.map_areas[m.second as usize];
         let bg = assets.image(if m.second { "map2.akb" } else { "map1.akb" })?;

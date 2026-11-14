@@ -3,6 +3,15 @@
 //! The speaker's name comes as text (`Game.11("悠久")`); the engine looks it
 //! up in a list in its executable and draws that row of `name_p.akb`. The
 //! list was read from the executable once and is kept here.
+//!
+//! See `docs/games/kimaten2.md`.
+
+pub mod archive;
+pub(crate) mod commands;
+pub mod hmode;
+pub mod omake;
+
+pub use commands::SHARED_COMMANDS;
 
 use std::collections::HashMap;
 

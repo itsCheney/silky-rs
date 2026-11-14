@@ -28,16 +28,16 @@ pub struct Place {
 
 impl Place {
     /// Anneliese at the bottom left while she walks around with the
-    /// protagonist (command 10; 0x45c170 is given 500, -930 and sets the
-    /// size to 0.35).
+    /// protagonist (command 10; the engine places her at 500, -930 at size
+    /// 0.35).
     pub const COMPANION: Place = Place {
         scale: 35,
         x: 500,
         y: -930,
     };
 
-    /// A standing model in `slot` at `scale` percent (command 40, sub 0;
-    /// 0x4577a0): x by slot, y keeps the feet at the same line whatever
+    /// A standing model in `slot` at `scale` percent (command 40, sub 0):
+    /// x by slot, y keeps the feet at the same line whatever
     /// the size. `name` is the first file: H scene models (`?g...`) have
     /// their own place.
     pub fn standing(slot: i32, scale: i32, name: &str) -> Place {

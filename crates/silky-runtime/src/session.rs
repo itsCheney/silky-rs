@@ -12,8 +12,10 @@ use silky_format::game::Game;
 use silky_format::mes::Profile;
 use silky_vm::{Stop, Vm};
 
-use crate::archive::{self, Archive, ArchiveAction, ArchiveScreen, Book, CostumeScreen};
 use crate::audio::Bus;
+use crate::games::kimaten2::archive::{
+    self, Archive, ArchiveAction, ArchiveScreen, Book, CostumeScreen,
+};
 use crate::menus::{self, extras_ids, ids as set_ids, ExtrasScreen, Menus, Page, SettingsScreen};
 use crate::movie::Movie;
 use crate::render::{Canvas, Renderer};
@@ -113,13 +115,13 @@ pub struct Session {
     /// Character jolts playing: slot, offsets, start time.
     jolts: Vec<(i32, crate::host::Jolt, u64)>,
     /// `.vo` pictures still to come: clock time and picture.
-    vo_steps: Vec<(u64, crate::vo::Step)>,
+    vo_steps: Vec<(u64, crate::games::fuyukuru::vo::Step)>,
     /// Thumbnail of the game as it was when a screen opened.
     thumb: Option<Image>,
     /// The backlog plays the marked voices one after another.
     playing_marked: bool,
     /// きまぐれテンプテーション2's H mode, over the game.
-    hmode: Option<crate::hmode::HMode>,
+    hmode: Option<crate::games::kimaten2::hmode::HMode>,
 }
 
 struct MoviePlay {
@@ -829,7 +831,7 @@ impl Session {
             if self.menus.is_kimaten2()
                 && e.kind == Extras::Music
                 && e.k2.view.is_none()
-                && id == crate::omake::ids::VOLUME
+                && id == crate::games::kimaten2::omake::ids::VOLUME
             {
                 e.k2.dragging_volume = true;
                 self.drag_omake_volume(x);
@@ -902,8 +904,11 @@ impl Session {
                 if let Some(p) = v.picture {
                     // The next picture of the entry, then back to its grid
                     // (or to the screen when the entry has one picture).
-                    v.picture = crate::omake::next_seen(&self.vm.bytes, v.entry, p);
-                    if v.picture.is_none() && crate::omake::CG_ENTRIES[v.entry].1 == 1 {
+                    v.picture =
+                        crate::games::kimaten2::omake::next_seen(&self.vm.bytes, v.entry, p);
+                    if v.picture.is_none()
+                        && crate::games::kimaten2::omake::CG_ENTRIES[v.entry].1 == 1
+                    {
                         e.k2.view = None;
                     }
                     return Ok(());
@@ -1020,7 +1025,9 @@ impl Session {
             }
             Some(Screen::Extras(e)) if e.k2.view.is_some() => {
                 let v = e.k2.view.as_mut().expect("checked");
-                if v.picture.take().is_none() || crate::omake::CG_ENTRIES[v.entry].1 == 1 {
+                if v.picture.take().is_none()
+                    || crate::games::kimaten2::omake::CG_ENTRIES[v.entry].1 == 1
+                {
                     e.k2.view = None;
                 }
                 self.ui.hover = None;
@@ -1085,7 +1092,7 @@ impl Session {
             }
             Some(Screen::Costume(_)) => return Ok(()),
             Some(Screen::Extras(e)) if self.menus.is_kimaten2() => {
-                use crate::omake;
+                use crate::games::kimaten2::omake;
                 match (&mut e.k2.view, e.kind) {
                     (Some(v), _) if v.picture.is_none() => {
                         let max = omake::view_pages(v.entry) as isize - 1;
@@ -1254,7 +1261,7 @@ impl Session {
         let seed = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(1, |d| d.as_nanos() as u64);
-        self.hmode = Some(crate::hmode::HMode::new(
+        self.hmode = Some(crate::games::kimaten2::hmode::HMode::new(
             areas,
             carea,
             |i| vm.var_b(i),
@@ -1304,8 +1311,8 @@ impl Session {
         self.rt.scene.emotes.keys().next().copied()
     }
 
-    fn apply_hmode(&mut self, ops: Vec<crate::hmode::Op>) {
-        use crate::hmode::Op;
+    fn apply_hmode(&mut self, ops: Vec<crate::games::kimaten2::hmode::Op>) {
+        use crate::games::kimaten2::hmode::Op;
         for op in ops {
             match op {
                 Op::Voice(name) => {
@@ -1522,7 +1529,7 @@ impl Session {
             }
             Action::Scene(i) => self.leave_extras(i as i32)?,
             Action::Unlock(kind) => {
-                for (i, v) in crate::omake::unlock_all(kind) {
+                for (i, v) in crate::games::kimaten2::omake::unlock_all(kind) {
                     self.vm.set_var_b(i, v);
                 }
                 self.store_global_bytes();
@@ -1721,7 +1728,7 @@ impl Session {
         if self.menus.is_kimaten2() {
             return self.press_omake(id, y);
         }
-        use crate::game_tables::MUSIC;
+        use crate::games::fuyukuru::tables::MUSIC;
         use extras_ids::*;
         let Some(Screen::Extras(s)) = &mut self.screen else {
             return Ok(());
@@ -1778,7 +1785,7 @@ impl Session {
 
     /// A button of きまぐれテンプテーション2's extras.
     fn press_omake(&mut self, id: i32, y: i32) -> Result<()> {
-        use crate::omake::{self, ids::*, View};
+        use crate::games::kimaten2::omake::{self, ids::*, View};
         let Some(Screen::Extras(s)) = &mut self.screen else {
             return Ok(());
         };
@@ -1856,7 +1863,7 @@ impl Session {
     /// The music volume bar of きまぐれテンプテーション2 follows the pointer.
     fn drag_omake_volume(&mut self, x: i32) {
         let old = self.rt.system.settings.clone();
-        self.rt.system.settings.music = crate::omake::volume_at(x);
+        self.rt.system.settings.music = crate::games::kimaten2::omake::volume_at(x);
         self.settings_changed(old);
         self.frame = None;
     }
@@ -1910,7 +1917,7 @@ impl Session {
                 self.run()?;
             }
             Button::Map(id) => {
-                use crate::kimaten2::map::{Click, BACK};
+                use crate::games::kimaten2::map::{Click, BACK};
                 let Some(m) = &mut self.ui.map else {
                     return Ok(());
                 };

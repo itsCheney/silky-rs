@@ -92,19 +92,25 @@ impl ArchiveSet {
 /// commands (native class 29), so the runtime needs to know which.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Title {
-    /// ふゆから、くるる。 (2018 international build).
+    /// ふゆから、くるる。
     Fuyukuru,
-    /// きまぐれテンプテーション2 (2024).
+    /// きまぐれテンプテーション2.
     Kimaten2,
+    /// A game not known yet: it gets the shared engine and the common
+    /// `Game` commands only.
+    Unknown,
 }
 
 impl Title {
-    /// From the program file in the folder; ふゆから、くるる。 otherwise.
+    /// From the name of the program file in the folder (the file itself
+    /// is never read).
     fn detect(root: &Path) -> Self {
         if find_file(root, "kimaten2.exe").is_some() {
             Title::Kimaten2
-        } else {
+        } else if find_file(root, "fuyukuru.exe").is_some() {
             Title::Fuyukuru
+        } else {
+            Title::Unknown
         }
     }
 }

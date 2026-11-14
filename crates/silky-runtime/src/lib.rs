@@ -10,7 +10,6 @@
 //! Engine calls the runtime does not carry out yet are counted in
 //! [`Runtime::unhandled`], never silently treated as done.
 
-pub mod archive;
 pub mod assets;
 pub mod audio;
 pub mod canvas;
@@ -19,24 +18,19 @@ pub mod compose;
 #[cfg(feature = "emote")]
 pub mod emote;
 pub mod flag;
-pub mod game_tables;
-pub mod hmode;
+pub mod games;
 mod host;
-pub mod kimaten2;
 pub mod menus;
 pub mod movie;
-pub mod omake;
 pub mod render;
 pub mod save;
 pub mod scene;
 pub mod screens;
 pub mod session;
-pub mod snow;
 pub mod sprite;
 pub mod system;
 pub mod text;
 pub mod ui;
-pub mod vo;
 
 pub use assets::{Assets, Language};
 pub use host::{ActionButton, Config, Extras, Pause, Runtime, SaveState, Transition};

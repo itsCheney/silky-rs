@@ -488,9 +488,9 @@ pub enum Screen {
     Settings(crate::menus::SettingsScreen),
     Extras(crate::menus::ExtrasScreen),
     /// きまぐれテンプテーション2's notebook and collection.
-    Archive(crate::archive::ArchiveScreen),
+    Archive(crate::games::kimaten2::archive::ArchiveScreen),
     /// きまぐれテンプテーション2's costume screen.
-    Costume(crate::archive::CostumeScreen),
+    Costume(crate::games::kimaten2::archive::CostumeScreen),
 }
 
 /// Layouts of the screens, loaded once per game.
@@ -1141,7 +1141,14 @@ fn draw_row_cell(
 }
 
 /// Draws a date in the small digits of the sheet, right-aligned at `right`.
-fn draw_digits(canvas: &mut Canvas, sheet: &Arc<Image>, sl: &SaveStyle, s: &str, right: i32, y: i32) {
+fn draw_digits(
+    canvas: &mut Canvas,
+    sheet: &Arc<Image>,
+    sl: &SaveStyle,
+    s: &str,
+    right: i32,
+    y: i32,
+) {
     let cell = |c: char| -> Option<(u32, u32)> {
         match c {
             '/' => Some(sl.slash),

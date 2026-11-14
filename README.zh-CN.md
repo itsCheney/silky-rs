@@ -13,7 +13,7 @@
 | --- | --- | --- |
 | 《ふゆから、くるる。》（2026 年国际版 1.0.1.0） | 全部脚本和图片可解码；英文和简繁中文下所有路线都能玩到结局；标题、对话框、选项、存档、回想、设置、鉴赏模式、视频，以及取自可执行文件的特效 | 英文文字排版和选项位置尚未与原版对照；少数特效时间为近似值 |
 | 《きまぐれテンプテーション2》（2024 年日文版，1.02 补丁） | 剧情文本、界面、行动菜单和地图、换装、笔记本和收藏品、鉴赏模式、E-mote 模型、H 模式 | 按钮栏的固定按钮；H 模式的部分功能；无界面运行时，调查环节需要在选项中选对答案 |
-| 其他 Silky Engine 游戏 | 尚未测试 | 每个游戏都会加入自己的引擎命令 |
+| 其他 Silky Engine 游戏 | 尚未测试；可以用共用的引擎和通用命令运行 | 每个游戏都会加入自己的引擎命令，加入之前会被报告出来（见 [docs/adding-a-game.zh-CN.md](docs/adding-a-game.zh-CN.md)） |
 
 桌面端首先支持 Windows；macOS 和 Linux 在 CI 中可以构建并通过测试。核心 crate 也可以为 iOS 构建。各游戏的详细情况见 [docs/games.zh-CN.md](docs/games.zh-CN.md)，共用的引擎功能见 [docs/features.zh-CN.md](docs/features.zh-CN.md)。
 
@@ -32,7 +32,10 @@ cargo run --release -p silky-player -- <游戏目录> --lang zh-hans
 ## 文档
 
 - [游戏](docs/games.zh-CN.md)：各游戏的运行情况和尚未完成的部分。
+- [引擎](docs/engine.zh-CN.md)：游戏之间共用什么、各自加入什么，以及各部分的可靠程度。
+- [Game 命令](docs/game-commands.zh-CN.md)：各游戏自己的引擎命令。
 - [功能](docs/features.zh-CN.md)：所有游戏共用的文件格式、虚拟机、渲染器和引擎画面。
+- [加入新游戏](docs/adding-a-game.zh-CN.md)。
 - [运行](docs/running.zh-CN.md)：桌面播放器、字体、存档，以及 GPU 或软件渲染。
 - [命令行](docs/cli.zh-CN.md)：`silky-tool` 和 `silky-run`。
 - [第三方参考](THIRD_PARTY.md)。
@@ -43,7 +46,7 @@ cargo run --release -p silky-player -- <游戏目录> --lang zh-hans
 | --- | --- |
 | `silky-format` | 文件格式。不含平台相关代码。 |
 | `silky-vm` | 字节码解释器。引擎函数交给宿主处理。 |
-| `silky-runtime` | 基于场景模型的引擎函数、渲染器和引擎画面。不含平台相关代码。`Session` 接收输入并给出画面。 |
+| `silky-runtime` | 基于场景模型的引擎函数、渲染器和引擎画面；各游戏自己的部分在 `games/` 中。不含平台相关代码。`Session` 接收输入并给出画面。 |
 | `silky-tool` | 查看游戏目录的命令行工具。 |
 | `silky-run` | 无界面运行器：记录引擎调用，或把画面保存为 PNG。 |
 | `silky-player` | 桌面播放器（winit、wgpu）。 |

@@ -10,7 +10,7 @@ use std::sync::Arc;
 use silky_format::akb::Image;
 
 use crate::assets::{localized_name, Assets, Language};
-use crate::kimaten2;
+use crate::games::kimaten2;
 use crate::scene::Scene;
 use crate::text::TextRenderer;
 use crate::{Result, SCREEN_HEIGHT, SCREEN_WIDTH};
@@ -69,7 +69,7 @@ pub struct TextLayout {
 impl TextLayout {
     pub fn for_title(title: Title) -> Self {
         match title {
-            Title::Fuyukuru => Self {
+            Title::Fuyukuru | Title::Unknown => Self {
                 left: TEXT_LEFT,
                 baseline: TEXT_BASELINE,
                 width: TEXT_WIDTH,
@@ -119,7 +119,7 @@ pub struct Renderer {
     #[cfg(feature = "emote")]
     emote_gpu: Option<crate::emote::Gpu>,
     /// Snow while the scene has it.
-    snow: Option<crate::snow::Snow>,
+    snow: Option<crate::games::fuyukuru::snow::Snow>,
 }
 
 impl Renderer {
@@ -596,7 +596,7 @@ fn overlay_rgba(canvas: &mut Canvas, top: &Image) {
 const COMPANION: i32 = i32::MIN;
 
 /// The scene's E-mote pictures back to front: standing models from the
-/// last slot to slot 0 (0x4577a0 gives slot 0 the highest order), then the
+/// last slot to slot 0 (the engine gives slot 0 the highest order), then the
 /// companion.
 #[cfg(feature = "emote")]
 fn emote_order(scene: &Scene) -> Vec<(i32, &crate::scene::Emote)> {

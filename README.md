@@ -13,7 +13,7 @@ A cross-platform reimplementation of the Silky's engine (the "Silky Engine" used
 | --- | --- | --- |
 | ふゆから、くるる。 (2026 international build 1.0.1.0) | All scripts and images decode; every route plays to its ending in English and both Chinese; title, message window, selections, saves, backlog, settings, extras, movies and the effects read from the executable | English text metrics and selection placement not compared with the game; a few effect timings are approximate |
 | きまぐれテンプテーション2 (2024 Japanese build, patch 1.02) | Story text, interface, action menu and map, costume, notebook and collection, extras, E-mote models, H mode | Pin of the button bar; parts of H mode; investigations need the right answers at selections when run headless |
-| Other Silky Engine games | Not tested | Each game adds its own engine commands |
+| Other Silky Engine games | Not tested; they run on the shared engine and the common commands | Each game adds its own engine commands, which are reported until added (see [docs/adding-a-game.md](docs/adding-a-game.md)) |
 
 Desktop: Windows first; macOS and Linux build and pass the tests in CI. The core crates also build for iOS. Details per game are in [docs/games.md](docs/games.md), shared engine features in [docs/features.md](docs/features.md).
 
@@ -32,7 +32,10 @@ Click, Enter or Space goes on, right click hides the message window, the mouse w
 ## Docs
 
 - [Games](docs/games.md): how far each game runs and what is left.
+- [Engine](docs/engine.md): what the games share and what each adds, and how sure each part is.
+- [Game commands](docs/game-commands.md): each game's own engine commands.
 - [Features](docs/features.md): file formats, VM, renderer and engine screens shared by all games.
+- [Adding a game](docs/adding-a-game.md).
 - [Running](docs/running.md): the desktop player, fonts, saves and the GPU or software renderer.
 - [Command line](docs/cli.md): `silky-tool` and `silky-run`.
 - [Third-party references](THIRD_PARTY.md).
@@ -43,7 +46,7 @@ Click, Enter or Space goes on, right click hides the message window, the mouse w
 | --- | --- |
 | `silky-format` | File formats. No platform code. |
 | `silky-vm` | Byte code interpreter. Engine functions are handed to a host. |
-| `silky-runtime` | Engine functions on a scene model, the renderer and the engine screens. No platform code. `Session` takes input and gives frames. |
+| `silky-runtime` | Engine functions on a scene model, the renderer and the engine screens; each game's own part in `games/`. No platform code. `Session` takes input and gives frames. |
 | `silky-tool` | Command line tool to inspect a game folder. |
 | `silky-run` | Headless runner: logs engine calls, or saves frames as PNG. |
 | `silky-player` | Desktop player (winit, wgpu). |

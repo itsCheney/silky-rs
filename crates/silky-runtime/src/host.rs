@@ -7,9 +7,9 @@ use silky_vm::{Flow, Host, Value, Vm};
 
 use std::sync::Arc;
 
-use crate::assets::{localized_name, Assets, Language};
+use crate::assets::{Assets, Language};
 use crate::audio::{Bus, Mixer, Pcm};
-use crate::scene::{Character, Scene};
+use crate::scene::Scene;
 
 const MUSIC: i32 = 15;
 const EFFECT: i32 = 16;
@@ -23,25 +23,6 @@ const MESWND: i32 = 2;
 const MOUSE: i32 = 12;
 const FLAG: i32 = 14;
 const BACKLOG: i32 = 22;
-
-/// Game commands of ふゆから、くるる。 that きまぐれテンプテーション2 uses
-/// the same way (checked against its scripts); its other commands are its
-/// own and are reported as not carried out.
-/// きまぐれテンプテーション2's action menu.
-const ACTION_MENU: i32 = 42;
-/// きまぐれテンプテーション2's map.
-const MAP: i32 = 43;
-/// Game commands of きまぐれテンプテーション2 handled like ふゆから、くるる。's
-/// (30 to 32 open the CG, scene and music modes, see [`crate::omake`]).
-const KIMATEN2_SHARED: [i32; 7] = [
-    cmd::SPEAKER,
-    cmd::PICTURE,
-    cmd::SELECT,
-    cmd::TITLE,
-    30,
-    31,
-    32,
-];
 
 /// Screen calls (class 20). Times are in frames of 1/60 s (provisional).
 mod screen {
@@ -67,7 +48,7 @@ mod ui_call {
 }
 
 /// Frames of 1/60 s to milliseconds.
-fn frames_ms(frames: i32) -> u32 {
+pub(crate) fn frames_ms(frames: i32) -> u32 {
     frames.max(0) as u32 * 1000 / 60
 }
 
@@ -86,52 +67,6 @@ mod sound {
     /// `(channel, time)`: fade out and stop. Time is taken as 1/60 s
     /// units (provisional: `music_fade` passes 60).
     pub const FADE_OUT: i32 = 3;
-}
-
-/// Game commands (class 29) this runtime knows.
-mod cmd {
-    /// Speaker nameplate: `Game.11(row)`, row of `nameplate_<lang>.akb`.
-    pub const SPEAKER: i32 = 11;
-    /// Message window portrait: 6 body, 7 face, 9 show, 11 hide.
-    pub const PORTRAIT: i32 = 10;
-    /// Background: 0 load, 1 difference picture, 2 and 3 transitions.
-    pub const PICTURE: i32 = 12;
-    /// Standing characters: 0 load, 1 face, 2 apply, 3 remove, 4 remove all.
-    pub const CHARACTER: i32 = 13;
-    /// Selection: `Game.20(question line, 9)` shows the options whose
-    /// labels the option bodies put in `H[40 + i]`; returns the option
-    /// picked, from 1.
-    pub const SELECT: i32 = 20;
-    /// Story text: 2 load a `.map` table, 0 show a line.
-    pub const TEXT: i32 = 23;
-    /// Title menu; returns the item picked.
-    pub const TITLE: i32 = 110;
-    /// Localized file name: `x.akb` -> `x_en.akb` when that exists.
-    pub const LOCALIZE: i32 = 223;
-    /// きまぐれテンプテーション2: E-mote standing models by slot.
-    pub const EMOTES: i32 = 40;
-    /// きまぐれテンプテーション2's H mode.
-    pub const H_MODE: i32 = 49;
-    /// ふゆから、くるる。: `(colour, time, rule)`, fade out to a colour
-    /// through a rule mask.
-    pub const RULE_FADE_OUT: i32 = 111;
-    /// ふゆから、くるる。: screen quake ("thread_shake").
-    pub const QUAKE: i32 = 993;
-    /// ふゆから、くるる。: zoom and white flash ("pic_flush").
-    pub const FLUSH: i32 = 1005;
-    /// ふゆから、くるる。: `.vo` pictures that change with a voice line.
-    pub const VOICE_PICTURES: i32 = 1007;
-    /// ふゆから、くるる。: auto save point.
-    pub const AUTO_SAVE: i32 = 14;
-    /// ふゆから、くるる。: `(mode, time)` white wipe into and out of the
-    /// future scenes.
-    pub const FUTURE: i32 = 112;
-    /// ふゆから、くるる。: heartbeat zoom.
-    pub const PULSE: i32 = 113;
-    /// ふゆから、くるる。: slash flash.
-    pub const SLASH: i32 = 114;
-    /// ふゆから、くるる。: snow, 0 starts it and 1 stops it.
-    pub const SNOW: i32 = 115;
 }
 
 /// What a save file holds besides its header.
@@ -193,7 +128,7 @@ pub enum Pause {
     /// with [`Runtime::answer_action`].
     Map,
     /// きまぐれテンプテーション2's H mode (`Game.49`, see
-    /// [`crate::hmode`]); the scripts go on when it ends.
+    /// [`crate::games::kimaten2::hmode`]); the scripts go on when it ends.
     HMode,
 }
 
@@ -234,19 +169,6 @@ pub struct Jolt {
     pub step_ms: u64,
 }
 
-/// Reads a mouth track: UTF-16 text of comma separated numbers.
-fn parse_lip(bytes: &[u8]) -> Vec<f32> {
-    let units: Vec<u16> = bytes
-        .chunks_exact(2)
-        .map(|c| u16::from_le_bytes([c[0], c[1]]))
-        .collect();
-    String::from_utf16_lossy(&units)
-        .trim_start_matches('\u{feff}')
-        .split(',')
-        .filter_map(|v| v.trim().parse().ok())
-        .collect()
-}
-
 /// Mixer channel of movie sound.
 const MOVIE_AUDIO: i32 = 99;
 
@@ -254,7 +176,7 @@ pub struct Runtime {
     pub assets: Assets,
     pub scene: Scene,
     pub config: Config,
-    text_table: Option<(String, MapFile)>,
+    pub(crate) text_table: Option<(String, MapFile)>,
     /// Set when a callback yields.
     pub pause: Option<Pause>,
     /// Engine calls not carried out yet, by name, with counts.
@@ -264,16 +186,16 @@ pub struct Runtime {
     /// Engine calls carried out.
     pub handled: u64,
     /// Position of the last text line shown in its table.
-    last_text: Option<usize>,
+    pub(crate) last_text: Option<usize>,
     /// Number of options whose bodies ran before the next selection.
-    option_count: usize,
+    pub(crate) option_count: usize,
     /// Labels of the selection that is up.
     pub choices: Vec<String>,
     /// Set by the frontend when the player clicked; read by input polls.
     pub clicked: bool,
     /// Longest time of the character changes since they were last
     /// applied (game command 13).
-    character_time: i32,
+    pub(crate) character_time: i32,
     /// Sound output; disabled unless the frontend plays sound.
     pub audio: Mixer,
     /// Voice file of the current message, for the backlog.
@@ -283,7 +205,7 @@ pub struct Runtime {
     /// played.
     pub lip: Option<(Vec<f32>, f32)>,
     /// The last mouth track, for the voice loop.
-    lip_track: Option<Vec<f32>>,
+    pub(crate) lip_track: Option<Vec<f32>>,
     /// Settings and what was seen, kept across saves.
     pub system: crate::system::SystemData,
     /// Set when the system data changed and should be stored.
@@ -297,26 +219,26 @@ pub struct Runtime {
     pub jolts: Vec<(i32, Jolt)>,
     /// Text of the next message (Japanese builds put it in the script and
     /// pass it to `BackLog.3` before `MesWnd.3` shows it).
-    pending_text: Option<String>,
+    pub(crate) pending_text: Option<String>,
     /// Script of the current message, for its read key (the text is shown
     /// from a library function, so the VM is in `liblary.lib` by then).
-    message_script: String,
+    pub(crate) message_script: String,
     /// Buttons of the action menu that is up.
     pub actions: Vec<ActionButton>,
     /// The map that is up.
-    pub map: Option<crate::kimaten2::map::Map>,
+    pub map: Option<crate::games::kimaten2::map::Map>,
     /// Sprite animations (class 19, subs 16 to 28).
-    sprites: crate::sprite::Sprites,
+    pub(crate) sprites: crate::sprite::Sprites,
     /// Second step of an effect, after the transition that started it.
-    then: Option<FollowUp>,
+    pub(crate) then: Option<FollowUp>,
     /// Pictures of the `.vo` timeline still to come, with their time
     /// from now in milliseconds (ふゆから、くるる。, command 1007), for the
     /// frontend to show.
-    pub vo_steps: Vec<(u32, crate::vo::Step)>,
+    pub vo_steps: Vec<(u32, crate::games::fuyukuru::vo::Step)>,
     /// Size of the screen quake to start (command 993, sub 2).
-    quake_mode: i32,
+    pub(crate) quake_mode: i32,
     /// Music set up by `Music.5`, by channel, for `Music.4` to start.
-    queued_music: BTreeMap<i32, String>,
+    pub(crate) queued_music: BTreeMap<i32, String>,
     /// Set by the game's auto save point (ふゆから、くるる。, command 14);
     /// the frontend saves at the next message.
     pub auto_save: bool,
@@ -324,7 +246,7 @@ pub struct Runtime {
 
 /// Second step of a two-step effect.
 #[derive(Debug, Clone, Copy)]
-enum FollowUp {
+pub(crate) enum FollowUp {
     /// Take the flash picture away through a rule mask.
     EndFlash { frames: i32, rule: u32 },
     /// Back to normal size, over `frames`.
@@ -335,39 +257,7 @@ enum FollowUp {
     FlushEnd { frames: i32 },
 }
 
-/// Engine calls of ふゆから、くるる。 that need nothing from this runtime,
-/// read from the executable and the library scripts.
-fn fuyukuru_nothing_to_do(class: i32, sub: i32) -> bool {
-    matches!(
-        (class, sub),
-        // Set up at the start: message window (MesWnd.1 clears its text
-        // for a new page; this runtime lays out each message itself), font
-        // size, input, sound channels, the one-line message, menus.
-        (MESWND, 1)
-            | (10, 0 | 1)
-            | (12, 5)
-            | (17, 0)
-            | (24, 0 | 2)
-            | (UI, 2..=4)
-            // Select.0(-1): selection settings; the selection itself is
-            // `Game.20`.
-            | (1, 0)
-            // The original rebuilds its scene after a load from a store of
-            // variables (Save.2 reads one, 4 writes, 5 and 6 delete) and
-            // keeps its own backlog (BackLog.0..3) and message records
-            // (MesWnd.3 with `Game.23` text); this runtime saves the scene
-            // and keeps its own backlog.
-            | (27, 2 | 4 | 5 | 6)
-            | (BACKLOG, 0..=3)
-            | (MESWND, 3)
-            // Settings read from the original's XML configuration: scene
-            // skip, movie playback, auto read, the one-line message. Read
-            // as 0 (off).
-            | (25, 0 | 1)
-    )
-}
-
-fn host_error(msg: impl Into<String>) -> silky_vm::Error {
+pub(crate) fn host_error(msg: impl Into<String>) -> silky_vm::Error {
     silky_vm::Error::Host(msg.into())
 }
 
@@ -654,154 +544,9 @@ impl Runtime {
         vm.push(result);
     }
 
-    /// きまぐれテンプテーション2's E-mote calls (command 10, read from the
-    /// executable): 6 load the two files of a costume, 7 face, 9 show,
-    /// 11 hide, 12 and 13 pose, 16 `a` timeline, 17 a number kept on each
-    /// model that this runtime does not use. False for the others.
-    fn kimaten2_emote(&mut self, args: &[Value], sub: i32) -> bool {
-        let args = &args[..args.len().saturating_sub(1)];
-        let n = |i: usize| args.get(i).map(Value::int).unwrap_or(0);
-        let emote = &mut self.scene.emote;
-        match (sub, args.len()) {
-            (6, 2) => {
-                let names: Vec<String> = args
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .map(|s| s.to_ascii_lowercase())
-                    .collect();
-                let first = names.iter().find(|n| n.contains("_h0007"));
-                let second = names.iter().find(|n| n.contains("_h0813"));
-                let (Some(a), Some(b)) = (first, second) else {
-                    return false;
-                };
-                let files = [a.clone(), b.clone()];
-                if emote.as_ref().map(|e| &e.files) != Some(&files) {
-                    *emote = Some(crate::scene::Emote {
-                        files,
-                        ..Default::default()
-                    });
-                }
-            }
-            (7, 2) => emote.iter_mut().for_each(|e| e.face = Some((n(1), n(0)))),
-            (12 | 13, 1) => emote.iter_mut().for_each(|e| e.pose = Some(n(0))),
-            (16, 1) => emote.iter_mut().for_each(|e| e.sub = Some(n(0))),
-            (17, 1) => {}
-            // Scene skip point (0x497410): with the original's "skip H
-            // scenes" setting on, it ends the scene here. That setting is
-            // not offered, so it does nothing, as with the setting off.
-            (4, 0) => {}
-            (9, 0) => emote.iter_mut().for_each(|e| e.visible = true),
-            (11, 0) => emote.iter_mut().for_each(|e| e.visible = false),
-            _ => return false,
-        }
-        true
-    }
-
-    /// きまぐれテンプテーション2's standing E-mote models (command 40, read
-    /// from the executable at 0x4c6000; the slot is the last value except
-    /// for sub 1): 0 and 12 load into a slot (frames, size in percent,
-    /// the two files, slot; 12 has one more value first), 1 face (slot,
-    /// extra, face), 15 main timeline, 14 `a` timeline, 13 a number kept
-    /// on the model, 8 move by (dy, dx), 3 remove one (frames, slot), 4 remove all (frames),
-    /// 16 the mouth track of the voice. The frames are kept for sub 2,
-    /// which crossfades like command 13. False for the others.
-    fn kimaten2_emotes(&mut self, args: &[Value], sub: i32) -> bool {
-        let args = &args[..args.len().saturating_sub(1)];
-        let n = |i: usize| args.get(i).map(Value::int).unwrap_or(0);
-        let last = n(args.len().saturating_sub(1));
-        match (sub, args.len()) {
-            (0, 5) | (12, 6) => {
-                let names: Vec<String> = args
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .map(|s| s.to_ascii_lowercase())
-                    .collect();
-                // Standing models pair `_h0007` (first file) with
-                // `_h0813`; H mode models (`hg030100_10`, `_11`) come in
-                // the same places, and the script keeps `_10` first.
-                let (a, b) = match (
-                    names.iter().find(|n| n.contains("_h0007")),
-                    names.iter().find(|n| n.contains("_h0813")),
-                ) {
-                    (Some(a), Some(b)) => (a, b),
-                    _ if names.len() == 2 && names.iter().all(|n| n.starts_with("hg")) => {
-                        (names.iter().min().unwrap(), names.iter().max().unwrap())
-                    }
-                    _ => return false,
-                };
-                let scale = n(args.len() - 4);
-                self.character_time = self.character_time.max(n(args.len() - 5));
-                let place = crate::scene::Place::standing(last, scale, a);
-                let files = [a.clone(), b.clone()];
-                self.scene.emotes.insert(
-                    last,
-                    crate::scene::Emote {
-                        files,
-                        visible: true,
-                        place: Some(place),
-                        ..Default::default()
-                    },
-                );
-            }
-            (1, 3) => {
-                if let Some(e) = self.scene.emotes.get_mut(&n(0)) {
-                    e.face = Some((n(2), n(1)));
-                }
-            }
-            (13..=15, 2) => {
-                if let Some(e) = self.scene.emotes.get_mut(&last) {
-                    match sub {
-                        14 => e.sub = Some(n(0)),
-                        15 => e.pose = Some(n(0)),
-                        _ => {}
-                    }
-                }
-            }
-            // (dy, dx, slot): moves the driver position (0x45aa00).
-            (8, 3) => {
-                if let Some(p) = self
-                    .scene
-                    .emotes
-                    .get_mut(&last)
-                    .and_then(|e| e.place.as_mut())
-                {
-                    p.x += n(1);
-                    p.y += n(0);
-                }
-            }
-            (3, 2) => {
-                self.scene.emotes.remove(&last);
-                self.character_time = self.character_time.max(n(0));
-            }
-            (4, 1) => {
-                self.scene.emotes.clear();
-                self.character_time = self.character_time.max(n(0));
-            }
-            (16, 1) => {
-                let Some(name) = args[0].as_str() else {
-                    return false;
-                };
-                self.lip_track = None;
-                self.lip = match self.assets.data(name) {
-                    Ok(bytes) => {
-                        let track = parse_lip(&bytes);
-                        self.lip_track = Some(track.clone());
-                        Some((track, 0.0))
-                    }
-                    Err(_) => {
-                        self.note_unhandled(format!("missing {name}"));
-                        None
-                    }
-                };
-            }
-            _ => return false,
-        }
-        true
-    }
-
     /// Sprite calls of ふゆから、くるる。 besides loading the title
     /// picture (see [`crate::sprite`]). `None` for calls it does not know.
-    fn sprite(&mut self, vm: &mut Vm, sub: i32, args: &[Value]) -> Option<Flow> {
+    pub(crate) fn sprite(&mut self, vm: &mut Vm, sub: i32, args: &[Value]) -> Option<Flow> {
         use crate::sprite::{Call, Effect};
         let n = |i: usize| args.get(i).map(Value::int).unwrap_or(0);
         match (sub, args.len()) {
@@ -850,31 +595,15 @@ impl Runtime {
         }
     }
 
-    fn skip(&mut self, name: String, vm: &mut Vm, class: i32, sub: i32) {
+    pub(crate) fn skip(&mut self, name: String, vm: &mut Vm, class: i32, sub: i32) {
         *self.unhandled.entry(name).or_default() += 1;
         if native::returns_value(self.assets.game().title, class, sub) {
             vm.push(0);
         }
     }
 
-    /// きまぐれテンプテーション2: marks the picture on screen as seen in
-    /// the CG mode when it is one of its pictures (the engine does this as
-    /// a picture change is committed).
-    fn register_cg(&mut self, vm: &mut Vm) {
-        if self.assets.game().title != Title::Kimaten2 {
-            return;
-        }
-        let Some(bg) = &self.scene.background else {
-            return;
-        };
-        let layers = self.scene.overlays.values().map(String::as_str);
-        if crate::omake::register_cg(&mut vm.bytes, bg, layers).is_some() {
-            vm.set_var_b(crate::omake::CG_ANY, 1);
-        }
-    }
-
     /// Pauses for a transition of `frames`, or goes on at once.
-    fn transition(&mut self, frames: i32, rule: Option<u32>) -> Flow {
+    pub(crate) fn transition(&mut self, frames: i32, rule: Option<u32>) -> Flow {
         let scale = self.system.settings.effect_scale();
         let ms = (frames_ms(frames) as f32 * scale) as u32;
         if ms == 0 {
@@ -886,7 +615,13 @@ impl Runtime {
 
     /// Screen, interface and shake calls. `None` for calls it does not
     /// know.
-    fn screen(&mut self, vm: &mut Vm, class: i32, sub: i32, args: &[Value]) -> Option<Flow> {
+    pub(crate) fn screen(
+        &mut self,
+        vm: &mut Vm,
+        class: i32,
+        sub: i32,
+        args: &[Value],
+    ) -> Option<Flow> {
         let n = |i: usize| args.get(i).map(Value::int).unwrap_or(0);
         let rule = |i: usize| Some(n(i).max(0) as u32);
         let colour = |v: i32| v as u32 & 0xff_ffff;
@@ -942,7 +677,7 @@ impl Runtime {
     }
 
     /// Starts a sound, decoded on another thread. Music loops.
-    fn play(&mut self, bus: Bus, kind: Kind, ch: i32, file: &str) -> crate::Result<()> {
+    pub(crate) fn play(&mut self, bus: Bus, kind: Kind, ch: i32, file: &str) -> crate::Result<()> {
         if !self.audio.enabled() {
             return Ok(());
         }
@@ -987,7 +722,7 @@ impl Runtime {
 
     /// Music, effect and voice calls. Returns false for calls it does not
     /// know.
-    fn sound(
+    pub(crate) fn sound(
         &mut self,
         vm: &mut Vm,
         class: i32,
@@ -1049,440 +784,6 @@ impl Runtime {
         }
         Ok(true)
     }
-
-    fn game(&mut self, vm: &mut Vm) -> silky_vm::Result<Flow> {
-        let mut args = vm.pop_statement();
-        let Some(Value::Int(command)) = args.pop() else {
-            return Err(host_error("game call without a command"));
-        };
-        let sub = match args.last() {
-            Some(Value::Int(s)) => *s,
-            _ => -1,
-        };
-        let title = self.assets.game().title;
-        if title == Title::Kimaten2 && command == ACTION_MENU {
-            self.actions = (0..7)
-                .filter_map(|i| {
-                    let v = vm.var_b(i) as u32;
-                    (v != 0).then_some(ActionButton {
-                        result: i as i32 + 1,
-                        icon: v % 100 % 50,
-                        tick: match v / 50 {
-                            0 => 0,
-                            1 => 1,
-                            _ => 2,
-                        },
-                    })
-                })
-                .collect();
-            self.handled += 1;
-            if self.actions.is_empty() {
-                vm.push(-1);
-                return Ok(Flow::Continue);
-            }
-            self.pause = Some(Pause::Actions);
-            return Ok(Flow::Yield);
-        }
-        if title == Title::Kimaten2 && command == MAP {
-            use crate::kimaten2::map;
-            // (voice set or -1, back button, which map)
-            let n = |i: usize| args.get(i).map(Value::int).unwrap_or(0);
-            let (voice, back, second) = (n(0), n(1) == 1, n(2) != 0);
-            if let Some(set) = map::VOICES
-                .get(voice.max(0) as usize)
-                .filter(|_| voice >= 0)
-            {
-                let file = set[vm.var_b(100) as usize % 3];
-                self.play(Bus::Voice, Kind::Voice, 0, file)?;
-            }
-            self.map = Some(map::Map {
-                second,
-                back,
-                bytes: (0..30).map(|i| vm.var_b(i)).collect(),
-                panel: None,
-            });
-            self.handled += 1;
-            self.pause = Some(Pause::Map);
-            return Ok(Flow::Yield);
-        }
-        if title == Title::Kimaten2 && command == cmd::H_MODE {
-            self.handled += 1;
-            self.pause = Some(Pause::HMode);
-            return Ok(Flow::Yield);
-        }
-        if title == Title::Kimaten2 && command == cmd::PORTRAIT && self.kimaten2_emote(&args, sub) {
-            self.handled += 1;
-            return Ok(Flow::Continue);
-        }
-        if title == Title::Kimaten2 && command == cmd::EMOTES && sub == 2 && args.len() == 1 {
-            let t = std::mem::take(&mut self.character_time);
-            self.handled += 1;
-            return Ok(self.transition(t, None));
-        }
-        if title == Title::Kimaten2 && command == cmd::EMOTES && self.kimaten2_emotes(&args, sub) {
-            self.handled += 1;
-            return Ok(Flow::Continue);
-        }
-        if title == Title::Kimaten2 && !KIMATEN2_SHARED.contains(&command) {
-            self.skip(format!("Game.{command}"), vm, GAME, command);
-            return Ok(Flow::Continue);
-        }
-        let plain = [cmd::TITLE, cmd::LOCALIZE, cmd::SPEAKER];
-        // A selection's last value is its window style (9, or -1 for the
-        // default), not a sub command.
-        if (sub >= 0 || command == cmd::SELECT) && !plain.contains(&command) {
-            args.pop();
-        }
-        let s = |i: usize| args.get(i).and_then(Value::as_str).map(str::to_string);
-        let n = |i: usize| args.get(i).map(Value::int).unwrap_or(0);
-        if command == cmd::CHARACTER && matches!(sub, 0 | 1 | 3 | 4 | 10) {
-            self.character_time = self.character_time.max(n(0));
-        }
-        if command == cmd::CHARACTER && sub == 14 {
-            self.character_time = self.character_time.max(n(2));
-        }
-        let scene = &mut self.scene;
-        match (command, sub, args.len()) {
-            (cmd::SPEAKER, row, 1) if row >= 0 => scene.speaker = Some(row),
-            (cmd::SPEAKER, _, 1) if s(0).is_some() => scene.speaker_name = s(0),
-            // Japanese builds: (style, question); the labels are the
-            // strings the option bodies left.
-            (cmd::SELECT, _, 2) if s(1).is_some() => {
-                scene.text = s(1).filter(|q| !q.is_empty());
-                self.choices = std::mem::take(&mut vm.option_labels);
-                self.option_count = 0;
-                self.pause = Some(Pause::Choice);
-                self.handled += 1;
-                return Ok(Flow::Yield);
-            }
-            (cmd::PORTRAIT, 6, 1) => scene.portrait = s(0).map(|b| (b, None)),
-            (cmd::PORTRAIT, 7, 1) => {
-                if let Some(p) = &mut scene.portrait {
-                    p.1 = s(0);
-                }
-            }
-            (cmd::PORTRAIT, 9, 0) => scene.portrait_visible = true,
-            // Erase the message window.
-            (cmd::PORTRAIT, 14, 0) => {
-                scene.text = None;
-                scene.speaker = None;
-            }
-            (cmd::PORTRAIT, 11, 0) => scene.portrait_visible = false,
-            // (colour, time) with the rule last: fade out to the colour
-            // through a rule mask.
-            (cmd::RULE_FADE_OUT, rule, 2) if title == Title::Fuyukuru => {
-                scene.cover = Some(n(0) as u32 & 0xff_ffff);
-                self.handled += 1;
-                return Ok(self.transition(n(1), Some(rule.max(0) as u32)));
-            }
-            (cmd::SNOW, on @ (0 | 1), 0) if title == Title::Fuyukuru => scene.snow = on == 0,
-            // "pic_flush": the screen jumps to 1.2 times its size, turns
-            // white and comes back over 16 frames.
-            (cmd::FLUSH, 0, 0) if title == Title::Fuyukuru => {
-                scene.zoom = Some(120);
-                self.then = Some(FollowUp::FlushWhite);
-                self.handled += 1;
-                return Ok(self.transition(1, None));
-            }
-            // "thread_shake": 0 sets up, 2 (size) picks 4 or 16 pixels, 3
-            // starts the screen shaking up and down, 1 stops it.
-            (cmd::QUAKE, 0, 0) if title == Title::Fuyukuru => self.quake_mode = 0,
-            (cmd::QUAKE, 2, 1) if title == Title::Fuyukuru => self.quake_mode = n(0),
-            (cmd::QUAKE, 3, 0) if title == Title::Fuyukuru => {
-                scene.quake = Some(if self.quake_mode == 1 { 16 } else { 4 });
-            }
-            (cmd::QUAKE, 1, 0) if title == Title::Fuyukuru => {
-                scene.quake = None;
-                scene.shake = (0, 0);
-            }
-            // (file, 0): pictures that change with the voice line; 1 ends
-            // them.
-            (cmd::VOICE_PICTURES, 0, 1) if title == Title::Fuyukuru => {
-                let steps = s(0)
-                    .and_then(|f| self.assets.data(&f).ok())
-                    .map(|b| crate::vo::parse(&b))
-                    .unwrap_or_default();
-                self.vo_steps.clear();
-                for (at, step) in steps {
-                    if at == 0 {
-                        step.apply(&mut self.scene);
-                    } else {
-                        self.vo_steps.push((at, step));
-                    }
-                }
-            }
-            (cmd::VOICE_PICTURES, 1, 0) if title == Title::Fuyukuru => self.vo_steps.clear(),
-            // Back to the whole picture after a close-up.
-            (cmd::PICTURE, 6, 0) => {
-                scene.background_offset = (0, 0);
-                scene.background_zoom = 0;
-            }
-            // Auto save point.
-            (cmd::AUTO_SAVE, -1, 0) if title == Title::Fuyukuru => self.auto_save = true,
-            // (time) with 0 first: the picture goes white through rule 17
-            // ("future_in"); with 1 or 2 it comes back ("future_out"). The
-            // original also shrinks the picture to nothing and grows it
-            // back; that is left out.
-            (cmd::FUTURE, mode @ 0..=2, 1) if title == Title::Fuyukuru => {
-                scene.cover = (mode == 0).then_some(0xff_ffff);
-                self.handled += 1;
-                return Ok(self.transition(n(0), Some(17)));
-            }
-            // "doki": the screen jumps to 1.2 times its size and shrinks
-            // back over 8 frames.
-            (cmd::PULSE, -1, 0) if title == Title::Fuyukuru => {
-                scene.zoom = Some(120);
-                self.then = Some(FollowUp::EndZoom { frames: 8 });
-                self.handled += 1;
-                return Ok(self.transition(1, None));
-            }
-            // "slash": the picture of sprite 6 (`Sprite.1`) comes in over a
-            // black screen through rule 0 in 4 frames and goes in 6.
-            (cmd::SLASH, -1, 0) if title == Title::Fuyukuru => {
-                self.handled += 1;
-                let Some(name) = scene.layers.remove(&6) else {
-                    return Ok(Flow::Continue);
-                };
-                scene.flash = Some(name);
-                self.then = Some(FollowUp::EndFlash { frames: 6, rule: 0 });
-                return Ok(self.transition(4, Some(0)));
-            }
-            (cmd::PICTURE, 0, 1) => {
-                scene.background = s(0);
-                if let Some(name) = &scene.background {
-                    self.system
-                        .seen
-                        .insert(crate::assets::with_ext(&name.to_ascii_lowercase()));
-                    self.system_changed = true;
-                }
-                scene.overlays.clear();
-                // Provisional: the title picture sits in a sprite layer;
-                // the first background of the game replaces it.
-                scene.layers.clear();
-            }
-            // (slot, parameter, name)
-            (cmd::PICTURE, 1, 3) => match s(2).filter(|v| !v.is_empty()) {
-                Some(name) => {
-                    self.system
-                        .seen
-                        .insert(crate::assets::with_ext(&name.to_ascii_lowercase()));
-                    self.system_changed = true;
-                    scene.overlays.insert(n(0), name);
-                }
-                None => {
-                    scene.overlays.remove(&n(0));
-                }
-            },
-            // Close-ups: the scripts give y before x (as in Sprite.0,
-            // height before width); the engine stores them as x, y and
-            // places the picture's top left corner there.
-            (cmd::PICTURE, 4, 2) => scene.background_offset = (n(1), n(0)),
-            // Size in percent; the picture grows from its top left corner.
-            (cmd::PICTURE, 5, 1) => scene.background_zoom = n(0),
-            // 2 sets up the change, 11 closes it; nothing to draw.
-            (cmd::PICTURE, 2, 0) | (cmd::PICTURE, 11, 0) => {
-                if sub == 2 {
-                    self.register_cg(vm);
-                }
-            }
-            // (time): crossfade to the new picture.
-            (cmd::PICTURE, 3, 1) => {
-                self.register_cg(vm);
-                self.handled += 1;
-                return Ok(self.transition(n(0), None));
-            }
-            // (time, size, name, slot)
-            (cmd::CHARACTER, 0, 4) => {
-                let Some(body) = s(2) else {
-                    return Err(host_error("character load without a name"));
-                };
-                scene.characters.insert(
-                    n(3),
-                    Character {
-                        body,
-                        face: None,
-                        scale: n(1),
-                        offset: (0, 0),
-                    },
-                );
-            }
-            // (x, y, time, size, name, slot): a character shifted from
-            // its slot position.
-            (cmd::CHARACTER, 14, 6) => {
-                let Some(body) = s(4) else {
-                    return Err(host_error("character load without a name"));
-                };
-                scene.characters.insert(
-                    n(5),
-                    Character {
-                        body,
-                        face: None,
-                        scale: n(3),
-                        offset: (n(0), n(1)),
-                    },
-                );
-            }
-            // (pixels, kind, slot): a short jolt, four steps of an offset
-            // table; kind 0 hops up (0, -p/2, -p, -p/2), else it shakes
-            // sideways (-p, +p, 0, 0).
-            (cmd::CHARACTER, 7, 3) => {
-                let p = n(0);
-                let steps = if n(1) == 0 {
-                    vec![(0, -p / 2), (0, -p), (0, -p / 2), (0, 0)]
-                } else {
-                    vec![(-p, 0), (p, 0), (0, 0), (0, 0)]
-                };
-                // 50 ms a step is a guess: the engine's timing is not
-                // read yet.
-                self.jolts.push((n(2), Jolt { steps, step_ms: 50 }));
-            }
-            // ふゆから、くるる。 "char_swing" (time, pixels, across, slot):
-            // the character swings out by the pixels (sideways if
-            // `across` is 1, else up and down) over the time in frames, to
-            // the other side over twice that and back over the time.
-            (cmd::CHARACTER, 15, 4) if title == Title::Fuyukuru => {
-                let (t, d) = (n(0).max(1), n(1));
-                let at = |f: i32| -> i32 {
-                    match f {
-                        f if f <= t => d * f / t,
-                        f if f <= 3 * t => d - 2 * d * (f - t) / (2 * t),
-                        f => -d + d * (f - 3 * t) / t,
-                    }
-                };
-                let steps = (1..=4 * t)
-                    .map(|f| if n(2) == 1 { (at(f), 0) } else { (0, at(f)) })
-                    .collect();
-                self.jolts.push((
-                    n(3),
-                    Jolt {
-                        steps,
-                        step_ms: 1000 / 60,
-                    },
-                ));
-            }
-            // (time, new slot, slot): a character moves to another slot.
-            (cmd::CHARACTER, 10, 3) => {
-                if let Some(c) = scene.characters.remove(&n(2)) {
-                    scene.characters.insert(n(1), c);
-                }
-            }
-            // (time, slot, name)
-            (cmd::CHARACTER, 1, 3) => {
-                if let Some(c) = scene.characters.get_mut(&n(1)) {
-                    c.face = s(2);
-                }
-            }
-            // Apply: crossfade over the longest time given.
-            (cmd::CHARACTER, 2, 0) => {
-                let t = std::mem::take(&mut self.character_time);
-                self.handled += 1;
-                return Ok(self.transition(t, None));
-            }
-            // (time, slot)
-            (cmd::CHARACTER, 3, 2) => {
-                scene.characters.remove(&n(1));
-            }
-            (cmd::CHARACTER, 4, 1) => scene.characters.clear(),
-            (cmd::SELECT, _, 1) => {
-                let section = self.config.language.map_section();
-                let map = self.text_table.as_ref().map(|t| &t.1);
-                let line = |pos: i32| {
-                    map.and_then(|m| m.line(section, pos.max(0) as usize))
-                        .map(str::to_string)
-                };
-                if let Some(q) = line(n(0)) {
-                    scene.text = Some(q);
-                }
-                self.choices = (0..self.option_count)
-                    .map(|i| line(vm.var_h(40 + i).int()).unwrap_or_else(|| format!("{}", i + 1)))
-                    .collect();
-                self.option_count = 0;
-                self.pause = Some(Pause::Choice);
-                self.handled += 1;
-                return Ok(Flow::Yield);
-            }
-            (cmd::TEXT, 2, 1) => {
-                let name = s(0).ok_or_else(|| host_error("text table without a name"))?;
-                let map = MapFile::parse(&self.assets.data(&name)?)?;
-                self.text_table = Some((name, map));
-                vm.push(0);
-            }
-            (cmd::TEXT, 0, 1) => {
-                let index = n(0).max(0) as usize;
-                let section = self.config.language.map_section();
-                let text = self
-                    .text_table
-                    .as_ref()
-                    .and_then(|(_, m)| m.line(section, index))
-                    .ok_or_else(|| host_error(format!("no text line {index}")))?;
-                scene.text = Some(text.to_string());
-                self.last_text = Some(index);
-                let key = format!(
-                    "{}:{index}",
-                    self.text_table
-                        .as_ref()
-                        .map_or("", |t| t.0.as_str())
-                        .to_ascii_lowercase()
-                );
-                self.read_before = !self.system.read.insert(key);
-                self.system_changed |= !self.read_before;
-                self.pause = Some(Pause::Text { index });
-                self.handled += 1;
-                return Ok(Flow::Yield);
-            }
-            // Extras screens; the result is pushed by
-            // [`Runtime::answer_extras`].
-            (30..=32, _, _) => {
-                self.pause = Some(Pause::Extras(match command {
-                    30 => Extras::Gallery,
-                    31 => Extras::Scenes,
-                    _ => Extras::Music,
-                }));
-                self.handled += 1;
-                return Ok(Flow::Yield);
-            }
-            // The result is pushed by [`Runtime::answer_title`] once the
-            // player picks an entry.
-            (cmd::TITLE, _, _) => {
-                self.pause = Some(Pause::Title);
-                self.handled += 1;
-                return Ok(Flow::Yield);
-            }
-            // Also used inside the arguments of another call, as in
-            // Game.12(0, 1, Game.223("x.akb"), 1): the values before the
-            // name belong to the outer call and go back on the stack.
-            (cmd::LOCALIZE, _, len) if len >= 1 && matches!(args.last(), Some(Value::Str(_))) => {
-                let name = s(len - 1).ok_or_else(|| host_error("localize without a name"))?;
-                for v in &args[..len - 1] {
-                    vm.push(v.clone());
-                }
-                let local = localized_name(&name, self.config.language);
-                let found = [Kind::Layer, Kind::Movie]
-                    .iter()
-                    .any(|&k| self.assets.exists(k, &local));
-                vm.push(if found { local } else { name }.as_str());
-            }
-            // Nothing to do here (read from the executable):
-            // - 10.4 ends the scene when the original's "skip scenes"
-            //   setting is on, and 10.5 turns that setting off; the
-            //   setting is not offered.
-            // - 12.7 and 961.1 reset engine tables at the start.
-            // - 116 shows a picture again after a save is loaded (this
-            //   runtime keeps the scene in the save); 1 takes it away.
-            // - 1003 sets up the original's message window text.
-            // - 1006.11 clears a list of animations no script adds to;
-            //   it returns 0.
-            (10, 4 | 5, 0) | (12, 7, 0) | (961, 1, 1) | (116, 1, 0) | (1003, _, _)
-                if title == Title::Fuyukuru => {}
-            (1006, 11, 0) if title == Title::Fuyukuru => vm.push(0),
-            _ => {
-                self.skip(format!("Game.{command}.{sub}"), vm, GAME, command);
-                return Ok(Flow::Continue);
-            }
-        }
-        self.handled += 1;
-        Ok(Flow::Continue)
-    }
 }
 
 impl Host for Runtime {
@@ -1510,8 +811,11 @@ impl Host for Runtime {
                 // Sprite.1 (layer, image): the title screen picture. In
                 // きまぐれテンプテーション2 it loads the title's button
                 // sheet, which the title screen draws in cells itself.
+                // The sprite, flag and mouse calls below were checked on
+                // ふゆから、くるる。 and are tried on games not known yet.
                 let title = self.assets.game().title;
-                if class == SPRITE && sub == 1 && args.len() == 2 && title == Title::Fuyukuru {
+                let base = title != Title::Kimaten2;
+                if class == SPRITE && sub == 1 && args.len() == 2 && base {
                     let layer = args[0].int();
                     match args[1].as_str() {
                         Some(name) if !name.is_empty() => {
@@ -1524,7 +828,7 @@ impl Host for Runtime {
                     self.handled += 1;
                     return Ok(Flow::Continue);
                 }
-                if class == SPRITE && title == Title::Fuyukuru {
+                if class == SPRITE && base {
                     if let Some(flow) = self.sprite(vm, sub, &args) {
                         self.handled += 1;
                         return Ok(flow);
@@ -1609,7 +913,7 @@ impl Host for Runtime {
                     self.handled += 1;
                     return Ok(Flow::Continue);
                 }
-                if title == Title::Fuyukuru && class == FLAG {
+                if base && class == FLAG {
                     if let Some(changed) = crate::flag::call(&mut self.system.flags, vm, sub, &args)
                     {
                         self.system_changed |= changed;
@@ -1617,7 +921,9 @@ impl Host for Runtime {
                         return Ok(Flow::Continue);
                     }
                 }
-                if title == Title::Fuyukuru && fuyukuru_nothing_to_do(class, sub) {
+                if title == Title::Fuyukuru
+                    && crate::games::fuyukuru::commands::nothing_to_do(class, sub)
+                {
                     if native::returns_value(title, class, sub) {
                         vm.push(0);
                     }
@@ -1626,7 +932,7 @@ impl Host for Runtime {
                 }
                 // (): whether the player clicked, polled once a frame while
                 // a voice plays.
-                if title == Title::Fuyukuru && class == MOUSE && sub == 4 && args.is_empty() {
+                if base && class == MOUSE && sub == 4 && args.is_empty() {
                     vm.push(std::mem::take(&mut self.clicked) as i32);
                     self.pause = Some(Pause::Frame);
                     self.handled += 1;
@@ -1652,17 +958,5 @@ impl Host for Runtime {
             self.audio.stop_bus(Bus::Voice);
         }
         Ok(Flow::Continue)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn lip_track() {
-        let text: Vec<u8> = "\u{feff}+0.0, 0.45, 5.5,"
-            .encode_utf16()
-            .flat_map(u16::to_le_bytes)
-            .collect();
-        assert_eq!(super::parse_lip(&text), vec![0.0, 0.45, 5.5]);
     }
 }

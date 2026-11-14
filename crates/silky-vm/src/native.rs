@@ -67,6 +67,8 @@ pub fn returns_value(title: Title, class: i32, sub: i32) -> bool {
     if class == GAME {
         return match title {
             Title::Fuyukuru => matches!(sub, 20 | 30 | 31 | 32 | 110 | 223 | 1006 | 1009),
+            // The common commands that return a value.
+            Title::Unknown => matches!(sub, 20 | 30 | 31 | 32 | 110 | 223),
             Title::Kimaten2 => matches!(
                 sub,
                 20 | 24

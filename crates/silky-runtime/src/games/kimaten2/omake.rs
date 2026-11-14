@@ -14,9 +14,9 @@
 //! `musicmodebg`); this module draws them too, as it keeps the screens
 //! itself while switching between modes.
 
-use std::sync::Arc;
 use silky_format::akb::Image;
 use silky_format::area::Area;
+use std::sync::Arc;
 
 use crate::assets::{Assets, Language};
 use crate::render::Canvas;
@@ -291,16 +291,17 @@ pub fn draw(
     canvas.draw(&assets.image(bg)?, 0, 0, false);
     let sheet = assets.image(&sheet_name("mode_p", assets, language))?;
     let st = |id: i32, enabled: bool| ui.state(Button::Screen(id), enabled, false) as u32;
-    let part = |c: &mut Canvas, img: &Arc<Image>, src: (u32, u32), dst: (i32, i32), size: (u32, u32)| {
-        c.draw_part(
-            img,
-            (src.0, src.1, size.0, size.1),
-            dst.0,
-            dst.1,
-            false,
-            255,
-        )
-    };
+    let part =
+        |c: &mut Canvas, img: &Arc<Image>, src: (u32, u32), dst: (i32, i32), size: (u32, u32)| {
+            c.draw_part(
+                img,
+                (src.0, src.1, size.0, size.1),
+                dst.0,
+                dst.1,
+                false,
+                255,
+            )
+        };
     // Mode buttons, back and unlock.
     for k in 0..3u32 {
         let id = ids::MODE + k as i32;
@@ -613,7 +614,7 @@ pub fn view_pages(entry: usize) -> usize {
     CG_ENTRIES[entry].1.div_ceil(CELLS)
 }
 
-/// CG mode entries, from the table at 0x575a78: first picture, number of
+/// CG mode entries, from a table in the executable: first picture, number of
 /// pictures and the sheet with their small thumbnails (4 x 258 x 146).
 pub const CG_ENTRIES: [(usize, usize, &str); 29] = [
     (0, 9, "cg_hg020100_00_01"),
@@ -647,7 +648,7 @@ pub const CG_ENTRIES: [(usize, usize, &str); 29] = [
     (259, 9, "cg_hg011800"),
 ];
 
-/// CG mode pictures, from the table at 0x573488: base picture and the
+/// CG mode pictures, from a table in the executable: base picture and the
 /// layers over it in slots 0.., as the scripts show them. The seen bit of
 /// picture `i` is bit `i % 8` of byte `CG_SEEN + i / 8`.
 pub const CG_IMAGES: [&[&str]; 268] = [

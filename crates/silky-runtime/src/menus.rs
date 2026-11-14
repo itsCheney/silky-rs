@@ -14,7 +14,7 @@ use silky_format::akb::Image;
 use silky_format::area::Area;
 
 use crate::assets::{localized_name, Assets, HelpLines, Language};
-use crate::game_tables::{entry_images, CG_ENTRIES, CG_IMAGES, MUSIC, SCENES};
+use crate::games::fuyukuru::tables::{entry_images, CG_ENTRIES, CG_IMAGES, MUSIC, SCENES};
 use crate::render::Canvas;
 use crate::screens::{area, area_file, draw_gem_thumb, draw_scroll_thumb, Cells, INK, K2_INK};
 use crate::system::{RightClick, Settings, SystemData, VOICE_GROUPS};
@@ -202,7 +202,7 @@ impl ExtrasScreen {
             scroll: 0,
             view: None,
             playing: None,
-            k2: crate::omake::Omake::default(),
+            k2: crate::games::kimaten2::omake::Omake::default(),
         }
     }
 
@@ -227,8 +227,8 @@ pub struct ExtrasScreen {
     /// Gallery: entry being viewed and the picture of it.
     pub view: Option<(usize, usize)>,
     pub playing: Option<usize>,
-    /// きまぐれテンプテーション2's screens, see [`crate::omake`].
-    pub k2: crate::omake::Omake,
+    /// きまぐれテンプテーション2's screens, see [`crate::games::kimaten2::omake`].
+    pub k2: crate::games::kimaten2::omake::Omake,
 }
 
 pub struct Menus {
@@ -288,7 +288,7 @@ impl Menus {
     }
 
     /// Whether the game has the extras screens this runtime knows (the
-    /// tables in [`crate::game_tables`] are for one game).
+    /// tables in [`crate::games::fuyukuru::tables`] are for one game).
     pub fn has_extras(&self) -> bool {
         !self.gallery.is_empty()
     }
@@ -852,7 +852,9 @@ impl Menus {
     ) -> Option<Button> {
         if self.kimaten2 {
             let areas = self.extras_areas(s.kind);
-            return crate::omake::hit(areas, s.kind, s.page, s.scroll, &s.k2, bytes, x, y);
+            return crate::games::kimaten2::omake::hit(
+                areas, s.kind, s.page, s.scroll, &s.k2, bytes, x, y,
+            );
         }
         if s.view.is_some() {
             return None;
@@ -889,7 +891,7 @@ impl Menus {
     ) -> Result<()> {
         if self.kimaten2 {
             let volume = data.settings.music;
-            return crate::omake::draw(
+            return crate::games::kimaten2::omake::draw(
                 canvas,
                 assets,
                 self.language,
