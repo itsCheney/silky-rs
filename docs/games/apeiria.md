@@ -14,7 +14,7 @@ Bring-up has started. All 171 scripts decode; the story text is in the scripts (
 - Message window: a band at y = 508 (rows 212..424 of `message_p.akb`, the alpha mask the executable fills with the window colour) under faint lines (rows 0..212). The game's own defaults: colour red 0, green 25, blue 46 of 100, 30 % transparent.
 - Window buttons, read from the executable: a ring around the `MENU` ball. The ball and the ring backdrop are 302-pixel cells of `menu_p00.akb`; the eleven buttons and the hide button are 40-pixel cells of `message_p.akb`. `mes_o.area` holds the ring buttons as ids 1..11 (save, load, quick save, quick load, voice, previous choice, backlog, auto, skip, next choice, settings); the hide button and the window are relative to the window top. The ball folds the ring away.
 - Click wait: the hourglass of `message_p.akb` (ten 80-pixel frames from (1280, 0)) at (1204, 642), measured under Wine.
-- Speaker names: `Game.11(name)` only labels the backlog entry; this game shows no name in the window.
+- Name plate, read from the executable: a left cap, 14-pixel middle pieces for the width of the name and a right end with its flourish, from row 584 of `message_p.akb`, each over the same piece of row 643 filled with the window colour. The name goes 69 pixels in and 17 down; the plate's place (47, 498) was measured under Wine.
 - Text: glyphs about 24 pixels tall every 28.3 pixels from x = 152, lines 41 apart, measured under Wine.
 
 ## Not done yet
@@ -34,3 +34,4 @@ Addresses in `apeiria.exe` of the build above. The code itself does not name the
 | Message window: band and window colour | 0x4639c0 |
 | Message window: one button drawn | 0x460350 |
 | Message window: button states | 0x45ffd0 |
+| Name plate | 0x465e00 |

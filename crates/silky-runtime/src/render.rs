@@ -114,8 +114,9 @@ pub struct Renderer {
     text: Option<TextRenderer>,
     language: Language,
     characters: HashMap<(String, Option<String>), Arc<Image>>,
-    /// 景の海のアペイリア: the window band filled with the window colour.
-    tinted_band: Option<([u8; 3], Arc<Image>)>,
+    /// 景の海のアペイリア: alpha masks of `message_p.akb` filled with the
+    /// window colour, by sheet part and colour.
+    tinted: HashMap<((u32, u32, u32, u32), [u8; 3]), Arc<Image>>,
     /// Message window colour (RGB, 0..1) and opacity (settings).
     pub window: ([f32; 3], f32),
     /// Output pixels per game pixel, for text (see [`Canvas::present`]).
@@ -149,7 +150,7 @@ impl Renderer {
             text,
             language,
             characters: HashMap::new(),
-            tinted_band: None,
+            tinted: HashMap::new(),
             window: ([0.0; 3], WINDOW_OPACITY as f32 / 255.0),
             scale: 1.0,
             record: false,
@@ -534,15 +535,14 @@ impl Renderer {
         Ok(canvas)
     }
 
-    /// The window band of 景の海のアペイリア in a colour: the band's alpha
-    /// times the window opacity is applied when it is drawn.
-    fn tinted_band(&mut self, parts: &Image, rgb: [u8; 3]) -> Arc<Image> {
-        if let Some((c, img)) = &self.tinted_band {
-            if *c == rgb {
-                return img.clone();
-            }
+    /// A part of `parts` as an alpha mask filled with `rgb` (景の海の
+    /// アペイリア's window and name plate); the window opacity is applied
+    /// when it is drawn.
+    fn tinted(&mut self, parts: &Image, part: (u32, u32, u32, u32), rgb: [u8; 3]) -> Arc<Image> {
+        if let Some(img) = self.tinted.get(&(part, rgb)) {
+            return img.clone();
         }
-        let (l, t, w, h) = APEIRIA_WINDOW_BAND;
+        let (l, t, w, h) = part;
         let w = w.min(parts.width.saturating_sub(l));
         let h = h.min(parts.height.saturating_sub(t));
         let mut rgba = Vec::with_capacity((w * h * 4) as usize);
@@ -557,8 +557,58 @@ impl Renderer {
             height: h,
             rgba,
         });
-        self.tinted_band = Some((rgb, img.clone()));
+        if self.tinted.len() > 16 {
+            self.tinted.clear();
+        }
+        self.tinted.insert((part, rgb), img.clone());
         img
+    }
+
+    /// Name plate of 景の海のアペイリア, read from the executable: a left
+    /// cap, 14-pixel middle pieces for the name's width and a right end
+    /// with its flourish, from row 584 of `message_p.akb`, each over the
+    /// same piece of row 643 filled with the window colour. The name goes
+    /// 69 pixels in and 17 down; the plate's place was measured under Wine.
+    fn apeiria_name_plate(
+        &mut self,
+        canvas: &mut Canvas,
+        parts: &Arc<Image>,
+        name: &str,
+        rgb: [u8; 3],
+        alpha: u8,
+    ) {
+        const POS: (i32, i32) = (47, 498);
+        const CAP: u32 = 69;
+        const PIECE: u32 = 14;
+        const END: (u32, u32) = (81, 218);
+        const HEIGHT: u32 = 59;
+        const ROW: u32 = 584;
+        const MASK_ROW: u32 = 643;
+        const NAME_SIZE: f32 = 24.0;
+        let Some(width) = self.text.as_ref().map(|t| t.width(name, NAME_SIZE)) else {
+            return;
+        };
+        let n = (width / PIECE as f32).ceil().max(0.0) as u32;
+        let mut pieces = vec![(0, CAP, 0)];
+        pieces.extend((0..n).map(|i| (CAP, PIECE, CAP + PIECE * i)));
+        pieces.push((END.0, END.1, CAP + PIECE * n));
+        for (sx, w, dx) in pieces {
+            let x = POS.0 + dx as i32;
+            let mask = self.tinted(parts, (sx, MASK_ROW, w, HEIGHT), rgb);
+            canvas.draw_part(
+                &mask,
+                (0, 0, mask.width, mask.height),
+                x,
+                POS.1,
+                false,
+                alpha,
+            );
+            canvas.draw_part(parts, (sx, ROW, w, HEIGHT), x, POS.1, false, 255);
+        }
+        if let Some(tr) = &self.text {
+            let (x, y) = (POS.0 + CAP as i32, POS.1 + 17);
+            tr.draw_line(canvas, name, x as f32, y as f32 + 21.0, NAME_SIZE, [255; 4]);
+        }
     }
 
     /// Draws the E-mote pictures and everything above them (layers,
@@ -607,10 +657,13 @@ impl Renderer {
                 // goes over it at the same opacity.
                 let top = APEIRIA_WINDOW_TOP;
                 let rgb = color.map(|c| (c.clamp(0.0, 1.0) * 255.0) as u8);
-                let band = self.tinted_band(&parts, rgb);
+                let band = self.tinted(&parts, APEIRIA_WINDOW_BAND, rgb);
                 let part = (0, 0, band.width, band.height);
                 canvas.draw_part(&band, part, 0, top, false, alpha);
                 canvas.draw_part(&parts, APEIRIA_WINDOW_TEXTURE, 0, top, false, alpha);
+                if let Some(name) = &scene.speaker_name {
+                    self.apeiria_name_plate(&mut canvas, &parts, name, rgb, alpha);
+                }
             } else {
                 for part in [WINDOW_BAND, WINDOW_TEXTURE] {
                     canvas.draw_part(&parts, part, 0, WINDOW_TOP, false, alpha);
