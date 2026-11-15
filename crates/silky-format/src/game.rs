@@ -12,6 +12,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::arc::{Archive, Entry};
+use crate::engine::Engine;
 use crate::error::{Error, Result};
 use crate::mes::Script;
 
@@ -104,18 +105,18 @@ pub enum Title {
 }
 
 impl Title {
-    /// From the name of the program file in the folder (the file itself
-    /// is never read).
-    fn detect(root: &Path) -> Self {
-        if find_file(root, "kimaten2.exe").is_some() {
-            Title::Kimaten2
-        } else if find_file(root, "apeiria.exe").is_some() {
-            Title::Apeiria
-        } else if find_file(root, "fuyukuru.exe").is_some() {
-            Title::Fuyukuru
-        } else {
-            Title::Unknown
+    /// From the name of the program file in the folder, with that file.
+    fn detect(root: &Path) -> (Self, Option<PathBuf>) {
+        for (exe, title) in [
+            ("kimaten2.exe", Title::Kimaten2),
+            ("apeiria.exe", Title::Apeiria),
+            ("fuyukuru.exe", Title::Fuyukuru),
+        ] {
+            if let Some(path) = find_file(root, exe) {
+                return (title, Some(path));
+            }
         }
+        (Title::Unknown, None)
     }
 }
 
@@ -123,6 +124,8 @@ pub struct Game {
     pub root: PathBuf,
     sets: Vec<(Kind, ArchiveSet)>,
     pub title: Title,
+    /// The engine build of the folder's program.
+    pub engine: Engine,
 }
 
 impl Game {
@@ -157,8 +160,14 @@ impl Game {
                 root.display()
             )));
         }
-        let title = Title::detect(&root);
-        Ok(Self { title, root, sets })
+        let (title, exe) = Title::detect(&root);
+        let engine = Engine::of(exe.as_deref());
+        Ok(Self {
+            title,
+            engine,
+            root,
+            sets,
+        })
     }
 
     /// The archives of one kind.

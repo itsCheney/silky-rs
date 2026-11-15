@@ -33,6 +33,7 @@ cargo run --release -p silky-player -- <游戏目录> --lang zh-hans
 
 - [游戏](docs/games.zh-CN.md)：各游戏的运行情况和尚未完成的部分。
 - [引擎](docs/engine.zh-CN.md)：游戏之间共用什么、各自加入什么，以及各部分的可靠程度。
+- [引擎版本](docs/builds/README.zh-CN.md)：核对过的程序版本，以及它们的引擎有哪些不同。
 - [Game 命令](docs/game-commands.zh-CN.md)：各游戏自己的引擎命令。
 - [功能](docs/features.zh-CN.md)：所有游戏共用的文件格式、虚拟机、渲染器和引擎画面。
 - [加入新游戏](docs/adding-a-game.zh-CN.md)。

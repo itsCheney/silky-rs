@@ -16,7 +16,9 @@ silky-run snap <游戏目录> --out snaps --font <字体> --lines 0,10,100
 
 ## 2. 给它一个名字
 
-在 `crates/silky-format/src/game.rs` 的 `Title` 中加入一项，并在 `Title::detect` 中根据它的程序文件识别。然后加入模块 `crates/silky-runtime/src/games/<游戏>/` 和其中的 `commands.rs`，并在 `Runtime::game`（`games/mod.rs`）中把这款游戏的调用交给它，做法与已有的两款游戏相同。
+在 `crates/silky-format/src/game.rs` 的 `Title` 中加入一项，并在 `Title::detect` 中根据它的程序文件识别。然后加入模块 `crates/silky-runtime/src/games/<游戏>/` 和其中的 `commands.rs`，并在 `Runtime::game`（`games/mod.rs`）中把这款游戏的调用交给它，做法与已有的游戏相同。
+
+在 `crates/silky-format/src/engine.rs` 的 `BUILDS` 中加入它的程序，并指定它的引擎符合的配置（见 [builds/](builds/README.zh-CN.md)）。如果它的引擎类和所有配置都不同，就新建一个配置和对应的页面。
 
 在 `silky_vm::native::returns_value` 中列出这款游戏会在栈上留下值的 `Game` 命令。这要从可执行文件中读出：看处理函数是否压入结果。列表错了会破坏脚本的栈，所以这一步要最先做。
 

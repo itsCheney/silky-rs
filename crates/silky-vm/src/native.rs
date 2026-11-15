@@ -35,6 +35,7 @@ pub const CLASSES: &[(i32, &str)] = &[
     (29, "Game"),
 ];
 
+pub use silky_format::engine::Engine;
 pub use silky_format::game::Title;
 
 pub const SELECT: i32 = 1;
@@ -58,12 +59,13 @@ pub fn class_name(class: i32) -> Option<&'static str> {
 
 /// Whether a native pushes a result. `sub` is the sub-command, or for class
 /// [`GAME`] the command number. The engine classes are shared; class
-/// [`GAME`] is written for each game. Natives not listed push nothing.
+/// [`GAME`] is written for each game; where engine builds differ, the
+/// build's profile decides. Natives not listed push nothing.
 ///
 /// ふゆから、くるる。: from how its scripts use the results.
 /// きまぐれテンプテーション2: Game commands whose handler in the exe pushes
 /// onto the script stack.
-pub fn returns_value(title: Title, class: i32, sub: i32) -> bool {
+pub fn returns_value(title: Title, engine: &Engine, class: i32, sub: i32) -> bool {
     if class == GAME {
         return match title {
             Title::Fuyukuru => matches!(sub, 20 | 30 | 31 | 32 | 110 | 223 | 1006 | 1009),
@@ -92,15 +94,9 @@ pub fn returns_value(title: Title, class: i32, sub: i32) -> bool {
             ),
         };
     }
-    // 景の海のアペイリア: Movie.2 closes the movie; Movie.3, BackLog.4 to
-    // 7, OneMes.5 and Save.3 and 8 push a result (read from the
-    // executable).
-    if title == Title::Apeiria {
-        match (class, sub) {
-            (23, 2) => return false,
-            (23, 3) | (22, 4..=7) | (24, 5) | (27, 3 | 8) => return true,
-            _ => {}
-        }
+    // Engine calls where the builds differ (see `docs/builds/`).
+    if let Some(r) = engine.returns_value(class, sub) {
+        return r;
     }
     matches!(
         (class, sub),

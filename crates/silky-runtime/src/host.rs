@@ -604,7 +604,12 @@ impl Runtime {
 
     pub(crate) fn skip(&mut self, name: String, vm: &mut Vm, class: i32, sub: i32) {
         *self.unhandled.entry(name).or_default() += 1;
-        if native::returns_value(self.assets.game().title, class, sub) {
+        if native::returns_value(
+            self.assets.game().title,
+            &self.assets.game().engine,
+            class,
+            sub,
+        ) {
             vm.push(0);
         }
     }
@@ -821,18 +826,18 @@ impl Host for Runtime {
                     _ => -1,
                 };
                 // Sprite.1 (layer, image): the title screen picture. In
-                // きまぐれテンプテーション2 it loads the title's button
-                // sheet, which the title screen draws in cells itself.
-                // The sprite, flag and mouse calls below were checked on
-                // ふゆから、くるる。 and are tried on games not known yet.
+                // the 2024 build it loads the title's button sheet, which
+                // the title screen draws in cells itself. The sprite and
+                // flag calls below follow the build's profile.
                 let title = self.assets.game().title;
-                let base = title != Title::Kimaten2;
+                let engine = self.assets.game().engine.profile;
+                let base = engine.sprites_and_flags;
                 if class == SPRITE && sub == 1 && args.len() == 2 && base {
                     let layer = args[0].int();
-                    // 景の海のアペイリア creates sprite 5 hidden and
-                    // 2048 pixels square: a store for button sheets
+                    // The 2017 build creates sprite 5 hidden and 2048
+                    // pixels square: a store for button sheets
                     // (title_p.akb), which its screens draw in cells.
-                    if title == Title::Apeiria && layer == 5 {
+                    if engine.sheet_store == Some(layer) {
                         self.handled += 1;
                         return Ok(Flow::Continue);
                     }
@@ -866,7 +871,7 @@ impl Host for Runtime {
                 // string of its own between the pieces of text.
                 if class == BACKLOG && sub == 3 {
                     // Without text: the end of the entry's voice mark.
-                    if args.is_empty() && title == Title::Apeiria {
+                    if args.is_empty() && engine.backlog_voice_end {
                         self.handled += 1;
                         return Ok(Flow::Continue);
                     }
@@ -908,9 +913,9 @@ impl Host for Runtime {
                         return Ok(Flow::Continue);
                     }
                 }
-                // 景の海のアペイリア: Movie.2 closes the movie and returns
-                // nothing (its scripts call it after each scene change).
-                if class == MOVIE && sub == 2 && title == Title::Apeiria && args.is_empty() {
+                // 2017 build: Movie.2 closes the movie and returns nothing
+                // (its scripts call it after each scene change).
+                if class == MOVIE && sub == 2 && engine.movie_2_closes && args.is_empty() {
                     self.movie = None;
                     self.handled += 1;
                     return Ok(Flow::Continue);
@@ -944,7 +949,7 @@ impl Host for Runtime {
                     }
                 }
                 if matches!(class, MUSIC | EFFECT | VOICE)
-                    || (class == HEFFECT && title == Title::Apeiria)
+                    || (class == HEFFECT && engine.heffect_sounds)
                 {
                     if self.sound(vm, class, sub, &args)? {
                         self.handled += 1;
@@ -965,7 +970,7 @@ impl Host for Runtime {
                     _ => false,
                 };
                 if no_op {
-                    if native::returns_value(title, class, sub) {
+                    if native::returns_value(title, &self.assets.game().engine, class, sub) {
                         vm.push(0);
                     }
                     self.handled += 1;

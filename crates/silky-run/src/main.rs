@@ -561,7 +561,7 @@ impl TraceHost {
         } else if (class, sub) == (GAME, 20) {
             println!("select -> option {}", self.options.choose);
             vm.push(self.options.choose as i32 + 1);
-        } else if native::returns_value(self.game.title, class, sub) {
+        } else if native::returns_value(self.game.title, &self.game.engine, class, sub) {
             vm.push(0);
         }
     }

@@ -7,6 +7,7 @@
 pub mod akb;
 pub mod arc;
 pub mod area;
+pub mod engine;
 pub mod error;
 pub mod game;
 pub mod hlg;

@@ -2,7 +2,7 @@
 
 [English](fuyukuru.md) | 简体中文
 
-国际版 1.0.1.0，日文、英文和简体中文。运行时根据游戏目录中的 `fuyukuru.exe` 识别这款游戏；核对过的版本中 `fuyukuru.exe` 的 SHA-256 为 `eeaf1f25cfcc8105c0d0720a46266815c2bb3ee28696cc1374f863f8cdfdb707`。它自己的 `Game` 命令见 [game-commands.zh-CN.md](../game-commands.zh-CN.md#ふゆからくるる)。
+国际版 1.0.1.0，日文、英文和简体中文。运行时根据游戏目录中的 `fuyukuru.exe` 识别这款游戏；核对过的版本中 `fuyukuru.exe` 的 SHA-256 为 `eeaf1f25cfcc8105c0d0720a46266815c2bb3ee28696cc1374f863f8cdfdb707`。它自己的 `Game` 命令见 [game-commands.zh-CN.md](../game-commands.zh-CN.md#ふゆからくるる)。程序版本 1.0.1.0，2026-03-18 链接，引擎配置为 [engine-2021](../builds/engine-2021.zh-CN.md)。
 
 全部 56 个脚本（约 790 万条指令）都能解码，所有跳转都落在指令边界上；全部 3,255 张图片都能解码。在无界面模式下，虚拟机能从 `start.mes` 启动，依次走过 logo、注意事项和标题脚本，并从 `fk001.mes` 开始执行剧情，三种语言的文本都能取到。所有路线都能玩到结局。
 

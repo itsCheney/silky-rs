@@ -2,7 +2,7 @@
 
 [English](kimaten2.md) | 简体中文
 
-2024 年日文版，打了 1.02 补丁。运行时根据游戏目录中的 `kimaten2.exe` 识别这款游戏；核对过的版本中 `kimaten2.exe` 的 SHA-256 为 `5cbd99107b94befe4935bbb7b8fdd7015d715a795945b434788657dee0a50d29`。它自己的 `Game` 命令见 [game-commands.zh-CN.md](../game-commands.zh-CN.md#きまぐれテンプテーション2)。
+2024 年日文版，打了 1.02 补丁。运行时根据游戏目录中的 `kimaten2.exe` 识别这款游戏；核对过的版本中 `kimaten2.exe` 的 SHA-256 为 `5cbd99107b94befe4935bbb7b8fdd7015d715a795945b434788657dee0a50d29`。它自己的 `Game` 命令见 [game-commands.zh-CN.md](../game-commands.zh-CN.md#きまぐれテンプテーション2)。程序版本 1.0.0.0，2024-10-15 链接，引擎配置为 [engine-2024](../builds/engine-2024.zh-CN.md)。
 
 全部 64 个脚本和 712 张图片都能解码。在无界面模式下，`silky-run trace` 能启动到标题菜单并执行剧情，带说话人名字，支持日文。每个游戏都会给引擎加上自己的命令（原生类 29）；本作中哪些命令有返回值，是从它的可执行文件中读出来的。
 

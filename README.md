@@ -33,6 +33,7 @@ Click, Enter or Space goes on, right click hides the message window, the mouse w
 
 - [Games](docs/games.md): how far each game runs and what is left.
 - [Engine](docs/engine.md): what the games share and what each adds, and how sure each part is.
+- [Engine builds](docs/builds/README.md): the program builds checked and how their engines differ.
 - [Game commands](docs/game-commands.md): each game's own engine commands.
 - [Features](docs/features.md): file formats, VM, renderer and engine screens shared by all games.
 - [Adding a game](docs/adding-a-game.md).

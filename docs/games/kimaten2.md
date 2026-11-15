@@ -2,7 +2,7 @@
 
 English | [简体中文](kimaten2.zh-CN.md)
 
-Japanese build 2024 with patch 1.02. The runtime knows the game by `kimaten2.exe` in its folder; the build checked is the one whose `kimaten2.exe` has SHA-256 `5cbd99107b94befe4935bbb7b8fdd7015d715a795945b434788657dee0a50d29`. Its own `Game` commands are listed in [game-commands.md](../game-commands.md#きまぐれテンプテーション2).
+Japanese build 2024 with patch 1.02. The runtime knows the game by `kimaten2.exe` in its folder; the build checked is the one whose `kimaten2.exe` has SHA-256 `5cbd99107b94befe4935bbb7b8fdd7015d715a795945b434788657dee0a50d29`. Its own `Game` commands are listed in [game-commands.md](../game-commands.md#きまぐれテンプテーション2). Program version 1.0.0.0, linked 2024-10-15; its engine profile is [engine-2024](../builds/engine-2024.md).
 
 All 64 scripts and 712 images decode. Headless, `silky-run trace` boots to the title menu and plays the story text with speaker names, in Japanese. Each game adds its own commands to the engine (native class 29); for this one the commands that return a value were read from its executable.
 

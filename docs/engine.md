@@ -15,6 +15,10 @@ So the code is split in two:
 
 A `Game` call goes to the running game's module first, then to the common set. What nobody handles is reported with its arguments and counted, never treated as success. [game-commands.md](game-commands.md) lists every `Game` command handled, with what it takes and gives back and how sure that is.
 
+## Engine builds
+
+Each game links its own copy of the engine, and the engine classes changed between copies. The runtime knows the copy by the program's link time stamp and size and follows its profile where the copies differ; [builds/](builds/README.md) lists the builds checked and a page for each profile.
+
 ## Engine classes
 
 | Class | Name | What the runtime does |
@@ -28,7 +32,7 @@ A `Game` call goes to the running game's module first, then to the common set. W
 | 13 | Anime | Not done yet |
 | 14 | Flag | Flags from byte 1000 on, kept across games |
 | 15, 16, 18 | Music, Effect, Voice | Channels, play, stop, fade out, whether a sound plays |
-| 17 | HEffect | Not done yet |
+| 17 | HEffect | Sounds in the 2017 build; otherwise not done yet |
 | 19 | Sprite | Sprite layers and their animations (rule wipes, dimming) |
 | 20 | Screen | Fades and rule wipes |
 | 21 | Script | Jump to, call and load scripts |

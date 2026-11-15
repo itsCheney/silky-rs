@@ -16,7 +16,9 @@ A folder without a known program file runs as a game not known yet: the engine c
 
 ## 2. Give it a name
 
-Add a variant to `Title` in `crates/silky-format/src/game.rs` and detect it by its program file in `Title::detect`. Then add a module `crates/silky-runtime/src/games/<game>/` with a `commands.rs`, and send the game's calls to it in `Runtime::game` (`games/mod.rs`), as the two games there do.
+Add a variant to `Title` in `crates/silky-format/src/game.rs` and detect it by its program file in `Title::detect`. Then add a module `crates/silky-runtime/src/games/<game>/` with a `commands.rs`, and send the game's calls to it in `Runtime::game` (`games/mod.rs`), as the games there do.
+
+Add its program to `BUILDS` in `crates/silky-format/src/engine.rs` with the profile its engine matches (see [builds/](builds/README.md)). Where its engine classes differ from every profile, add a profile and its page.
 
 In `silky_vm::native::returns_value`, list the game's `Game` commands that leave a value on the stack. Read them from the executable: a handler that pushes a result. A wrong list breaks the script's stack, so this comes before anything else.
 
