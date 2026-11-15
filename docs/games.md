@@ -8,6 +8,6 @@ How far each game runs on silky-rs. The engine shared by all games is described 
 | --- | --- | --- |
 | ふゆから、くるる。 (international build 1.0.1.0) | `fuyukuru.exe` | [games/fuyukuru.md](games/fuyukuru.md) |
 | きまぐれテンプテーション2 (2024 Japanese build, patch 1.02) | `kimaten2.exe` | [games/kimaten2.md](games/kimaten2.md) |
-| 景の海のアペイリア (Japanese build with the official update), bring-up started | `apeiria.exe` | [games/apeiria.md](games/apeiria.md) |
+| 景の海のアペイリア (Japanese build with the official update), story plays through; extras not done | `apeiria.exe` | [games/apeiria.md](games/apeiria.md) |
 
 The runtime tells the games apart by the name of the program file in the folder; it never reads the file. A folder with none of these names is run as a game not known yet: the shared engine and the common `Game` commands work, and the rest is reported. [adding-a-game.md](adding-a-game.md) describes how to add one.
