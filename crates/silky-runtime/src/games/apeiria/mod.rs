@@ -6,3 +6,4 @@ pub mod characters;
 pub(crate) mod commands;
 pub mod holo;
 pub mod mail;
+pub mod panels;

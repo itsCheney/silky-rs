@@ -144,6 +144,8 @@ pub struct Renderer {
     /// 景の海のアペイリア: the picture on the hologram panel, by its
     /// state.
     holo: Option<(crate::games::apeiria::holo::Holo, Arc<Image>)>,
+    /// Pictures with their opacity scaled, by name and opacity.
+    faded: HashMap<(String, u8), Arc<Image>>,
 }
 
 impl Renderer {
@@ -168,6 +170,7 @@ impl Renderer {
             emote_gpu: None,
             snow: None,
             holo: None,
+            faded: HashMap::new(),
         };
         r.set_language(language);
         r
@@ -547,7 +550,8 @@ impl Renderer {
         let mut chars: Vec<_> = scene.characters.iter().collect();
         chars.sort_by_key(|(slot, _)| slot_layout(**slot).1);
         for (slot, c) in chars {
-            let img = self.character_with(assets, &c.body, c.face.as_deref(), c.cheeks.as_deref())?;
+            let img =
+                self.character_with(assets, &c.body, c.face.as_deref(), c.cheeks.as_deref())?;
             let s = c.scale as f32 / 100.0;
             let jolt = scene.jolts.get(slot).copied().unwrap_or_default();
             let (dx, top) = if self.title == Title::Apeiria {
@@ -560,7 +564,60 @@ impl Renderer {
             let y = top + (c.offset.1 + jolt.1) as f32;
             canvas.draw_scaled(&img, x, y, s);
         }
+        if self.title == Title::Apeiria {
+            self.draw_panels(&mut canvas, &scene.panels, assets)?;
+        }
         Ok(canvas)
+    }
+
+    /// 景の海のアペイリア's pictures over the scene (commands 994 to 997).
+    fn draw_panels(
+        &mut self,
+        canvas: &mut Canvas,
+        p: &crate::games::apeiria::panels::Panels,
+        assets: &mut Assets,
+    ) -> Result<()> {
+        use crate::games::apeiria::panels::*;
+        if let Some(s) = &p.swarm {
+            let spots = spots(s.shown.len());
+            let f = s.factor();
+            for (i, _) in s.shown.iter().enumerate().filter(|(_, on)| **on) {
+                let name = match (&s.first, i) {
+                    (Some(first), 0) => first.as_str(),
+                    _ => s.picture.as_str(),
+                };
+                let key = (name.to_string(), s.alpha);
+                let img = match self.faded.get(&key) {
+                    Some(img) => img.clone(),
+                    None => {
+                        let picture = assets.image(name)?;
+                        let img = faded(&picture, s.alpha);
+                        self.faded.insert(key, img.clone());
+                        img
+                    }
+                };
+                let (x, y) = spots.get(i).copied().unwrap_or_default();
+                let half = img.width as f32 / 2.0;
+                let (cx, cy) = (x as f32 + half, y as f32 + img.height as f32 / 2.0);
+                canvas.draw_scaled(&img, cx - half * f, cy - img.height as f32 / 2.0 * f, f);
+            }
+        }
+        if let Some(b) = &p.board {
+            canvas.draw(&assets.image(b)?, BOARD_AT.0, BOARD_AT.1, false);
+        }
+        if let Some(n) = p.notes {
+            let img = assets.image(&format!("k01_{:02}.akb", n))?;
+            canvas.draw(&img, NOTES_AT.0, NOTES_AT.1, false);
+        }
+        if let Some(e) = &p.explain {
+            canvas.draw(&assets.image(EXPLAIN_FRAME)?, 0, 0, false);
+            canvas.draw(&assets.image(e)?, 0, 0, false);
+        }
+        if let Some(i) = &p.item {
+            let img = assets.image(i)?;
+            canvas.draw(&img, 0, ITEM_BOTTOM - img.height as i32, false);
+        }
+        Ok(())
     }
 
     /// 景の海のアペイリア's hologram panel (`Game.1013`).
@@ -762,7 +819,10 @@ impl Renderer {
                 let (_, _, w, h) = WINDOW_BAND;
                 canvas.fill(0, WINDOW_TOP, w, h, [rgb[0], rgb[1], rgb[2], alpha / 2]);
             }
-            let portrait = scene.portrait.as_ref().filter(|_| self.title != Title::Apeiria);
+            let portrait = scene
+                .portrait
+                .as_ref()
+                .filter(|_| self.title != Title::Apeiria);
             if let (true, Some((body, face))) = (scene.portrait_visible, portrait) {
                 let img = self.character(assets, body, face.as_deref())?;
                 let (x, y) = PORTRAIT_POS;

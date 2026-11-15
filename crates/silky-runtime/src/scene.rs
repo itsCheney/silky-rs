@@ -141,6 +141,10 @@ pub struct Scene {
     /// Apeiria on the hologram panel (景の海のアペイリア, command 1013).
     #[serde(default)]
     pub holo: Option<crate::games::apeiria::holo::Holo>,
+    /// Pictures 景の海のアペイリア lays over the scene (commands 994 to
+    /// 997).
+    #[serde(default)]
+    pub panels: crate::games::apeiria::panels::Panels,
     /// Snow falls (ふゆから、くるる。, command 115).
     #[serde(default)]
     pub snow: bool,

@@ -4,6 +4,7 @@ use silky_vm::{Flow, Vm};
 
 use super::holo::Holo;
 use super::mail::Mail;
+use super::panels::Swarm;
 use crate::games::Call;
 use crate::host::Runtime;
 
@@ -11,7 +12,27 @@ use crate::host::Runtime;
 const MAIL: i32 = 1012;
 /// Apeiria on the hologram panel.
 const HOLO: i32 = 1013;
-use crate::games::cmd::{CHARACTER, PORTRAIT};
+/// Copies of a picture at fixed spots.
+const SWARM: i32 = 995;
+/// The deduction board.
+const BOARD: i32 = 994;
+/// The notes panel and the explanation screen.
+const EXPLAIN: i32 = 996;
+/// The item panel.
+const ITEM: i32 = 997;
+/// A voice that goes on over the next messages.
+const LONG_VOICE: i32 = 961;
+/// Lip sync of an event picture, from a `.vo` file.
+const EVENT_LIPS: i32 = 1007;
+/// Timers of the library script.
+const TIMERS: i32 = 1006;
+/// Saves to the auto save slot.
+const AUTO_SAVE: i32 = 14;
+/// Voice bus channels of `LONG_VOICE` channel 0.
+const LONG_VOICE_CHANNELS: i32 = 200;
+use crate::audio::Bus;
+use crate::games::cmd::{CHARACTER, PICTURE, PORTRAIT};
+use silky_format::game::Kind;
 
 impl Runtime {
     /// This game's own commands. `None` for the others.
@@ -21,8 +42,125 @@ impl Runtime {
             CHARACTER => self.apeiria_character(c),
             MAIL => self.mail(vm, c),
             HOLO => self.holo(c),
+            SWARM => self.swarm(c),
+            BOARD | EXPLAIN | ITEM => self.panels(c),
+            PICTURE => self.apeiria_picture(c),
+            LONG_VOICE => self.long_voice(c),
+            // (file) / (): the event picture's mouth moves with the voice
+            // (0x48fde0); not done, the picture stays as it is.
+            EVENT_LIPS if matches!(c.sub, 0 | 1) => self.done(),
+            // (a, b, file) returns a timer, 1 stops one, 10 restarts one,
+            // 11 drops them all (0x48f840); only the library script uses
+            // them, around screens this runtime draws itself.
+            TIMERS => {
+                if c.sub == 0 {
+                    vm.push(0);
+                }
+                self.done()
+            }
+            // (): saves to the auto save slot (0x48d0e0).
+            AUTO_SAVE if c.args.is_empty() => {
+                self.auto_save = true;
+                self.done()
+            }
             _ => None,
         }
+    }
+
+    /// `Game.12`, event pictures, as far as they differ from the common
+    /// set.
+    fn apeiria_picture(&mut self, c: &Call) -> Option<silky_vm::Result<Flow>> {
+        match (c.sub, c.args.len()) {
+            // (file): marks a picture seen for the CG mode, drawing nothing.
+            (10, 1) => {
+                let name = crate::assets::with_ext(&c.str(0)?.to_ascii_lowercase());
+                if self.system.seen.insert(name) {
+                    self.system_changed = true;
+                }
+                self.done()
+            }
+            _ => None,
+        }
+    }
+
+    /// `Game.961`: (channel, file) plays a voice that the next message
+    /// does not cut; (channel) stops it (0x491d70).
+    fn long_voice(&mut self, c: &Call) -> Option<silky_vm::Result<Flow>> {
+        match (c.sub, c.args.len()) {
+            (0, 2) => {
+                let file = c.str(1)?;
+                let ch = LONG_VOICE_CHANNELS + c.int(0);
+                if let Err(e) = self.play(Bus::Voice, Kind::Voice, ch, &file) {
+                    return Some(Err(silky_vm::Error::Host(e.to_string())));
+                }
+            }
+            (1, 1) => self.audio.stop(Bus::Voice, LONG_VOICE_CHANNELS + c.int(0)),
+            _ => return None,
+        }
+        self.done()
+    }
+
+    /// `Game.995`, copies of one picture at fixed spots (0x48dad0).
+    fn swarm(&mut self, c: &Call) -> Option<silky_vm::Result<Flow>> {
+        let swarm = &mut self.scene.panels.swarm;
+        match (c.sub, c.args.len()) {
+            // (alpha, size, count, file): new copies, hidden.
+            (0, 4) => *swarm = Some(Swarm::new(c.str(3)?, c.int(2), c.int(1), c.int(0))),
+            // (time, wave, to, from): fade copies in; with wave 1 the first
+            // of them comes in rippling.
+            (1, 4) | (2, 4) => {
+                if let Some(s) = swarm {
+                    s.set(c.int(3), c.int(2), c.sub == 1);
+                }
+            }
+            (3, 0) => *swarm = None,
+            // (copy): the first copy changes into `ch08_02_03.akb`.
+            (4, 1) => {
+                if let Some(s) = swarm {
+                    s.first = Some("ch08_02_03.akb".into());
+                }
+            }
+            // (copy): a copy jumps; 6 to 8 are other movements.
+            (5, 1) | (6..=8, 0) => {}
+            _ => return None,
+        }
+        self.done()
+    }
+
+    /// `Game.994` (0x48ddf0), `Game.996` (0x48e060) and `Game.997`
+    /// (0x48e4f0).
+    fn panels(&mut self, c: &Call) -> Option<silky_vm::Result<Flow>> {
+        let p = &mut self.scene.panels;
+        match (c.command, c.sub, c.args.len()) {
+            // The board: 0 sets it up empty, 1 drops it, 3 fades it out.
+            (BOARD, 0 | 1 | 3, 0) => p.board = None,
+            // (file): a picture on the board; 4 wipes to it.
+            (BOARD, 2 | 4, 1) => p.board = c.str(0),
+            // (x, y, file): a marker zooms onto (x, y) of the board, then
+            // the board shows the picture.
+            (BOARD, 5, 3) => p.board = c.str(2),
+            // (kind): the notes panel; kind 0 is the only one.
+            (EXPLAIN, 0, 1) => {}
+            (EXPLAIN, 1 | 3, 0) => p.notes = None,
+            // (page): `k01_0N.akb`.
+            (EXPLAIN, 2, 1) => p.notes = Some(c.int(0)),
+            // The explanation screen: 10 sets it up, 11 drops it.
+            (EXPLAIN, 10, 0) => {}
+            (EXPLAIN, 11, 0) => p.explain = None,
+            // (file) at once (12) or with a wipe (15); (time, file) fading
+            // (14); (time, rule, file) through a rule (13, 19).
+            (EXPLAIN, 12 | 15, 1) => p.explain = c.str(0),
+            (EXPLAIN, 14, 2) => p.explain = c.str(1),
+            (EXPLAIN, 13 | 19, 3) => p.explain = c.str(2),
+            // 16 stops the transition, 17 fades the screen in, 18 keeps it
+            // in the picture layer.
+            (EXPLAIN, 16 | 17, 0) | (EXPLAIN, 18, 1) => {}
+            // (file): the item panel slides in; 1 takes it away.
+            (ITEM, 0, 1) => p.item = c.str(0),
+            (ITEM, 1, 0) => p.item = None,
+            _ => return None,
+        }
+        self.done()
     }
 
     /// `Game.10`, the message window portrait, as far as it differs from
