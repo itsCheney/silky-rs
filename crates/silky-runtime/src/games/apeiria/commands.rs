@@ -64,6 +64,25 @@ impl Runtime {
                 }
                 self.done()
             }
+            // Effects that leave nothing behind once over, not done: the
+            // screen shake (993, 0x48d380), the attack and spell effects
+            // (998 at 0x48e610, 1001 at 0x48f150, 1002 at 0x48ee60), the
+            // white flash of a zoomed screen (1005, 0x48fa30), a sprite
+            // animation (1000, 0x48ecd0), and set up calls of the library
+            // script (991, 1003).
+            991 | 993 | 998 | 1000 | 1001 | 1002 | 1003 | 1005 => self.done(),
+            // (): the list of conclusions drawn into the background layer
+            // from bytes 0x514 to 0x51a of the save data (0x491ea0, once,
+            // at the end of s0110); not done.
+            992 => self.done(),
+            // (n) returns an entry of the save list (0x491c50), 1 closes it;
+            // only the title script uses it.
+            1016 => {
+                if c.sub == 0 {
+                    vm.push(0);
+                }
+                self.done()
+            }
             // (): saves to the auto save slot (0x48d0e0).
             AUTO_SAVE if c.args.is_empty() => {
                 self.auto_save = true;
@@ -376,6 +395,10 @@ impl Runtime {
                     m.selected = None;
                 }
             }
+            // (mode) before the screen opens (0x478700), (mail) opens a mail
+            // at once (10, 0x479790), (flag) (14, 0x4786b0): their screens
+            // are not done.
+            (7 | 10 | 14, 1) => {}
             // (mail): byte 1200, the newest mail of the inbox.
             (11, 1) => vm.set_var_b(1200, c.int(0) as u8),
             _ => return None,
