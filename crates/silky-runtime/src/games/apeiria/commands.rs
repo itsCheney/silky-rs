@@ -4,7 +4,7 @@ use silky_vm::{Flow, Vm};
 
 use super::holo::Holo;
 use super::mail::Mail;
-use super::panels::Swarm;
+use super::panels::{Battle, Swarm};
 use crate::games::Call;
 use crate::host::Runtime;
 
@@ -20,6 +20,8 @@ const BOARD: i32 = 994;
 const EXPLAIN: i32 = 996;
 /// The item panel.
 const ITEM: i32 = 997;
+/// The HP gauges of the battles.
+const BATTLE: i32 = 1015;
 /// A voice that goes on over the next messages.
 const LONG_VOICE: i32 = 961;
 /// Lip sync of an event picture, from a `.vo` file.
@@ -43,6 +45,7 @@ impl Runtime {
             MAIL => self.mail(vm, c),
             HOLO => self.holo(c),
             SWARM => self.swarm(c),
+            BATTLE => self.battle(c),
             BOARD | EXPLAIN | ITEM => self.panels(c),
             PICTURE => self.apeiria_picture(c),
             LONG_VOICE => self.long_voice(c),
@@ -95,6 +98,52 @@ impl Runtime {
                 }
             }
             (1, 1) => self.audio.stop(Bus::Voice, LONG_VOICE_CHANNELS + c.int(0)),
+            _ => return None,
+        }
+        self.done()
+    }
+
+    /// `Game.1015`, the HP gauges (0x4918b0). Their slides and the
+    /// draining over time (subs 6 and 7) are not done.
+    fn battle(&mut self, c: &Call) -> Option<silky_vm::Result<Flow>> {
+        let battle = &mut self.scene.panels.battle;
+        let gauge = |i: i32| usize::try_from(i).ok().filter(|i| *i < 5);
+        match (c.sub, c.args.len()) {
+            // Sets the gauges up, out of view.
+            (0, 0) => *battle = Some(Battle::default()),
+            // (gauge): slides it in (1) or out (2).
+            (1 | 2, 1) => {
+                if let (Some(b), Some(i)) = (battle.as_mut(), gauge(c.int(0))) {
+                    b.shown[i] = c.sub == 1;
+                }
+            }
+            // (hp, gauge): moves (3) or sets (5) its HP.
+            (3 | 5, 2) => {
+                if let (Some(b), Some(i)) = (battle.as_mut(), gauge(c.int(1))) {
+                    b.hp[i] = c.int(0);
+                }
+            }
+            // (value, gauge, kind): queues a step for sub 9.
+            (4, 3) => {
+                if let Some(b) = battle {
+                    b.queue.push((c.int(2), c.int(1), c.int(0)));
+                }
+            }
+            // (id, start, step, time, gauge): drains HP over time; 7
+            // (id, gauge) stops it; 8 waits for the gauges.
+            (6, 5) | (7, 2) | (8, 0) => {}
+            (9, 0) => {
+                if let Some(b) = battle {
+                    b.run();
+                }
+            }
+            (10, 0) => *battle = None,
+            // Queues the top gauge flickering, ending full.
+            (11, 0) => {
+                if let Some(b) = battle {
+                    b.queue.push((2, 0, 100));
+                }
+            }
             _ => return None,
         }
         self.done()

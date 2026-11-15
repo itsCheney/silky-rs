@@ -23,6 +23,8 @@ pub struct Panels {
     pub explain: Option<String>,
     /// Picture of the item panel (997).
     pub item: Option<String>,
+    /// The HP gauges (1015).
+    pub battle: Option<Battle>,
 }
 
 /// Copies of a 512 x 512 picture, each at its spot for the count, scaled
@@ -171,4 +173,109 @@ pub fn faded(img: &Image, alpha: u8) -> Arc<Image> {
         height: img.height,
         rgba,
     })
+}
+
+/// The HP gauges of the battles (`Game.1015`, object at 0x4b4210 + 0x54):
+/// Reiichi's at the top, then Apeiria, Miu, Mashiro and Kuon, cut from
+/// `hp.akb`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct Battle {
+    /// HP of each gauge, out of 100.
+    pub hp: [i32; 5],
+    /// Which gauges have slid in.
+    pub shown: [bool; 5],
+    /// Steps queued with sub 4 for sub 9: (kind, gauge, value); kind 0
+    /// slides a gauge in, 1 out, 2 moves its HP to the value, 3 waits.
+    pub queue: Vec<(i32, i32, i32)>,
+}
+
+impl Default for Battle {
+    fn default() -> Self {
+        Battle {
+            hp: [100; 5],
+            shown: [false; 5],
+            queue: Vec::new(),
+        }
+    }
+}
+
+/// A gauge's place in `hp.akb` and on screen (0x457600, 0x458140).
+pub struct Gauge {
+    /// Frame: source top left and size; the screen top left once slid in.
+    pub frame: (u32, u32, u32, u32),
+    pub at: (i32, i32),
+    /// Bar: source top left (the empty bar lies under it) and size, and
+    /// its top left in the frame.
+    pub bar: (u32, u32, u32, u32),
+    pub bar_at: (i32, i32),
+    /// Where the skull goes in the frame at 0 HP.
+    pub skull_at: (i32, i32),
+}
+
+/// The skull at 0 HP: 33 x 36 at (254, 53) of `hp.akb`.
+pub const SKULL: (u32, u32, u32, u32) = (254, 53, 33, 36);
+
+impl Battle {
+    /// Gauge `i` (0 to 4).
+    pub fn gauge(i: usize) -> Gauge {
+        if i == 0 {
+            Gauge {
+                frame: (0, 0, 416, 53),
+                at: (8, 8),
+                bar: (0, 217, 297, 34),
+                bar_at: (88, 8),
+                skull_at: (220, 7),
+            }
+        } else {
+            let i = i as u32;
+            Gauge {
+                frame: (0, 41 * i + 11, 254, 41),
+                at: (8, 41 * i as i32 + 20),
+                bar: (0, 285, 160, 22),
+                bar_at: (88, 10),
+                skull_at: (152, 3),
+            }
+        }
+    }
+
+    /// The colour set's column in `hp.akb` for `hp` (0x458920): green from
+    /// half, orange from a tenth, red below.
+    pub fn column(hp: i32) -> u32 {
+        let f = hp as f32 / 100.0;
+        if f >= 0.5 {
+            0
+        } else if f >= 0.1 {
+            416
+        } else {
+            832
+        }
+    }
+
+    /// Width of the coloured bar out of `width` for `hp`; at least 1 while
+    /// any is left.
+    pub fn filled(width: u32, hp: i32) -> u32 {
+        let f = hp.max(0) as f32 / 100.0;
+        let w = (((width as f32 - 7.0) * f * 10.0 + 5.0) / 10.0) as i32;
+        if hp == 0 {
+            0
+        } else {
+            w.max(1) as u32
+        }
+    }
+
+    /// Carries out the queued steps (sub 9).
+    pub fn run(&mut self) {
+        for (kind, i, v) in std::mem::take(&mut self.queue) {
+            let Some(i) = usize::try_from(i).ok().filter(|i| *i < 5) else {
+                continue;
+            };
+            match kind {
+                0 => self.shown[i] = true,
+                1 => self.shown[i] = false,
+                2 => self.hp[i] = v,
+                _ => {}
+            }
+        }
+    }
 }

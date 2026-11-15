@@ -617,6 +617,25 @@ impl Renderer {
             let img = assets.image(i)?;
             canvas.draw(&img, 0, ITEM_BOTTOM - img.height as i32, false);
         }
+        if let Some(b) = &p.battle {
+            let hp = assets.image("hp.akb")?;
+            for i in (0..5).filter(|i| b.shown[*i]) {
+                let g = Battle::gauge(i);
+                let col = Battle::column(b.hp[i]);
+                let (fx, fy, fw, fh) = g.frame;
+                canvas.draw_part(&hp, (fx + col, fy, fw, fh), g.at.0, g.at.1, false, 255);
+                let (bx, by, bw, bh) = g.bar;
+                let (x, y) = (g.at.0 + g.bar_at.0, g.at.1 + g.bar_at.1);
+                canvas.draw_part(&hp, (bx + col, by + bh, bw, bh), x, y, false, 255);
+                let w = Battle::filled(bw, b.hp[i]);
+                if w > 0 {
+                    canvas.draw_part(&hp, (bx + 5 + col, by, w, bh), x + 5, y, false, 255);
+                } else {
+                    let (sx, sy) = (g.at.0 + g.skull_at.0, g.at.1 + g.skull_at.1);
+                    canvas.draw_part(&hp, SKULL, sx, sy, false, 255);
+                }
+            }
+        }
         Ok(())
     }
 
