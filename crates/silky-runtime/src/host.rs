@@ -245,6 +245,8 @@ pub struct Runtime {
     /// Set by the game's auto save point (ふゆから、くるる。, command 14);
     /// the frontend saves at the next message.
     pub auto_save: bool,
+    /// What 景の海のアペイリア's `Game.12` has put up, for its CG mode.
+    pub(crate) cg_track: crate::games::apeiria::omake::CgTrack,
 }
 
 /// Second step of a two-step effect.
@@ -301,6 +303,7 @@ impl Runtime {
             quake_mode: 0,
             queued_music: BTreeMap::new(),
             auto_save: false,
+            cg_track: Default::default(),
         }
     }
 

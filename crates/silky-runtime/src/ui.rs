@@ -1353,6 +1353,12 @@ impl Layout {
         self.kimaten2.is_some()
     }
 
+    /// Whether the byte variables from [`crate::system::GLOBAL_BYTES`] are
+    /// kept across games (きまぐれテンプテーション2, 景の海のアペイリア).
+    pub fn keeps_global_bytes(&self) -> bool {
+        self.kimaten2.is_some() || self.sheet_title.is_some()
+    }
+
     pub fn load(assets: &Assets, language: Language) -> Result<Self> {
         if assets.game().title == silky_format::game::Title::Kimaten2 {
             return Ok(Self {

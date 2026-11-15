@@ -50,7 +50,7 @@ impl Runtime {
             BATTLE => self.battle(c),
             DNA_PC => self.dna_pc(c),
             BOARD | EXPLAIN | ITEM => self.panels(c),
-            PICTURE => self.apeiria_picture(c),
+            PICTURE => self.apeiria_picture(vm, c),
             LONG_VOICE => self.long_voice(c),
             // (file) / (): the event picture's mouth moves with the voice
             // (0x48fde0); not done, the picture stays as it is.
@@ -93,19 +93,35 @@ impl Runtime {
     }
 
     /// `Game.12`, event pictures, as far as they differ from the common
-    /// set.
-    fn apeiria_picture(&mut self, c: &Call) -> Option<silky_vm::Result<Flow>> {
+    /// set, and what the CG mode learns from them: the background (subs 0
+    /// and 10) and layers (subs 1 and 12) count once the screen is shown
+    /// (subs 2, 3, 4, 6 and 11).
+    fn apeiria_picture(&mut self, vm: &mut Vm, c: &Call) -> Option<silky_vm::Result<Flow>> {
+        let track = &mut self.cg_track;
         match (c.sub, c.args.len()) {
-            // (file): marks a picture seen for the CG mode, drawing nothing.
+            (0, 1) => track.set_background(&c.str(0)?),
+            // (file): the background for the CG mode only.
             (10, 1) => {
-                let name = crate::assets::with_ext(&c.str(0)?.to_ascii_lowercase());
-                if self.system.seen.insert(name) {
-                    self.system_changed = true;
-                }
-                self.done()
+                track.set_background(&c.str(0)?);
+                return self.done();
             }
-            _ => None,
+            (1, 3) => track.set_layer(c.int(0), &c.str(2).unwrap_or_default()),
+            // (slot, file): a layer for the CG mode only.
+            (12, 2) => {
+                track.set_layer(c.int(0), &c.str(1).unwrap_or_default());
+                return self.done();
+            }
+            // (picture): marks a CG picture seen.
+            (13, 1) => {
+                if let Ok(i) = usize::try_from(c.int(0)) {
+                    super::omake::mark(vm, i);
+                }
+                return self.done();
+            }
+            (2 | 3 | 4 | 6 | 11, _) => track.shown(vm),
+            _ => {}
         }
+        None
     }
 
     /// `Game.961`: (channel, file) plays a voice that the next message

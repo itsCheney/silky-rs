@@ -203,6 +203,7 @@ impl ExtrasScreen {
             view: None,
             playing: None,
             k2: crate::games::kimaten2::omake::Omake::default(),
+            ap: crate::games::apeiria::omake::Omake::default(),
         }
     }
 
@@ -229,6 +230,8 @@ pub struct ExtrasScreen {
     pub playing: Option<usize>,
     /// きまぐれテンプテーション2's screens, see [`crate::games::kimaten2::omake`].
     pub k2: crate::games::kimaten2::omake::Omake,
+    /// 景の海のアペイリア's screens, see [`crate::games::apeiria::omake`].
+    pub ap: crate::games::apeiria::omake::Omake,
 }
 
 pub struct Menus {
@@ -242,6 +245,8 @@ pub struct Menus {
     sound_help: Option<HelpLines>,
     /// きまぐれテンプテーション2: its own settings look.
     kimaten2: bool,
+    /// 景の海のアペイリア: its own extras.
+    apeiria: bool,
 }
 
 fn find(areas: &[Area], x: i32, y: i32) -> Option<&Area> {
@@ -256,6 +261,7 @@ pub fn slider_value(a: &Area, x: i32) -> f32 {
 impl Menus {
     pub fn load(assets: &Assets, language: Language) -> Self {
         let kimaten2 = assets.game().title == silky_format::game::Title::Kimaten2;
+        let apeiria = assets.game().title == silky_format::game::Title::Apeiria;
         let mut system = area_file(assets, "config00.area");
         let mut sound = area_file(assets, "config01.area");
         if kimaten2 {
@@ -284,6 +290,7 @@ impl Menus {
             system_help: HelpLines::load(assets, "confighelp"),
             sound_help: HelpLines::load(assets, "soundconfighelp"),
             kimaten2,
+            apeiria,
         }
     }
 
@@ -295,6 +302,10 @@ impl Menus {
 
     pub fn is_kimaten2(&self) -> bool {
         self.kimaten2
+    }
+
+    pub fn is_apeiria(&self) -> bool {
+        self.apeiria
     }
 
     fn sheet(&self, assets: &mut Assets, name: &str) -> Result<Arc<Image>> {
@@ -856,6 +867,12 @@ impl Menus {
                 areas, s.kind, s.page, s.scroll, &s.k2, bytes, x, y,
             );
         }
+        if self.apeiria {
+            let areas = self.extras_areas(s.kind);
+            return crate::games::apeiria::omake::hit(
+                areas, s.kind, s.page, s.scroll, &s.ap, bytes, x, y,
+            );
+        }
         if s.view.is_some() {
             return None;
         }
@@ -904,6 +921,20 @@ impl Menus {
                 bytes,
                 volume,
             );
+        }
+        if self.apeiria {
+            let st = &data.settings;
+            let d = crate::games::apeiria::omake::Draw {
+                kind: s.kind,
+                page: s.page,
+                scroll: s.scroll,
+                playing: s.playing,
+                omake: &s.ap,
+                bytes,
+                volume: (st.music, st.music_on),
+                clock: ui.clock,
+            };
+            return crate::games::apeiria::omake::draw(canvas, assets, ui, &d);
         }
         if let Some((entry, pos)) = s.view {
             return self.draw_picture(canvas, assets, entry, pos);

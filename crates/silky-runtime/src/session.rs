@@ -580,6 +580,9 @@ impl Session {
                         self.ui.hover = None;
                         self.screen = Some(Screen::Extras(ExtrasScreen::new(kind)));
                         self.state = State::Extras;
+                        if self.menus.is_apeiria() {
+                            self.apeiria_extras_music(kind);
+                        }
                         break;
                     }
                     Some(Pause::Movie) => match self.rt.open_movie() {
@@ -801,8 +804,12 @@ impl Session {
             return;
         }
         if let Some(Screen::Extras(e)) = &self.screen {
-            if e.k2.dragging_volume {
+            if e.k2.dragging_volume || e.ap.dragging_volume {
                 self.drag_omake_volume(x);
+                return;
+            }
+            if e.ap.dragging_scroll {
+                self.drag_apeiria_scroll(y);
                 return;
             }
         }
@@ -810,6 +817,7 @@ impl Session {
         if hover != self.ui.hover {
             self.ui.hover = hover;
             self.frame = None;
+            self.apeiria_preview();
         }
     }
 
@@ -834,6 +842,19 @@ impl Session {
                 e.k2.dragging_volume = true;
                 self.drag_omake_volume(x);
                 return;
+            }
+            if self.menus.is_apeiria() && e.kind == Extras::Music && e.ap.view.is_none() {
+                use crate::games::apeiria::omake::ids;
+                if id == ids::VOLUME {
+                    e.ap.dragging_volume = true;
+                    self.drag_omake_volume(x);
+                    return;
+                }
+                if id == ids::SCROLL {
+                    e.ap.dragging_scroll = true;
+                    self.drag_apeiria_scroll(y);
+                    return;
+                }
             }
         }
         if let (Some(Screen::Settings(s)), Some(Button::Screen(id))) =
@@ -894,9 +915,30 @@ impl Session {
             return self.end_movie();
         }
         if let Some(Screen::Extras(e)) = &mut self.screen {
-            if e.k2.dragging_volume {
+            if e.k2.dragging_volume || e.ap.dragging_volume || e.ap.dragging_scroll {
                 e.k2.dragging_volume = false;
+                e.ap.dragging_volume = false;
+                e.ap.dragging_scroll = false;
                 return Ok(());
+            }
+            if let Some(v) = &mut e.ap.view {
+                if let Some(p) = v.picture {
+                    // The next seen picture, through the later entries;
+                    // after the last, the grid of the entry shown.
+                    use crate::games::apeiria::omake;
+                    match omake::next_seen(&self.vm.bytes, v.entry, p) {
+                        Some((entry, p)) => {
+                            v.entry = entry;
+                            v.picture = Some(p);
+                        }
+                        None => {
+                            v.page = p / 12;
+                            v.picture = None;
+                        }
+                    }
+                    self.ui.hover = None;
+                    return Ok(());
+                }
             }
             if let Some(v) = &mut e.k2.view {
                 if let Some(p) = v.picture {
@@ -1031,6 +1073,23 @@ impl Session {
                 self.ui.hover = None;
                 self.frame = None;
             }
+            Some(Screen::Extras(e)) if e.ap.view.is_some() => {
+                let v = e.ap.view.as_mut().expect("checked");
+                match v.picture.take() {
+                    Some(p) => v.page = p / 12,
+                    None => {
+                        e.page = v.entry / 12;
+                        e.ap.view = None;
+                    }
+                }
+                self.ui.hover = None;
+                self.frame = None;
+            }
+            Some(Screen::Extras(e)) if self.menus.is_apeiria() && e.playing.is_some() => {
+                e.playing = None;
+                self.rt.stop_music();
+                self.frame = None;
+            }
             Some(Screen::Extras(_)) => self.leave_extras(-1)?,
             Some(_) => self.close_screen(),
             None => return Ok(false),
@@ -1089,6 +1148,41 @@ impl Session {
                 Archive::wheel(s, up, max);
             }
             Some(Screen::Costume(_)) => return Ok(()),
+            Some(Screen::Extras(e)) if self.menus.is_apeiria() => {
+                use crate::games::apeiria::omake;
+                match (&mut e.ap.view, e.kind) {
+                    (Some(v), _) => match v.picture {
+                        Some(p) => {
+                            let to = if up {
+                                omake::previous_seen(&self.vm.bytes, v.entry, p)
+                            } else {
+                                omake::next_seen(&self.vm.bytes, v.entry, p)
+                            };
+                            if let Some((entry, p)) = to {
+                                v.entry = entry;
+                                v.picture = Some(p);
+                            }
+                        }
+                        None => {
+                            let max = omake::view_pages(v.entry) as isize - 1;
+                            v.page = (v.page as isize + d).clamp(0, max) as usize;
+                        }
+                    },
+                    (None, Extras::Music) => {
+                        e.scroll =
+                            (e.scroll as isize + d).clamp(0, omake::MAX_SCROLL as isize) as usize;
+                    }
+                    (None, kind) => {
+                        let pages = if kind == Extras::Gallery {
+                            omake::CG_PAGES
+                        } else {
+                            omake::SCENE_PAGES
+                        };
+                        e.page = (e.page as isize + d).clamp(0, pages as isize - 1) as usize;
+                        e.ap.preview = None;
+                    }
+                }
+            }
             Some(Screen::Extras(e)) if self.menus.is_kimaten2() => {
                 use crate::games::kimaten2::omake;
                 match (&mut e.k2.view, e.kind) {
@@ -1390,7 +1484,7 @@ impl Session {
     /// Puts the kept global byte variables into the VM (after a boot or a
     /// load, which bring their own copies).
     fn apply_global_bytes(&mut self) {
-        if !self.layout.is_kimaten2() {
+        if !self.layout.keeps_global_bytes() {
             return;
         }
         let kept = self.rt.system.global_bytes.clone();
@@ -1540,7 +1634,7 @@ impl Session {
         self.frame = None;
         match &self.screen {
             Some(Screen::Settings(_)) => return self.press_settings(id, x, y),
-            Some(Screen::Extras(_)) => return self.press_extras(id, y),
+            Some(Screen::Extras(_)) => return self.press_extras(id, x, y),
             Some(Screen::Archive(_) | Screen::Costume(_)) => return self.press_archive(id, x, y),
             _ => {}
         }
@@ -1722,9 +1816,12 @@ impl Session {
         Ok(())
     }
 
-    fn press_extras(&mut self, id: i32, y: i32) -> Result<()> {
+    fn press_extras(&mut self, id: i32, x: i32, y: i32) -> Result<()> {
         if self.menus.is_kimaten2() {
             return self.press_omake(id, y);
+        }
+        if self.menus.is_apeiria() {
+            return self.press_apeiria(id, x, y);
         }
         use crate::games::fuyukuru::tables::MUSIC;
         use extras_ids::*;
@@ -1858,10 +1955,138 @@ impl Session {
         Ok(())
     }
 
+    /// A button of 景の海のアペイリア's extras.
+    fn press_apeiria(&mut self, id: i32, _x: i32, _y: i32) -> Result<()> {
+        use crate::games::apeiria::omake::{self, ids::*, View};
+        let Some(Screen::Extras(s)) = &mut self.screen else {
+            return Ok(());
+        };
+        self.frame = None;
+        if let Some(v) = &mut s.ap.view {
+            match id {
+                VIEW_PREVIOUS => v.page = v.page.saturating_sub(1),
+                VIEW_NEXT => v.page = (v.page + 1).min(omake::view_pages(v.entry) - 1),
+                VIEW_BACK => {
+                    s.page = v.entry / 12;
+                    s.ap.view = None;
+                }
+                _ if (VIEW_CELL..VIEW_CELL + 12).contains(&id) => {
+                    v.picture = Some(v.page * 12 + (id - VIEW_CELL) as usize);
+                }
+                _ => {}
+            }
+            self.ui.hover = None;
+            return Ok(());
+        }
+        let pages = match s.kind {
+            Extras::Gallery => omake::CG_PAGES,
+            _ => omake::SCENE_PAGES,
+        };
+        match id {
+            _ if (MODE..MODE + 3).contains(&id) => {
+                let kind = [Extras::Gallery, Extras::Scenes, Extras::Music][(id - MODE) as usize];
+                if kind != s.kind {
+                    *s = ExtrasScreen::new(kind);
+                    self.ui.hover = None;
+                    self.apeiria_extras_music(kind);
+                }
+                return Ok(());
+            }
+            BACK => return self.leave_extras(-1),
+            _ if s.kind == Extras::Music => match id {
+                PREVIOUS => s.scroll = s.scroll.saturating_sub(1),
+                NEXT => s.scroll = (s.scroll + 1).min(omake::MAX_SCROLL),
+                _ if (0..8).contains(&id) => {
+                    let Some(t) = omake::item(Extras::Music, 0, s.scroll, id as usize) else {
+                        return Ok(());
+                    };
+                    if s.playing == Some(t) {
+                        s.playing = None;
+                        self.rt.stop_music();
+                    } else {
+                        s.playing = Some(t);
+                        self.rt.play_music(omake::TRACK_FILES[t])?;
+                    }
+                }
+                _ => {}
+            },
+            PREVIOUS => s.page = s.page.saturating_sub(1),
+            NEXT => s.page = (s.page + 1).min(pages - 1),
+            _ if (PAGE..PAGE + pages as i32).contains(&id) => s.page = (id - PAGE) as usize,
+            _ if (0..12).contains(&id) => {
+                let Some(item) = omake::item(s.kind, s.page, 0, id as usize) else {
+                    return Ok(());
+                };
+                match s.kind {
+                    // The engine plays the scene without asking.
+                    Extras::Scenes => return self.leave_extras(item as i32),
+                    _ => {
+                        s.ap.view = Some(View {
+                            entry: item,
+                            page: 0,
+                            picture: None,
+                        });
+                        self.ui.hover = None;
+                    }
+                }
+            }
+            _ => {}
+        }
+        if matches!(id, PREVIOUS | NEXT) || (PAGE..PAGE + pages as i32).contains(&id) {
+            s.ap.preview = None;
+        }
+        Ok(())
+    }
+
+    /// 景の海のアペイリア: the music of its extras. The music mode stops what
+    /// plays; the others play their own track when nothing does.
+    fn apeiria_extras_music(&mut self, kind: Extras) {
+        use crate::games::apeiria::omake::EXTRAS_MUSIC;
+        if kind == Extras::Music {
+            self.rt.stop_music();
+        } else if !self.rt.audio.is_playing(Bus::Music, 0) {
+            // A missing track only leaves the screens silent.
+            let _ = self.rt.play_music(EXTRAS_MUSIC);
+        }
+    }
+
+    /// The scroll bar of 景の海のアペイリア's music mode follows the pointer.
+    fn drag_apeiria_scroll(&mut self, y: i32) {
+        if let Some(Screen::Extras(e)) = &mut self.screen {
+            e.scroll = crate::games::apeiria::omake::scroll_at(y);
+            self.frame = None;
+        }
+    }
+
+    /// The scene under the pointer in 景の海のアペイリア's scene mode starts
+    /// its slide show.
+    fn apeiria_preview(&mut self) {
+        use crate::games::apeiria::omake;
+        if !self.menus.is_apeiria() {
+            return;
+        }
+        let Some(Screen::Extras(e)) = &mut self.screen else {
+            return;
+        };
+        let scene = match (e.kind, self.ui.hover) {
+            (Extras::Scenes, Some(Button::Screen(id))) if (0..12).contains(&id) => {
+                omake::item(Extras::Scenes, e.page, 0, id as usize)
+            }
+            _ => None,
+        };
+        if e.ap.preview.map(|p| p.0) != scene {
+            e.ap.preview = scene.map(|s| (s, self.ui.clock));
+        }
+    }
+
     /// The music volume bar of きまぐれテンプテーション2 follows the pointer.
     fn drag_omake_volume(&mut self, x: i32) {
         let old = self.rt.system.settings.clone();
-        self.rt.system.settings.music = crate::games::kimaten2::omake::volume_at(x);
+        self.rt.system.settings.music = if self.menus.is_apeiria() {
+            crate::games::apeiria::omake::volume_at(x)
+        } else {
+            crate::games::kimaten2::omake::volume_at(x)
+        };
         self.settings_changed(old);
         self.frame = None;
     }
@@ -2050,8 +2275,10 @@ impl Session {
         }
         if self.layout.is_kimaten2() {
             self.refresh_archive_flags();
-            self.store_global_bytes();
             self.advance_recording();
+        }
+        if self.layout.keeps_global_bytes() {
+            self.store_global_bytes();
         }
         if self.rt.system_changed && self.ui.clock >= self.system_stored + SYSTEM_STORE_MS {
             self.flush_system();
@@ -2107,6 +2334,13 @@ impl Session {
             }
         }
         if let Some(Screen::Extras(e)) = &mut self.screen {
+            if let Some((scene, _)) = e.ap.preview {
+                if crate::games::apeiria::omake::animates(scene)
+                    && before / 40 != self.ui.clock / 40
+                {
+                    self.frame = None;
+                }
+            }
             if e.playing.is_some() && before / 250 != self.ui.clock / 250 {
                 if !self.rt.audio.is_playing(Bus::Music, 0) {
                     e.playing = None;

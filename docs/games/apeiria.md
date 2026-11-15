@@ -23,11 +23,15 @@ All 171 scripts decode; the story text is in the scripts (no MAP tables). Headle
 - Pictures over the scene: copies of one picture at fixed spots (`Game.995`, the virus swarms; tables for 1, 2, 4, 8, 16 and 32 copies, scaled about their centres), the deduction board at (132, 15) (`Game.994`), the notes panel `k01_0N.akb` at (145, 0) and the explanation screen over `kbg.akb` (`Game.996`), the item panel at the left, its bottom at y = 495 (`Game.997`).
 - The DNA PC (`Game.1014`): its screen goes into the background, the monitor over it, and the system window at (305, 37) is pieced from `apeirasystem.akb`.
 - The HP gauges of the battles (`Game.1015`): five gauges cut from `hp.akb`, green from half, orange from a tenth, red below, a skull at 0; steps queued with sub 4 run with sub 9.
-- A voice the next message does not cut (`Game.961`), the auto save (`Game.14`) and the seen mark of `Game.12.10`.
+- A voice the next message does not cut (`Game.961`) and the auto save (`Game.14`).
+- CG, scene and music modes (`Game.30` to `Game.32`), read from the executable and compared with the original under Wine. What was seen is kept in the byte variables from 3000, across games: a CG bit set from byte 3300, one bit per picture, set when the background and layers `Game.12` put up (subs 0, 1, 10, 12) match a row of the executable's table once the screen is shown (subs 2, 3, 4, 6, 11), or directly (sub 13); scenes from byte 3101 and music from byte 3050, set by the scripts; bytes 3002 to 3004 open the three modes.
+  - CG mode: eight pages of twelve entries (`cgmode_thmNN.akb`), the count of seen pictures on each, and the completion of all three modes at the bottom. An entry opens a grid of its pictures over the dimmed page (from its `cg_evNNNN.akb` strip), with pages of twelve; a picture shows over the whole screen, and clicks walk through every seen picture to the last, then back to the grid. The wheel walks back and forth.
+  - Scene mode: six pages of twelve scenes; under the pointer a scene shows a slide show of `scene_thumbNN.akb` (a second each, a second's fade). A click plays the scene.
+  - Music mode: 41 tracks in eight slanted rows of `music_title.akb`, a scroll bar and the music volume. The CG and scene modes play `ape_27.ogg` when nothing plays; the music mode stops the music it finds.
 
 ## Not done yet
 
-- The CG, scene and music modes: this game's screens differ from ふゆから、くるる。's (twelve thumbnails a page, a strip of pictures per entry) and are not done.
+- In the extras: the fades between screens, keyboard moves, and the slide of the scroll bar's arrows while held.
 - Effects that leave nothing behind are passed over: screen shakes (`Game.993`), attack and spell effects (998, 1001, 1002), the flash of a zoomed screen (1005), a sprite animation (1000). Fades, slides and particles of the pictures above are not done; they appear and go at once.
 - The mouths of event pictures moving with the voice (`Game.1007`, `.vo` files), the draining of HP over time (`Game.1015` subs 6 and 7), the list of conclusions drawn into the background (`Game.992`), and `Game.1012` subs 7, 10 and 14.
 - Text outline, the window position setting, the hourglass frame time.
@@ -59,3 +63,12 @@ Addresses in `apeiria.exe` of the build above. The code itself does not name the
 | HP gauges (`Game.1015`): handler, set up, colours and bar, queue | 0x4918b0, 0x457600, 0x458920, 0x457c80 |
 | Long voice (`Game.961`) | 0x491d70 |
 | Event picture lip sync (`Game.1007`) | 0x48fde0, 0x454bc0 |
+| Extras (`Game.30` to `Game.32`) | 0x490990 |
+| CG mode: open, page, buttons, click | 0x444640, 0x445370, 0x445000, 0x444780 |
+| CG entries, pictures (and the copy the seen check reads) | 0x55cc70, 0x55d1e0 (0x562d00) |
+| CG seen check, set by number (`Game.12.13`) | 0x446150, 0x4465a0 |
+| CG entry grid: page, picture, next, previous | 0x448420, 0x448c00, 0x448ea0, 0x4491a0 |
+| Completions; mode buttons open | 0x46eea0, 0x46f050, 0x46f110; 0x46ee30 |
+| Scene mode: open, page, buttons, click, slide show | 0x4593a0, 0x459dc0, 0x459ae0, 0x459470, 0x45a410 |
+| Scene bytes, slide show lengths | 0x56e8b0, 0x5299f0 |
+| Music mode: open, list, scroll bar, play, volume | 0x469740, 0x46ad60, 0x46b1d0, 0x46a490, 0x46aa70 |
