@@ -141,6 +141,9 @@ pub struct Renderer {
     emote_gpu: Option<crate::emote::Gpu>,
     /// Snow while the scene has it.
     snow: Option<crate::games::fuyukuru::snow::Snow>,
+    /// 景の海のアペイリア: the picture on the hologram panel, by its
+    /// state.
+    holo: Option<(crate::games::apeiria::holo::Holo, Arc<Image>)>,
 }
 
 impl Renderer {
@@ -164,6 +167,7 @@ impl Renderer {
             #[cfg(feature = "emote")]
             emote_gpu: None,
             snow: None,
+            holo: None,
         };
         r.set_language(language);
         r
@@ -518,6 +522,10 @@ impl Renderer {
             canvas.draw(&img, 0, 0, true);
         }
 
+        // 景の海のアペイリア: the hologram panel lies under the characters.
+        if let Some(holo) = scene.holo.as_ref().filter(|h| h.shown) {
+            self.draw_holo(&mut canvas, holo, assets)?;
+        }
         // Characters: canvas scaled by size percent, centred on the slot's
         // position; the top edge follows the engine's formula
         // 300 - 700 * scale, which keeps faces in view at larger sizes.
@@ -527,12 +535,58 @@ impl Renderer {
             let img = self.character(assets, &c.body, c.face.as_deref())?;
             let s = c.scale as f32 / 100.0;
             let jolt = scene.jolts.get(slot).copied().unwrap_or_default();
-            let x = SCREEN_WIDTH as f32 / 2.0 + slot_layout(*slot).0 - img.width as f32 * s / 2.0
+            let (dx, top) = if self.title == Title::Apeiria {
+                crate::games::apeiria::characters::place(*slot, &c.body, s)
+            } else {
+                (slot_layout(*slot).0, 300.0 - 700.0 * s)
+            };
+            let x = SCREEN_WIDTH as f32 / 2.0 + dx - img.width as f32 * s / 2.0
                 + (c.offset.0 + jolt.0) as f32;
-            let y = 300.0 - 700.0 * s + (c.offset.1 + jolt.1) as f32;
+            let y = top + (c.offset.1 + jolt.1) as f32;
             canvas.draw_scaled(&img, x, y, s);
         }
         Ok(canvas)
+    }
+
+    /// 景の海のアペイリア's hologram panel (`Game.1013`).
+    fn draw_holo(
+        &mut self,
+        canvas: &mut Canvas,
+        holo: &crate::games::apeiria::holo::Holo,
+        assets: &mut Assets,
+    ) -> Result<()> {
+        use crate::games::apeiria::holo::{cut, PANEL_SIZE};
+        let panel = assets.image("sld_mini.akb")?;
+        let (px, py) = holo.panel_at();
+        let (w, h) = PANEL_SIZE;
+        let half = (holo.panel.clamp(0, 1) as u32) * h;
+        canvas.draw_part(&panel, (0, half, w, h), px, py, false, 255);
+        let key = crate::games::apeiria::holo::Holo {
+            offset: (0, 0),
+            ..holo.clone()
+        };
+        let img = match &self.holo {
+            Some((k, img)) if *k == key => img.clone(),
+            _ => {
+                let body = assets.image(&holo.body)?;
+                let mut c = Canvas::from_rgba(body.width, body.height, body.rgba.clone());
+                for f in &holo.faces {
+                    let face = assets.image(f)?;
+                    overlay_rgba(&mut c, &face);
+                }
+                let picture = Image {
+                    width: c.width,
+                    height: c.height,
+                    rgba: c.rgba,
+                };
+                let img = cut(&picture, holo.window(), holo.alpha());
+                self.holo = Some((key, img.clone()));
+                img
+            }
+        };
+        let (x, y) = holo.window_at();
+        canvas.draw_scaled(&img, x, y, holo.factor());
+        Ok(())
     }
 
     /// A part of `parts` as an alpha mask filled with `rgb` (景の海の

@@ -2,19 +2,63 @@
 
 use silky_vm::{Flow, Vm};
 
+use super::holo::Holo;
 use super::mail::Mail;
 use crate::games::Call;
 use crate::host::Runtime;
 
 /// The αMAIL screen (`docs/game-commands.md`).
 const MAIL: i32 = 1012;
+/// Apeiria on the hologram panel.
+const HOLO: i32 = 1013;
 
 impl Runtime {
     /// This game's own commands. `None` for the others.
     pub(crate) fn apeiria_game(&mut self, vm: &mut Vm, c: &Call) -> Option<silky_vm::Result<Flow>> {
-        if c.command != MAIL {
-            return None;
+        match c.command {
+            MAIL => self.mail(vm, c),
+            HOLO => self.holo(c),
+            _ => None,
         }
+    }
+
+    /// `Game.1013`. The original skips the pictures while the scene skip
+    /// setting is on; this runtime has it off.
+    fn holo(&mut self, c: &Call) -> Option<silky_vm::Result<Flow>> {
+        let holo = self.scene.holo.get_or_insert_with(Holo::default);
+        match (c.sub, c.args.len()) {
+            // (time, size, place, body): a new picture; faces start again.
+            (0, 4) => {
+                holo.body = c.str(3)?;
+                holo.scale = c.int(1);
+                holo.place = c.int(2);
+                holo.faces.clear();
+                holo.offset = (0, 0);
+            }
+            // (file): an expression or cheeks drawn over the picture.
+            (1, 1) => {
+                let f = c.str(0)?;
+                holo.faces.retain(|x| !x.eq_ignore_ascii_case(&f));
+                holo.faces.push(f);
+            }
+            // (how): 0 with light particles, 1 at once, 2 fading in.
+            (2, 1) => holo.shown = !holo.body.is_empty(),
+            // (time): fade out, then 5: gone.
+            (3, 1) | (5, 0) => {
+                holo.shown = false;
+                holo.body.clear();
+                holo.faces.clear();
+            }
+            // (dx, dy, time): move her picture.
+            (4, 3) => holo.offset = (holo.offset.0 + c.int(0), holo.offset.1 + c.int(1)),
+            // (half): panel picture.
+            (6, 1) => holo.panel = c.int(0),
+            _ => return None,
+        }
+        self.done()
+    }
+
+    fn mail(&mut self, vm: &mut Vm, c: &Call) -> Option<silky_vm::Result<Flow>> {
         let mail = &mut self.scene.mail;
         match (c.sub, c.args.len()) {
             // (tray): set up the list of the inbox (0) or the sent

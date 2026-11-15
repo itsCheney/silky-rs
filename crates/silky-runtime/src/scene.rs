@@ -130,6 +130,9 @@ pub struct Scene {
     /// The αMAIL screen (景の海のアペイリア, command 1012).
     #[serde(default)]
     pub mail: Option<crate::games::apeiria::mail::Mail>,
+    /// Apeiria on the hologram panel (景の海のアペイリア, command 1013).
+    #[serde(default)]
+    pub holo: Option<crate::games::apeiria::holo::Holo>,
     /// Snow falls (ふゆから、くるる。, command 115).
     #[serde(default)]
     pub snow: bool,
