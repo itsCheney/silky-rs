@@ -52,11 +52,11 @@ impl Runtime {
             BOARD | EXPLAIN | ITEM => self.panels(c),
             PICTURE => self.apeiria_picture(vm, c),
             LONG_VOICE => self.long_voice(c),
-            // (file) / (): the event picture's mouth moves with the voice
-            // (0x48fde0); not done, the picture stays as it is.
+            // (file) / (): the event picture's mouth moves with the voice;
+            // not done, the picture stays as it is.
             EVENT_LIPS if matches!(c.sub, 0 | 1) => self.done(),
             // (a, b, file) returns a timer, 1 stops one, 10 restarts one,
-            // 11 drops them all (0x48f840); only the library script uses
+            // 11 drops them all; only the library script uses
             // them, around screens this runtime draws itself.
             TIMERS => {
                 if c.sub == 0 {
@@ -65,17 +65,16 @@ impl Runtime {
                 self.done()
             }
             // Effects that leave nothing behind once over, not done: the
-            // screen shake (993, 0x48d380), the attack and spell effects
-            // (998 at 0x48e610, 1001 at 0x48f150, 1002 at 0x48ee60), the
-            // white flash of a zoomed screen (1005, 0x48fa30), a sprite
-            // animation (1000, 0x48ecd0), and set up calls of the library
+            // screen shake (993), the attack and spell effects (998, 1001,
+            // 1002), the white flash of a zoomed screen (1005), a sprite
+            // animation (1000), and set up calls of the library
             // script (991, 1003).
             991 | 993 | 998 | 1000 | 1001 | 1002 | 1003 | 1005 => self.done(),
             // (): the list of conclusions drawn into the background layer
-            // from bytes 0x514 to 0x51a of the save data (0x491ea0, once,
-            // at the end of s0110); not done.
+            // from bytes 0x514 to 0x51a of the save data (once, at the end
+            // of s0110); not done.
             992 => self.done(),
-            // (n) returns an entry of the save list (0x491c50), 1 closes it;
+            // (n) returns an entry of the save list, 1 closes it;
             // only the title script uses it.
             1016 => {
                 if c.sub == 0 {
@@ -83,7 +82,7 @@ impl Runtime {
                 }
                 self.done()
             }
-            // (): saves to the auto save slot (0x48d0e0).
+            // (): saves to the auto save slot.
             AUTO_SAVE if c.args.is_empty() => {
                 self.auto_save = true;
                 self.done()
@@ -125,7 +124,7 @@ impl Runtime {
     }
 
     /// `Game.961`: (channel, file) plays a voice that the next message
-    /// does not cut; (channel) stops it (0x491d70).
+    /// does not cut; (channel) stops it.
     fn long_voice(&mut self, c: &Call) -> Option<silky_vm::Result<Flow>> {
         match (c.sub, c.args.len()) {
             (0, 2) => {
@@ -141,7 +140,7 @@ impl Runtime {
         self.done()
     }
 
-    /// `Game.1014`, the DNA PC (object at 0x4b4210 + 0x50, 0x4917e0).
+    /// `Game.1014`, the DNA PC.
     fn dna_pc(&mut self, c: &Call) -> Option<silky_vm::Result<Flow>> {
         use super::panels::MONITOR_SCREEN;
         let scene = &mut self.scene;
@@ -168,7 +167,7 @@ impl Runtime {
         self.done()
     }
 
-    /// `Game.1015`, the HP gauges (0x4918b0). Their slides and the
+    /// `Game.1015`, the HP gauges. Their slides and the
     /// draining over time (subs 6 and 7) are not done.
     fn battle(&mut self, c: &Call) -> Option<silky_vm::Result<Flow>> {
         let battle = &mut self.scene.panels.battle;
@@ -214,7 +213,7 @@ impl Runtime {
         self.done()
     }
 
-    /// `Game.995`, copies of one picture at fixed spots (0x48dad0).
+    /// `Game.995`, copies of one picture at fixed spots.
     fn swarm(&mut self, c: &Call) -> Option<silky_vm::Result<Flow>> {
         let swarm = &mut self.scene.panels.swarm;
         match (c.sub, c.args.len()) {
@@ -241,8 +240,7 @@ impl Runtime {
         self.done()
     }
 
-    /// `Game.994` (0x48ddf0), `Game.996` (0x48e060) and `Game.997`
-    /// (0x48e4f0).
+    /// `Game.994`, `Game.996` and `Game.997`.
     fn panels(&mut self, c: &Call) -> Option<silky_vm::Result<Flow>> {
         let p = &mut self.scene.panels;
         match (c.command, c.sub, c.args.len()) {
@@ -411,8 +409,8 @@ impl Runtime {
                     m.selected = None;
                 }
             }
-            // (mode) before the screen opens (0x478700), (mail) opens a mail
-            // at once (10, 0x479790), (flag) (14, 0x4786b0): their screens
+            // (mode) before the screen opens, (mail) opens a mail at once
+            // (10), (flag) (14): their screens
             // are not done.
             (7 | 10 | 14, 1) => {}
             // (mail): byte 1200, the newest mail of the inbox.

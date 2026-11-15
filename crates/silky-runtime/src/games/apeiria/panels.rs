@@ -32,12 +32,11 @@ pub struct Panels {
 }
 
 /// The DNA PC's screen, drawn into the background layer, and the monitor
-/// laid over it (0x452130).
+/// laid over it.
 pub const MONITOR_SCREEN: &str = "dnapc_alphaB_bg.akb";
 pub const MONITOR: &str = "dnapc_alphaA_bg.akb";
 /// The system window: pieces of `apeirasystem.akb` (source left, top,
-/// width, height, then the place in the window), the window at (305, 37)
-/// (0x451ff0).
+/// width, height, then the place in the window), the window at (305, 37).
 pub const SYSTEM_SHEET: &str = "apeirasystem.akb";
 pub const SYSTEM_AT: (i32, i32) = (305, 37);
 pub const SYSTEM_PARTS: [((u32, u32, u32, u32), (i32, i32)); 3] = [
@@ -71,9 +70,9 @@ pub const EXPLAIN_FRAME: &str = "kbg.akb";
 /// The item panel's bottom edge; it sits at the left edge.
 pub const ITEM_BOTTOM: i32 = 495;
 
-/// Top left of each copy by count (tables at 0x574c60, one of 256 bytes
+/// Top left of each copy by count (tables of 256 bytes
 /// for each of 1, 2, 4, 8, 16 and 32 copies; any other count takes the
-/// table of 32, by the byte map at 0x4891b0).
+/// table of 32).
 const SPOTS_1: [(i32, i32); 1] = [(384, 104)];
 const SPOTS_2: [(i32, i32); 2] = [(128, 104), (640, 104)];
 const SPOTS_4: [(i32, i32); 4] = [(551, 104), (219, 104), (0, -66), (768, -66)];
@@ -194,7 +193,7 @@ pub fn faded(img: &Image, alpha: u8) -> Arc<Image> {
     })
 }
 
-/// The HP gauges of the battles (`Game.1015`, object at 0x4b4210 + 0x54):
+/// The HP gauges of the battles (`Game.1015`):
 /// Reiichi's at the top, then Apeiria, Miu, Mashiro and Kuon, cut from
 /// `hp.akb`.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -219,7 +218,7 @@ impl Default for Battle {
     }
 }
 
-/// A gauge's place in `hp.akb` and on screen (0x457600, 0x458140).
+/// A gauge's place in `hp.akb` and on screen.
 pub struct Gauge {
     /// Frame: source top left and size; the screen top left once slid in.
     pub frame: (u32, u32, u32, u32),
@@ -258,7 +257,7 @@ impl Battle {
         }
     }
 
-    /// The colour set's column in `hp.akb` for `hp` (0x458920): green from
+    /// The colour set's column in `hp.akb` for `hp`: green from
     /// half, orange from a tenth, red below.
     pub fn column(hp: i32) -> u32 {
         let f = hp as f32 / 100.0;

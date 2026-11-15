@@ -3,7 +3,7 @@
 //! about its top centre, which goes to the slot's x; the top edge depends
 //! on the character and the size.
 
-/// Shift of the canvas centre from the screen centre by slot (0x44c690).
+/// Shift of the canvas centre from the screen centre by slot.
 fn slot_x(slot: i32) -> f32 {
     match slot {
         1 => -400.0,
@@ -13,7 +13,7 @@ fn slot_x(slot: i32) -> f32 {
 }
 
 /// Top edge on screen at size `s`: `(1 - s) * a - s * b` with (a, b) by
-/// character (0x44c710); -120 for those without an entry.
+/// character; -120 for those without an entry.
 fn top(body: &str, s: f32) -> f32 {
     let b = body.as_bytes();
     let id = match (b.first(), b.get(1), b.get(2), b.get(3)) {
@@ -42,8 +42,8 @@ pub fn place(slot: i32, body: &str, s: f32) -> (f32, f32) {
 }
 
 /// Message window portrait (`Game.10`): a 1024 x 1024 window of the
-/// standing picture (left, top by character, 0x4625b0) at 0.45 of its
-/// size with its top left at (-144, 440) (0x461ca0).
+/// standing picture (left, top by character) at 0.45 of its
+/// size with its top left at (-144, 440).
 pub const PORTRAIT: (f32, f32, f32) = (-144.0, 440.0, 0.45);
 
 /// The window of the portrait on the canvas.

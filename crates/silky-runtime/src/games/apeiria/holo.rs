@@ -38,7 +38,7 @@ const WINDOW: (f32, f32) = (442.0, 300.0);
 const WINDOW_TOP: f32 = 662.0;
 
 impl Holo {
-    /// Top centre of her picture by place (0x468410).
+    /// Top centre of her picture by place.
     fn anchor(&self) -> (i32, i32) {
         match self.place {
             1 => (223, 170),
@@ -47,7 +47,7 @@ impl Holo {
         }
     }
 
-    /// Top left of the panel by place (0x468480).
+    /// Top left of the panel by place.
     pub fn panel_at(&self) -> (i32, i32) {
         match self.place {
             1 => (-32, 154),

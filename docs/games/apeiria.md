@@ -2,7 +2,7 @@
 
 English | [简体中文](apeiria.zh-CN.md)
 
-Japanese build (SILKY'S PLUS WASABI, 2017) with the official update. The runtime knows the game by `apeiria.exe` in its folder; the build checked is the one whose `apeiria.exe` has SHA-256 `dba4857ac6adb02b453a73694737124725bd4c91a9a7ecd60816fa7266e6317e`.
+Japanese build (SILKY'S PLUS WASABI, 2017) with the official update. The runtime knows the game by `apeiria.exe` in its folder; the build checked is the one whose `apeiria.exe` has SHA-256 `dba4857ac6adb02b453a73694737124725bd4c91a9a7ecd60816fa7266e6317e`. Program version 1.0.3.0, linked 2017-11-09; its engine profile is [engine-2017](../builds/engine-2017.md).
 
 All 171 scripts decode; the story text is in the scripts (no MAP tables). Headless, `silky-run snap` runs the whole story to its end with every engine and `Game` call carried out. The screens were compared with the game running under Wine.
 
@@ -72,3 +72,12 @@ Addresses in `apeiria.exe` of the build above. The code itself does not name the
 | Scene mode: open, page, buttons, click, slide show | 0x4593a0, 0x459dc0, 0x459ae0, 0x459470, 0x45a410 |
 | Scene bytes, slide show lengths | 0x56e8b0, 0x5299f0 |
 | Music mode: open, list, scroll bar, play, volume | 0x469740, 0x46ad60, 0x46b1d0, 0x46a490, 0x46aa70 |
+| Standing characters: centre shift by slot, top edge by character | 0x44c690, 0x44c710 |
+| Window portrait: place and size | 0x461ca0 |
+| αMAIL subs 7, 10, 14 | 0x478700, 0x479790, 0x4786b0 |
+| Game object (DNA PC at +0x50, HP gauges at +0x54) | 0x4b4210 |
+| HP gauges: place on screen | 0x458140 |
+| Timers (`Game.1006`) | 0x48f840 |
+| Conclusions list (`Game.992`) | 0x491ea0 |
+| Save list (`Game.1016`) | 0x491c50 |
+| Effects not done: shake (993), sprite animation (1000), attacks and spells (998, 1001, 1002), zoom flash (1005) | 0x48d380, 0x48ecd0, 0x48e610, 0x48f150, 0x48ee60, 0x48fa30 |
