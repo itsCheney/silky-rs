@@ -25,7 +25,26 @@ pub struct Panels {
     pub item: Option<String>,
     /// The HP gauges (1015).
     pub battle: Option<Battle>,
+    /// The monitor of the DNA PC over its screen (1014).
+    pub monitor: bool,
+    /// The Apeiria system window on that screen (1014).
+    pub system: bool,
 }
+
+/// The DNA PC's screen, drawn into the background layer, and the monitor
+/// laid over it (0x452130).
+pub const MONITOR_SCREEN: &str = "dnapc_alphaB_bg.akb";
+pub const MONITOR: &str = "dnapc_alphaA_bg.akb";
+/// The system window: pieces of `apeirasystem.akb` (source left, top,
+/// width, height, then the place in the window), the window at (305, 37)
+/// (0x451ff0).
+pub const SYSTEM_SHEET: &str = "apeirasystem.akb";
+pub const SYSTEM_AT: (i32, i32) = (305, 37);
+pub const SYSTEM_PARTS: [((u32, u32, u32, u32), (i32, i32)); 3] = [
+    ((0, 430, 670, 430), (0, 0)),
+    ((1180, 430, 75, 87), (301, 281)),
+    ((670, 760, 360, 16), (268, 368)),
+];
 
 /// Copies of a 512 x 512 picture, each at its spot for the count, scaled
 /// about its centre.

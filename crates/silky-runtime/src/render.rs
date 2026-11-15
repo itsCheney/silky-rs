@@ -540,7 +540,12 @@ impl Renderer {
             canvas.draw(&img, 0, 0, true);
         }
 
-        // 景の海のアペイリア: the hologram panel lies under the characters.
+        // 景の海のアペイリア: the DNA PC's monitor and the hologram panel
+        // lie under the characters.
+        if scene.panels.monitor {
+            let img = assets.image(crate::games::apeiria::panels::MONITOR)?;
+            canvas.draw(&img, 0, 0, false);
+        }
         if let Some(holo) = scene.holo.as_ref().filter(|h| h.shown) {
             self.draw_holo(&mut canvas, holo, assets)?;
         }
@@ -616,6 +621,12 @@ impl Renderer {
         if let Some(i) = &p.item {
             let img = assets.image(i)?;
             canvas.draw(&img, 0, ITEM_BOTTOM - img.height as i32, false);
+        }
+        if p.system {
+            let sheet = assets.image(SYSTEM_SHEET)?;
+            for (part, (x, y)) in SYSTEM_PARTS {
+                canvas.draw_part(&sheet, part, SYSTEM_AT.0 + x, SYSTEM_AT.1 + y, false, 255);
+            }
         }
         if let Some(b) = &p.battle {
             let hp = assets.image("hp.akb")?;

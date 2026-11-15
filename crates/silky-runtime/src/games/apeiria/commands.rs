@@ -20,6 +20,8 @@ const BOARD: i32 = 994;
 const EXPLAIN: i32 = 996;
 /// The item panel.
 const ITEM: i32 = 997;
+/// The DNA PC's screen.
+const DNA_PC: i32 = 1014;
 /// The HP gauges of the battles.
 const BATTLE: i32 = 1015;
 /// A voice that goes on over the next messages.
@@ -46,6 +48,7 @@ impl Runtime {
             HOLO => self.holo(c),
             SWARM => self.swarm(c),
             BATTLE => self.battle(c),
+            DNA_PC => self.dna_pc(c),
             BOARD | EXPLAIN | ITEM => self.panels(c),
             PICTURE => self.apeiria_picture(c),
             LONG_VOICE => self.long_voice(c),
@@ -98,6 +101,33 @@ impl Runtime {
                 }
             }
             (1, 1) => self.audio.stop(Bus::Voice, LONG_VOICE_CHANNELS + c.int(0)),
+            _ => return None,
+        }
+        self.done()
+    }
+
+    /// `Game.1014`, the DNA PC (object at 0x4b4210 + 0x50, 0x4917e0).
+    fn dna_pc(&mut self, c: &Call) -> Option<silky_vm::Result<Flow>> {
+        use super::panels::MONITOR_SCREEN;
+        let scene = &mut self.scene;
+        match (c.sub, c.args.len()) {
+            // Its screen goes into the background layer, the monitor over
+            // it.
+            (0, 0) => {
+                scene.background = Some(MONITOR_SCREEN.into());
+                scene.panels.monitor = true;
+            }
+            // The system window opens (1) and closes (2); 3 takes the
+            // monitor away too.
+            (1, 0) => scene.panels.system = true,
+            (2, 0) => scene.panels.system = false,
+            (3, 0) => {
+                scene.panels.system = false;
+                scene.panels.monitor = false;
+            }
+            // A strand of DNA scrolling in the window (4) and its progress
+            // bar (5).
+            (4 | 5, 0) => {}
             _ => return None,
         }
         self.done()
