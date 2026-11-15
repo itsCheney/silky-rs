@@ -15,6 +15,10 @@ pub struct Character {
     /// Shift from the slot position in pixels (command 13, sub 14).
     #[serde(default)]
     pub offset: (i32, i32),
+    /// A second picture drawn over the expression (景の海のアペイリア:
+    /// cheeks, command 13 sub 6).
+    #[serde(default)]
+    pub cheeks: Option<String>,
 }
 
 /// Where an E-mote model stands: its size in percent and the position the
@@ -109,6 +113,10 @@ pub struct Scene {
     /// bottom left over the window while `portrait_visible` is set.
     pub portrait: Option<(String, Option<String>)>,
     pub portrait_visible: bool,
+    /// 景の海のアペイリア: cheeks drawn over the portrait (command 10,
+    /// sub 8).
+    #[serde(default)]
+    pub portrait_cheeks: Option<String>,
     /// E-mote picture of Anneliese walking along (command 10).
     pub emote: Option<Emote>,
     /// E-mote standing models by slot (command 40).

@@ -57,6 +57,7 @@ impl Step {
                         face,
                         scale,
                         offset,
+                        cheeks: None,
                     },
                 );
             }

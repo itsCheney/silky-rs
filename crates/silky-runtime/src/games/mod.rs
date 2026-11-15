@@ -267,6 +267,7 @@ impl Runtime {
                     face: None,
                     scale: c.int(1),
                     offset: (0, 0),
+                    cheeks: None,
                 };
                 scene.characters.insert(c.int(3), character);
             }
@@ -281,6 +282,7 @@ impl Runtime {
                     face: None,
                     scale: c.int(3),
                     offset: (c.int(0), c.int(1)),
+                    cheeks: None,
                 };
                 scene.characters.insert(c.int(5), character);
             }

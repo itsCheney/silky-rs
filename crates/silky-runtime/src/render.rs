@@ -113,7 +113,7 @@ impl TextLayout {
 pub struct Renderer {
     text: Option<TextRenderer>,
     language: Language,
-    characters: HashMap<(String, Option<String>), Arc<Image>>,
+    characters: HashMap<(String, Option<String>, Option<String>), Arc<Image>>,
     /// 景の海のアペイリア: alpha masks of `message_p.akb` filled with the
     /// window colour, by sheet part and colour.
     tinted: HashMap<((u32, u32, u32, u32), [u8; 3]), Arc<Image>>,
@@ -196,26 +196,41 @@ impl Renderer {
         body: &str,
         face: Option<&str>,
     ) -> Result<Arc<Image>> {
+        self.character_with(assets, body, face, None)
+    }
+
+    /// Body with its expression and a second picture over that drawn on,
+    /// cached.
+    fn character_with(
+        &mut self,
+        assets: &mut Assets,
+        body: &str,
+        face: Option<&str>,
+        cheeks: Option<&str>,
+    ) -> Result<Arc<Image>> {
         let key = (
             body.to_ascii_lowercase(),
             face.map(|f| f.to_ascii_lowercase()),
+            cheeks.map(|f| f.to_ascii_lowercase()),
         );
         if let Some(img) = self.characters.get(&key) {
             return Ok(img.clone());
         }
         let body = assets.image(body)?;
-        let img = match face {
-            Some(face) => {
-                let face = assets.image(face)?;
-                let mut canvas = Canvas::from_rgba(body.width, body.height, body.rgba.clone());
-                overlay_rgba(&mut canvas, &face);
-                Arc::new(Image {
-                    width: canvas.width,
-                    height: canvas.height,
-                    rgba: canvas.rgba,
-                })
+        let tops: Vec<&str> = face.into_iter().chain(cheeks).collect();
+        let img = if tops.is_empty() {
+            body
+        } else {
+            let mut canvas = Canvas::from_rgba(body.width, body.height, body.rgba.clone());
+            for top in tops {
+                let top = assets.image(top)?;
+                overlay_rgba(&mut canvas, &top);
             }
-            None => body,
+            Arc::new(Image {
+                width: canvas.width,
+                height: canvas.height,
+                rgba: canvas.rgba,
+            })
         };
         if self.characters.len() > 32 {
             self.characters.clear();
@@ -532,7 +547,7 @@ impl Renderer {
         let mut chars: Vec<_> = scene.characters.iter().collect();
         chars.sort_by_key(|(slot, _)| slot_layout(**slot).1);
         for (slot, c) in chars {
-            let img = self.character(assets, &c.body, c.face.as_deref())?;
+            let img = self.character_with(assets, &c.body, c.face.as_deref(), c.cheeks.as_deref())?;
             let s = c.scale as f32 / 100.0;
             let jolt = scene.jolts.get(slot).copied().unwrap_or_default();
             let (dx, top) = if self.title == Title::Apeiria {
@@ -630,8 +645,9 @@ impl Renderer {
         name: &str,
         rgb: [u8; 3],
         alpha: u8,
+        x: i32,
     ) {
-        const POS: (i32, i32) = (47, 498);
+        let pos = (x, 498);
         const CAP: u32 = 69;
         const PIECE: u32 = 14;
         const END: (u32, u32) = (81, 218);
@@ -647,20 +663,20 @@ impl Renderer {
         pieces.extend((0..n).map(|i| (CAP, PIECE, CAP + PIECE * i)));
         pieces.push((END.0, END.1, CAP + PIECE * n));
         for (sx, w, dx) in pieces {
-            let x = POS.0 + dx as i32;
+            let x = pos.0 + dx as i32;
             let mask = self.tinted(parts, (sx, MASK_ROW, w, HEIGHT), rgb);
             canvas.draw_part(
                 &mask,
                 (0, 0, mask.width, mask.height),
                 x,
-                POS.1,
+                pos.1,
                 false,
                 alpha,
             );
-            canvas.draw_part(parts, (sx, ROW, w, HEIGHT), x, POS.1, false, 255);
+            canvas.draw_part(parts, (sx, ROW, w, HEIGHT), x, pos.1, false, 255);
         }
         if let Some(tr) = &self.text {
-            let (x, y) = (POS.0 + CAP as i32, POS.1 + 17);
+            let (x, y) = (pos.0 + CAP as i32, pos.1 + 17);
             tr.draw_line(canvas, name, x as f32, y as f32 + 21.0, NAME_SIZE, [255; 4]);
         }
     }
@@ -718,8 +734,23 @@ impl Renderer {
                 let part = (0, 0, band.width, band.height);
                 canvas.draw_part(&band, part, 0, top, false, alpha);
                 canvas.draw_part(&parts, APEIRIA_WINDOW_TEXTURE, 0, top, false, alpha);
+                if let (true, Some((body, face))) = (scene.portrait_visible, &scene.portrait) {
+                    let img = self.character_with(
+                        assets,
+                        body,
+                        face.as_deref(),
+                        scene.portrait_cheeks.as_deref(),
+                    )?;
+                    let (x, y, s) = crate::games::apeiria::characters::PORTRAIT;
+                    let crop = crate::games::apeiria::characters::portrait_window(body);
+                    let img = crate::games::apeiria::holo::cut(&img, crop, 255);
+                    canvas.draw_scaled(&img, x, y, s);
+                }
+                // The plate makes room for a portrait from when one is set
+                // (Game.10 subs 6 and 13) until it goes (sub 11).
+                let plate_x = if scene.portrait.is_some() { 210 } else { 47 };
                 if let Some(name) = &scene.speaker_name {
-                    self.apeiria_name_plate(&mut canvas, &parts, name, rgb, alpha);
+                    self.apeiria_name_plate(&mut canvas, &parts, name, rgb, alpha, plate_x);
                 }
             } else {
                 for part in [WINDOW_BAND, WINDOW_TEXTURE] {
@@ -731,7 +762,8 @@ impl Renderer {
                 let (_, _, w, h) = WINDOW_BAND;
                 canvas.fill(0, WINDOW_TOP, w, h, [rgb[0], rgb[1], rgb[2], alpha / 2]);
             }
-            if let (true, Some((body, face))) = (scene.portrait_visible, &scene.portrait) {
+            let portrait = scene.portrait.as_ref().filter(|_| self.title != Title::Apeiria);
+            if let (true, Some((body, face))) = (scene.portrait_visible, portrait) {
                 let img = self.character(assets, body, face.as_deref())?;
                 let (x, y) = PORTRAIT_POS;
                 canvas.draw_scaled(&img, x, y, PORTRAIT_SCALE);

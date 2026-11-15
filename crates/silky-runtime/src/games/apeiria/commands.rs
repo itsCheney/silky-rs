@@ -11,15 +11,77 @@ use crate::host::Runtime;
 const MAIL: i32 = 1012;
 /// Apeiria on the hologram panel.
 const HOLO: i32 = 1013;
+use crate::games::cmd::{CHARACTER, PORTRAIT};
 
 impl Runtime {
     /// This game's own commands. `None` for the others.
     pub(crate) fn apeiria_game(&mut self, vm: &mut Vm, c: &Call) -> Option<silky_vm::Result<Flow>> {
         match c.command {
+            PORTRAIT => self.apeiria_portrait(c),
+            CHARACTER => self.apeiria_character(c),
             MAIL => self.mail(vm, c),
             HOLO => self.holo(c),
             _ => None,
         }
+    }
+
+    /// `Game.10`, the message window portrait, as far as it differs from
+    /// the common set.
+    fn apeiria_portrait(&mut self, c: &Call) -> Option<silky_vm::Result<Flow>> {
+        let scene = &mut self.scene;
+        match (c.sub, c.args.len()) {
+            // Leave the scene skip; nothing to do with it off.
+            (4 | 5, 0) => {}
+            // (body): a new portrait; the name plate moves right.
+            (6, 1) | (13, 1) => {
+                scene.portrait = Some((c.str(0)?, None));
+                scene.portrait_cheeks = None;
+            }
+            // (file): cheeks over the expression.
+            (8, 1) => scene.portrait_cheeks = c.str(0),
+            // Fade out (11) or drop (12) the portrait; 11 moves the plate
+            // back.
+            (11 | 12, 0) => {
+                scene.portrait = None;
+                scene.portrait_cheeks = None;
+                scene.portrait_visible = false;
+            }
+            _ => return None,
+        }
+        self.done()
+    }
+
+    /// `Game.13`, standing characters, as far as they differ from the
+    /// common set.
+    fn apeiria_character(&mut self, c: &Call) -> Option<silky_vm::Result<Flow>> {
+        let chars = &mut self.scene.characters;
+        match (c.sub, c.args.len()) {
+            // (slot, file): cheeks over the expression, until a new body.
+            (6, 2) => {
+                if let Some(ch) = chars.get_mut(&c.int(0)) {
+                    ch.cheeks = c.str(1);
+                }
+            }
+            // (dy, dx, slot): move at once.
+            (8, 3) => {
+                if let Some(ch) = chars.get_mut(&c.int(2)) {
+                    ch.offset.0 += c.int(1);
+                    ch.offset.1 += c.int(0);
+                }
+            }
+            // (time, slot, body): another body in the same place, applied
+            // with sub 2.
+            (13, 3) => {
+                self.character_time = self.character_time.max(c.int(0));
+                if let Some(ch) = chars.get_mut(&c.int(1)) {
+                    ch.body = c.str(2)?;
+                    ch.face = None;
+                    ch.cheeks = None;
+                }
+            }
+            _ => return None,
+        }
+        self.done()
     }
 
     /// `Game.1013`. The original skips the pictures while the scene skip

@@ -40,3 +40,26 @@ fn top(body: &str, s: f32) -> f32 {
 pub fn place(slot: i32, body: &str, s: f32) -> (f32, f32) {
     (slot_x(slot), top(body, s))
 }
+
+/// Message window portrait (`Game.10`): a 1024 x 1024 window of the
+/// standing picture (left, top by character, 0x4625b0) at 0.45 of its
+/// size with its top left at (-144, 440) (0x461ca0).
+pub const PORTRAIT: (f32, f32, f32) = (-144.0, 440.0, 0.45);
+
+/// The window of the portrait on the canvas.
+pub fn portrait_window(body: &str) -> (u32, u32, u32, u32) {
+    let b = body.as_bytes();
+    let (l, t) = match (b.get(2), b.get(3)) {
+        (Some(b'0'), Some(b'1')) => (542, 632),
+        (Some(b'0'), Some(b'2')) => (482, 381),
+        (Some(b'0'), Some(b'3')) => (542, 452),
+        (Some(b'0'), Some(b'4')) => (542, 392),
+        (Some(b'0'), Some(b'5')) => (512, 102),
+        (Some(b'0'), Some(b'6')) => (512, 71),
+        (Some(b'0'), Some(b'7')) => (512, 22),
+        (Some(b'0'), Some(b'9')) => (512, 241),
+        (Some(b'1'), Some(b'0')) => (512, 392),
+        _ => (0, 0),
+    };
+    (l, t, 1024, 1024)
+}
