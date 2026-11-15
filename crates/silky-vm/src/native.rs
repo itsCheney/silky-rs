@@ -92,6 +92,16 @@ pub fn returns_value(title: Title, class: i32, sub: i32) -> bool {
             ),
         };
     }
+    // 景の海のアペイリア: Movie.2 closes the movie; Movie.3, BackLog.4 to
+    // 7, OneMes.5 and Save.3 and 8 push a result (read from the
+    // executable).
+    if title == Title::Apeiria {
+        match (class, sub) {
+            (23, 2) => return false,
+            (23, 3) | (22, 4..=7) | (24, 5) | (27, 3 | 8) => return true,
+            _ => {}
+        }
+    }
     matches!(
         (class, sub),
         (1, 2)

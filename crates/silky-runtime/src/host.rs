@@ -19,6 +19,9 @@ const SPRITE: i32 = 19;
 const SCREEN: i32 = 20;
 const UI: i32 = 26;
 const MOVIE: i32 = 23;
+const HEFFECT: i32 = 17;
+/// Effect bus channel of HEffect channel 0.
+const HEFFECT_CHANNELS: i32 = 100;
 const MESWND: i32 = 2;
 const MOUSE: i32 = 12;
 const FLAG: i32 = 14;
@@ -732,10 +735,15 @@ impl Runtime {
     ) -> silky_vm::Result<bool> {
         let (bus, kind) = match class {
             MUSIC => (Bus::Music, Kind::Music),
-            EFFECT => (Bus::Effect, Kind::Effect),
+            EFFECT | HEFFECT => (Bus::Effect, Kind::Effect),
             _ => (Bus::Voice, Kind::Voice),
         };
-        let ch = args.first().map(Value::int).unwrap_or(0);
+        let mut ch = args.first().map(Value::int).unwrap_or(0);
+        // HEffect is a second set of effect channels (景の海のアペイリア
+        // plays its sound loops there); they share the effect volume.
+        if class == HEFFECT {
+            ch += HEFFECT_CHANNELS;
+        }
         match (sub, args) {
             (sound::CHANNELS, [_]) => {}
             (sound::VOICE_PLAY, [_, Value::Str(file)]) if bus == Bus::Voice => {
@@ -851,9 +859,17 @@ impl Host for Runtime {
                 // Japanese builds: the message text arrives as BackLog.3
                 // (text), and MesWnd.3 (message, 0) shows it and waits;
                 // its result 0 means "go on".
+                // A name the script keeps in a string variable comes as a
+                // string of its own between the pieces of text.
                 if class == BACKLOG && sub == 3 {
-                    if let [Value::Str(text)] = args.as_slice() {
-                        self.pending_text = Some(text.clone());
+                    // Without text: the end of the entry's voice mark.
+                    if args.is_empty() && title == Title::Apeiria {
+                        self.handled += 1;
+                        return Ok(Flow::Continue);
+                    }
+                    if !args.is_empty() && args.iter().all(|a| matches!(a, Value::Str(_))) {
+                        let text: String = args.iter().filter_map(Value::as_str).collect();
+                        self.pending_text = Some(text);
                         self.handled += 1;
                         return Ok(Flow::Continue);
                     }
@@ -889,6 +905,13 @@ impl Host for Runtime {
                         return Ok(Flow::Continue);
                     }
                 }
+                // 景の海のアペイリア: Movie.2 closes the movie and returns
+                // nothing (its scripts call it after each scene change).
+                if class == MOVIE && sub == 2 && title == Title::Apeiria && args.is_empty() {
+                    self.movie = None;
+                    self.handled += 1;
+                    return Ok(Flow::Continue);
+                }
                 if class == MOVIE {
                     match (sub, args.as_slice()) {
                         // (0, name): set up a movie.
@@ -917,9 +940,13 @@ impl Host for Runtime {
                         _ => {}
                     }
                 }
-                if matches!(class, MUSIC | EFFECT | VOICE) && self.sound(vm, class, sub, &args)? {
-                    self.handled += 1;
-                    return Ok(Flow::Continue);
+                if matches!(class, MUSIC | EFFECT | VOICE)
+                    || (class == HEFFECT && title == Title::Apeiria)
+                {
+                    if self.sound(vm, class, sub, &args)? {
+                        self.handled += 1;
+                        return Ok(Flow::Continue);
+                    }
                 }
                 if base && class == FLAG {
                     if let Some(changed) = crate::flag::call(&mut self.system.flags, vm, sub, &args)
@@ -929,9 +956,12 @@ impl Host for Runtime {
                         return Ok(Flow::Continue);
                     }
                 }
-                if title == Title::Fuyukuru
-                    && crate::games::fuyukuru::commands::nothing_to_do(class, sub)
-                {
+                let no_op = match title {
+                    Title::Fuyukuru => crate::games::fuyukuru::commands::nothing_to_do(class, sub),
+                    Title::Apeiria => crate::games::apeiria::commands::nothing_to_do(class, sub),
+                    _ => false,
+                };
+                if no_op {
                     if native::returns_value(title, class, sub) {
                         vm.push(0);
                     }

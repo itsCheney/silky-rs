@@ -60,3 +60,24 @@ impl Runtime {
         self.done()
     }
 }
+
+/// Engine calls this runtime has nothing to do for, checked on the
+/// executable: the same set as ふゆから、くるる。 has, with this game's
+/// numbers.
+pub(crate) fn nothing_to_do(class: i32, sub: i32) -> bool {
+    matches!(
+        (class, sub),
+        // Set up at the start: the message window page (MesWnd.1), font
+        // sizes, the one-line message, menus, selection settings.
+        (2, 1) | (10, 0 | 1) | (24, 0 | 2) | (26, 2..=4) | (1, 0)
+            // The store of variables the original rebuilds its scene from
+            // after a load (Save.2 reads, 4 writes, 5 and 6 delete); this
+            // runtime saves the scene itself.
+            | (27, 2 | 4 | 5 | 6)
+            // Its own backlog: size, clear, voice marks of the entry.
+            | (22, 0..=2)
+            // Settings read from the XML configuration (scene skip, auto
+            // read, ...), read as 0 (off).
+            | (25, 0 | 1)
+    )
+}
