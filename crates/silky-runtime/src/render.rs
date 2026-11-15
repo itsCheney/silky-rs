@@ -643,6 +643,9 @@ impl Renderer {
             canvas.zoom_whole(z, -w * (z - 1.0) / 2.0, -h * (z - 1.0) / 2.0);
         }
 
+        if let Some(mail) = &scene.mail {
+            mail.draw(&mut canvas, assets, self.text.as_ref())?;
+        }
         if scene.text.is_some() && window && self.title == Title::Kimaten2 {
             self.kimaten2_window(&mut canvas, scene, assets)?;
             if text {

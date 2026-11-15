@@ -127,6 +127,9 @@ pub struct Scene {
     /// under the message window.
     #[serde(default)]
     pub dim: Option<(u32, u8)>,
+    /// The αMAIL screen (景の海のアペイリア, command 1012).
+    #[serde(default)]
+    pub mail: Option<crate::games::apeiria::mail::Mail>,
     /// Snow falls (ふゆから、くるる。, command 115).
     #[serde(default)]
     pub snow: bool,

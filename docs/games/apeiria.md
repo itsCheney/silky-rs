@@ -16,10 +16,11 @@ Bring-up has started. All 171 scripts decode; the story text is in the scripts (
 - Click wait: the hourglass of `message_p.akb` (ten 80-pixel frames from (1280, 0)) at (1204, 642), measured under Wine.
 - Name plate, read from the executable: a left cap, 14-pixel middle pieces for the width of the name and a right end with its flourish, from row 584 of `message_p.akb`, each over the same piece of row 643 filled with the window colour. The name goes 69 pixels in and 17 down; the plate's place (47, 498) was measured under Wine.
 - Text: glyphs about 24 pixels tall every 28.3 pixels from x = 152, lines 41 apart, measured under Wine.
+- αMAIL, the in-game mail screen (`Game.1012`), read from the executable: the phone frame (`SLD.akb`) and the mail list of `mail01_p.akb` with the tray label (sub 0, list A or B), the newest mail row (byte 1200 or 1400, set by sub 11), the "new mail" notice with its count (subs 5 and 6), the selected row (subs 8 and 9) and the open mail on `mail02_p.akb` with its body text (subs 3 and 4). Places were checked against Wine; the body wrap width is a guess.
 
 ## Not done yet
 
-- The game's own commands: `Game.1012` to `Game.1016`, `Game.99x`, `Game.1000` to `Game.1007` and others are reported. Among them is the in-game mail screen.
+- The game's own commands: `Game.1013` to `Game.1016`, `Game.99x`, `Game.1000` to `Game.1007` and others are reported. `Game.1012` subs 7, 10 and 12 to 14 (list scrolling and animation) are reported too.
 - Text outline, the window position setting, the hourglass frame time.
 
 ## Where things are in the executable
@@ -35,3 +36,6 @@ Addresses in `apeiria.exe` of the build above. The code itself does not name the
 | Message window: one button drawn | 0x460350 |
 | Message window: button states | 0x45ffd0 |
 | Name plate | 0x465e00 |
+| αMAIL (`Game.1012`) handler | 0x4912d0 |
+| αMAIL object: sheets loaded | 0x477ba0 |
+| αMAIL subs 0, 1, 2, 3, 4, 5, 6, 8/9 | 0x4783b0, 0x477db0, 0x478060, 0x4788a0, 0x478bf0, 0x478e60, 0x479200, 0x479480 |

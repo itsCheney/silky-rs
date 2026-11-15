@@ -14,6 +14,7 @@
 //! ([`kimaten2::SHARED_COMMANDS`]). What nobody handles is reported as not
 //! carried out.
 
+pub mod apeiria;
 pub mod fuyukuru;
 pub mod kimaten2;
 
@@ -101,6 +102,11 @@ impl Runtime {
         let call = Call { command, sub, args };
         if title == Title::Fuyukuru {
             if let Some(flow) = self.fuyukuru_game(vm, &call) {
+                return flow;
+            }
+        }
+        if title == Title::Apeiria {
+            if let Some(flow) = self.apeiria_game(vm, &call) {
                 return flow;
             }
         }
