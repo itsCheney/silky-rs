@@ -13,13 +13,14 @@ Bring-up has started. All 171 scripts decode; the story text is in the scripts (
 - Title menu, read from the executable: six entries from `title.area`, the extras page (CG, scene, music) from `title2.area`, cells of `title_p.akb` in four 42-pixel state rows. Continue and load are grey without saves; CG, scene and music need bytes 3002, 3003 and 3004.
 - Message window: a band at y = 508 (rows 212..424 of `message_p.akb`, the alpha mask the executable fills with the window colour) under faint lines (rows 0..212). The game's own defaults: colour red 0, green 25, blue 46 of 100, 30 % transparent.
 - Window buttons, read from the executable: a ring around the `MENU` ball. The ball and the ring backdrop are 302-pixel cells of `menu_p00.akb`; the eleven buttons and the hide button are 40-pixel cells of `message_p.akb`. `mes_o.area` holds the ring buttons as ids 1..11 (save, load, quick save, quick load, voice, previous choice, backlog, auto, skip, next choice, settings); the hide button and the window are relative to the window top. The ball folds the ring away.
+- Click wait: the hourglass of `message_p.akb` (ten 80-pixel frames from (1280, 0)) at (1204, 642), measured under Wine.
+- Speaker names: `Game.11(name)` only labels the backlog entry; this game shows no name in the window.
 - Text: glyphs about 24 pixels tall every 28.3 pixels from x = 152, lines 41 apart, measured under Wine.
 
 ## Not done yet
 
 - The game's own commands: `Game.1012` to `Game.1016`, `Game.99x`, `Game.1000` to `Game.1007` and others are reported. Among them is the in-game mail screen.
-- Speaker names (`Game.11` with the name) are not drawn.
-- Click-wait icon, text outline, the window position setting.
+- Text outline, the window position setting, the hourglass frame time.
 
 ## Where things are in the executable
 
