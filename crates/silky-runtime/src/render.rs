@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use silky_format::akb::Image;
 
-use crate::assets::{localized_name, Assets, Language};
+use crate::assets::{Assets, Language};
 use crate::games::kimaten2;
 use crate::scene::Scene;
 use crate::text::TextRenderer;
@@ -859,7 +859,7 @@ impl Renderer {
                 canvas.draw_scaled(&img, x, y, PORTRAIT_SCALE);
             }
             if let Some(row) = scene.speaker {
-                let sheet = assets.image(&localized_name("nameplate.akb", self.language))?;
+                let sheet = assets.localized_image("nameplate.akb", self.language)?;
                 let (w, h) = NAMEPLATE_SIZE;
                 let (x, y) = NAMEPLATE_POS;
                 canvas.draw_part(&sheet, (0, h * row as u32, w, h), x, y, false, 255);

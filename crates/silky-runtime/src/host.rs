@@ -913,12 +913,26 @@ impl Host for Runtime {
                         return Ok(Flow::Continue);
                     }
                 }
-                // 2017 build: Movie.2 closes the movie and returns nothing
-                // (its scripts call it after each scene change).
-                if class == MOVIE && sub == 2 && engine.movie_2_closes && args.is_empty() {
-                    self.movie = None;
-                    self.handled += 1;
-                    return Ok(Flow::Continue);
+                // 2017 and 2021 builds: Movie.0 (file) sets up a movie,
+                // Movie.3 plays it and returns whether it played, Movie.2
+                // closes it and returns nothing (the 2017 scripts also
+                // call it after each scene change).
+                if class == MOVIE && engine.movie_2_closes {
+                    match (sub, args.as_slice()) {
+                        (0, [Value::Str(name)]) => self.movie = Some(name.clone()),
+                        (2, []) => self.movie = None,
+                        (3, []) if self.movie.is_some() => {
+                            self.handled += 1;
+                            self.pause = Some(Pause::Movie);
+                            return Ok(Flow::Yield);
+                        }
+                        (3, []) => vm.push(0),
+                        _ => {}
+                    }
+                    if matches!((sub, args.len()), (0, 1) | (2, 0) | (3, 0)) {
+                        self.handled += 1;
+                        return Ok(Flow::Continue);
+                    }
                 }
                 if class == MOVIE {
                     match (sub, args.as_slice()) {

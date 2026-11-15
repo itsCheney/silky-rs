@@ -2,7 +2,9 @@
 
 English | [简体中文](fuyukuru.zh-CN.md)
 
-International build 1.0.1.0, Japanese, English and Simplified Chinese. The runtime knows the game by `fuyukuru.exe` in its folder; the build checked is the one whose `fuyukuru.exe` has SHA-256 `eeaf1f25cfcc8105c0d0720a46266815c2bb3ee28696cc1374f863f8cdfdb707`. Its own `Game` commands are listed in [game-commands.md](../game-commands.md#ふゆからくるる). Program version 1.0.1.0, linked 2026-03-18; its engine profile is [engine-2021](../builds/engine-2021.md).
+International build 1.0.1.0, Japanese, English and Simplified Chinese. The runtime knows the game by `fuyukuru.exe` in its folder; the build checked is the one whose `fuyukuru.exe` has SHA-256 `eeaf1f25cfcc8105c0d0720a46266815c2bb3ee28696cc1374f863f8cdfdb707`. Its own `Game` commands are listed in [game-commands.md](../game-commands.md#ふゆからくるる). Program version 1.0.1.0, linked 2026-03-18; its engine profile is [engine-2026](../builds/engine-2026.md).
+
+The Japanese package (`fuyukuru.exe` 1.0.0.0, or 1.0.1.0 with the official update 1.01, both linked in 2021) runs too: its text is in the scripts, its art has no language suffix, and its engine's movie calls are older ([engine-2021](../builds/engine-2021.md)). Checked with update 1.01: the story runs headless with every engine call carried out, and the title menu, settings, extras page and save screen show; the rest of this page is about the download.
 
 All 56 scripts (7.9 million instructions) decode with every jump landing on an instruction, and all 3,255 images decode. Headless, the VM boots `start.mes` through the logo, caution and title scripts, and plays the story from `fk001.mes` on with its text in all three languages. Every route plays to its ending.
 

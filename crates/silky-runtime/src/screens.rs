@@ -11,7 +11,7 @@ use std::sync::Arc;
 use silky_format::akb::Image;
 use silky_format::area::{self, Area};
 
-use crate::assets::{localized_name, Assets, HelpLines, Language};
+use crate::assets::{Assets, HelpLines, Language};
 use crate::render::Canvas;
 use crate::save::{self, Kind};
 use crate::text::TextRenderer;
@@ -553,7 +553,7 @@ impl Screens {
     }
 
     fn sheet(&self, assets: &mut Assets, name: &str) -> Result<Arc<Image>> {
-        assets.image(&localized_name(name, self.language))
+        assets.localized_image(name, self.language)
     }
 
     fn save_style(&self) -> &'static SaveStyle {

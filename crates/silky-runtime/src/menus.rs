@@ -13,7 +13,7 @@ use std::sync::Arc;
 use silky_format::akb::Image;
 use silky_format::area::Area;
 
-use crate::assets::{localized_name, Assets, HelpLines, Language};
+use crate::assets::{Assets, HelpLines, Language};
 use crate::games::fuyukuru::tables::{entry_images, CG_ENTRIES, CG_IMAGES, MUSIC, SCENES};
 use crate::render::Canvas;
 use crate::screens::{area, area_file, draw_gem_thumb, draw_scroll_thumb, Cells, INK, K2_INK};
@@ -309,7 +309,7 @@ impl Menus {
     }
 
     fn sheet(&self, assets: &mut Assets, name: &str) -> Result<Arc<Image>> {
-        assets.image(&localized_name(name, self.language))
+        assets.localized_image(name, self.language)
     }
 
     // Settings.

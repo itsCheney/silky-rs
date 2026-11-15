@@ -6,7 +6,7 @@ How far each game runs on silky-rs. The engine shared by all games is described 
 
 | Game | Known by | Page |
 | --- | --- | --- |
-| ふゆから、くるる。 (international build 1.0.1.0) | `fuyukuru.exe` | [games/fuyukuru.md](games/fuyukuru.md) |
+| ふゆから、くるる。 (international build 1.0.1.0; Japanese package 1.0.0.0 and 1.0.1.0) | `fuyukuru.exe` | [games/fuyukuru.md](games/fuyukuru.md) |
 | きまぐれテンプテーション2 (2024 Japanese build, patch 1.02) | `kimaten2.exe` | [games/kimaten2.md](games/kimaten2.md) |
 | 景の海のアペイリア (Japanese build with the official update), story and extras | `apeiria.exe` | [games/apeiria.md](games/apeiria.md) |
 

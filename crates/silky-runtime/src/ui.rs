@@ -372,7 +372,10 @@ const TITLE_LAYOUTS: [TitleLayout; 4] = [
 ];
 
 fn title_layout(lang: Language) -> &'static TitleLayout {
-    &TITLE_LAYOUTS[lang.map_section()]
+    match lang {
+        Language::Japanese => &TITLE_LAYOUTS[3],
+        _ => &TITLE_LAYOUTS[lang.map_section()],
+    }
 }
 
 fn title_entries(extras: bool) -> std::ops::Range<usize> {
@@ -1535,8 +1538,7 @@ impl Layout {
             return t.draw(canvas, assets, ui, extras);
         }
         if let Some(extras) = ui.title {
-            let sheet =
-                assets.image(&crate::assets::localized_name("title_p.akb", self.language))?;
+            let sheet = assets.localized_image("title_p.akb", self.language)?;
             let l = title_layout(self.language);
             for i in title_entries(extras) {
                 let b = Button::Title(i);

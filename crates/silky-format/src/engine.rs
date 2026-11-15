@@ -17,7 +17,7 @@ pub struct Profile {
     /// Name of the profile, also the name of its page in `docs/builds/`.
     pub name: &'static str,
     /// `Sprite.1`, the other `Sprite` calls, `Flag` and `Mouse.4` work as
-    /// read on the 2021 build. Off where that was not checked: the calls
+    /// read on the 2026 build. Off where that was not checked: the calls
     /// are then reported as not carried out.
     pub sprites_and_flags: bool,
     /// A layer `Sprite.1` creates hidden, as a store of button sheets the
@@ -25,8 +25,9 @@ pub struct Profile {
     pub sheet_store: Option<i32>,
     /// `BackLog.3` without arguments ends the voice mark of the entry.
     pub backlog_voice_end: bool,
-    /// `Movie.2` closes the movie and returns nothing (later builds play
-    /// the movie with it and return whether it played).
+    /// `Movie.0` takes the file alone, `Movie.3` plays the movie and
+    /// returns whether it played, `Movie.2` closes it and returns nothing.
+    /// Later builds take (channel, file) and play with `Movie.2`.
     pub movie_2_closes: bool,
     /// `HEffect` (class 17) plays sounds like `Effect`.
     pub heffect_sounds: bool,
@@ -56,10 +57,21 @@ pub const ENGINE_2017: Profile = Profile {
     ],
 };
 
-/// The engine of the ふゆから、くるる。 Steam program (Visual Studio 2022).
-/// Games not known yet get this one.
+/// The engine of the ふゆから、くるる。 package (2021, Visual Studio 2019).
+/// Like [`ENGINE_2026`] except for the movie calls, which are still those
+/// of 2017.
 pub const ENGINE_2021: Profile = Profile {
     name: "engine-2021",
+    movie_2_closes: true,
+    results: &[(23, 2, false), (23, 3, true)],
+    ..ENGINE_2026
+};
+
+/// The engine of the ふゆから、くるる。 download program, linked again in
+/// 2026 (Visual Studio 2022). The engine part of the runtime was first
+/// written against it, and games not known yet get it.
+pub const ENGINE_2026: Profile = Profile {
+    name: "engine-2026",
     sprites_and_flags: true,
     sheet_store: None,
     backlog_voice_end: false,
@@ -69,12 +81,11 @@ pub const ENGINE_2021: Profile = Profile {
 };
 
 /// The engine of きまぐれテンプテーション2's program (2024, Visual Studio
-/// 2019). It grew out of the ふゆから、くるる。 code (the program still
-/// holds that game's version line).
+/// 2019). Its movie calls are those of [`ENGINE_2026`].
 pub const ENGINE_2024: Profile = Profile {
     name: "engine-2024",
     sprites_and_flags: false,
-    ..ENGINE_2021
+    ..ENGINE_2026
 };
 
 /// One program file.
@@ -103,13 +114,32 @@ pub const BUILDS: &[Build] = &[
         sha256: "dba4857ac6adb02b453a73694737124725bd4c91a9a7ecd60816fa7266e6317e",
         profile: &ENGINE_2017,
     },
+    // Package, as installed.
+    Build {
+        exe: "fuyukuru.exe",
+        version: "1.0.0.0",
+        linked: 1630961547, // 2021-09-06 20:52:27
+        size: 1948672,
+        sha256: "9797a7cb71955c0ddb4b4865e0e592166f82386a5e642bd25072922cf9d6d9fa",
+        profile: &ENGINE_2021,
+    },
+    // Package with the official update 1.01.
+    Build {
+        exe: "fuyukuru.exe",
+        version: "1.0.1.0",
+        linked: 1632894466, // 2021-09-29 05:47:46
+        size: 2935808,
+        sha256: "b5b163ceb979d9825c6586401da005d51a57f4005a93cf227ca304bf9e831988",
+        profile: &ENGINE_2021,
+    },
+    // Download, Japanese, English and Chinese.
     Build {
         exe: "fuyukuru.exe",
         version: "1.0.1.0",
         linked: 1773843162, // 2026-03-18 14:12:42
         size: 3117568,
         sha256: "eeaf1f25cfcc8105c0d0720a46266815c2bb3ee28696cc1374f863f8cdfdb707",
-        profile: &ENGINE_2021,
+        profile: &ENGINE_2026,
     },
     Build {
         exe: "kimaten2.exe",
@@ -132,7 +162,7 @@ pub struct Engine {
 impl Engine {
     /// From the program file: a build checked when its link time stamp
     /// and size match, otherwise the profile of a build of the same
-    /// program name, otherwise [`ENGINE_2021`].
+    /// program name, otherwise [`ENGINE_2026`].
     pub fn of(exe: Option<&Path>) -> Self {
         let Some(path) = exe else {
             return Self::unknown();
@@ -153,7 +183,9 @@ impl Engine {
                 profile: b.profile,
             };
         }
-        match BUILDS.iter().find(|b| b.exe == name) {
+        // Of the builds with that name, the one linked nearest in time.
+        let near = |b: &&Build| (b.linked as i64 - linked.unwrap_or(0) as i64).abs();
+        match BUILDS.iter().filter(|b| b.exe == name).min_by_key(near) {
             Some(b) => Self {
                 build: None,
                 profile: b.profile,
@@ -165,7 +197,7 @@ impl Engine {
     pub fn unknown() -> Self {
         Self {
             build: None,
-            profile: &ENGINE_2021,
+            profile: &ENGINE_2026,
         }
     }
 
@@ -230,6 +262,6 @@ mod tests {
         assert_eq!(e.profile.name, "engine-2017");
         assert_eq!(e.returns_value(23, 2), Some(false));
         fs::remove_dir_all(&dir).ok();
-        assert_eq!(Engine::of(None).profile.name, "engine-2021");
+        assert_eq!(Engine::of(None).profile.name, "engine-2026");
     }
 }

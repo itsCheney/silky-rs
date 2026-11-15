@@ -103,7 +103,7 @@ pub fn returns_value(title: Title, engine: &Engine, class: i32, sub: i32) -> boo
         (1, 2)
             | (2, 3)
             | (12, 4)
-            | (16..=18, 7)
+            | (15..=18, 7)
             | (19, 25)
             | (20, 4)
             | (23, 2)

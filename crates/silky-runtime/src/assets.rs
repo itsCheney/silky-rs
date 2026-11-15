@@ -103,6 +103,21 @@ impl Assets {
         self.game.exists(kind, name)
     }
 
+    /// A picture in the language's version (`title_p_en.akb`), else the
+    /// plain name: the Japanese package of ふゆから、くるる。 has only
+    /// the plain names, and one of them differs (`saveload_p.akb`).
+    pub fn localized_image(&mut self, name: &str, lang: Language) -> Result<Arc<Image>> {
+        let local = localized_name(name, lang);
+        if self.exists(Kind::Layer, &local) {
+            return self.image(&local);
+        }
+        let plain = match name {
+            "save_load_p.akb" if !self.exists(Kind::Layer, name) => "saveload_p.akb",
+            _ => name,
+        };
+        self.image(plain)
+    }
+
     /// Decoded image, with `AKB+` difference images applied to their base.
     pub fn image(&mut self, name: &str) -> Result<Arc<Image>> {
         let name = with_ext(name);

@@ -6,7 +6,7 @@
 
 | 游戏 | 识别依据 | 页面 |
 | --- | --- | --- |
-| ふゆから、くるる。（国际版 1.0.1.0） | `fuyukuru.exe` | [games/fuyukuru.zh-CN.md](games/fuyukuru.zh-CN.md) |
+| ふゆから、くるる。（国际版 1.0.1.0；日文盒装版 1.0.0.0 和 1.0.1.0） | `fuyukuru.exe` | [games/fuyukuru.zh-CN.md](games/fuyukuru.zh-CN.md) |
 | きまぐれテンプテーション2（2024 年日文版，1.02 补丁） | `kimaten2.exe` | [games/kimaten2.zh-CN.md](games/kimaten2.zh-CN.md) |
 | 景の海のアペイリア（日文版，带官方更新），剧情和鉴赏模式可用 | `apeiria.exe` | [games/apeiria.zh-CN.md](games/apeiria.zh-CN.md) |
 
