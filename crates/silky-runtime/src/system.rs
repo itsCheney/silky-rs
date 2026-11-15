@@ -110,6 +110,18 @@ impl Default for Settings {
 }
 
 impl Settings {
+    /// Defaults of a game: 景の海のアペイリア's own configuration starts
+    /// the window dark blue (red 0, green 25, blue 46 of 100) and 30 %
+    /// transparent.
+    pub fn for_title(title: silky_format::game::Title) -> Self {
+        let mut s = Self::default();
+        if title == silky_format::game::Title::Apeiria {
+            s.window_color = [0.0, 0.25, 0.46];
+            s.window_opacity = 0.7;
+        }
+        s
+    }
+
     /// Milliseconds per character of text.
     pub fn char_ms(&self) -> u64 {
         (5.0 + (1.0 - self.text_speed.clamp(0.0, 1.0)) * 75.0) as u64
@@ -199,12 +211,21 @@ impl SystemData {
         dir.join("system.json")
     }
 
-    /// Reads `system.json` from a save folder; defaults if there is none.
-    pub fn load(dir: &Path) -> Self {
+    /// Defaults for a game.
+    pub fn for_title(title: silky_format::game::Title) -> Self {
+        Self {
+            settings: Settings::for_title(title),
+            ..Self::default()
+        }
+    }
+
+    /// Reads `system.json` from a save folder; the game's defaults if there
+    /// is none.
+    pub fn load(dir: &Path, title: silky_format::game::Title) -> Self {
         std::fs::read(Self::path(dir))
             .ok()
             .and_then(|d| serde_json::from_slice(&d).ok())
-            .unwrap_or_default()
+            .unwrap_or_else(|| Self::for_title(title))
     }
 
     pub fn store(&self, dir: &Path) -> Result<()> {

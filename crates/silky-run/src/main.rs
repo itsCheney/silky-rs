@@ -212,6 +212,8 @@ fn snap(
         ..Config::default()
     };
     renderer.set_title(game.title);
+    let st = silky_runtime::system::Settings::for_title(game.title);
+    renderer.window = (st.window_color, st.window_opacity);
     let assets = Assets::new(game);
     let layout = Layout::load(&assets, language)?;
     let mut rt = Runtime::new(assets, config);

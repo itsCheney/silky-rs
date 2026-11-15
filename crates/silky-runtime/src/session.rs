@@ -206,7 +206,7 @@ impl Session {
     /// and what was seen). Without one, nothing is kept.
     pub fn set_saves(&mut self, saves: Saves) {
         self.ui.has_saves = !saves.list().is_empty();
-        let mut data = SystemData::load(saves.dir());
+        let mut data = SystemData::load(saves.dir(), self.rt.assets.game().title);
         let seen = std::mem::take(&mut self.rt.system);
         data.seen.extend(seen.seen);
         data.music.extend(seen.music);
@@ -493,15 +493,13 @@ impl Session {
                         self.state = State::Title;
                         self.ui.title = Some(false);
                         self.ui.title_shown = self.ui.clock;
-                        self.ui.locked_titles = if self.layout.is_kimaten2() {
-                            crate::ui::title::KIMATEN2_UNLOCK
-                                .iter()
-                                .filter(|&&(_, var)| self.vm.var_b(var) == 0)
-                                .map(|&(entry, _)| entry)
-                                .collect()
-                        } else {
-                            Vec::new()
-                        };
+                        self.ui.locked_titles = self
+                            .layout
+                            .title_unlocks()
+                            .iter()
+                            .filter(|&&(_, var)| self.vm.var_b(var) == 0)
+                            .map(|&(entry, _)| entry)
+                            .collect();
                         self.ui.auto = false;
                         self.ui.skip = false;
                         break;
@@ -1948,6 +1946,7 @@ impl Session {
                 self.run()?;
             }
             Button::Bar(bar::MENU) => self.ui.side_menu = !self.ui.side_menu,
+            Button::Bar(bar::RING) => self.ui.ring_closed = !self.ui.ring_closed,
             Button::Bar(id) => match id {
                 bar::AUTO => {
                     self.ui.auto = !self.ui.auto;

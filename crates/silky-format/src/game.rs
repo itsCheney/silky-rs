@@ -96,6 +96,8 @@ pub enum Title {
     Fuyukuru,
     /// きまぐれテンプテーション2.
     Kimaten2,
+    /// 景の海のアペイリア.
+    Apeiria,
     /// A game not known yet: it gets the shared engine and the common
     /// `Game` commands only.
     Unknown,
@@ -107,6 +109,8 @@ impl Title {
     fn detect(root: &Path) -> Self {
         if find_file(root, "kimaten2.exe").is_some() {
             Title::Kimaten2
+        } else if find_file(root, "apeiria.exe").is_some() {
+            Title::Apeiria
         } else if find_file(root, "fuyukuru.exe").is_some() {
             Title::Fuyukuru
         } else {

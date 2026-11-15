@@ -62,6 +62,11 @@ pub mod title {
         (ROOM, 3007),
     ];
 
+    /// 景の海のアペイリア: the extras entries and the byte variables that
+    /// unlock them (from the executable's title menu).
+    pub const APEIRIA_UNLOCK: [(usize, usize); 3] =
+        [(CG_MODE, 3002), (SCENE_MODE, 3003), (MUSIC_MODE, 3004)];
+
     /// Value the title menu call returns to the script for an entry, if
     /// the script handles it. Continue, Load and Settings open engine
     /// screens instead; Extras and Back switch the menu page.
@@ -107,6 +112,9 @@ pub mod bar {
     pub const SKIP_ALL: i32 = 19;
     pub const NOTEBOOK: i32 = 20;
     pub const COLLECTION: i32 = 21;
+    /// 景の海のアペイリア only: the ball in the middle of the button ring,
+    /// which folds the ring away and back.
+    pub const RING: i32 = 22;
 }
 
 /// Interface state kept by the frontend.
@@ -139,6 +147,8 @@ pub struct Ui {
     pub previous_choice: bool,
     /// きまぐれテンプテーション2's side menu is open.
     pub side_menu: bool,
+    /// 景の海のアペイリア: the button ring is folded away.
+    pub ring_closed: bool,
     /// Buttons of きまぐれテンプテーション2's action menu, while it is up.
     pub actions: Vec<crate::ActionButton>,
     /// きまぐれテンプテーション2's map, while it is up.
@@ -497,6 +507,93 @@ impl Kimaten2Title {
     }
 }
 
+/// Title menu drawn from fixed cells of `title_p.akb` (景の海のアペイリア):
+/// click areas from `title.area` and `title2.area`, cell positions from
+/// the executable, four 42-pixel state rows per cell (normal, hover,
+/// pressed, disabled).
+struct SheetTitle {
+    /// (entry, screen area, sheet cell top left); `None` entries are
+    /// drawn disabled and take no clicks.
+    main: Vec<(Option<usize>, Area, (u32, u32))>,
+    extras: Vec<(Option<usize>, Area, (u32, u32))>,
+}
+
+impl SheetTitle {
+    const ROW: u32 = 42;
+    /// Disabled state row.
+    const DISABLED: u32 = 3;
+
+    fn load_apeiria(assets: &Assets) -> Result<Self> {
+        let main_areas = area::parse(&assets.data("title.area")?)?;
+        let extra_areas = area::parse(&assets.data("title2.area")?)?;
+        // Area id, entry and sheet cell of each main entry; the bonus cell
+        // is in the second block, 4 rows down.
+        const MAIN: [(i32, usize, (u32, u32)); 6] = [
+            (0, title::NEW_GAME, (0, 0)),
+            (1, title::CONTINUE, (320, 0)),
+            (2, title::LOAD, (160, 0)),
+            (3, title::SETTINGS, (480, 0)),
+            (4, title::EXTRAS, (0, 168)),
+            (5, title::QUIT, (800, 0)),
+        ];
+        const EXTRAS: [(i32, usize, (u32, u32)); 4] = [
+            (4, title::BACK, (0, 168)),
+            (256, title::CG_MODE, (160, 168)),
+            (257, title::SCENE_MODE, (320, 168)),
+            (258, title::MUSIC_MODE, (480, 168)),
+        ];
+        let mut main = Vec::new();
+        let mut extras = Vec::new();
+        for (id, entry, cell) in MAIN {
+            if let Some(a) = main_areas.iter().find(|a| a.id == id) {
+                main.push((Some(entry), *a, cell));
+                // The extras page keeps the other main entries, disabled;
+                // bonus stays live as the way back.
+                if id != 4 {
+                    extras.push((None, *a, cell));
+                }
+            }
+        }
+        for (id, entry, cell) in EXTRAS {
+            if let Some(a) = extra_areas.iter().find(|a| a.id == id) {
+                extras.push((Some(entry), *a, cell));
+            }
+        }
+        Ok(Self { main, extras })
+    }
+
+    fn entries(&self, extras: bool) -> &[(Option<usize>, Area, (u32, u32))] {
+        if extras {
+            &self.extras
+        } else {
+            &self.main
+        }
+    }
+
+    fn hit(&self, extras: bool, x: i32, y: i32) -> Option<Button> {
+        self.entries(extras)
+            .iter()
+            .find(|(e, a, _)| e.is_some() && a.contains(x, y))
+            .and_then(|(e, _, _)| e.map(Button::Title))
+    }
+
+    fn draw(&self, canvas: &mut Canvas, assets: &mut Assets, ui: &Ui, extras: bool) -> Result<()> {
+        let sheet = assets.image("title_p.akb")?;
+        for &(entry, a, (sx, sy)) in self.entries(extras) {
+            let state = match entry {
+                Some(e) => {
+                    let b = Button::Title(e);
+                    ui.state(b, ui.enabled(b), false) as u32
+                }
+                None => Self::DISABLED,
+            };
+            let part = (sx, sy + Self::ROW * state, a.width(), Self::ROW);
+            canvas.draw_part(&sheet, part, a.left, a.top, false, 255);
+        }
+        Ok(())
+    }
+}
+
 /// Screen layout of the interface, loaded once per game.
 pub struct Layout {
     language: Language,
@@ -505,6 +602,92 @@ pub struct Layout {
     bar: Vec<Area>,
     /// Set for きまぐれテンプテーション2, whose interface differs.
     kimaten2: Option<Kimaten2>,
+    /// Title menu from fixed sheet cells, for games that have one.
+    sheet_title: Option<SheetTitle>,
+    /// 景の海のアペイリア: the message window buttons sit in a ring.
+    ring: Option<Ring>,
+}
+
+/// Message window buttons of 景の海のアペイリア, from the executable: the
+/// ring backdrop and the middle ball are 302-pixel cells of
+/// `menu_p00.akb` (ball rows normal, hover, pressed; backdrop row 6),
+/// the eleven ring buttons and the hide button 40-pixel cells of
+/// `message_p.akb` from (0, 424), one column per button, rows by state.
+/// `mes_o.area` holds the ring buttons as ids 1..=11 (bar id + 1) and
+/// the ball as id 0 in screen pixels; the hide button (256) and the
+/// window (512) are relative to the window top.
+struct Ring {
+    /// (bar id, click area, sheet column).
+    buttons: Vec<(i32, Area, u32)>,
+}
+
+impl Ring {
+    const POS: (i32, i32) = (957, 464);
+    const BALL: u32 = 302;
+    const BACKDROP_ROW: u32 = 6;
+    const CELL: u32 = 40;
+    const SHEET_TOP: u32 = 424;
+    const HIDE_COLUMN: u32 = 11;
+    const WINDOW_TOP: i32 = 508;
+
+    fn load(assets: &Assets) -> Result<Self> {
+        let mut buttons = Vec::new();
+        for a in area::parse(&assets.data("mes_o.area")?)? {
+            match a.id {
+                0 => buttons.push((bar::RING, a, 0)),
+                1..=11 => buttons.push((a.id - 1, a, a.id as u32 - 1)),
+                256 => {
+                    let mut a = a;
+                    a.top += Self::WINDOW_TOP;
+                    a.bottom += Self::WINDOW_TOP;
+                    buttons.push((bar::HIDE, a, Self::HIDE_COLUMN));
+                }
+                _ => {}
+            }
+        }
+        Ok(Self { buttons })
+    }
+
+    /// Buttons shown: only the ball and hide while the ring is folded.
+    fn shown<'a>(&'a self, ui: &'a Ui) -> impl Iterator<Item = &'a (i32, Area, u32)> + 'a {
+        self.buttons
+            .iter()
+            .filter(move |(id, _, _)| !ui.ring_closed || matches!(*id, bar::RING | bar::HIDE))
+    }
+
+    fn hit(&self, ui: &Ui, x: i32, y: i32) -> Option<Button> {
+        self.shown(ui)
+            .find(|(_, a, _)| a.contains(x, y))
+            .map(|&(id, _, _)| Button::Bar(id))
+    }
+
+    fn draw(&self, canvas: &mut Canvas, assets: &mut Assets, ui: &Ui) -> Result<()> {
+        let balls = assets.image("menu_p00.akb")?;
+        let (x, y) = Self::POS;
+        let n = Self::BALL;
+        if !ui.ring_closed {
+            canvas.draw_part(&balls, (0, n * Self::BACKDROP_ROW, n, n), x, y, false, 255);
+        }
+        let sheet = assets.image("message_p.akb")?;
+        for &(id, a, column) in self.shown(ui) {
+            let b = Button::Bar(id);
+            let active = match id {
+                bar::AUTO => ui.auto,
+                bar::SKIP => ui.skip,
+                _ => false,
+            };
+            let state = ui.state(b, ui.enabled(b), active) as u32;
+            if id == bar::RING {
+                let row = state.min(2);
+                canvas.draw_part(&balls, (0, n * row, n, n), x, y, false, 255);
+            } else {
+                let c = Self::CELL;
+                let part = (c * column, Self::SHEET_TOP + c * state, c, c);
+                canvas.draw_part(&sheet, part, a.left, a.top, false, 255);
+            }
+        }
+        Ok(())
+    }
 }
 
 /// A button of きまぐれテンプテーション2: its click area, the [`bar`] id it
@@ -1163,6 +1346,17 @@ impl Layout {
                 language,
                 bar: Vec::new(),
                 kimaten2: Some(Kimaten2::load(assets)?),
+                sheet_title: None,
+                ring: None,
+            });
+        }
+        if assets.game().title == silky_format::game::Title::Apeiria {
+            return Ok(Self {
+                language,
+                bar: Vec::new(),
+                kimaten2: None,
+                sheet_title: Some(SheetTitle::load_apeiria(assets)?),
+                ring: Some(Ring::load(assets)?),
             });
         }
         let mut bar = area::parse(&assets.data("mes_o.area")?)?;
@@ -1177,7 +1371,18 @@ impl Layout {
             language,
             bar,
             kimaten2: None,
+            sheet_title: None,
+            ring: None,
         })
+    }
+
+    /// Extras entries and the byte variables that unlock them.
+    pub fn title_unlocks(&self) -> &'static [(usize, usize)] {
+        match (&self.kimaten2, &self.sheet_title) {
+            (Some(_), _) => &title::KIMATEN2_UNLOCK,
+            (None, Some(_)) => &title::APEIRIA_UNLOCK,
+            _ => &[],
+        }
     }
 
     /// Button under a point (screen pixels).
@@ -1208,6 +1413,9 @@ impl Layout {
                 .find(|(_, a, _)| a.contains(x, y))
                 .map(|(e, _, _)| Button::Title(*e));
         }
+        if let (Some(extras), Some(t)) = (ui.title, &self.sheet_title) {
+            return t.hit(extras, x, y);
+        }
         if let Some(extras) = ui.title {
             let l = title_layout(self.language);
             return title_entries(extras)
@@ -1223,6 +1431,9 @@ impl Layout {
         }
         if let Some(k) = &self.kimaten2 {
             return k.hit(ui, x, y);
+        }
+        if let Some(r) = &self.ring {
+            return r.hit(ui, x, y);
         }
         self.bar
             .iter()
@@ -1301,6 +1512,9 @@ impl Layout {
             }
             return Ok(());
         }
+        if let (Some(extras), Some(t)) = (ui.title, &self.sheet_title) {
+            return t.draw(canvas, assets, ui, extras);
+        }
         if let Some(extras) = ui.title {
             let sheet =
                 assets.image(&crate::assets::localized_name("title_p.akb", self.language))?;
@@ -1321,6 +1535,10 @@ impl Layout {
         if let Some(k) = &self.kimaten2 {
             let help = text.filter(|_| ui.tooltips).map(|t| (t, self.language));
             return k.draw(canvas, assets, ui, help);
+        }
+        if let Some(r) = &self.ring {
+            // The click-wait icon is not placed yet.
+            return r.draw(canvas, assets, ui);
         }
         let sheet = assets.image("message_p.akb")?;
         for a in &self.bar {

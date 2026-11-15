@@ -264,6 +264,7 @@ pub(crate) fn host_error(msg: impl Into<String>) -> silky_vm::Error {
 impl Runtime {
     pub fn new(assets: Assets, config: Config) -> Self {
         let audio = config.audio.clone();
+        let system = crate::system::SystemData::for_title(assets.game().title);
         Self {
             assets,
             scene: Scene::default(),
@@ -283,7 +284,7 @@ impl Runtime {
             voice: None,
             lip: None,
             lip_track: None,
-            system: Default::default(),
+            system,
             system_changed: false,
             read_before: false,
             movie: None,
@@ -817,6 +818,13 @@ impl Host for Runtime {
                 let base = title != Title::Kimaten2;
                 if class == SPRITE && sub == 1 && args.len() == 2 && base {
                     let layer = args[0].int();
+                    // 景の海のアペイリア creates sprite 5 hidden and
+                    // 2048 pixels square: a store for button sheets
+                    // (title_p.akb), which its screens draw in cells.
+                    if title == Title::Apeiria && layer == 5 {
+                        self.handled += 1;
+                        return Ok(Flow::Continue);
+                    }
                     match args[1].as_str() {
                         Some(name) if !name.is_empty() => {
                             self.scene.layers.insert(layer, name.to_string());
@@ -935,6 +943,16 @@ impl Host for Runtime {
                 if base && class == MOUSE && sub == 4 && args.is_empty() {
                     vm.push(std::mem::take(&mut self.clicked) as i32);
                     self.pause = Some(Pause::Frame);
+                    self.handled += 1;
+                    return Ok(Flow::Yield);
+                }
+                // Select.2(): the engine's own selection, over the options
+                // whose bodies left their labels; returns the option
+                // picked, from 1.
+                if class == native::SELECT && sub == 2 && args.is_empty() {
+                    self.choices = std::mem::take(&mut vm.option_labels);
+                    self.option_count = 0;
+                    self.pause = Some(Pause::Choice);
                     self.handled += 1;
                     return Ok(Flow::Yield);
                 }

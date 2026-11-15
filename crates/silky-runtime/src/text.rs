@@ -107,8 +107,16 @@ impl TextRenderer {
 
     /// Breaks text into lines no wider than `width`: at spaces for words,
     /// between any two characters for CJK text.
+    /// Rubies are left out (see [`silky_vm::split_ruby`]).
     pub fn wrap(&self, text: &str, size: f32, width: f32) -> Vec<String> {
         let mut lines = Vec::new();
+        let plain;
+        let text = if text.contains(silky_vm::RUBY_START) {
+            plain = silky_vm::split_ruby(text).0;
+            plain.as_str()
+        } else {
+            text
+        };
         for para in text.split('\n') {
             let mut line = String::new();
             let mut line_w = 0.0;

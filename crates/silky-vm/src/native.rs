@@ -69,6 +69,9 @@ pub fn returns_value(title: Title, class: i32, sub: i32) -> bool {
             Title::Fuyukuru => matches!(sub, 20 | 30 | 31 | 32 | 110 | 223 | 1006 | 1009),
             // The common commands that return a value.
             Title::Unknown => matches!(sub, 20 | 30 | 31 | 32 | 110 | 223),
+            // 景の海のアペイリア: provisional, from how its scripts use the
+            // results.
+            Title::Apeiria => matches!(sub, 30..=32 | 110 | 960 | 990 | 1009 | 1016),
             Title::Kimaten2 => matches!(
                 sub,
                 20 | 24
@@ -91,7 +94,8 @@ pub fn returns_value(title: Title, class: i32, sub: i32) -> bool {
     }
     matches!(
         (class, sub),
-        (2, 3)
+        (1, 2)
+            | (2, 3)
             | (12, 4)
             | (16..=18, 7)
             | (19, 25)

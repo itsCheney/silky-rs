@@ -10,6 +10,31 @@ pub const VAR_MESSAGE: usize = 52;
 /// Variable index of the current selection message number (`smessage`).
 pub const VAR_SELECT_MESSAGE: usize = 54;
 
+/// Marks a ruby in message text: `RUBY_START` ruby `RUBY_END`, placed where
+/// the text it belongs to starts. The ruby keeps the spaces the script
+/// gives it to centre it.
+pub const RUBY_START: char = '\u{1}';
+pub const RUBY_END: char = '\u{2}';
+
+/// Message text without its rubies, and each ruby with the number of
+/// characters of plain text before it.
+pub fn split_ruby(text: &str) -> (String, Vec<(usize, String)>) {
+    let mut plain = String::new();
+    let mut rubies = Vec::new();
+    let mut count = 0;
+    let mut rest = text;
+    while let Some(i) = rest.find(RUBY_START) {
+        plain.push_str(&rest[..i]);
+        count += rest[..i].chars().count();
+        let after = &rest[i + RUBY_START.len_utf8()..];
+        let end = after.find(RUBY_END).unwrap_or(after.len());
+        rubies.push((count, after[..end].to_string()));
+        rest = after.get(end + RUBY_END.len_utf8()..).unwrap_or("");
+    }
+    plain.push_str(rest);
+    (plain, rubies)
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error(transparent)]
@@ -172,6 +197,12 @@ pub struct Vm {
     pub steps: u64,
     /// Set by `text 0`: the next string continues the one on the stack.
     line_break: bool,
+    /// Set by `text 1`: the strings up to the next `ret` are the ruby of
+    /// the text that follows. Holds the ruby so far.
+    ruby: Option<String>,
+    /// Set when a ruby ends: the next string continues the one on the
+    /// stack, on the same line.
+    join: bool,
     /// Strings the option bodies left (Japanese builds put each label
     /// there, as `option @x; push.cs "label"; ret`), in option order.
     pub option_labels: Vec<String>,
@@ -198,6 +229,8 @@ impl Vm {
             source: SourcePos::default(),
             steps: 0,
             line_break: false,
+            ruby: None,
+            join: false,
             option_labels: Vec::new(),
         }
     }
@@ -233,6 +266,8 @@ impl Vm {
         self.locals.clear();
         self.contexts.clear();
         self.line_break = false;
+        self.ruby = None;
+        self.join = false;
         self.option_labels.clear();
         self.jump_script(name, script);
     }
@@ -496,6 +531,17 @@ impl Vm {
         self.steps += 1;
         self.pc = next;
         match op {
+            // Inside a ruby, `ret` ends it: the ruby goes into the text at
+            // this point, between RUBY_START and RUBY_END.
+            0x00 if self.ruby.is_some() => {
+                let ruby = self.ruby.take().unwrap_or_default();
+                let mark = format!("{RUBY_START}{ruby}{RUBY_END}");
+                match self.stack.last_mut() {
+                    Some(Value::Str(top)) => top.push_str(&mark),
+                    _ => self.stack.push(Value::Str(mark)),
+                }
+                self.join = true;
+            }
             0x00 => return Ok(self.restore(false)),
             0x01 => return Ok(self.restore(true)),
             0x02..=0x09 => {
@@ -508,15 +554,22 @@ impl Vm {
                     unreachable!()
                 };
                 let text = cur.script.decode(b);
-                // After `text 0`, the line goes on the string before it.
-                match (self.line_break, self.stack.last_mut()) {
-                    (true, Some(Value::Str(top))) => {
+                if let Some(ruby) = &mut self.ruby {
+                    ruby.push_str(&text);
+                    return Ok(None);
+                }
+                // After `text 0`, the line goes on the string before it;
+                // after a ruby, the text it belongs to follows.
+                match (self.line_break, self.join, self.stack.last_mut()) {
+                    (true, _, Some(Value::Str(top))) => {
                         top.push('\n');
                         top.push_str(&text);
                     }
+                    (_, true, Some(Value::Str(top))) => top.push_str(&text),
                     _ => self.stack.push(Value::Str(text)),
                 }
                 self.line_break = false;
+                self.join = false;
             }
             0x0c..=0x13 => {
                 let i = self.pop_index()?;
@@ -593,8 +646,18 @@ impl Vm {
             }
             // Message text control. Sub 0 breaks the line: the engine adds
             // a newline to the message being built from the strings.
+            // Sub 1 starts a ruby (see `ruby`).
             0x1c => match ins.operand {
                 Operand::U8(0) => self.line_break = true,
+                Operand::U8(1) => {
+                    if self.line_break {
+                        if let Some(Value::Str(top)) = self.stack.last_mut() {
+                            top.push('\n');
+                        }
+                        self.line_break = false;
+                    }
+                    self.ruby = Some(String::new());
+                }
                 _ => return Err(Error::Unsupported(op)),
             },
             0x32 => {
@@ -817,6 +880,16 @@ fn binary(op: u8, a: Value, b: Value) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ruby_marks_split_off_with_their_place() {
+        let text = format!("ab{RUBY_START}xy{RUBY_END}cd");
+        assert_eq!(
+            split_ruby(&text),
+            ("abcd".to_string(), vec![(2, "xy".to_string())])
+        );
+        assert_eq!(split_ruby("plain"), ("plain".to_string(), vec![]));
+    }
 
     /// Small assembler for tests.
     #[derive(Default)]

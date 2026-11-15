@@ -37,6 +37,12 @@ const WINDOW_BAND: (u32, u32, u32, u32) = (0, 0, 1280, 220);
 const WINDOW_TEXTURE: (u32, u32, u32, u32) = (0, 220, 1280, 220);
 const WINDOW_TOP: i32 = 500;
 const WINDOW_OPACITY: u8 = 128;
+/// 景の海のアペイリア: the window is a gradient band (rows 212..424 of
+/// `message_p.akb`, the alpha mask the executable fills with the window
+/// colour) at the bottom of the screen, under faint lines (rows 0..212).
+const APEIRIA_WINDOW_BAND: (u32, u32, u32, u32) = (0, 212, 1280, 212);
+const APEIRIA_WINDOW_TEXTURE: (u32, u32, u32, u32) = (0, 0, 1280, 212);
+const APEIRIA_WINDOW_TOP: i32 = 508;
 /// Nameplate: row `n` of `nameplate_<lang>.akb` is a 376 x 56 plate.
 const NAMEPLATE_SIZE: (u32, u32) = (376, 56);
 const NAMEPLATE_POS: (i32, i32) = (264, 500);
@@ -69,6 +75,18 @@ pub struct TextLayout {
 impl TextLayout {
     pub fn for_title(title: Title) -> Self {
         match title {
+            // Measured under Wine: glyphs about 24 pixels tall every 28.3
+            // pixels (Font.0(28, 28) sets 28-pixel cells) from x = 152
+            // (the full-width space that starts most lines ends at 180),
+            // lines 41 apart. The line length is not measured yet.
+            Title::Apeiria => Self {
+                left: 152.0,
+                baseline: 601.0,
+                width: 26.0 * 28.3,
+                line: 41.0,
+                size: 24.0,
+                wide_advance: 28.3 / 24.0,
+            },
             Title::Fuyukuru | Title::Unknown => Self {
                 left: TEXT_LEFT,
                 baseline: TEXT_BASELINE,
@@ -96,6 +114,8 @@ pub struct Renderer {
     text: Option<TextRenderer>,
     language: Language,
     characters: HashMap<(String, Option<String>), Arc<Image>>,
+    /// 景の海のアペイリア: the window band filled with the window colour.
+    tinted_band: Option<([u8; 3], Arc<Image>)>,
     /// Message window colour (RGB, 0..1) and opacity (settings).
     pub window: ([f32; 3], f32),
     /// Output pixels per game pixel, for text (see [`Canvas::present`]).
@@ -129,6 +149,7 @@ impl Renderer {
             text,
             language,
             characters: HashMap::new(),
+            tinted_band: None,
             window: ([0.0; 3], WINDOW_OPACITY as f32 / 255.0),
             scale: 1.0,
             record: false,
@@ -289,16 +310,42 @@ impl Renderer {
             return;
         };
         let l = self.text_layout;
+        let (plain, rubies) = silky_vm::split_ruby(text);
         let mut left = limit.unwrap_or(usize::MAX);
-        for (i, line) in tr.wrap(text, l.size, l.width).iter().enumerate() {
+        // Each line with the number of plain characters before it (a line
+        // break counts as one).
+        let mut lines = Vec::new();
+        let mut at = 0;
+        for para in plain.split('\n') {
+            for line in tr.wrap(para, l.size, l.width) {
+                let n = line.chars().count();
+                lines.push((at, line));
+                at += n;
+            }
+            at += 1;
+        }
+        for (i, (start, line)) in lines.iter().enumerate() {
+            let start = *start;
             if left == 0 {
                 break;
             }
+            let count = line.chars().count();
             let shown: String = line.chars().take(left).collect();
-            left = left.saturating_sub(line.chars().count());
             let y = l.baseline + l.line * i as f32 + shift.1 as f32;
             let x = l.left + shift.0 as f32;
             tr.draw_line(canvas, &shown, x, y, l.size, [255, 255, 255, 255]);
+            // A ruby starts above its text, at half the size, once that
+            // text is shown; the script centres it with spaces.
+            for (at, ruby) in &rubies {
+                let Some(k) = at.checked_sub(start).filter(|&k| k <= count && k < left) else {
+                    continue;
+                };
+                let before: String = line.chars().take(k).collect();
+                let rx = x + tr.width(&before, l.size);
+                let size = l.size / 2.0;
+                tr.draw_line(canvas, ruby, rx, y - l.size, size, [255, 255, 255, 255]);
+            }
+            left = left.saturating_sub(count);
         }
     }
 
@@ -487,6 +534,33 @@ impl Renderer {
         Ok(canvas)
     }
 
+    /// The window band of 景の海のアペイリア in a colour: the band's alpha
+    /// times the window opacity is applied when it is drawn.
+    fn tinted_band(&mut self, parts: &Image, rgb: [u8; 3]) -> Arc<Image> {
+        if let Some((c, img)) = &self.tinted_band {
+            if *c == rgb {
+                return img.clone();
+            }
+        }
+        let (l, t, w, h) = APEIRIA_WINDOW_BAND;
+        let w = w.min(parts.width.saturating_sub(l));
+        let h = h.min(parts.height.saturating_sub(t));
+        let mut rgba = Vec::with_capacity((w * h * 4) as usize);
+        for y in t..t + h {
+            for x in l..l + w {
+                let a = parts.rgba[((y * parts.width + x) * 4 + 3) as usize];
+                rgba.extend_from_slice(&[rgb[0], rgb[1], rgb[2], a]);
+            }
+        }
+        let img = Arc::new(Image {
+            width: w,
+            height: h,
+            rgba,
+        });
+        self.tinted_band = Some((rgb, img.clone()));
+        img
+    }
+
     /// Draws the E-mote pictures and everything above them (layers,
     /// effects, the message window) over [`Renderer::render_under`].
     pub fn render_over(
@@ -528,10 +602,21 @@ impl Renderer {
             let parts = assets.image("message_p.akb")?;
             let (color, opacity) = self.window;
             let alpha = (opacity.clamp(0.0, 1.0) * 255.0) as u8;
-            for part in [WINDOW_BAND, WINDOW_TEXTURE] {
-                canvas.draw_part(&parts, part, 0, WINDOW_TOP, false, alpha);
+            if self.title == Title::Apeiria {
+                // The band's alpha masks the window colour; the texture
+                // goes over it at the same opacity.
+                let top = APEIRIA_WINDOW_TOP;
+                let rgb = color.map(|c| (c.clamp(0.0, 1.0) * 255.0) as u8);
+                let band = self.tinted_band(&parts, rgb);
+                let part = (0, 0, band.width, band.height);
+                canvas.draw_part(&band, part, 0, top, false, alpha);
+                canvas.draw_part(&parts, APEIRIA_WINDOW_TEXTURE, 0, top, false, alpha);
+            } else {
+                for part in [WINDOW_BAND, WINDOW_TEXTURE] {
+                    canvas.draw_part(&parts, part, 0, WINDOW_TOP, false, alpha);
+                }
             }
-            if color != [0.0; 3] {
+            if color != [0.0; 3] && self.title != Title::Apeiria {
                 let rgb = color.map(|c| (c.clamp(0.0, 1.0) * 255.0) as u8);
                 let (_, _, w, h) = WINDOW_BAND;
                 canvas.fill(0, WINDOW_TOP, w, h, [rgb[0], rgb[1], rgb[2], alpha / 2]);

@@ -14,4 +14,4 @@ mod value;
 mod vm;
 
 pub use value::Value;
-pub use vm::{Error, Flow, Function, Host, Result, Snapshot, Stop, Vm};
+pub use vm::{split_ruby, Error, Flow, Function, Host, Result, Snapshot, Stop, Vm, RUBY_END, RUBY_START};
