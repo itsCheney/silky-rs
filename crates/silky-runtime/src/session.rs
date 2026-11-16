@@ -849,6 +849,11 @@ impl Session {
         Ok(())
     }
 
+    /// Whether the game draws its own pointer, so the system's is hidden.
+    pub fn own_cursor(&self) -> bool {
+        self.hmode.as_ref().is_some_and(|h| h.own_cursor())
+    }
+
     /// Pointer moved to (x, y) in screen pixels.
     pub fn pointer_move(&mut self, x: i32, y: i32) {
         self.ui.pointer = (x, y);
@@ -1586,6 +1591,7 @@ impl Session {
                         Op::StopMain => c.h_stop_main(),
                         Op::Diff { index, file } => c.h_diff(index, file),
                         Op::StopDiff(i) => c.h_stop_diff(i),
+                        Op::Pass => c.h_pass(),
                         Op::Face(f) => c.h_face(f),
                         Op::Voice(_) | Op::Sound(_) => {}
                     }
@@ -2818,6 +2824,7 @@ impl Session {
                     img(assets, "hg030100_tongue.akb"),
                     img(assets, "yume.akb"),
                     img(assets, "white.akb"),
+                    img(assets, "cursor.akb"),
                 ];
                 h.draw(&mut frame, images.each_ref().map(|i| i.as_ref()));
                 return Ok(frame);

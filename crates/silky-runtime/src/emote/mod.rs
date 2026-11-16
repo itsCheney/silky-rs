@@ -513,6 +513,14 @@ impl Character {
         }
     }
 
+    /// Applies the timelines just set at once on both files (the
+    /// driver's `Pass`).
+    pub fn h_pass(&mut self) {
+        for m in &mut self.models {
+            let _ = m.player.pass();
+        }
+    }
+
     /// Face 0 to 13: 0 to 6 on the first file, 7 to 13 on the
     /// second, each the difference timelines `f00` (13) down to `f06` (7).
     pub fn h_face(&mut self, face: usize) {

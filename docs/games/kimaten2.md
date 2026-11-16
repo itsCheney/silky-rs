@@ -48,13 +48,13 @@ How these positions map to the screen was measured on two screenshots of the gam
 
 ## H mode
 
-`Game.49` is an interactive screen of the engine, read from the executable. The script first loads an `hg030100_*` model pair into slot 0. The player picks an action from the column on the right and clicks a region of the touch map `anne_h.carea`. Each action and region plays the timelines, expression and voice the executable gives for it. Two gauges rise as the player acts; a full gauge plays a closing animation and waits for its voice. The buttons switch costume, an alternate model and background, auto repeat, and gauge locks. The finish button picks a closing line and returns to the script.
+`Game.49` is an interactive screen of the engine, read from the executable. The script first loads an `hg030100_*` model pair into slot 0. The player picks an action from the column on the right and clicks a region of the touch map `anne_h.carea`. Each action and region plays the timelines, expression and voice the executable gives for it. Two gauges rise as the player acts; a full gauge plays a closing animation and waits for its voice. The buttons switch costume, an alternate model and background, auto repeat, and gauge locks. The finish button picks a closing line and returns to the script. Over a body region the pointer turns into a picture of the chosen tool (`cursor.akb`, two frames of 300 ms) by the executable's tool and region table. In dream mode the mist (`yume.akb`) scrolls and waves along a sine, and a climax flashes white, both stepping every 16 ms as the engine's sprite animations do.
 
 The one-shot timelines of these models give a length of 3 ticks while their frames run to 50 or 55; they are played to their last frame, since the game waits for them to end.
 
 ## Not done yet
 
-- In H mode: the mouse cursor per action and region, and one model call whose meaning is not read yet. Two effect timings are guesses. The screen has not been compared with the game yet.
+- H mode has not been compared with the game on screen yet.
 
 ## Where things are in the executable
 
@@ -84,3 +84,8 @@ Addresses in `kimaten2.exe` of the build above, for checking the code against th
 | H mode: breathing, back to the waiting loop | 0x48bbc0, 0x48bb10 |
 | H mode: button animation, buttons drawn, gauges | 0x48a940, 0x486600, 0x489740, 0x489870 |
 | H mode: voice tables | 0x58bc50..0x58ea44 |
+| H mode: pointer picture by tool and region, table | 0x486600, 0x53c0dc |
+| Game pointer (`cursor.akb`): set, frame step, place | 0x4a27a0, 0x4a2ab0, 0x4a2b60 |
+| H mode: dream mist scroll and wave, white flash | 0x47ce30, 0x47cef0, 0x489b10 |
+| Sprite animation task (runs once more than its 15 ms have passed) | 0x4186f0 |
+| E-mote: `Pass` on both files (driver vtable +0x110), used by the fourth tool | 0x456d20 |

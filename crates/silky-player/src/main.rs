@@ -382,6 +382,9 @@ impl ApplicationHandler for App {
                 self.cursor = self.to_game(position);
                 let (x, y) = self.cursor;
                 self.session.pointer_move(x, y);
+                if let Some(v) = &self.view {
+                    v.window.set_cursor_visible(!self.session.own_cursor());
+                }
                 self.after_input(event_loop, Ok(()));
             }
             WindowEvent::MouseInput { state, button, .. } => {

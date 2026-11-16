@@ -740,7 +740,8 @@ struct Cell {
 /// when the pin is off and the pointer is above y = 671 (0x49a6b0,
 /// 0x49a800, 0x49df50).
 pub const BAR_DROP: i32 = 44;
-pub const BAR_STEP_MS: u64 = 15;
+/// The bar's animation task runs once more than 15 ms have passed.
+pub const BAR_STEP_MS: u64 = 16;
 pub const BAR_SHOW_Y: i32 = 671;
 
 impl Cell {

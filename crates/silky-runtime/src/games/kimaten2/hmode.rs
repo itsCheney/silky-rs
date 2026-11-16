@@ -15,10 +15,12 @@
 //! file and `yume.akb` mist), inside/outside (1280, 1281), auto repeat
 //! (1536), climax together (1792) and gauge locks (2048, 2049).
 //!
-//! What is not carried out: the mouse cursors per tool and region (the
-//! frontends keep their own), and one model call of the right breast
-//! rotor (vtable +0x140, meaning not read). The mist's scroll speed and
-//! the white flash's length are guesses.
+//! Over a body region the pointer is a picture of the tool from
+//! `cursor.akb` (two frames, 300 ms each), chosen by tool and region;
+//! elsewhere it is the system's.
+//!
+//! The dream mist and the white flash step as the engine's sprite
+//! animations do, every 16 ms.
 
 use silky_format::akb::Image;
 use silky_format::area::Area;
@@ -209,6 +211,8 @@ pub enum Op {
         file: usize,
     },
     StopDiff(usize),
+    /// Apply the timelines just set at once, on both files.
+    Pass,
     /// Face 0..13 (7..13 on the second file).
     Face(usize),
     /// Voice file, cutting the one playing.
@@ -247,7 +251,12 @@ const IDLE_MS: u64 = 7500;
 const RISE_MS: u64 = 500;
 /// Body clicks closer than this are ignored.
 const CLICK_GAP_MS: u64 = 1000;
-const FLASH_MS: u64 = 550;
+/// The engine's sprite animations step when more than 15 ms have
+/// passed, so every 16 ms.
+const STEP_MS: u64 = 16;
+/// The white flash: up to full in 2 steps, down in 32.
+const FLASH_UP: u64 = 2 * STEP_MS;
+const FLASH_MS: u64 = 34 * STEP_MS;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Inserted {
@@ -256,6 +265,21 @@ enum Inserted {
 }
 
 /// What a point of the screen is.
+/// Pointer picture (row of `cursor.akb`, 0 for the system's) by body
+/// region (rows) and tool (columns).
+const CURSORS: [[u8; 5]; 8] = [
+    [0, 0, 0, 0, 0],
+    [0, 1, 0, 0, 0],
+    [0, 0, 5, 0, 0],
+    [0, 2, 0, 0, 0],
+    [0, 2, 0, 0, 0],
+    [9, 4, 6, 7, 8],
+    [0, 3, 5, 7, 0],
+    [0, 3, 5, 7, 0],
+];
+const CURSOR_CELL: i32 = 48;
+const CURSOR_FRAME_MS: u64 = 300;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Hit {
     Button(i32),
@@ -278,6 +302,8 @@ pub struct HMode {
     idle_at: u64,
     click_at: Option<u64>,
     dream: bool,
+    /// When the mist started.
+    dream_at: u64,
     naked: bool,
     horns: bool,
     inside: bool,
@@ -308,6 +334,9 @@ pub struct HMode {
     waiting: Option<bool>,
     flash: Option<u64>,
     pointer_down: bool,
+    pointer: (i32, i32),
+    /// Pointer picture and when it was chosen.
+    cursor: (u8, u64),
     pub hover: Option<i32>,
     pressed: Option<i32>,
     pub done: bool,
@@ -335,6 +364,7 @@ impl HMode {
             idle_at: 0,
             click_at: None,
             dream: false,
+            dream_at: 0,
             naked: var(OUTFIT_VAR) == 1,
             horns: true,
             inside: false,
@@ -359,6 +389,8 @@ impl HMode {
             waiting: None,
             flash: None,
             pointer_down: false,
+            pointer: (0, 0),
+            cursor: (0, 0),
             hover: None,
             pressed: None,
             done: false,
@@ -613,6 +645,11 @@ impl HMode {
                 let (other, this) = if region == 6 { (4, 3) } else { (3, 4) };
                 ops.push(Op::StopDiff(other));
                 self.diff(ops, 0);
+                // The original applies them at once between the two,
+                // for region 7 only (the driver's `Pass`).
+                if region == 7 {
+                    ops.push(Op::Pass);
+                }
                 self.diff(ops, this);
                 self.rising[0] = true;
                 self.rise_at = self.now;
@@ -658,10 +695,24 @@ impl HMode {
     }
 
     pub fn pointer_move(&mut self, x: i32, y: i32) {
-        self.hover = match self.hit(x, y) {
+        let hit = self.hit(x, y);
+        self.hover = match hit {
             Some(Hit::Button(id)) => Some(id),
             _ => None,
         };
+        self.pointer = (x, y);
+        let kind = match (hit, self.tool) {
+            (Some(Hit::Region(r)), Some(t)) => CURSORS[r][t],
+            _ => 0,
+        };
+        if kind != self.cursor.0 {
+            self.cursor = (kind, self.now);
+        }
+    }
+
+    /// Whether the system's pointer is hidden for a picture of the tool.
+    pub fn own_cursor(&self) -> bool {
+        self.cursor.0 != 0
     }
 
     /// A button.
@@ -703,6 +754,7 @@ impl HMode {
             }
             4 if self.flags[2] => {
                 self.dream = !self.dream;
+                self.dream_at = self.now;
                 let f = self.face;
                 let f = if f >= 7 { f - 7 } else { f + 7 };
                 self.set_face(ops, f);
@@ -960,12 +1012,11 @@ impl HMode {
 
     /// Draws the dream mist, the action sprites and the buttons. `images`
     /// are `action_p`, `hg030100_hand`, `hg030100_tongue`, `yume`,
-    /// `white` (missing ones are left out).
-    pub fn draw(&self, c: &mut Canvas, images: [Option<&Arc<Image>>; 5]) {
-        let [sheet, hand, tongue, mist, white] = images;
+    /// `white`, `cursor` (missing ones are left out).
+    pub fn draw(&self, c: &mut Canvas, images: [Option<&Arc<Image>>; 6]) {
+        let [sheet, hand, tongue, mist, white, cursor] = images;
         if let (true, Some(m)) = (self.dream, mist) {
-            let off = ((self.now / 16) % 1280) as u32;
-            c.draw_part(m, (off, 0, 1280, 720), 0, 0, false, 255);
+            self.draw_mist(c, m);
         }
         // 22 frames, one each 16 ms, 11 to a column.
         let frame = ((self.now.saturating_sub(self.anim_at) / 16) % 22) as u32;
@@ -999,7 +1050,12 @@ impl HMode {
             self.draw_buttons(c, s);
         }
         if let (Some(t), Some(w)) = (self.flash, white) {
-            let k = 1.0 - (self.now.saturating_sub(t)) as f32 / FLASH_MS as f32;
+            let t = self.now.saturating_sub(t);
+            let k = if t < FLASH_UP {
+                t as f32 / FLASH_UP as f32
+            } else {
+                1.0 - (t - FLASH_UP) as f32 / (FLASH_MS - FLASH_UP) as f32
+            };
             c.draw_part(
                 w,
                 (0, 0, 1280, 720),
@@ -1008,6 +1064,46 @@ impl HMode {
                 false,
                 (k.clamp(0.0, 1.0) * 255.0) as u8,
             );
+        }
+        if let (kind @ 1.., Some(img)) = (self.cursor.0, cursor) {
+            let frame = ((self.now.saturating_sub(self.cursor.1) / CURSOR_FRAME_MS) % 2) as u32;
+            // The point of the picture: 27 px in for the hand, 32 for the rest.
+            let hot = if kind == 1 { 27 } else { 32 };
+            let cell = CURSOR_CELL as u32;
+            c.draw_part(
+                img,
+                (frame * cell, kind as u32 * cell, cell, cell),
+                self.pointer.0 - hot,
+                self.pointer.1 - hot,
+                false,
+                255,
+            );
+        }
+    }
+
+    /// The dream mist: `yume.akb` (2560 wide) scrolled one pixel a step
+    /// and wrapped, each row then pushed sideways along a sine wave whose
+    /// phase moves 4° a step and 1° a row, 16 pixels at most.
+    fn draw_mist(&self, c: &mut Canvas, m: &Arc<Image>) {
+        let step = self.now.saturating_sub(self.dream_at) / STEP_MS;
+        let wide = m.width.max(1);
+        let off = (step % wide as u64) as u32;
+        let phase = (step + 1) as f64 * 4.0;
+        for y in 0..720u32.min(m.height) {
+            let angle = phase + f64::from(y + 1);
+            let dx = (angle.to_radians().sin() * 16.0) as i32;
+            let first = (wide - off).min(1280);
+            c.draw_part(m, (off, y, first, 1), dx, y as i32, false, 255);
+            if first < 1280 {
+                c.draw_part(
+                    m,
+                    (0, y, 1280 - first, 1),
+                    first as i32 + dx,
+                    y as i32,
+                    false,
+                    255,
+                );
+            }
         }
     }
 
@@ -1178,5 +1274,18 @@ mod tests {
             assert_ne!(Some(p), last);
             last = Some(p);
         }
+    }
+
+    #[test]
+    fn pointer_picture_by_tool_and_region() {
+        let mut h = screen();
+        h.pointer_move(640, 400);
+        assert!(!h.own_cursor());
+        h.tool = Some(0);
+        h.pointer_move(640, 400);
+        assert_eq!(h.cursor.0, CURSORS[CROTCH][0]);
+        assert!(h.own_cursor());
+        h.pointer_move(1100, 100);
+        assert!(!h.own_cursor());
     }
 }
