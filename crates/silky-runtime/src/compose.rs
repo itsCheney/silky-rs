@@ -649,6 +649,61 @@ impl Compositor {
                         0,
                     );
                 }
+                Op::Sprite {
+                    image,
+                    part,
+                    corners,
+                    color,
+                    add,
+                } => {
+                    let (group, uv, clamp, (pw, ph)) = match image {
+                        Some(image) => {
+                            let (pl, pt, pw, ph) = *part;
+                            let pw = pw.min(image.width.saturating_sub(pl));
+                            let ph = ph.min(image.height.saturating_sub(pt));
+                            let (iw, ih) = (image.width as f32, image.height as f32);
+                            let uv = [
+                                pl as f32 / iw,
+                                pt as f32 / ih,
+                                (pl + pw) as f32 / iw,
+                                (pt + ph) as f32 / ih,
+                            ];
+                            let clamp = [
+                                (pl as f32 + 0.5) / iw,
+                                (pt as f32 + 0.5) / ih,
+                                ((pl + pw) as f32 - 0.5) / iw,
+                                ((pt + ph) as f32 - 0.5) / ih,
+                            ];
+                            (self.image(image, false), uv, clamp, (pw, ph))
+                        }
+                        None => (
+                            self.white.clone(),
+                            [0.0, 0.0, 1.0, 1.0],
+                            [0.0, 0.0, 1.0, 1.0],
+                            (part.2, part.3),
+                        ),
+                    };
+                    if pw == 0 || ph == 0 {
+                        continue;
+                    }
+                    let mut c = premultiplied(*color);
+                    if *add {
+                        c[3] = 0.0;
+                    }
+                    let [p0, p1, p2] = corners.map(|p| [p[0] * s, p[1] * s]);
+                    let p3 = [p1[0] + p2[0] - p0[0], p1[1] + p2[1] - p0[1]];
+                    push_corners(
+                        &mut vertices,
+                        &mut steps,
+                        group,
+                        frame,
+                        [p0, p1, p2, p3],
+                        uv,
+                        clamp,
+                        c,
+                        0,
+                    );
+                }
                 Op::Fill { x, y, w, h, color } => {
                     let (x, y) = (*x as f32, *y as f32);
                     let rect = [x, y, x + *w as f32, y + *h as f32].map(|v| v * s);
@@ -890,24 +945,53 @@ fn push_quad(
     color: [f32; 4],
     kind: u32,
 ) {
+    let [x0, y0, x1, y1] = rect;
+    push_corners(
+        vertices,
+        steps,
+        group,
+        frame,
+        [[x0, y0], [x1, y0], [x0, y1], [x1, y1]],
+        uv,
+        clamp,
+        color,
+        kind,
+    );
+}
+
+/// Adds a quad given by its corners (output pixels: top left, top right,
+/// bottom left, bottom right), joining the last step when it uses the
+/// same picture.
+#[allow(clippy::too_many_arguments)]
+fn push_corners(
+    vertices: &mut Vec<Vertex>,
+    steps: &mut Vec<Step>,
+    group: wgpu::BindGroup,
+    frame: Frame,
+    corners: [[f32; 2]; 4],
+    uv: [f32; 4],
+    clamp: [f32; 4],
+    color: [f32; 4],
+    kind: u32,
+) {
     let (w, h) = (frame.size.0 as f32, frame.size.1 as f32);
-    let at = |x: f32, y: f32, u: f32, v: f32| Vertex {
-        clip: [x / w * 2.0 - 1.0, 1.0 - y / h * 2.0],
+    let at = |p: [f32; 2], u: f32, v: f32| Vertex {
+        clip: [p[0] / w * 2.0 - 1.0, 1.0 - p[1] / h * 2.0],
         uv: [u, v],
         color,
         clamp,
         kind,
     };
-    let [x0, y0, x1, y1] = rect;
+    let [a, b, c, d] = corners;
     let [u0, v0, u1, v1] = uv;
     let start = vertices.len() as u32;
     vertices.extend([
-        at(x0, y0, u0, v0),
-        at(x1, y0, u1, v0),
-        at(x0, y1, u0, v1),
-        at(x1, y0, u1, v0),
-        at(x1, y1, u1, v1),
-        at(x0, y1, u0, v1),
+        at(a, u0, v0),
+        at(b, u1, v0),
+        at(c, u0, v1),
+        at(b, u1, v0),
+        at(d, u1, v1),
+        at(c, u0, v1),
     ]);
     let end = vertices.len() as u32;
     if let Some(Step::Quads(g, range)) = steps.last_mut() {

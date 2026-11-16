@@ -176,6 +176,8 @@ pub struct Renderer {
     holo: Option<(crate::games::apeiria::holo::Holo, Arc<Image>)>,
     /// Pictures with their opacity scaled, by name and opacity.
     faded: HashMap<(String, u8), Arc<Image>>,
+    /// 景の海のアペイリア: pictures its effects made.
+    effects: crate::games::apeiria::effects::Drawn,
 }
 
 impl Renderer {
@@ -201,6 +203,7 @@ impl Renderer {
             snow: None,
             holo: None,
             faded: HashMap::new(),
+            effects: Default::default(),
         };
         r.set_language(language);
         r
@@ -885,6 +888,9 @@ impl Renderer {
         if let Some((c, a)) = scene.dim {
             let rgba = [(c >> 16) as u8, (c >> 8) as u8, c as u8, a];
             canvas.fill(0, 0, canvas.width, canvas.height, rgba);
+        }
+        if !scene.effects.sprites.is_empty() {
+            self.effects.draw(&mut canvas, &scene.effects, assets);
         }
         if scene.snow {
             self.snow

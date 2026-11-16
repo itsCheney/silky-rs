@@ -542,7 +542,7 @@ impl Session {
                         break;
                     }
                     Some(Pause::Transition(t)) => {
-                        let from = self.base.take();
+                        let from = self.base.take().filter(|_| !t.live);
                         let rule = t.rule.and_then(|n| self.rule(n));
                         self.busy = Some(Busy {
                             from,
@@ -833,6 +833,8 @@ impl Session {
     /// Ends the running transition or wait and runs the scripts on.
     fn finish_busy(&mut self) -> Result<()> {
         if self.busy.take().is_some() && self.state == State::Busy {
+            // Effects the script waited for end with the wait.
+            self.rt.scene.effects.settle();
             self.run()?;
         }
         Ok(())
@@ -2587,6 +2589,10 @@ impl Session {
         }
         self.play_jolts();
         self.play_effects();
+        if self.rt.scene.effects.advance(ms) {
+            self.base = None;
+            self.frame = None;
+        }
         self.shown_ms += ms;
         if self.state == State::Busy {
             // Several short steps (input polls) may fit in one tick.

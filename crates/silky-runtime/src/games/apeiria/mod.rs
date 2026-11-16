@@ -2,8 +2,10 @@
 //!
 //! See `docs/games/apeiria.md`.
 
+pub mod anim;
 pub mod characters;
 pub(crate) mod commands;
+pub mod effects;
 pub mod holo;
 pub mod keys;
 pub mod mail;

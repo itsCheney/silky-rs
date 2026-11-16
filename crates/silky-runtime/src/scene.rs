@@ -148,6 +148,10 @@ pub struct Scene {
     /// Snow falls (ふゆから、くるる。, command 115).
     #[serde(default)]
     pub snow: bool,
+    /// 景の海のアペイリア's attack and spell effects (commands 998, 1000,
+    /// 1001, 1002). Not saved.
+    #[serde(skip)]
+    pub effects: crate::games::apeiria::anim::Stage,
     /// Screen shake offset in pixels.
     pub shake: (i32, i32),
     /// Current message text.

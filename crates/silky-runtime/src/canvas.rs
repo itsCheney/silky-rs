@@ -98,6 +98,17 @@ pub enum Op {
         t: f32,
         rule: Option<Arc<Vec<u8>>>,
     },
+    /// A picture part (or, without a picture, a rectangle of `part`'s
+    /// size) mapped onto the parallelogram whose top left, top right and
+    /// bottom left corners are given in game pixels, multiplied by `color`
+    /// (straight alpha), laid over or (`add`) added to what is there.
+    Sprite {
+        image: Option<Arc<Image>>,
+        part: (u32, u32, u32, u32),
+        corners: [[f32; 2]; 3],
+        color: [u8; 4],
+        add: bool,
+    },
     /// The frame so far scaled by `scale` and moved by (dx, dy) game
     /// pixels, then turned `turn` degrees clockwise about the middle of
     /// the frame, over black; replaces what was drawn.
@@ -130,6 +141,14 @@ fn blend_into(d: &mut [u8], src: [u8; 4]) {
         d[k] = ((src[k] as u32 * a + d[k] as u32 * (255 - a) + 127) / 255) as u8;
     }
     d[3] = 255;
+}
+
+/// Adds `src` (straight alpha) to an opaque pixel.
+fn add_into(d: &mut [u8], src: [u8; 4]) {
+    let a = src[3] as u32;
+    for k in 0..3 {
+        d[k] = (d[k] as u32 + (src[k] as u32 * a + 127) / 255).min(255) as u8;
+    }
 }
 
 /// Bilinear sample of the `part` (left, top, width, height) of an image at
@@ -265,6 +284,13 @@ impl Canvas {
                     Placing::Zoomed { x, y, scale } => self.draw_zoomed(image, x, y, scale),
                 },
                 Op::Fill { x, y, w, h, color } => self.fill(*x, *y, *w, *h, *color),
+                Op::Sprite {
+                    image,
+                    part,
+                    corners,
+                    color,
+                    add,
+                } => self.draw_sprite(image.as_ref(), *part, *corners, *color, *add),
                 Op::Glyph {
                     glyph,
                     x,
@@ -431,7 +457,17 @@ impl Canvas {
     /// the colour at a game position, or `None` to leave it.
     fn paint_sharp(
         &mut self,
+        rect: (f32, f32, f32, f32),
+        paint: impl Fn(f32, f32) -> Option<[u8; 4]>,
+    ) {
+        self.paint_sharp_as(rect, false, paint);
+    }
+
+    /// [`Canvas::paint_sharp`], adding the colours when `add` is set.
+    fn paint_sharp_as(
+        &mut self,
         (x0, y0, x1, y1): (f32, f32, f32, f32),
+        add: bool,
         paint: impl Fn(f32, f32) -> Option<[u8; 4]>,
     ) {
         let Some(sharp) = &self.sharp else {
@@ -454,7 +490,11 @@ impl Canvas {
                 for ox in ox0..ox1 {
                     if let Some(px) = paint((ox as f32 + 0.5) / s, (oy as f32 + 0.5) / s) {
                         let d = ((oy * sharp.width + ox) * 4) as usize;
-                        blend_into(&mut sharp.rgba[d..d + 4], px);
+                        if add {
+                            add_into(&mut sharp.rgba[d..d + 4], px);
+                        } else {
+                            blend_into(&mut sharp.rgba[d..d + 4], px);
+                        }
                     }
                 }
             }
@@ -871,6 +911,86 @@ impl Canvas {
             }
         }
         out
+    }
+
+    /// Draws an effect sprite: see [`Op::Sprite`].
+    pub fn draw_sprite(
+        &mut self,
+        image: Option<&Arc<Image>>,
+        part: (u32, u32, u32, u32),
+        corners: [[f32; 2]; 3],
+        color: [u8; 4],
+        add: bool,
+    ) {
+        if self.record(Op::Sprite {
+            image: image.cloned(),
+            part,
+            corners,
+            color,
+            add,
+        }) {
+            return;
+        }
+        let (pw, ph) = match image {
+            Some(img) => (
+                part.2.min(img.width.saturating_sub(part.0)),
+                part.3.min(img.height.saturating_sub(part.1)),
+            ),
+            None => (part.2, part.3),
+        };
+        if pw == 0 || ph == 0 || color[3] == 0 {
+            return;
+        }
+        let [p0, p1, p2] = corners;
+        let ex = [(p1[0] - p0[0]) / pw as f32, (p1[1] - p0[1]) / pw as f32];
+        let ey = [(p2[0] - p0[0]) / ph as f32, (p2[1] - p0[1]) / ph as f32];
+        let det = ex[0] * ey[1] - ex[1] * ey[0];
+        if det.abs() < 1e-6 {
+            return;
+        }
+        let p3 = [p1[0] + p2[0] - p0[0], p1[1] + p2[1] - p0[1]];
+        let xs = [p0[0], p1[0], p2[0], p3[0]];
+        let ys = [p0[1], p1[1], p2[1], p3[1]];
+        let min = |v: [f32; 4]| v.iter().cloned().fold(f32::MAX, f32::min);
+        let max = |v: [f32; 4]| v.iter().cloned().fold(f32::MIN, f32::max);
+        let rect = (min(xs), min(ys), max(xs), max(ys));
+        let part = (part.0, part.1, pw, ph);
+        let paint = |gx: f32, gy: f32| -> Option<[u8; 4]> {
+            let d = [gx - p0[0], gy - p0[1]];
+            let u = (d[0] * ey[1] - d[1] * ey[0]) / det;
+            let v = (ex[0] * d[1] - ex[1] * d[0]) / det;
+            if u < 0.0 || v < 0.0 || u >= pw as f32 || v >= ph as f32 {
+                return None;
+            }
+            let src = match image {
+                Some(img) => sample(img, part, u, v, false)?,
+                None => [255; 4],
+            };
+            let m = |a: u8, b: u8| ((a as u32 * b as u32 + 127) / 255) as u8;
+            Some([
+                m(src[0], color[0]),
+                m(src[1], color[1]),
+                m(src[2], color[2]),
+                m(src[3], color[3]),
+            ])
+        };
+        let x0 = rect.0.floor().max(0.0) as i32;
+        let y0 = rect.1.floor().max(0.0) as i32;
+        let x1 = (rect.2.ceil() as i32).min(self.width as i32);
+        let y1 = (rect.3.ceil() as i32).min(self.height as i32);
+        for y in y0..y1 {
+            for x in x0..x1 {
+                if let Some(px) = paint(x as f32 + 0.5, y as f32 + 0.5) {
+                    let i = ((y as u32 * self.width + x as u32) * 4) as usize;
+                    if add {
+                        add_into(&mut self.rgba[i..i + 4], px);
+                    } else {
+                        blend_into(&mut self.rgba[i..i + 4], px);
+                    }
+                }
+            }
+        }
+        self.paint_sharp_as(rect, add, paint);
     }
 
     /// Fills a rectangle with a colour (alpha blended).

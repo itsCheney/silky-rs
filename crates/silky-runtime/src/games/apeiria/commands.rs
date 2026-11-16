@@ -69,6 +69,22 @@ use crate::games::cmd::{CHARACTER, PICTURE, PORTRAIT};
 use silky_format::game::Kind;
 
 impl Runtime {
+    /// Waits while the effects just started play out, if they make the
+    /// script wait.
+    fn effect_wait(&mut self) -> Option<silky_vm::Result<Flow>> {
+        match self.scene.effects.blocking_ms() {
+            Some(ms) if ms > 0 => {
+                self.wait_for(crate::host::Pause::Transition(crate::host::Transition {
+                    ms: ms as u32,
+                    rule: None,
+                    spin: None,
+                    live: true,
+                }))
+            }
+            _ => self.done(),
+        }
+    }
+
     /// `Game.993`: 0 sets the shake up, 2 (kind) picks its steps, 3
     /// starts it, 1 stops it.
     fn apeiria_quake(&mut self, c: &Call) {
@@ -140,10 +156,48 @@ impl Runtime {
                 self.handled += 1;
                 Some(Ok(self.transition(1, None)))
             }
-            // Effects that leave nothing behind once over, not done: the
-            // attack and spell effects (998, 1001, 1002), a sprite animation
-            // (1000), and set up calls of the library script (991, 1003).
-            991 | 998 | 1000 | 1001 | 1002 | 1003 => self.done(),
+            // The screen effects of spells and attacks; the script waits
+            // while one plays out.
+            1001 => {
+                let mut ints = vec![];
+                let mut strs = vec![];
+                // Sub 11: a count, then (picture, frames, rule) each.
+                for v in c.args.iter().skip((c.sub == 11) as usize) {
+                    match v.as_str() {
+                        Some(t) => strs.push(t.to_string()),
+                        None => ints.push(v.int()),
+                    }
+                }
+                super::effects::screen_effect(&mut self.scene.effects, c.sub, &ints, &strs);
+                self.effect_wait()
+            }
+            998 => {
+                // The executable takes the arguments last pushed first.
+                let ints: Vec<i32> = c.args.iter().rev().map(|v| v.int()).collect();
+                super::effects::attack(&mut self.scene.effects, c.sub, &ints);
+                self.effect_wait()
+            }
+            1000 => {
+                super::effects::sprite_anime(&mut self.scene.effects, c.sub);
+                self.done()
+            }
+            1002 => {
+                let mut ints = vec![];
+                let mut strs = vec![];
+                for v in c.args.iter().rev() {
+                    match v.as_str() {
+                        Some(t) => strs.push(t.to_string()),
+                        None => ints.push(v.int()),
+                    }
+                }
+                let effects = &mut self.scene.effects;
+                if let Some(cover) = super::effects::spell(effects, c.sub, &ints, &strs) {
+                    self.scene.cover = cover;
+                }
+                self.effect_wait()
+            }
+            // Set up calls of the library script (991, 1003).
+            991 | 1003 => self.done(),
             // (file) / (): a movie of a character changing clothes over
             // the scene (`chNN_chg.vsd`), played when movies are on; 1
             // closes it. Not played: the scene stays as with movies off.

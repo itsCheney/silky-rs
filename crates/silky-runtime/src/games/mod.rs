@@ -219,6 +219,7 @@ impl Runtime {
             // stands still here, as with movies off.
             (cmd::PICTURE, 0 | 10, 1) => {
                 scene.background = c.str(0);
+                scene.effects.background_changed();
                 if let Some(name) = &scene.background {
                     self.system
                         .seen

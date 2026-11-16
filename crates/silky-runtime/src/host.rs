@@ -166,6 +166,9 @@ pub struct Transition {
     pub rule: Option<u32>,
     /// The picture turns and scales during the change.
     pub spin: Option<Spin>,
+    /// The screen changes by itself meanwhile (effects play): it is
+    /// drawn as it stands, not mixed from the one before.
+    pub live: bool,
 }
 
 /// ふゆから、くるる。's future flash (`CFutureAnime`): over `frames`, the
@@ -666,6 +669,7 @@ impl Runtime {
             ms,
             rule,
             spin: None,
+            live: false,
         }));
         Flow::Yield
     }
@@ -712,6 +716,7 @@ impl Runtime {
                         ms,
                         rule: None,
                         spin: None,
+                        live: false,
                     }));
                     Flow::Yield
                 } else {

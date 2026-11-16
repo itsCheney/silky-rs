@@ -29,6 +29,12 @@ All 171 scripts decode; the story text is in the scripts (no MAP tables). Headle
 - The DNA PC (`Game.1014`): its screen goes into the background, the monitor over it, and the system window at (305, 37) is pieced from `apeirasystem.akb`.
 - The HP gauges of the battles (`Game.1015`): five gauges cut from `hp.akb`, green from half, orange from a tenth, red below, a skull at 0; steps queued with sub 4 run with sub 9. Sub 6 (id, interval, count, delta, gauge) moves a gauge's HP by delta every interval milliseconds, count times, kept between 1 and 100 and ending at 1; sub 7 (id, gauge) stops it. The original also writes the HP to word variables 100 to 104, which the scripts do not read.
 - The list of conclusions (`Game.992`): 250 x 51 cells of `dnapcA_mailparts.akb` (column v / 100, row v % 100) for bytes 1300 to 1306, as many as byte 1320 says, the last first, drawn into the background from (356, 103) down; a value under 100 gets 100 added once drawn. Sub 1 (text, page, cell) draws a mail into the background the same way: the header cell of the same sheet at (655, 73) and the text, black, wrapped at 276 pixels, in a 300 x 272 view at (641, 161) scrolled by page.
+- Attack and spell effects, read from the executable and played as its keyframe animations (16 ms steps):
+  - `Game.998`, the battle attacks: kinds 0 to 17 (sub 0) build sprites from the attack sheets with their moves, fades, turns, scales and wipes; the bullet streaks, the fireball, the sword rain, the slashes and the white flashes are drawn by the executable's own per-frame code, ported with its random numbers. Sub 1 keeps an attack up until sub 4 takes it down; kind 14 shows the ev1701 pictures one after another.
+  - `Game.1000`, the specks at the top of the screen (subs 0 to 2).
+  - `Game.1001`, the screen effects (subs 0 to 21 and 255), among them the random slashes of sub 6.
+  - `Game.1002`, the spells: a mosaic in or out (0 and 1, from a block size to another over a number of frames), the cross fade of a picture with a rule (2, 3), the dark red screen (4), the flash (5), the cut between two event pictures (6), the glitch bars (9) and the rule reveal (10).
+  - The script waits while an effect blocks, as in the original.
 - A voice the next message does not cut (`Game.961`) and the auto save (`Game.14`).
 - CG, scene and music modes (`Game.30` to `Game.32`), read from the executable and compared with the original under Wine. What was seen is kept in the byte variables from 3000, across games: a CG bit set from byte 3300, one bit per picture, set when the background and layers `Game.12` put up (subs 0, 1, 10, 12) match a row of the executable's table once the screen is shown (subs 2, 3, 4, 6, 11), or directly (sub 13); scenes from byte 3101 and music from byte 3050, set by the scripts; bytes 3002 to 3004 open the three modes.
   - CG mode: eight pages of twelve entries (`cgmode_thmNN.akb`), the count of seen pictures on each, and the completion of all three modes at the bottom. An entry opens a grid of its pictures over the dimmed page (from its `cg_evNNNN.akb` strip), with pages of twelve; a picture shows over the whole screen, and clicks walk through every seen picture to the last, then back to the grid. The wheel walks back and forth.
@@ -39,7 +45,9 @@ All 171 scripts decode; the story text is in the scripts (no MAP tables). Headle
 
 ## Not done yet
 
-- Effects that leave nothing behind are passed over: attack and spell effects (998, 1001, 1002) and a sprite animation (1000). Fades, slides and particles of the pictures above are not done; they appear and go at once.
+- Fades, slides and particles of the pictures over the scene (995 to 997, 1012 to 1015) are not done; they appear and go at once.
+- Of the effects above, only `Game.1001` sub 1 was compared frame by frame with the original under Wine; the rest follow the executable's code and were checked in the runtime only.
+- Kind 14 of `Game.998` and spells 4 and 6 of `Game.1002` are drawn into the background by the original; here they are sprites kept until the next background. A screen left covered by spell 0 or an increasing spell 1 likewise stays until the background changes.
 
 ## Where things are in the executable
 
@@ -92,4 +100,10 @@ Addresses in `apeiria.exe` of the build above. The code itself does not name the
 | Save list (`Game.1016`) | 0x491c50 |
 | Screen shake (`Game.993`), its step and offset tables | 0x48d380, 0x4779b0, 0x5346c0..0x534b6f |
 | Zoom flash (`Game.1005`) | 0x48fa30 |
-| Effects not done: sprite animation (1000), attacks and spells (998, 1001, 1002) | 0x48ecd0, 0x48e610, 0x48f150, 0x48ee60 |
+| Effect handlers: specks (1000), attacks (998), screen effects (1001), spells (1002) | 0x48ecd0, 0x48e610, 0x48f150, 0x48ee60 |
+| Attacks: dispatch by kind; kind builders | 0x435130; 0x435400..0x438cc0 |
+| Attacks: bullet streaks (set up, step, draw); fireball (set up, step) | 0x439fc0, 0x43a390, 0x43a530; 0x439940, 0x439a00 |
+| Attacks: random slashes; sword rain | 0x43bbc0, 0x43c1c0; 0x43a7e0, 0x43aaa0 |
+| Specks (`Game.1000`): set up, step, draw, end | 0x45c800, 0x45cab0, 0x45cd50, 0x45ce70 |
+| Random slashes (`Game.1001` sub 6): object, step, draw; builder | 0x43b330, 0x43b0c0, 0x43afe0; 0x4822d0 |
+| Spells (`Game.1002`): builders for subs 0..6, 9, 10; glitch bars | 0x489250, 0x4898d0, 0x48a000, 0x48a1c0, 0x48a4d0, 0x48a720, 0x48a920, 0x48acc0, 0x48b0f0; 0x489550 |
