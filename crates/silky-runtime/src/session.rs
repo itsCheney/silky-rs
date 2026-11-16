@@ -449,6 +449,13 @@ impl Session {
 
     /// Runs the scripts until they wait for the player.
     fn run(&mut self) -> Result<()> {
+        // 景の海のアペイリア makes a voice line's picture change at once
+        // when the message it came with goes.
+        if self.state == State::Text && self.menus.is_apeiria() {
+            for (_, step) in std::mem::take(&mut self.vo_steps) {
+                step.apply(&mut self.rt.scene);
+            }
+        }
         let mut budgets = 0;
         loop {
             let stop = if self.rt.follow_up() {

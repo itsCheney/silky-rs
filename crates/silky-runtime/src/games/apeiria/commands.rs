@@ -26,8 +26,8 @@ const DNA_PC: i32 = 1014;
 const BATTLE: i32 = 1015;
 /// A voice that goes on over the next messages.
 const LONG_VOICE: i32 = 961;
-/// Lip sync of an event picture, from a `.vo` file.
-const EVENT_LIPS: i32 = 1007;
+/// A picture that changes during a voice line, from a `.vo` file.
+const VOICE_PICTURE: i32 = 1007;
 /// `Game.999`, a movie over the scene.
 const CHANGE_MOVIE: i32 = 999;
 /// `Game.1005`, the white flash of a zoomed screen.
@@ -102,9 +102,23 @@ impl Runtime {
             BOARD | EXPLAIN | ITEM => self.panels(c),
             PICTURE => self.apeiria_picture(vm, c),
             LONG_VOICE => self.long_voice(c),
-            // (file) / (): the event picture's mouth moves with the voice;
-            // not done, the picture stays as it is.
-            EVENT_LIPS if matches!(c.sub, 0 | 1) => self.done(),
+            // (file): a picture changes a set time into the voice line
+            // (see [`super::vo`]); 1 ends the change at once.
+            VOICE_PICTURE if c.sub == 0 => {
+                let steps = c
+                    .str(0)
+                    .and_then(|f| self.assets.data(&f).ok())
+                    .map(|b| super::vo::parse(&b))
+                    .unwrap_or_default();
+                self.vo_steps = steps;
+                self.done()
+            }
+            VOICE_PICTURE if c.sub == 1 => {
+                for (_, step) in std::mem::take(&mut self.vo_steps) {
+                    step.apply(&mut self.scene);
+                }
+                self.done()
+            }
             // (a, b, file) returns a timer, 1 stops one, 10 restarts one,
             // 11 drops them all; only the library script uses
             // them, around screens this runtime draws itself.

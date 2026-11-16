@@ -18,6 +18,7 @@ All 171 scripts decode; the story text is in the scripts (no MAP tables). Headle
 - Text: glyphs about 24 pixels tall every 28.3 pixels from x = 152, lines 41 apart, bold with a one-pixel black edge, measured under Wine.
 - Screen shake (`Game.993`), read from the executable: sub 0 sets it up, 2 picks one of two tables of eight offsets (sideways only, or both ways, up to 16 pixels), 3 starts it, 1 stops it. The screen takes the next offset each step; the step time (a sixtieth of a second) is a guess.
 - The white flash of a zoomed screen (`Game.1005`), read from the executable: the screen zooms to 120 %, turns white and fades back over 16 frames, the same steps as ふゆから、くるる。's.
+- Pictures that change during a voice line (`Game.1007`, `.vo` files), read from the executable: a set time after the voice starts, the window portrait (0), a standing character (1), the event picture and its difference picture (2) or Apeiria on the hologram panel (3) change to the face the file names, with cheeks when its flag is set. The next message makes the change at once if its time has not come. The `.vo` layout is older than ふゆから、くるる。's: a head of three u32 (count, what changes, milliseconds), then 792-byte records (slot, size, flag, three 260-byte names). The original fades the new picture in; here it changes at once.
 - With movies on (the setting the program starts with), the scripts ask for movies of characters changing clothes over the scene (`Game.999`, `chNN_chg.vsd`) and move the copy of the screen a shake uses (`Sprite.13`); the movies are not played, so the scene stays as with movies off.
 - αMAIL, the in-game mail screen (`Game.1012`), read from the executable: the phone frame (`SLD.akb`) and the mail list of `mail01_p.akb` with the tray label (sub 0, list A or B), the newest mail row (byte 1200 or 1400, set by sub 11), the "new mail" notice with its count (subs 5 and 6), the selected row (subs 8 and 9) and the open mail on `mail02_p.akb` with its body text (subs 3 and 4). Places were checked against Wine; the body wrap width is a guess.
 - Standing characters, read from the executable: the slot gives the centre (slot 1 at -400, 2 and 3 at +400 from the middle), and the top edge is (1 - size) · a - size · k with a and k by character (`chNN`). Checked against Wine.
@@ -36,7 +37,7 @@ All 171 scripts decode; the story text is in the scripts (no MAP tables). Headle
 
 - In the extras: the fades between screens, keyboard moves, and the slide of the scroll bar's arrows while held.
 - Effects that leave nothing behind are passed over: attack and spell effects (998, 1001, 1002) and a sprite animation (1000). Fades, slides and particles of the pictures above are not done; they appear and go at once.
-- The mouths of event pictures moving with the voice (`Game.1007`; its `.vo` files are an older layout than ふゆから、くるる。's: a 12-byte head, then 792-byte records naming the picture and its mouth layer), the draining of HP over time (`Game.1015` subs 6 and 7), the list of conclusions drawn into the background (`Game.992`), and `Game.1012` subs 7, 10 and 14.
+- The draining of HP over time (`Game.1015` subs 6 and 7), the list of conclusions drawn into the background (`Game.992`), and `Game.1012` subs 7, 10 and 14.
 - The window position setting, the hourglass frame time.
 
 ## Where things are in the executable
@@ -65,7 +66,7 @@ Addresses in `apeiria.exe` of the build above. The code itself does not name the
 | DNA PC (`Game.1014`) | 0x4917e0, 0x452130, 0x451ff0 |
 | HP gauges (`Game.1015`): handler, set up, colours and bar, queue | 0x4918b0, 0x457600, 0x458920, 0x457c80 |
 | Long voice (`Game.961`) | 0x491d70 |
-| Event picture lip sync (`Game.1007`) | 0x48fde0, 0x454bc0 |
+| Voice-timed picture changes (`Game.1007`): start, timer, the four kinds (set up, step, end) | 0x48fde0, 0x454bc0, 0x454dd0, 0x454eb0..0x4569c0 |
 | Extras (`Game.30` to `Game.32`) | 0x490990 |
 | CG mode: open, page, buttons, click | 0x444640, 0x445370, 0x445000, 0x444780 |
 | CG entries, pictures (and the copy the seen check reads) | 0x55cc70, 0x55d1e0 (0x562d00) |

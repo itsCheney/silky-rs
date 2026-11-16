@@ -8,3 +8,4 @@ pub mod holo;
 pub mod mail;
 pub mod omake;
 pub mod panels;
+pub mod vo;

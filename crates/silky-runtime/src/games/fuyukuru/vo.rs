@@ -17,18 +17,35 @@ use crate::scene::{Character, Scene};
 const RECORD: usize = 796;
 const NAME: usize = 260;
 
-/// One picture of a `.vo` timeline.
+/// One picture of a `.vo` timeline (here or in
+/// [`crate::games::apeiria::vo`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Step {
     Portrait {
         body: String,
         face: Option<String>,
+        cheeks: Option<String>,
     },
     Character {
         slot: i32,
         scale: i32,
         body: String,
         face: Option<String>,
+        cheeks: Option<String>,
+    },
+    /// An event picture and the difference picture over it in `slot`.
+    Picture {
+        background: String,
+        slot: i32,
+        layer: Option<String>,
+    },
+    /// 景の海のアペイリア's hologram panel: her picture and what is drawn
+    /// over it.
+    Holo {
+        place: i32,
+        scale: i32,
+        body: String,
+        faces: Vec<String>,
     },
 }
 
@@ -36,14 +53,16 @@ impl Step {
     /// Puts the picture in the scene.
     pub fn apply(&self, scene: &mut Scene) {
         match self.clone() {
-            Step::Portrait { body, face } => {
+            Step::Portrait { body, face, cheeks } => {
                 scene.portrait = Some((body, face));
+                scene.portrait_cheeks = cheeks;
             }
             Step::Character {
                 slot,
                 scale,
                 body,
                 face,
+                cheeks,
             } => {
                 let offset = scene
                     .characters
@@ -57,9 +76,38 @@ impl Step {
                         face,
                         scale,
                         offset,
-                        cheeks: None,
+                        cheeks,
                     },
                 );
+            }
+            Step::Picture {
+                background,
+                slot,
+                layer,
+            } => {
+                if scene.background.as_deref() != Some(background.as_str()) {
+                    scene.background = Some(background);
+                    scene.overlays.clear();
+                }
+                match layer {
+                    Some(l) => scene.overlays.insert(slot, l),
+                    None => scene.overlays.remove(&slot),
+                };
+            }
+            Step::Holo {
+                place,
+                scale,
+                body,
+                faces,
+            } => {
+                let holo = scene.holo.get_or_insert_with(Default::default);
+                if holo.body != body {
+                    holo.offset = (0, 0);
+                }
+                holo.body = body;
+                holo.place = place;
+                holo.scale = scale;
+                holo.faces = faces;
             }
         }
     }
@@ -89,12 +137,14 @@ pub fn parse(bytes: &[u8]) -> Vec<(u32, Step)> {
             Some(0) => name(&r[16..16 + NAME]).map(|body| Step::Portrait {
                 body,
                 face: name(&r[16 + NAME..16 + 2 * NAME]),
+                cheeks: None,
             }),
             Some(1) => name(&r[24..24 + NAME]).map(|body| Step::Character {
                 slot: int(r, 16).unwrap_or(0),
                 scale: int(r, 20).unwrap_or(100),
                 body,
                 face: name(&r[24 + NAME..24 + 2 * NAME]),
+                cheeks: None,
             }),
             _ => None,
         };
@@ -147,7 +197,8 @@ mod tests {
                 0,
                 Step::Portrait {
                     body: "a_01_00.akb".into(),
-                    face: Some("a_01_00_h17.akb".into())
+                    face: Some("a_01_00_h17.akb".into()),
+                    cheeks: None,
                 }
             )
         );
@@ -159,7 +210,8 @@ mod tests {
                     slot: 0,
                     scale: 75,
                     body: "a_01_00.akb".into(),
-                    face: Some("a_01_00_h19.akb".into())
+                    face: Some("a_01_00_h19.akb".into()),
+                    cheeks: None,
                 }
             )
         );
