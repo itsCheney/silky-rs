@@ -934,6 +934,13 @@ impl DoukBar {
         })
     }
 
+    /// The bitmap fonts, loaded on first use.
+    fn font(&self, assets: &mut Assets) -> Option<&crate::games::doukyuusei::window::Font> {
+        self.font
+            .get_or_init(|| crate::games::doukyuusei::window::Font::load(assets).ok())
+            .as_ref()
+    }
+
     fn hit(&self, ui: &Ui, x: i32, y: i32) -> Option<Button> {
         self.buttons
             .iter()
@@ -941,9 +948,14 @@ impl DoukBar {
             .map(|&(id, ..)| Button::Bar(id))
     }
 
-    fn draw(&self, canvas: &mut Canvas, assets: &mut Assets, ui: &Ui) -> Result<()> {
+    /// `round`: also the voice and close buttons of the window (not
+    /// during a selection, when the window is gone).
+    fn draw(&self, canvas: &mut Canvas, assets: &mut Assets, ui: &Ui, round: bool) -> Result<()> {
         let sheet = assets.image("message_p.akb")?;
         for &(id, a, (sx, sy), (w, h), step) in &self.buttons {
+            if !round && matches!(id, bar::VOICE | bar::HIDE) {
+                continue;
+            }
             let b = Button::Bar(id);
             let active = match id {
                 bar::AUTO => ui.auto,
@@ -1754,6 +1766,13 @@ impl Layout {
 
     /// Button under a point (screen pixels).
     pub fn hit(&self, ui: &Ui, text_shown: bool, x: i32, y: i32) -> Option<Button> {
+        if let (false, Some(d)) = (ui.choices.is_empty(), &self.douk) {
+            let bars = crate::games::doukyuusei::select::Bars::new(&ui.choices);
+            if let Some(i) = bars.hit(x, y) {
+                return Some(Button::Choice(i));
+            }
+            return d.hit(ui, x, y);
+        }
         if !ui.choices.is_empty() && self.kimaten2.is_none() && self.ring.is_none() {
             let bars = ChoiceBars::new(&ui.choices);
             return (0..bars.count)
@@ -1836,6 +1855,16 @@ impl Layout {
         text_shown: bool,
         text: Option<&TextRenderer>,
     ) -> Result<()> {
+        // 同級生 Remake: its own bars, with the bottom buttons of the
+        // message window.
+        if let (false, Some(d)) = (ui.choices.is_empty(), &self.douk) {
+            let bars = crate::games::doukyuusei::select::Bars::new(&ui.choices);
+            let font = d.font(assets);
+            bars.draw(canvas, assets, font, &ui.choices, |i| {
+                ui.state(Button::Choice(i), true, false) as u32
+            })?;
+            return d.draw(canvas, assets, ui, false);
+        }
         if !ui.choices.is_empty() && self.kimaten2.is_none() && self.ring.is_none() {
             let sheet = assets.image("message_p.akb")?;
             let bars = ChoiceBars::new(&ui.choices);
@@ -1899,11 +1928,7 @@ impl Layout {
                 Some(Button::Panel(id)) => Some(id),
                 _ => None,
             };
-            let font = self.douk.as_ref().and_then(|d| {
-                d.font
-                    .get_or_init(|| crate::games::doukyuusei::window::Font::load(assets).ok())
-                    .as_ref()
-            });
+            let font = self.douk.as_ref().and_then(|d| d.font(assets));
             return p.draw(
                 canvas,
                 assets,
@@ -1960,7 +1985,7 @@ impl Layout {
             return r.draw(canvas, assets, ui);
         }
         if let Some(d) = &self.douk {
-            return d.draw(canvas, assets, ui);
+            return d.draw(canvas, assets, ui, true);
         }
         let sheet = assets.image("message_p.akb")?;
         for a in &self.bar {

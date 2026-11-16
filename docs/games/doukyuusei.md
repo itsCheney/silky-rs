@@ -27,13 +27,13 @@ The game is an adventure in a town: the hero spends the days of a summer break g
   - The call returns (verb + 1) × 256 + object for a hot spot and 255 × 256 + id for a button.
   - Hint bar: `search_p.akb` (0, 684, 584, 68) at (658, 1005), and the line of `SYSTEM_<lang>.MAP` for the element under the pointer: 232 to 238 for the buttons, 239 + verb for a hot spot, 252 for back; empty on nothing. The text is the bitmap font at half size from (725, 1029).
 - The hours dial (`Game.29(kind)`, the program's time selection): `time_p_<lang>.akb` with the dial (750 x 756 from (0, 592)) at (586, 42), the question of the kind (403 x 76 from (1152, 76 × kind)) at (760, 456), eight hour buttons (144 x 148 cells) and back (151 x 153 from (750, 592)) placed by `TimeSelect.area`. Kind 0 asks how long to sleep, 1 how far to wind back, 2 how far to skip forward. Returns the hours, 0 for back. Matches the original under Wine.
-- Selections (`Select.2`): each option body leaves its line id in `h[40 + i]`; the labels are those lines of the script's text table.
+- Selections (`Select.2`, the program's normal selection): each option body leaves its line id in `h[40 + i]`; the labels are those lines of the script's text table. Each option is a bar of `sel_p.akb` (rows of 110 pixels by state): the 60-pixel ends, 105 pixels of body next to each end and a 40-pixel body slice per two cells of the longest label. The bars are centred across the screen and, 118 pixels apart, in the 780 pixels above the bottom buttons; a label is centred in its bar, 35 pixels from its top, in the message font. The message window goes away; its bottom buttons stay. Matches the original under Wine; only the first four options show (paging is not done).
 - Headless, `silky-run snap` plays the opening, looks around the hero's room and goes to sleep.
 
 ## Not done yet
 
 - The room screen: the date, time and money plate (`cal_p_<lang>.akb`) and the system menu button at the top right; the quick save and quick load buttons do nothing yet.
-- The selection bars of this game (they are drawn with the generic look for now).
+- More than four options (the original pages them with arrows), and options grayed once taken.
 - After sleeping, the scripts divide by a calendar value that is still 0 headless; the day change is not done.
 - The town map, the time of day and the people present (`Game.17`, `Game.29`, `Game.36` and others), the name entry (`Game.18`), the system menu and the other screens.
 - Chinese text: the layout of full-width characters is assumed (two cells each, a character a word); it is not checked under Wine yet.
@@ -56,6 +56,7 @@ Addresses in the program as it runs (the Steam wrapper unpacks it at its own ima
 | Room hint for a button | 0x46cc90 |
 | `Game.29` hours dial (`CTimeSelect`): call, set up, drawn | 0x4e250c, 0x4dd5d0, 0x4ddc70 |
 | Hours dial: button drawn, clicked | 0x4ddae0, 0x4dd750 |
+| Selection bars built, placed (`CNormalSelect`) | 0x4c5f50, 0x4c62a0 |
 | Bitmap fonts loaded | 0x4a4340 |
 | One glyph drawn with its outline | 0x4a44e0 |
 | Message text laid out (words, `\n`, `\i`) | 0x4a6a00 |

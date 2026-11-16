@@ -8,6 +8,7 @@
 pub(crate) mod commands;
 pub mod hours;
 pub mod room;
+pub mod select;
 pub mod window;
 
 use silky_format::map::MapFile;

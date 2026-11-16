@@ -56,6 +56,11 @@ fn half(c: char) -> bool {
     (c as u32) < 0x100 || c == '\u{2014}'
 }
 
+/// Width of a text in cells (full-width characters take two).
+pub fn text_cells(text: &str) -> i32 {
+    text.chars().map(cells).sum()
+}
+
 fn cells(c: char) -> i32 {
     if half(c) {
         1

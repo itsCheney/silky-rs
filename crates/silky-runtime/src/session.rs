@@ -2819,7 +2819,10 @@ impl Session {
                 && self.state != State::Title
                 && self.ui.actions.is_empty()
                 && self.ui.map.is_none()
-                && self.ui.panel.is_none();
+                && self.ui.panel.is_none()
+                // 同級生 Remake puts its selections up without it.
+                && !(!self.ui.choices.is_empty()
+                    && self.rt.assets.game().title == silky_format::game::Title::Doukyuusei);
             let moved = std::mem::take(&mut self.emote_moved);
             if self.base.is_none() || (moved && self.under.is_none()) {
                 let under = self
