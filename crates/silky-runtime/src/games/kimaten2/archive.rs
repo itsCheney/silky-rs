@@ -38,6 +38,9 @@ pub const NOTEBOOK_ENTRIES: usize = 36;
 pub const ITEMS: usize = 22;
 pub const NOTEBOOK_VAR: usize = 900;
 pub const ITEM_VAR: usize = 801;
+/// Set by the scripts once the costume screen may open (the bar's
+/// costume button is grey until then).
+pub const COSTUME_ON: usize = 700;
 /// Offset of the copies read outside a game.
 pub const GLOBAL_COPY: usize = 1000;
 /// How many parts of a growing notebook entry are open.

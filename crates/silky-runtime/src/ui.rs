@@ -142,6 +142,12 @@ pub struct Ui {
     /// きまぐれテンプテーション2: the jump to the next unread text or
     /// selection is off while the message is unread (under Wine).
     pub jump_off: bool,
+    /// きまぐれテンプテーション2: the costume button works (byte 700 set).
+    pub costume: bool,
+    /// きまぐれテンプテーション2: the bar pin is on, and how far below its
+    /// place the bar has slid (0 up, [`BAR_DROP`] out of sight).
+    pub menu_lock: bool,
+    pub bar_drop: i32,
     /// Animation clock in milliseconds.
     pub clock: u64,
     /// Whether there are saves to load (enables Continue and Load).
@@ -203,6 +209,7 @@ impl Ui {
             Button::Bar(bar::PREVIOUS_CHOICE) => self.previous_choice,
             Button::Bar(bar::NEXT_CHOICE) => !self.jump_off,
             Button::Bar(bar::NOTEBOOK) => self.notebook,
+            Button::Bar(bar::COSTUME) => self.costume,
             Button::Bar(bar::COLLECTION) => self.collection,
             _ => true,
         }
@@ -728,13 +735,42 @@ struct Cell {
     states: u32,
 }
 
+/// きまぐれテンプテーション2's bar slides 44 pixels out of sight (the
+/// buttons from y = 678 and the pin from 676 to 720), 2 pixels every 15 ms,
+/// when the pin is off and the pointer is above y = 671 (0x49a6b0,
+/// 0x49a800, 0x49df50).
+pub const BAR_DROP: i32 = 44;
+pub const BAR_STEP_MS: u64 = 15;
+pub const BAR_SHOW_Y: i32 = 671;
+
 impl Cell {
+    /// How far the cell sits below its place: the buttons stop 2 pixels
+    /// short of the pin's travel.
+    fn drop(&self, ui: &Ui) -> i32 {
+        match self.id {
+            bar::PIN => ui.bar_drop,
+            bar::HIDE => 0,
+            _ => ui.bar_drop.min(BAR_DROP - 2),
+        }
+    }
+
     fn draw(
         &self,
         canvas: &mut Canvas,
         sheet: &Arc<silky_format::akb::Image>,
         ui: &Ui,
         active: bool,
+    ) {
+        self.draw_at(canvas, sheet, ui, active, 0);
+    }
+
+    fn draw_at(
+        &self,
+        canvas: &mut Canvas,
+        sheet: &Arc<silky_format::akb::Image>,
+        ui: &Ui,
+        active: bool,
+        drop: i32,
     ) {
         let b = Button::Bar(self.id);
         let state = match ui.state(b, ui.enabled(b), active) {
@@ -744,9 +780,15 @@ impl Cell {
         };
         let state = (state as u32).min(self.states - 1);
         let (w, h) = self.size;
-        let part = (self.sheet.0, self.sheet.1 + self.step * state, w, h);
+        // The pin's rows: closed padlock from y = 600, open from 714.
+        let top = if self.id == bar::PIN && !ui.menu_lock {
+            714
+        } else {
+            self.sheet.1
+        };
+        let part = (self.sheet.0, top + self.step * state, w, h);
         let dx = self.area.left + (self.area.width() as i32 - w as i32) / 2;
-        let dy = self.area.top + (self.area.height() as i32 - h as i32) / 2;
+        let dy = self.area.top + (self.area.height() as i32 - h as i32) / 2 + drop;
         canvas.draw_part(sheet, part, dx, dy, false, 255);
     }
 }
@@ -1128,8 +1170,12 @@ impl Kimaten2 {
     fn hit(&self, ui: &Ui, x: i32, y: i32) -> Option<Button> {
         let menu = if ui.side_menu { &self.menu[..] } else { &[] };
         menu.iter()
-            .chain(&self.bar)
             .find(|c| c.area.contains(x, y))
+            .or_else(|| {
+                self.bar
+                    .iter()
+                    .find(|c| c.drop(ui) < BAR_DROP - 2 && c.area.contains(x, y - c.drop(ui)))
+            })
             .map(|c| Button::Bar(c.id))
     }
 
@@ -1142,6 +1188,10 @@ impl Kimaten2 {
     ) -> Result<()> {
         let sheet = assets.image("message_p.akb")?;
         for c in &self.bar {
+            let drop = c.drop(ui);
+            if drop >= BAR_DROP - 2 && c.id != bar::HIDE {
+                continue;
+            }
             let active = match c.id {
                 bar::AUTO => ui.auto,
                 bar::SKIP => ui.skip && !ui.skip_all,
@@ -1150,7 +1200,7 @@ impl Kimaten2 {
                 bar::MENU => ui.side_menu,
                 _ => false,
             };
-            c.draw(canvas, &sheet, ui, active);
+            c.draw_at(canvas, &sheet, ui, active, drop);
         }
         if ui.waiting {
             // Under Wine: the first three icons of the column at the right

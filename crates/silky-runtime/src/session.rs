@@ -1658,9 +1658,38 @@ impl Session {
         let any = |base: usize, n: usize| (base..base + n).any(|i| self.vm.var_b(i) != 0);
         let notebook = any(archive::NOTEBOOK_VAR, archive::NOTEBOOK_ENTRIES);
         let collection = any(archive::ITEM_VAR, archive::ITEMS);
-        if (notebook, collection) != (self.ui.notebook, self.ui.collection) {
+        // The costume button is grey until the scripts set byte 700
+        // (0x498640, button 0).
+        let costume = self.vm.var_b(archive::COSTUME_ON) != 0;
+        if (notebook, collection, costume)
+            != (self.ui.notebook, self.ui.collection, self.ui.costume)
+        {
             self.ui.notebook = notebook;
             self.ui.collection = collection;
+            self.ui.costume = costume;
+            self.frame = None;
+        }
+    }
+
+    /// きまぐれテンプテーション2's bar: up while pinned or while the
+    /// pointer is low enough, else it slides away (see [`crate::ui::BAR_DROP`]).
+    fn slide_bar(&mut self, before: u64) {
+        use crate::ui::{BAR_DROP, BAR_SHOW_Y, BAR_STEP_MS};
+        self.ui.menu_lock = self.rt.system.settings.menu_lock;
+        let target = if self.ui.menu_lock || self.ui.pointer.1 >= BAR_SHOW_Y {
+            0
+        } else {
+            BAR_DROP
+        };
+        let steps = (self.ui.clock / BAR_STEP_MS - before / BAR_STEP_MS) as i32;
+        let d = self.ui.bar_drop;
+        let to = if target > d {
+            (d + 2 * steps).min(target)
+        } else {
+            (d - 2 * steps).max(target)
+        };
+        if to != d {
+            self.ui.bar_drop = to;
             self.frame = None;
         }
     }
@@ -2368,6 +2397,12 @@ impl Session {
                 bar::PREVIOUS_CHOICE => self.previous_choice()?,
                 bar::CONFIG => self.open_settings(),
                 bar::COSTUME => self.open_costume(),
+                bar::PIN => {
+                    let st = &mut self.rt.system.settings;
+                    st.menu_lock = !st.menu_lock;
+                    self.ui.menu_lock = st.menu_lock;
+                    self.flush_system();
+                }
                 bar::NOTEBOOK => self.open_archive(Book::Notebook),
                 bar::COLLECTION => self.open_archive(Book::Items),
                 bar::HIDE | bar::CLOSE => {
@@ -2448,6 +2483,9 @@ impl Session {
         }
         if self.layout.keeps_global_bytes() {
             self.store_global_bytes();
+        }
+        if self.layout.is_kimaten2() {
+            self.slide_bar(before);
         }
         if let Some(v) = self.veil {
             self.frame = None;

@@ -48,6 +48,10 @@ pub struct Settings {
     pub window_opacity: f32,
     /// Kept for the settings screen; the window never moves here.
     pub fixed_window: bool,
+    /// きまぐれテンプテーション2's bar pin (`/Config/MenuLock/Enable`): the
+    /// buttons stay up; else they slide away while the pointer is above
+    /// them.
+    pub menu_lock: bool,
     /// Screen effect speed: 0 normal, 1 fast, 2 off.
     pub effect_speed: u8,
     /// Ask before: title, quit, scene select, backlog jump, save, load,
@@ -89,6 +93,7 @@ impl Default for Settings {
             window_color: [0.0, 0.0, 0.0],
             window_opacity: 0.5,
             fixed_window: false,
+            menu_lock: true,
             effect_speed: 0,
             confirm: [true; 9],
             right_click: RightClick::HideWindow,
