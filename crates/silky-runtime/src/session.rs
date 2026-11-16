@@ -664,6 +664,12 @@ impl Session {
             self.base = None;
             self.frame = None;
         }
+        if let Some(b) = self.rt.scene.panels.battle.as_mut() {
+            if !b.drains.is_empty() && b.advance(clock) {
+                self.base = None;
+                self.frame = None;
+            }
+        }
         let step = (clock * 60 / 1000) as usize;
         let shake = if let Some(a) = self.rt.scene.quake {
             Some((

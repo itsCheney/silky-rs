@@ -576,6 +576,66 @@ impl Renderer {
             canvas.draw(&img, 0, 0, true);
         }
 
+        // 景の海のアペイリア: the conclusions list is drawn into the
+        // background it was drawn on.
+        if let Some((bg, cells)) = &scene.panels.conclusions {
+            if scene.background.as_deref() == Some(bg.as_str()) {
+                use crate::games::apeiria::panels::*;
+                let sheet = assets.image(CONCLUSIONS_SHEET)?;
+                let (w, h) = CONCLUSION_CELL;
+                for (k, &v) in cells.iter().enumerate() {
+                    let part = (v as u32 / 100 * w, v as u32 % 100 * h, w, h);
+                    let (x, y) = CONCLUSIONS_AT;
+                    canvas.draw_part(&sheet, part, x, y + k as i32 * h as i32, false, 255);
+                }
+            }
+        }
+        if let Some((bg, cell, text, page)) = &scene.panels.note {
+            if scene.background.as_deref() == Some(bg.as_str()) {
+                use crate::games::apeiria::panels::*;
+                let sheet = assets.image(CONCLUSIONS_SHEET)?;
+                let (x0, w, h) = NOTE_CELL;
+                let c = (*cell).max(0) as u32;
+                let part = (x0 + c / 8 * w, c % 8 * h, w, h);
+                canvas.draw_part(&sheet, part, NOTE_CELL_AT.0, NOTE_CELL_AT.1, false, 255);
+                if let Some(tr) = self.text.as_ref() {
+                    tr.with_wide_advance(1.0, |tr| {
+                        let lines: Vec<String> = text
+                            .split("\\n")
+                            .flat_map(|l| {
+                                let w = tr.wrap(l, 14.0, 276.0);
+                                if w.is_empty() {
+                                    vec![String::new()]
+                                } else {
+                                    w
+                                }
+                            })
+                            .collect();
+                        let (_, vh) = NOTE_VIEW;
+                        let height = 20 + 16 * lines.len() as i32;
+                        let mut scroll = page.max(&0) * vh;
+                        if height < scroll + vh {
+                            scroll = (height - 256).max(0).min(scroll);
+                        }
+                        for (k, line) in lines.iter().enumerate() {
+                            let top = 20 + 16 * k as i32 - scroll;
+                            if top < 0 || top + 16 > vh {
+                                continue;
+                            }
+                            let (x, y) = (NOTE_AT.0 + 20, NOTE_AT.1 + top + 12);
+                            tr.draw_plain(
+                                &mut canvas,
+                                line,
+                                x as f32,
+                                y as f32,
+                                14.0,
+                                [0, 0, 0, 255],
+                            );
+                        }
+                    });
+                }
+            }
+        }
         // 景の海のアペイリア: the DNA PC's monitor and the hologram panel
         // lie under the characters.
         if scene.panels.monitor {

@@ -148,10 +148,33 @@ impl Runtime {
             // the scene (`chNN_chg.vsd`), played when movies are on; 1
             // closes it. Not played: the scene stays as with movies off.
             CHANGE_MOVIE if matches!(c.sub, 0 | 1) => self.done(),
-            // (): the list of conclusions drawn into the background layer
-            // from bytes 0x514 to 0x51a of the save data (once, at the end
-            // of s0110); not done.
-            992 => self.done(),
+            // (): the list of conclusions drawn into the background
+            // layer (see [`super::panels::CONCLUSIONS_SHEET`]).
+            992 if c.sub == 0 => {
+                use super::panels::{CONCLUSIONS_BYTES, CONCLUSIONS_COUNT};
+                let count = (vm.var_b(CONCLUSIONS_COUNT) as usize).min(7);
+                let mut cells = Vec::new();
+                for i in (0..count).rev() {
+                    let v = vm.var_b(CONCLUSIONS_BYTES + i);
+                    if v != 0 {
+                        cells.push(v);
+                    }
+                    if v < 100 {
+                        vm.set_var_b(CONCLUSIONS_BYTES + i, v + 100);
+                    }
+                }
+                let bg = self.scene.background.clone().unwrap_or_default();
+                self.scene.panels.conclusions = Some((bg, cells));
+                self.done()
+            }
+            // (text, page, cell): a mail drawn into the background (see
+            // [`super::panels::NOTE_CELL`]).
+            992 if c.sub == 1 => {
+                let bg = self.scene.background.clone().unwrap_or_default();
+                let text = c.str(0).unwrap_or_default();
+                self.scene.panels.note = Some((bg, c.int(2), text, c.int(1)));
+                self.done()
+            }
             // (n) returns an entry of the save list, 1 closes it;
             // only the title script uses it.
             1016 => {
@@ -245,8 +268,7 @@ impl Runtime {
         self.done()
     }
 
-    /// `Game.1015`, the HP gauges. Their slides and the
-    /// draining over time (subs 6 and 7) are not done.
+    /// `Game.1015`, the HP gauges. Their slides are not done.
     fn battle(&mut self, c: &Call) -> Option<silky_vm::Result<Flow>> {
         let battle = &mut self.scene.panels.battle;
         let gauge = |i: i32| usize::try_from(i).ok().filter(|i| *i < 5);
@@ -271,9 +293,30 @@ impl Runtime {
                     b.queue.push((c.int(2), c.int(1), c.int(0)));
                 }
             }
-            // (id, start, step, time, gauge): drains HP over time; 7
-            // (id, gauge) stops it; 8 waits for the gauges.
-            (6, 5) | (7, 2) | (8, 0) => {}
+            // (id, interval, count, delta, gauge): HP changes over time
+            // (see [`super::panels::Drain`]).
+            (6, 5) => {
+                if let (Some(b), Some(i)) = (battle.as_mut(), gauge(c.int(4))) {
+                    b.drains.push(super::panels::Drain {
+                        id: c.int(0),
+                        gauge: i,
+                        delta: c.int(3),
+                        count: c.int(2),
+                        interval: c.int(1).max(1) as u64,
+                        done: 0,
+                        next: None,
+                    });
+                }
+            }
+            // (id, gauge): stops those changes.
+            (7, 2) => {
+                if let Some(b) = battle.as_mut() {
+                    let (id, i) = (c.int(0), gauge(c.int(1)));
+                    b.drains.retain(|d| !(d.id == id && Some(d.gauge) == i));
+                }
+            }
+            // Waits for the gauges; not called by the scripts.
+            (8, 0) => {}
             (9, 0) => {
                 if let Some(b) = battle {
                     b.run();
@@ -487,12 +530,20 @@ impl Runtime {
                     m.selected = None;
                 }
             }
-            // (mode) before the screen opens, (mail) opens a mail at once
-            // (10), (flag) (14): their screens
-            // are not done.
-            (7 | 10 | 14, 1) => {}
+            // (mode): the panel holds the Apeiria system window.
+            (7, 1) => {
+                mail.get_or_insert_with(Mail::default).system = Some(c.int(0));
+            }
+            // (page): scrolls the open mail's text.
+            (10, 1) => mail.get_or_insert_with(Mail::default).body_page = c.int(0),
             // (mail): byte 1200, the newest mail of the inbox.
             (11, 1) => vm.set_var_b(1200, c.int(0) as u8),
+            // (mail): the first free byte of 1400 to 1499 takes it.
+            (14, 1) => {
+                if let Some(i) = (1400..1500).find(|&i| vm.var_b(i) == 0) {
+                    vm.set_var_b(i, c.int(0) as u8);
+                }
+            }
             _ => return None,
         }
         self.done()

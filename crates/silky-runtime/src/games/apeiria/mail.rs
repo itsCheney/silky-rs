@@ -1,8 +1,8 @@
 //! The αMAIL screen of 景の海のアペイリア (`Game.1012`), read from the
 //! executable: a glass panel (`SLD.akb`) with the mail list
 //! (`mail01_p.akb`), a "new mail" notice and an open mail
-//! (`mail02_p.akb`). The opening and closing animations are not done;
-//! the parts appear at once.
+//! (`mail02_p.akb`), or the Apeiria system window. The opening and
+//! closing animations are not done; the parts appear at once.
 
 use std::sync::Arc;
 
@@ -28,7 +28,22 @@ pub struct Mail {
     pub selected: Option<i32>,
     /// Text of the open mail, lines split (sub 3 to sub 4).
     pub body: Option<String>,
+    /// Page of the open mail's text (sub 10): 381 pixels a page.
+    pub body_page: i32,
+    /// The panel holds the Apeiria system window instead of the list
+    /// (sub 7, with the mode its animation takes).
+    pub system: Option<i32>,
 }
+
+/// The system window in the panel (sub 7): the pieces of the DNA PC's
+/// window ([`super::panels::SYSTEM_PARTS`]) from (309, 36).
+const SYSTEM_AT: (i32, i32) = (PANEL.0 + 154, PANEL.1 + 36);
+/// The open mail's text scrolls in pages of 381 pixels, shown from 84
+/// pixels below the top of the open mail; the last page ends 365 pixels
+/// below the end of the text.
+const BODY_PAGE: i32 = 381;
+const BODY_VIEW_TOP: i32 = 84;
+const BODY_LAST: i32 = 365;
 
 /// Glass panel: the top 958 x 518 of `SLD.akb`.
 const PANEL: (i32, i32) = (155, 0);
@@ -83,6 +98,14 @@ impl Mail {
         let glass = assets.image("sld.akb")?;
         let (pw, ph) = PANEL_SIZE;
         canvas.draw_part(&glass, (0, 0, pw, ph), PANEL.0, PANEL.1, false, 255);
+        if self.system.is_some() {
+            use super::panels::{SYSTEM_PARTS, SYSTEM_SHEET};
+            let sheet = assets.image(SYSTEM_SHEET)?;
+            for (src, (dx, dy)) in SYSTEM_PARTS {
+                part(canvas, &sheet, src, (SYSTEM_AT.0 + dx, SYSTEM_AT.1 + dy));
+            }
+            return Ok(());
+        }
         let at = |p: (i32, i32)| (LIST.0 + p.0, LIST.1 + p.1);
         part(canvas, &list, LIST_SHEET, LIST);
         let tray_row = if self.tray == 0 { 662 } else { 686 };
@@ -118,27 +141,42 @@ impl Mail {
             let sheet = assets.image("mail02_p.akb")?;
             part(canvas, &sheet, BODY_SHEET, BODY);
             if let Some(tr) = text {
-                tr.with_wide_advance(1.0, |tr| draw_body(canvas, tr, body));
+                let page = self.body_page;
+                tr.with_wide_advance(1.0, |tr| draw_body(canvas, tr, body, page));
             }
         }
         Ok(())
     }
 }
 
-/// The open mail's text, its lines wrapped to the panel.
-fn draw_body(canvas: &mut Canvas, tr: &TextRenderer, body: &str) {
+/// The open mail's text, its lines wrapped to the panel, from page
+/// `page`.
+fn draw_body(canvas: &mut Canvas, tr: &TextRenderer, body: &str, page: i32) {
     let (x, y) = BODY_TEXT;
-    let lines = body.lines().flat_map(|l| {
-        let wrapped = tr.wrap(l, BODY_SIZE, BODY_WIDTH);
-        if wrapped.is_empty() {
-            vec![String::new()]
-        } else {
-            wrapped
+    let lines: Vec<String> = body
+        .lines()
+        .flat_map(|l| {
+            let wrapped = tr.wrap(l, BODY_SIZE, BODY_WIDTH);
+            if wrapped.is_empty() {
+                vec![String::new()]
+            } else {
+                wrapped
+            }
+        })
+        .collect();
+    let height = (BODY_LINE * lines.len() as f32) as i32;
+    let mut scroll = page.max(0) * BODY_PAGE;
+    if height < scroll + BODY_PAGE {
+        scroll = (height - BODY_LAST).max(0).min(scroll);
+    }
+    let top = (BODY.1 + BODY_VIEW_TOP) as f32;
+    let bottom = top + BODY_PAGE as f32;
+    for (k, line) in lines.iter().enumerate() {
+        let y = y + BODY_LINE * k as f32 - scroll as f32;
+        if y - BODY_SIZE < top || y > bottom {
+            continue;
         }
-    });
-    for (k, line) in lines.enumerate() {
-        let y = y + BODY_LINE * k as f32;
-        tr.draw_plain(canvas, &line, x, y, BODY_SIZE, [40, 40, 40, 255]);
+        tr.draw_plain(canvas, line, x, y, BODY_SIZE, [40, 40, 40, 255]);
     }
 }
 

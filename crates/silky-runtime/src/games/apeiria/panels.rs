@@ -29,7 +29,34 @@ pub struct Panels {
     pub monitor: bool,
     /// The Apeiria system window on that screen (1014).
     pub system: bool,
+    /// The list of conclusions drawn into this background (992): cells
+    /// of [`CONCLUSIONS_SHEET`], top first.
+    pub conclusions: Option<(String, Vec<u8>)>,
+    /// A mail header and its text drawn into this background (992 sub
+    /// 1): background, cell, text, page.
+    pub note: Option<(String, i32, String, i32)>,
 }
+
+/// The mail drawn into the background (992 sub 1): a 303 x 88 header
+/// cell of [`CONCLUSIONS_SHEET`] (from x = 500, eight a column) at
+/// (655, 73), and the text in a 300 x 272 window at (641, 161), pages of
+/// 272 pixels. The text is black 14-pixel characters (7 for a narrow
+/// one) from (20, 20), lines 16 apart, wrapped at x = 296.
+pub const NOTE_CELL: (u32, u32, u32) = (500, 303, 88);
+pub const NOTE_CELL_AT: (i32, i32) = (655, 73);
+pub const NOTE_AT: (i32, i32) = (641, 161);
+pub const NOTE_VIEW: (i32, i32) = (300, 272);
+
+/// The conclusions list (992): 250 x 51 cells of this sheet, column
+/// `v / 100` and row `v % 100` for a value `v` of bytes 1300 to 1306
+/// (as many as byte 1320 says, the last first), drawn from (356, 103)
+/// down. A value under 100 gets 100 added once drawn, so the next list
+/// shows it in the second column.
+pub const CONCLUSIONS_SHEET: &str = "dnapcA_mailparts.akb";
+pub const CONCLUSIONS_AT: (i32, i32) = (356, 103);
+pub const CONCLUSION_CELL: (u32, u32) = (250, 51);
+pub const CONCLUSIONS_BYTES: usize = 1300;
+pub const CONCLUSIONS_COUNT: usize = 1320;
 
 /// The DNA PC's screen, drawn into the background layer, and the monitor
 /// laid over it.
@@ -206,6 +233,25 @@ pub struct Battle {
     /// Steps queued with sub 4 for sub 9: (kind, gauge, value); kind 0
     /// slides a gauge in, 1 out, 2 moves its HP to the value, 3 waits.
     pub queue: Vec<(i32, i32, i32)>,
+    /// HP changing over time (sub 6), until done or stopped (sub 7).
+    pub drains: Vec<Drain>,
+}
+
+/// One HP change over time (`Game.1015` sub 6), read from the
+/// executable: every `interval` milliseconds the gauge's HP moves by
+/// `delta` (kept between 1 and 100), `count` times; it ends early once
+/// the HP is 1.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct Drain {
+    pub id: i32,
+    pub gauge: usize,
+    pub delta: i32,
+    pub count: i32,
+    pub interval: u64,
+    pub done: i32,
+    /// Clock time of the next step; set at the first frame.
+    pub next: Option<u64>,
 }
 
 impl Default for Battle {
@@ -214,6 +260,7 @@ impl Default for Battle {
             hp: [100; 5],
             shown: [false; 5],
             queue: Vec::new(),
+            drains: Vec::new(),
         }
     }
 }
@@ -235,6 +282,30 @@ pub struct Gauge {
 pub const SKULL: (u32, u32, u32, u32) = (254, 53, 33, 36);
 
 impl Battle {
+    /// Runs the HP changes due by clock time `now`; true when an HP
+    /// changed.
+    pub fn advance(&mut self, now: u64) -> bool {
+        let mut changed = false;
+        let hp = &mut self.hp;
+        self.drains.retain_mut(|d| {
+            let next = *d.next.get_or_insert(now + d.interval);
+            if now < next {
+                return true;
+            }
+            let h = &mut hp[d.gauge.min(4)];
+            *h = (*h + d.delta).clamp(1, 100);
+            changed = true;
+            if *h != 1 && d.done < d.count {
+                d.done += 1;
+                d.next = Some(now + d.interval);
+                true
+            } else {
+                false
+            }
+        });
+        changed
+    }
+
     /// Gauge `i` (0 to 4).
     pub fn gauge(i: usize) -> Gauge {
         if i == 0 {
@@ -295,5 +366,30 @@ impl Battle {
                 _ => {}
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod drain_tests {
+    use super::*;
+
+    #[test]
+    fn drains_until_one() {
+        let mut b = Battle::default();
+        b.hp[0] = 3;
+        b.drains.push(Drain {
+            gauge: 0,
+            delta: -1,
+            count: 99,
+            interval: 500,
+            ..Drain::default()
+        });
+        assert!(!b.advance(0));
+        assert!(b.advance(500));
+        assert_eq!(b.hp[0], 2);
+        assert!(!b.advance(900));
+        assert!(b.advance(1000));
+        assert_eq!(b.hp[0], 1);
+        assert!(b.drains.is_empty());
     }
 }
