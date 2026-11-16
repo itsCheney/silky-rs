@@ -49,6 +49,19 @@ const NAMEPLATE_POS: (i32, i32) = (264, 500);
 const PORTRAIT_SCALE: f32 = 0.4;
 const PORTRAIT_POS: (f32, f32) = (-288.0, 320.0);
 
+/// Edge of the message text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextEdge {
+    /// A soft shadow (not measured).
+    Soft,
+    /// Bold, over a solid black shadow two pixels to the lower right
+    /// (ふゆから、くるる。 under Wine).
+    Drop,
+    /// Bold, with a black edge all round (きまぐれテンプテーション2 under
+    /// Wine).
+    Outline,
+}
+
 /// Where the message text goes.
 #[derive(Debug, Clone, Copy)]
 pub struct TextLayout {
@@ -60,9 +73,8 @@ pub struct TextLayout {
     pub size: f32,
     /// Pen advance of CJK characters, as a multiple of the size.
     pub wide_advance: f32,
-    /// A solid black shadow two pixels to the lower right, as the engine
-    /// draws it, in place of the soft one.
-    pub drop_shadow: bool,
+    /// How the engine edges the text, in place of the soft shadow.
+    pub edge: TextEdge,
     /// Every character takes a cell, a half one if not wide, in every
     /// language.
     pub cells: bool,
@@ -92,7 +104,7 @@ impl TextLayout {
                 },
                 size: 24.0,
                 wide_advance: 28.0 / 24.0,
-                drop_shadow: true,
+                edge: TextEdge::Drop,
                 cells: true,
             },
             // Measured under Wine: glyphs about 24 pixels tall every 28.3
@@ -106,12 +118,13 @@ impl TextLayout {
                 line: 41.0,
                 size: 24.0,
                 wide_advance: 28.3 / 24.0,
-                drop_shadow: false,
+                edge: TextEdge::Soft,
                 cells: false,
             },
-            // Measured on PC screenshots of the Chinese patch: 24 pixel
-            // glyphs every 28 pixels from x = 180, lines 36 pixels apart.
-            // The line length is not measured yet.
+            // Measured on PC screenshots of the Chinese patch and under
+            // Wine: 24 pixel glyphs every 28 pixels from x = 180, lines 36
+            // pixels apart, bold with a black edge. The line length is not
+            // measured yet.
             Title::Kimaten2 => Self {
                 left: kimaten2::window::TEXT_LEFT,
                 baseline: kimaten2::window::TEXT_BASELINE,
@@ -119,7 +132,7 @@ impl TextLayout {
                 line: 36.0,
                 size: 24.0,
                 wide_advance: 28.0 / 24.0,
-                drop_shadow: false,
+                edge: TextEdge::Outline,
                 cells: false,
             },
         }
@@ -374,10 +387,11 @@ impl Renderer {
             let shown: String = line.chars().take(left).collect();
             let y = l.baseline + l.line * i as f32 + shift.1 as f32;
             let x = l.left + shift.0 as f32;
-            if l.drop_shadow {
-                tr.draw_dropped(canvas, &shown, x, y, l.size, [255, 255, 255, 255]);
-            } else {
-                tr.draw_line(canvas, &shown, x, y, l.size, [255, 255, 255, 255]);
+            let white = [255, 255, 255, 255];
+            match l.edge {
+                TextEdge::Soft => tr.draw_line(canvas, &shown, x, y, l.size, white),
+                TextEdge::Drop => tr.draw_dropped(canvas, &shown, x, y, l.size, white),
+                TextEdge::Outline => tr.draw_bold_outlined(canvas, &shown, x, y, l.size, white),
             }
             // A ruby starts above its text, at half the size, once that
             // text is shown; the script centres it with spaces.

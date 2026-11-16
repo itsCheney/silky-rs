@@ -137,6 +137,9 @@ pub struct Ui {
     pub loop_voice: bool,
     /// A message waits for a click: the indicator animates.
     pub waiting: bool,
+    /// きまぐれテンプテーション2: the jump to the next unread text or
+    /// selection is off while the message is unread (under Wine).
+    pub jump_off: bool,
     /// Animation clock in milliseconds.
     pub clock: u64,
     /// Whether there are saves to load (enables Continue and Load).
@@ -196,6 +199,7 @@ impl Ui {
             Button::Title(title::CONTINUE | title::LOAD) => self.has_saves,
             Button::Bar(bar::LOAD | bar::QUICK_LOAD) => self.has_saves,
             Button::Bar(bar::PREVIOUS_CHOICE) => self.previous_choice,
+            Button::Bar(bar::NEXT_CHOICE) => !self.jump_off,
             Button::Bar(bar::NOTEBOOK) => self.notebook,
             Button::Bar(bar::COLLECTION) => self.collection,
             _ => true,
@@ -811,6 +815,11 @@ fn action_cell(icon: u32) -> (u32, u32) {
 }
 
 impl Kimaten2 {
+    /// Click-wait icon: cells of `message_p` and where they go.
+    const WAIT_CELL: (u32, u32, u32, u32) = (1262, 0, 74, 56);
+    const WAIT_POS: (i32, i32) = (1062, 609);
+    const WAIT_FRAME_MS: u64 = 150;
+
     fn load(assets: &Assets) -> Result<Self> {
         let window = crate::games::kimaten2::window::TOP;
         let mut bar = Vec::new();
@@ -1139,6 +1148,14 @@ impl Kimaten2 {
                 _ => false,
             };
             c.draw(canvas, &sheet, ui, active);
+        }
+        if ui.waiting {
+            // Under Wine: the first three icons of the column at the right
+            // of `message_p`, 150 ms each, at the right of the window.
+            let frame = (ui.clock / Self::WAIT_FRAME_MS) as u32 % 3;
+            let (x, y, w, h) = Self::WAIT_CELL;
+            let (dx, dy) = Self::WAIT_POS;
+            canvas.draw_part(&sheet, (x, y + h * frame, w, h), dx, dy, false, 255);
         }
         if ui.side_menu {
             let sheet = assets.image("message_menu.akb")?;

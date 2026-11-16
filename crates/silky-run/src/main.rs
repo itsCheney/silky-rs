@@ -269,6 +269,7 @@ fn snap(
                         let mut frame = renderer.render(&rt.scene, &mut rt.assets)?;
                         let ui = Ui {
                             waiting: true,
+                            jump_off: layout.is_kimaten2() && !rt.read_before,
                             ..Ui::default()
                         };
                         layout.draw(&mut frame, &mut rt.assets, &ui, true, None)?;

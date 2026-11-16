@@ -695,6 +695,7 @@ impl Session {
     }
 
     fn update_previous_choice(&mut self) {
+        self.ui.jump_off = self.layout.is_kimaten2() && !self.rt.read_before;
         let len = self.logged;
         self.ui.previous_choice = self.choice_points.iter().any(|p| p.0 < len)
             && matches!(self.state, State::Text | State::Choice);

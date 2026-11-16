@@ -203,6 +203,31 @@ impl TextRenderer {
         );
     }
 
+    /// Draws one line in bold (two pixels wide strokes) with a black edge
+    /// all round.
+    pub fn draw_bold_outlined(
+        &self,
+        canvas: &mut Canvas,
+        line: &str,
+        x: f32,
+        y: f32,
+        size: f32,
+        color: [u8; 4],
+    ) {
+        let black = [0, 0, 0, 255];
+        let mut layers: Vec<(f32, f32, [u8; 4])> = Vec::new();
+        for dy in -1..=1 {
+            for dx in -1..=2 {
+                if dy != 0 || !(0..=1).contains(&dx) {
+                    layers.push((dx as f32, dy as f32, black));
+                }
+            }
+        }
+        layers.push((0.0, 0.0, color));
+        layers.push((1.0, 0.0, color));
+        self.draw_layers(canvas, line, x, y, size, &layers);
+    }
+
     /// Draws one line with a one-pixel outline all round.
     #[allow(clippy::too_many_arguments)]
     pub fn draw_outlined(
