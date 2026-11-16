@@ -105,8 +105,14 @@ impl Runtime {
             if let Some(flow) = self.doukyuusei_game(vm, &call) {
                 return flow;
             }
-            // Its commands are numbered its own way: none of the common
-            // ones apply until read from its executable.
+            // Its commands are numbered its own way. Backgrounds (12) take
+            // the common calls; the rest are not read from its executable
+            // yet.
+            if command == cmd::PICTURE {
+                if let Some(flow) = self.common_game(vm, &call) {
+                    return flow;
+                }
+            }
             self.skip(format!("Game.{command}.{sub}"), vm, GAME, command);
             return Ok(Flow::Continue);
         }

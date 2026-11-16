@@ -111,6 +111,16 @@ impl Assets {
         if self.exists(Kind::Layer, &local) {
             return self.image(&local);
         }
+        // 同級生 Remake names its Simplified Chinese pictures `_ch`.
+        if lang == Language::SimplifiedChinese {
+            let ch = match name.rsplit_once('.') {
+                Some((stem, ext)) => format!("{stem}_ch.{ext}"),
+                None => format!("{name}_ch"),
+            };
+            if self.exists(Kind::Layer, &ch) {
+                return self.image(&ch);
+            }
+        }
         let plain = match name {
             "save_load_p.akb" if !self.exists(Kind::Layer, name) => "saveload_p.akb",
             _ => name,

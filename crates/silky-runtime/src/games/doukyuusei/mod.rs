@@ -6,6 +6,7 @@
 //! See `docs/games/doukyuusei.md`.
 
 pub(crate) mod commands;
+pub mod window;
 
 use silky_format::map::MapFile;
 
@@ -22,11 +23,16 @@ pub fn default_hero_name(language: Language) -> &'static str {
 }
 
 /// A text table line as shown: `\n` breaks the line, `\i` turns italics
-/// on and off (drawn upright here), `:myname:` is the hero's name.
+/// on and off (kept as [`window::ITALIC`]), `:myname:` is the hero's name.
 pub fn shown_text(raw: &str, hero: &str) -> String {
     raw.replace("\\n", "\n")
-        .replace("\\i", "")
+        .replace("\\i", &window::ITALIC.to_string())
         .replace(":myname:", hero)
+}
+
+/// Text without its italic switches, for places that show it plainly.
+pub fn plain_text(shown: &str) -> String {
+    shown.replace(window::ITALIC, "")
 }
 
 /// `cafe.mes` -> `cafe_en.map`.
@@ -76,7 +82,10 @@ mod tests {
     #[test]
     fn text() {
         assert_eq!(
-            shown_text("Uh... :myname:?\\nYou can \\itoo\\i.", "Takurou"),
+            plain_text(&shown_text(
+                "Uh... :myname:?\\nYou can \\itoo\\i.",
+                "Takurou"
+            )),
             "Uh... Takurou?\nYou can too."
         );
         assert_eq!(

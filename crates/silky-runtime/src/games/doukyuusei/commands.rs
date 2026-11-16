@@ -12,6 +12,9 @@ use crate::host::{host_error, Runtime};
 /// the next `MesWnd.3`, sub 1 (name id) names the speaker from
 /// `NAMES_<lang>.MAP`, sub 2 loads the script's table.
 pub const TEXT: i32 = 24;
+/// `Game.22(name)`: the hero speaks; the plate shows the name entered at
+/// the start (the executable reads its own copy, not the argument).
+pub const HERO_SPEAKS: i32 = 22;
 
 impl Runtime {
     pub(crate) fn doukyuusei_game(
@@ -45,6 +48,10 @@ impl Runtime {
                     .ok()
                     .and_then(|b| MapFile::parse(&b).ok())
                     .and_then(|m| m.get(0, id as u32).map(str::to_string));
+                self.done()
+            }
+            (HERO_SPEAKS, _) => {
+                self.scene.speaker_name = Some(self.hero_name());
                 self.done()
             }
             (TEXT, 2) => {

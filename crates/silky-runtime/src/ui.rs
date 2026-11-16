@@ -712,6 +712,8 @@ pub struct Layout {
     sheet_title: Option<SheetTitle>,
     /// 景の海のアペイリア: the message window buttons sit in a ring.
     ring: Option<Ring>,
+    /// 同級生 Remake's message window buttons.
+    douk: Option<DoukBar>,
 }
 
 /// Message window buttons of 景の海のアペイリア, from the executable: the
@@ -805,6 +807,81 @@ impl Ring {
             let (w, h) = Self::WAIT_CELL;
             let (dx, dy) = Self::WAIT_POS;
             canvas.draw_part(&sheet, (x, y + h * frame, w, h), dx, dy, false, 255);
+        }
+        Ok(())
+    }
+}
+
+/// Message window buttons of 同級生 Remake: `mes_o.area` ids 0..=4 (skip,
+/// skip all, auto, quick save, quick load) in screen pixels, 5 and 6
+/// (voice, close) relative to the window top; cells of `message_p.akb`,
+/// rows by state (measured under Wine).
+struct DoukBar {
+    /// (bar id, click area on screen, sheet cell, cell size, row step).
+    buttons: Vec<(i32, Area, (u32, u32), (u32, u32), u32)>,
+}
+
+impl DoukBar {
+    /// Click-wait indicator: three 48-pixel frames down the sheet from
+    /// (1716, 700), drawn at (1723, 996). The frame time is a guess.
+    const WAIT_SHEET: (u32, u32) = (1716, 700);
+    const WAIT_CELL: u32 = 48;
+    const WAIT_FRAMES: u32 = 3;
+    const WAIT_POS: (i32, i32) = (1723, 996);
+    const WAIT_FRAME_MS: u64 = 150;
+
+    fn load(assets: &Assets) -> Result<Self> {
+        use crate::games::doukyuusei::window::TOP;
+        let mut buttons = Vec::new();
+        for a in area::parse(&assets.data("mes_o.area")?)? {
+            let (id, cell, size, step) = match a.id {
+                0 => (bar::SKIP, (1170, 700), (198, 53), 53),
+                1 => (bar::SKIP_ALL, (1368, 700), (198, 53), 53),
+                2 => (bar::AUTO, (1368, 916), (198, 53), 53),
+                3 => (bar::QUICK_SAVE, (1170, 1132), (92, 53), 53),
+                4 => (bar::QUICK_LOAD, (1262, 1132), (92, 53), 53),
+                5 => (bar::VOICE, (1640, 700), (75, 76), 76),
+                6 => (bar::HIDE, (1565, 700), (75, 76), 76),
+                _ => continue,
+            };
+            let mut a = a;
+            if a.id >= 5 {
+                a.top += TOP;
+                a.bottom += TOP;
+            }
+            buttons.push((id, a, cell, size, step));
+        }
+        Ok(Self { buttons })
+    }
+
+    fn hit(&self, ui: &Ui, x: i32, y: i32) -> Option<Button> {
+        self.buttons
+            .iter()
+            .find(|(id, a, ..)| a.contains(x, y) && ui.enabled(Button::Bar(*id)))
+            .map(|&(id, ..)| Button::Bar(id))
+    }
+
+    fn draw(&self, canvas: &mut Canvas, assets: &mut Assets, ui: &Ui) -> Result<()> {
+        let sheet = assets.image("message_p.akb")?;
+        for &(id, a, (sx, sy), (w, h), step) in &self.buttons {
+            let b = Button::Bar(id);
+            let active = match id {
+                bar::AUTO => ui.auto,
+                bar::SKIP => ui.skip && !ui.skip_all,
+                bar::SKIP_ALL => ui.skip && ui.skip_all,
+                _ => false,
+            };
+            let state = ui.state(b, ui.enabled(b), active) as u32;
+            // The round buttons sit a pixel left of their click areas.
+            let x = if step == 76 { a.left - 1 } else { a.left };
+            canvas.draw_part(&sheet, (sx, sy + step * state, w, h), x, a.top, false, 255);
+        }
+        if ui.waiting {
+            let frame = (ui.clock / Self::WAIT_FRAME_MS) as u32 % Self::WAIT_FRAMES;
+            let (x, y) = Self::WAIT_SHEET;
+            let c = Self::WAIT_CELL;
+            let (dx, dy) = Self::WAIT_POS;
+            canvas.draw_part(&sheet, (x, y + c * frame, c, c), dx, dy, false, 255);
         }
         Ok(())
     }
@@ -1530,6 +1607,7 @@ impl Layout {
                 kimaten2: Some(Kimaten2::load(assets)?),
                 sheet_title: None,
                 ring: None,
+                douk: None,
             });
         }
         if assets.game().title == silky_format::game::Title::Apeiria {
@@ -1539,6 +1617,17 @@ impl Layout {
                 kimaten2: None,
                 sheet_title: Some(SheetTitle::load_apeiria(assets)?),
                 ring: Some(Ring::load(assets)?),
+                douk: None,
+            });
+        }
+        if assets.game().title == silky_format::game::Title::Doukyuusei {
+            return Ok(Self {
+                language,
+                bar: Vec::new(),
+                kimaten2: None,
+                sheet_title: None,
+                ring: None,
+                douk: Some(DoukBar::load(assets)?),
             });
         }
         let mut bar = area::parse(&assets.data("mes_o.area")?)?;
@@ -1555,6 +1644,7 @@ impl Layout {
             kimaten2: None,
             sheet_title: None,
             ring: None,
+            douk: None,
         })
     }
 
@@ -1628,6 +1718,9 @@ impl Layout {
         }
         if let Some(r) = &self.ring {
             return r.hit(ui, x, y);
+        }
+        if let Some(d) = &self.douk {
+            return d.hit(ui, x, y);
         }
         self.bar
             .iter()
@@ -1748,6 +1841,9 @@ impl Layout {
         }
         if let Some(r) = &self.ring {
             return r.draw(canvas, assets, ui);
+        }
+        if let Some(d) = &self.douk {
+            return d.draw(canvas, assets, ui);
         }
         let sheet = assets.image("message_p.akb")?;
         for a in &self.bar {

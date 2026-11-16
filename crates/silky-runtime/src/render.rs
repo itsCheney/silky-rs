@@ -179,6 +179,8 @@ pub struct Renderer {
     faded: HashMap<(String, u8), Arc<Image>>,
     /// 景の海のアペイリア: pictures its effects made.
     effects: crate::games::apeiria::effects::Drawn,
+    /// 同級生 Remake: its bitmap fonts, loaded with the first message.
+    douk_font: Option<crate::games::doukyuusei::window::Font>,
 }
 
 impl Renderer {
@@ -205,6 +207,7 @@ impl Renderer {
             holo: None,
             faded: HashMap::new(),
             effects: Default::default(),
+            douk_font: None,
         };
         r.set_language(language);
         r
@@ -370,6 +373,10 @@ impl Renderer {
         limit: Option<usize>,
         shift: (i32, i32),
     ) {
+        if let (Some(text), Some(font)) = (&scene.text, &self.douk_font) {
+            font.draw_text(canvas, text, limit, shift);
+            return;
+        }
         let (Some(text), Some(tr)) = (&scene.text, &self.text) else {
             return;
         };
@@ -913,7 +920,17 @@ impl Renderer {
         if let Some(mail) = &scene.mail {
             mail.draw(&mut canvas, assets, self.text.as_ref())?;
         }
-        if scene.text.is_some() && window && self.title == Title::Kimaten2 {
+        if scene.text.is_some() && window && self.title == Title::Doukyuusei {
+            if self.douk_font.is_none() {
+                self.douk_font = Some(crate::games::doukyuusei::window::Font::load(assets)?);
+            }
+            let font = self.douk_font.as_ref().unwrap();
+            let speaker = scene.speaker_name.as_deref();
+            crate::games::doukyuusei::window::draw_window(&mut canvas, assets, font, speaker)?;
+            if text {
+                self.draw_text_at(&mut canvas, scene, None, (0, 0));
+            }
+        } else if scene.text.is_some() && window && self.title == Title::Kimaten2 {
             self.kimaten2_window(&mut canvas, scene, assets)?;
             if text {
                 self.draw_text_at(&mut canvas, scene, None, (0, 0));
