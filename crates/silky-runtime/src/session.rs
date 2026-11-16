@@ -843,6 +843,16 @@ impl Session {
                 self.drag_omake_volume(x);
                 return;
             }
+            // ふゆから、くるる。: the volume bar.
+            if !self.menus.is_apeiria()
+                && !self.menus.is_kimaten2()
+                && e.kind == Extras::Music
+                && id == extras_ids::PAGE
+            {
+                e.ap.dragging_volume = true;
+                self.drag_omake_volume(x);
+                return;
+            }
             if self.menus.is_apeiria() && e.kind == Extras::Music && e.ap.view.is_none() {
                 use crate::games::apeiria::omake::ids;
                 if id == ids::VOLUME {
@@ -1123,7 +1133,10 @@ impl Session {
     }
 
     fn open_settings(&mut self) {
-        self.screen = Some(Screen::Settings(SettingsScreen::new()));
+        self.screen = Some(Screen::Settings(SettingsScreen {
+            opened: self.ui.clock,
+            ..SettingsScreen::new()
+        }));
         self.ui.skip = false;
         self.ui.hover = None;
         self.frame = None;
@@ -2084,8 +2097,10 @@ impl Session {
         let old = self.rt.system.settings.clone();
         self.rt.system.settings.music = if self.menus.is_apeiria() {
             crate::games::apeiria::omake::volume_at(x)
-        } else {
+        } else if self.menus.is_kimaten2() {
             crate::games::kimaten2::omake::volume_at(x)
+        } else {
+            menus::music_volume_at(x)
         };
         self.settings_changed(old);
         self.frame = None;
@@ -2333,6 +2348,15 @@ impl Session {
                 self.frame = None;
             }
         }
+        if let Some(Screen::Settings(s)) = &self.screen {
+            // The window sample types out.
+            let per = self.rt.system.settings.char_ms().max(1);
+            if s.page == Page::System
+                && (before - s.opened) / per != (self.ui.clock - s.opened) / per
+            {
+                self.frame = None;
+            }
+        }
         if let Some(Screen::Extras(e)) = &mut self.screen {
             if let Some((scene, _)) = e.ap.preview {
                 if crate::games::apeiria::omake::animates(scene)
@@ -2446,6 +2470,22 @@ impl Session {
         if self.frame.is_none() {
             let mut frame = match &self.screen {
                 Some(screen) => {
+                    // The settings screen's window sample shows the game
+                    // screen through it.
+                    let under = match screen {
+                        Screen::Settings(_) if !self.layout.is_kimaten2() => {
+                            let c = self
+                                .renderer
+                                .render_scene(&self.rt.scene, &mut self.rt.assets, false)?
+                                .rasterize();
+                            Some(Arc::new(Image {
+                                width: c.width,
+                                height: c.height,
+                                rgba: c.rgba,
+                            }))
+                        }
+                        _ => None,
+                    };
                     let mut c = self.renderer.canvas();
                     let text = self.renderer.text();
                     let assets = &mut self.rt.assets;
@@ -2477,25 +2517,22 @@ impl Session {
                                 &self.rt.system,
                                 max,
                                 text,
+                                under.as_ref(),
                             )?
                         }
                         Screen::Archive(s) => self.archive.draw(&mut c, assets, &self.ui, s)?,
                         Screen::Costume(k) => {
                             self.archive.draw_costume(&mut c, assets, &self.ui, k)?
                         }
-                        Screen::Extras(e) => {
-                            let pos = self.rt.audio.position(Bus::Music, 0);
-                            self.menus.draw_extras(
-                                &mut c,
-                                assets,
-                                &self.ui,
-                                e,
-                                &self.rt.system,
-                                &self.vm.bytes,
-                                pos,
-                                text,
-                            )?
-                        }
+                        Screen::Extras(e) => self.menus.draw_extras(
+                            &mut c,
+                            assets,
+                            &self.ui,
+                            e,
+                            &self.rt.system,
+                            &self.vm.bytes,
+                            text,
+                        )?,
                     }
                     c
                 }

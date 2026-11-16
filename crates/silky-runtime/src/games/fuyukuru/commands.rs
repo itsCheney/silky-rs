@@ -183,9 +183,5 @@ pub(crate) fn nothing_to_do(class: i32, sub: i32) -> bool {
             | (27, 2 | 4 | 5 | 6)
             | (BACKLOG, 0..=3)
             | (MESWND, 3)
-            // Settings read from the original's XML configuration: scene
-            // skip, movie playback, auto read, the one-line message. Read
-            // as 0 (off).
-            | (25, 0 | 1)
     )
 }

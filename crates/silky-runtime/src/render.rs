@@ -29,14 +29,13 @@ fn slot_layout(slot: i32) -> (f32, i32) {
     }
 }
 
-/// Message window, measured on screenshots of the original (Windows,
-/// Chinese text). `message_p.akb` holds a dark band (rows 0..220) and a
-/// paper texture (rows 220..440); both are drawn at the window position
-/// at half opacity.
+/// Message window, measured under Wine. `message_p.akb` holds a dark band
+/// (rows 0..220) drawn at the window opacity and a paper texture (rows
+/// 220..440) drawn over it in full, both at the window position.
 const WINDOW_BAND: (u32, u32, u32, u32) = (0, 0, 1280, 220);
 const WINDOW_TEXTURE: (u32, u32, u32, u32) = (0, 220, 1280, 220);
 const WINDOW_TOP: i32 = 500;
-const WINDOW_OPACITY: u8 = 128;
+const WINDOW_OPACITY: u8 = 153;
 /// 景の海のアペイリア: the window is a gradient band (rows 212..424 of
 /// `message_p.akb`, the alpha mask the executable fills with the window
 /// colour) at the bottom of the screen, under faint lines (rows 0..212).
@@ -49,15 +48,6 @@ const NAMEPLATE_POS: (i32, i32) = (264, 500);
 /// Window portrait: body (with face) scaled to 40 % with its top left here.
 const PORTRAIT_SCALE: f32 = 0.4;
 const PORTRAIT_POS: (f32, f32) = (-288.0, 320.0);
-/// Text: left edge and first baseline measured; Chinese characters sit on
-/// a fixed 26.5 px pitch at a 21 px size. Width and line pitch are
-/// provisional (no two-line sample yet).
-const TEXT_LEFT: f32 = 282.0;
-const TEXT_BASELINE: f32 = 578.0;
-const TEXT_WIDTH: f32 = 800.0;
-const TEXT_LINE: f32 = 34.0;
-const TEXT_SIZE: f32 = 21.0;
-const TEXT_WIDE_ADVANCE: f32 = 26.5 / TEXT_SIZE;
 
 /// Where the message text goes.
 #[derive(Debug, Clone, Copy)]
@@ -70,11 +60,41 @@ pub struct TextLayout {
     pub size: f32,
     /// Pen advance of CJK characters, as a multiple of the size.
     pub wide_advance: f32,
+    /// A solid black shadow two pixels to the lower right, as the engine
+    /// draws it, in place of the soft one.
+    pub drop_shadow: bool,
+    /// Every character takes a cell, a half one if not wide, in every
+    /// language.
+    pub cells: bool,
 }
 
 impl TextLayout {
-    pub fn for_title(title: Title) -> Self {
+    pub fn for_title(title: Title, language: Language) -> Self {
         match title {
+            // Under Wine, the 2021 package in Japanese and the download in
+            // English and Chinese: Font.0(28, 28) cells (14 pixels for a
+            // letter), glyphs about 24 pixels tall from x = 285 with their
+            // kana rows at 565..585, lines 36 apart (English and Chinese
+            // sit 8 pixels higher, lines 28 apart), a solid black shadow
+            // two pixels to the lower right.
+            Title::Fuyukuru | Title::Unknown => Self {
+                left: 282.0,
+                baseline: if language == Language::Japanese {
+                    585.0
+                } else {
+                    577.0
+                },
+                width: 28.0 * 28.0,
+                line: if language == Language::Japanese {
+                    36.0
+                } else {
+                    28.0
+                },
+                size: 24.0,
+                wide_advance: 28.0 / 24.0,
+                drop_shadow: true,
+                cells: true,
+            },
             // Measured under Wine: glyphs about 24 pixels tall every 28.3
             // pixels (Font.0(28, 28) sets 28-pixel cells) from x = 152
             // (the full-width space that starts most lines ends at 180),
@@ -86,14 +106,8 @@ impl TextLayout {
                 line: 41.0,
                 size: 24.0,
                 wide_advance: 28.3 / 24.0,
-            },
-            Title::Fuyukuru | Title::Unknown => Self {
-                left: TEXT_LEFT,
-                baseline: TEXT_BASELINE,
-                width: TEXT_WIDTH,
-                line: TEXT_LINE,
-                size: TEXT_SIZE,
-                wide_advance: TEXT_WIDE_ADVANCE,
+                drop_shadow: false,
+                cells: false,
             },
             // Measured on PC screenshots of the Chinese patch: 24 pixel
             // glyphs every 28 pixels from x = 180, lines 36 pixels apart.
@@ -105,6 +119,8 @@ impl TextLayout {
                 line: 36.0,
                 size: 24.0,
                 wide_advance: 28.0 / 24.0,
+                drop_shadow: false,
+                cells: false,
             },
         }
     }
@@ -160,7 +176,7 @@ impl Renderer {
             scale: 1.0,
             record: false,
             title: Title::Fuyukuru,
-            text_layout: TextLayout::for_title(Title::Fuyukuru),
+            text_layout: TextLayout::for_title(Title::Fuyukuru, Language::English),
             speaker_rows: None,
             #[cfg(feature = "emote")]
             emote: Default::default(),
@@ -188,7 +204,6 @@ impl Renderer {
     /// Draws the message window of this game.
     pub fn set_title(&mut self, title: Title) {
         self.title = title;
-        self.text_layout = TextLayout::for_title(title);
         self.set_language(self.language);
     }
 
@@ -249,9 +264,12 @@ impl Renderer {
     /// Switches the language of nameplates and text spacing.
     pub fn set_language(&mut self, language: Language) {
         self.language = language;
+        self.text_layout = TextLayout::for_title(self.title, language);
         let wide = self.text_layout.wide_advance;
         if let Some(t) = &mut self.text {
-            t.set_wide_advance((language != Language::English).then_some(wide));
+            let cells = self.text_layout.cells;
+            t.set_wide_advance((cells || language != Language::English).then_some(wide));
+            t.set_half_cells(cells);
         }
     }
 
@@ -356,7 +374,11 @@ impl Renderer {
             let shown: String = line.chars().take(left).collect();
             let y = l.baseline + l.line * i as f32 + shift.1 as f32;
             let x = l.left + shift.0 as f32;
-            tr.draw_line(canvas, &shown, x, y, l.size, [255, 255, 255, 255]);
+            if l.drop_shadow {
+                tr.draw_dropped(canvas, &shown, x, y, l.size, [255, 255, 255, 255]);
+            } else {
+                tr.draw_line(canvas, &shown, x, y, l.size, [255, 255, 255, 255]);
+            }
             // A ruby starts above its text, at half the size, once that
             // text is shown; the script centres it with spaces.
             for (at, ruby) in &rubies {
@@ -840,9 +862,8 @@ impl Renderer {
                     self.apeiria_name_plate(&mut canvas, &parts, name, rgb, alpha, plate_x);
                 }
             } else {
-                for part in [WINDOW_BAND, WINDOW_TEXTURE] {
-                    canvas.draw_part(&parts, part, 0, WINDOW_TOP, false, alpha);
-                }
+                canvas.draw_part(&parts, WINDOW_BAND, 0, WINDOW_TOP, false, alpha);
+                canvas.draw_part(&parts, WINDOW_TEXTURE, 0, WINDOW_TOP, false, 255);
             }
             if color != [0.0; 3] && self.title != Title::Apeiria {
                 let rgb = color.map(|c| (c.clamp(0.0, 1.0) * 255.0) as u8);

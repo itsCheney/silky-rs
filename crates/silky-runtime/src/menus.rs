@@ -16,7 +16,9 @@ use silky_format::area::Area;
 use crate::assets::{Assets, HelpLines, Language};
 use crate::games::fuyukuru::tables::{entry_images, CG_ENTRIES, CG_IMAGES, MUSIC, SCENES};
 use crate::render::Canvas;
-use crate::screens::{area, area_file, draw_gem_thumb, draw_scroll_thumb, Cells, INK, K2_INK};
+use crate::screens::{
+    area, area_file, draw_gem_thumb, draw_scroll_thumb, draw_star_thumb, Cells, INK, K2_INK,
+};
 use crate::system::{RightClick, Settings, SystemData, VOICE_GROUPS};
 use crate::text::TextRenderer;
 use crate::ui::{Button, Ui};
@@ -71,6 +73,8 @@ const BACK: Cells = Cells::new(565, 0, 88, 91, 91);
 /// System page: on rows 0..3, off rows 3..6.
 const SYS_TOGGLE: Cells = Cells::new(0, 468, 42, 35, 35);
 const SYS_RADIO: Cells = Cells::new(42, 468, 42, 35, 35);
+/// Star scroll thumb of `system_p` and `sound_p`.
+const SETTINGS_STAR: Cells = Cells::new(498, 0, 67, 76, 77);
 const SYS_KNOB: Cells = Cells::new(498, 309, 36, 42, 43);
 const LANGUAGE: [Cells; 3] = [
     Cells::new(84, 468, 152, 35, 35),
@@ -94,6 +98,8 @@ const SND_BAR_H: u32 = 29;
 const SYSTEM_COVER_Y: i32 = 30;
 const SOUND_COVER_Y: i32 = 10;
 const VIEW: (i32, i32) = (25, 660);
+/// ふゆから、くるる。 cuts the list at 642 (under Wine).
+const FUYUKURU_VIEW: (i32, i32) = (25, 642);
 const SETTINGS_TRACK: (i32, i32, i32, i32) = (1008, 115, 26, 488);
 pub const SCROLL_STEP: i32 = 60;
 /// Colour sample of the message window on the system page (cover pixels).
@@ -160,9 +166,55 @@ const MUSIC_ROW: (u32, u32, u32) = (908, 62, 64);
 const MUSIC_ROWS: usize = 8;
 const MUSIC_ARROW: Cells = Cells::new(541, 0, 52, 53, 54);
 const MUSIC_TRACK: (i32, i32, i32, i32) = (1209, 121, 26, 412);
-const MUSIC_THUMB_COLOR: [u8; 4] = [196, 64, 108, 255];
 const MUSIC_BAR: (u32, u32, u32, u32) = (668, 39, 452, 30);
 const MUSIC_BAR_POS: (i32, i32) = (476, 653);
+const MUSIC_STAR: Cells = Cells::new(597, 0, 65, 76, 77);
+const MUSIC_KNOB_TOP: i32 = 632;
+/// `musicmode_p` digits 0 to 9 and "%": left and right ink columns of
+/// row 488..538; drawn 10 pixels apart, right-aligned.
+const PERCENT_GLYPHS: [(u32, u32); 11] = [
+    (90, 125),
+    (139, 160),
+    (168, 197),
+    (207, 234),
+    (241, 276),
+    (282, 310),
+    (318, 351),
+    (357, 388),
+    (393, 427),
+    (432, 464),
+    (469, 505),
+];
+const PERCENT_ROW: (u32, u32) = (488, 50);
+const MUSIC_PERCENT_RIGHT: i32 = 1133;
+const MUSIC_PERCENT_TOP: i32 = 635;
+
+/// Music volume for a pointer position on the bar.
+pub fn music_volume_at(x: i32) -> f32 {
+    let (_, _, w, _) = MUSIC_BAR;
+    ((x - MUSIC_BAR_POS.0) as f32 / w as f32).clamp(0.0, 1.0)
+}
+
+fn draw_percent(canvas: &mut Canvas, sheet: &Arc<Image>, pct: usize, right: i32, top: i32) {
+    let glyphs: Vec<(u32, u32)> = pct
+        .to_string()
+        .bytes()
+        .map(|d| PERCENT_GLYPHS[(d - b'0') as usize])
+        .chain([PERCENT_GLYPHS[10]])
+        .collect();
+    let width: i32 = glyphs
+        .iter()
+        .map(|(a, b)| (b - a + 1) as i32 + 10)
+        .sum::<i32>()
+        - 10;
+    let mut x = right - width;
+    let (y, h) = PERCENT_ROW;
+    for (a, b) in glyphs {
+        let w = b - a + 1;
+        canvas.draw_part(sheet, (a, y, w, h), x, top, false, 255);
+        x += w as i32 + 10;
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Page {
@@ -172,6 +224,8 @@ pub enum Page {
 
 pub struct SettingsScreen {
     pub page: Page,
+    /// Clock when the screen opened.
+    pub opened: u64,
     pub scroll: i32,
     /// Slider held down with the pointer.
     pub dragging: Option<i32>,
@@ -182,6 +236,7 @@ impl SettingsScreen {
     pub fn new() -> Self {
         Self {
             page: Page::System,
+            opened: 0,
             scroll: 0,
             dragging: None,
         }
@@ -331,9 +386,12 @@ impl Menus {
     }
 
     fn view(&self) -> (i32, i32) {
-        match self.kimaten2 {
-            true => K2_VIEW,
-            false => VIEW,
+        if self.kimaten2 {
+            K2_VIEW
+        } else if self.apeiria {
+            VIEW
+        } else {
+            FUYUKURU_VIEW
         }
     }
 
@@ -388,6 +446,7 @@ impl Menus {
         data: &SystemData,
         max_scroll: i32,
         text: Option<&TextRenderer>,
+        under: Option<&Arc<Image>>,
     ) -> Result<()> {
         let st = &data.settings;
         if self.kimaten2 {
@@ -399,6 +458,9 @@ impl Menus {
         };
         canvas.draw(&self.sheet(assets, bg)?, 0, 0, false);
         self.draw_cover(canvas, assets, s, st, WINDOW_SAMPLE)?;
+        if !self.apeiria {
+            self.draw_window_sample(canvas, ui, s, st, text, under);
+        }
         let sheet = self.sheet(assets, sheet)?;
         for a in self.settings_areas(s.page) {
             let Some(a) = self.on_screen(a, s.scroll) else {
@@ -436,16 +498,31 @@ impl Menus {
                 },
             }
         }
-        draw_scroll_thumb(
-            canvas,
-            SETTINGS_TRACK,
-            s.scroll.max(0) as usize,
-            (max_scroll + 100) as usize,
-            100,
-        );
+        if self.apeiria {
+            draw_scroll_thumb(
+                canvas,
+                SETTINGS_TRACK,
+                s.scroll.max(0) as usize,
+                (max_scroll + 100) as usize,
+                100,
+            );
+        } else {
+            draw_star_thumb(
+                canvas,
+                &sheet,
+                SETTINGS_STAR,
+                SETTINGS_TRACK,
+                s.scroll.max(0) as usize,
+                max_scroll.max(1) as usize,
+            );
+        }
         if let (true, Some(tr), Some(Button::Screen(id))) = (st.tooltips, text, ui.hover) {
             if let Some(help) = self.settings_help(s.page, id) {
-                tr.draw_plain(canvas, help, HELP_POS.0, HELP_POS.1, HELP_SIZE, INK);
+                if self.apeiria {
+                    tr.draw_plain(canvas, help, HELP_POS.0, HELP_POS.1, HELP_SIZE, INK);
+                } else {
+                    crate::screens::draw_fuyukuru_help(tr, canvas, help);
+                }
             }
         }
         Ok(())
@@ -483,6 +560,73 @@ impl Menus {
             }
         }
         Ok(())
+    }
+
+    /// ふゆから、くるる。's message window sample (under Wine): the game
+    /// screen shows through the box under the window colour at the window
+    /// opacity, and the executable's sample text types out in the message
+    /// text style at the text speed, 104 pixels in.
+    fn draw_window_sample(
+        &self,
+        canvas: &mut Canvas,
+        ui: &Ui,
+        s: &SettingsScreen,
+        st: &Settings,
+        text: Option<&TextRenderer>,
+        under: Option<&Arc<Image>>,
+    ) {
+        if s.page != Page::System {
+            return;
+        }
+        let (x, y, w, h) = WINDOW_SAMPLE;
+        let view = self.view();
+        let y = y + self.cover_y(s.page) - s.scroll;
+        if y < view.0 || y + h as i32 > view.1 {
+            return;
+        }
+        // The box drawn is two pixels wider and four taller than the
+        // sample of the cover.
+        let (x, y, w, h) = (x - 1, y - 2, w + 2, h + 4);
+        match under {
+            Some(img) => canvas.draw_part(img, (x as u32, y as u32, w, h), x, y, false, 255),
+            None => canvas.fill(x, y, w, h, [0, 0, 0, 255]),
+        }
+        let c = st.window_color;
+        let rgba = [
+            (c[0] * 255.0) as u8,
+            (c[1] * 255.0) as u8,
+            (c[2] * 255.0) as u8,
+            (st.window_opacity * 255.0) as u8,
+        ];
+        canvas.fill(x, y, w, h, rgba);
+        let Some(tr) = text else {
+            return;
+        };
+        let lang = st.language.unwrap_or(self.language);
+        let (sample, baseline) = match lang {
+            Language::English => ("Message Sample", 36),
+            Language::SimplifiedChinese => (" 对话样式", 36),
+            Language::TraditionalChinese => (" 對話樣式", 36),
+            Language::Japanese => ("メッセージサンプル", 35),
+        };
+        // Types out, then holds a second before it starts again (the hold
+        // is a guess).
+        let n = sample.chars().count() as u64;
+        let per = st.char_ms().max(1);
+        let cycle = n * per + 1000;
+        let shown = ((ui.clock - s.opened) % cycle / per).min(n) as usize;
+        let line: String = sample.chars().take(shown).collect();
+        let size = 24.0;
+        tr.with_wide_advance(28.0 / size, |tr| {
+            tr.draw_dropped(
+                canvas,
+                &line,
+                (x + 104) as f32,
+                (y + baseline) as f32,
+                size,
+                [255, 255, 255, 255],
+            )
+        });
     }
 
     /// Voice groups of the sound page: nine in きまぐれテンプテーション2.
@@ -903,7 +1047,6 @@ impl Menus {
         s: &ExtrasScreen,
         data: &SystemData,
         bytes: &[u8],
-        music_pos: Option<(f64, f64)>,
         text: Option<&TextRenderer>,
     ) -> Result<()> {
         if self.kimaten2 {
@@ -1062,30 +1205,38 @@ impl Menus {
                 if let Some(tr) = text {
                     let total = CG_IMAGES.len();
                     let seen = CG_IMAGES.iter().filter(|l| data.seen_all(l)).count();
-                    let pct = format!("{}%", seen * 100 / total);
-                    tr.draw_plain(canvas, &pct, COMPLETION_POS.0, COMPLETION_POS.1, 28.0, INK);
+                    // Nothing under Wine while no picture is seen.
+                    if seen > 0 {
+                        let pct = format!("{}%", seen * 100 / total);
+                        tr.draw_plain(canvas, &pct, COMPLETION_POS.0, COMPLETION_POS.1, 28.0, INK);
+                    }
                 }
             }
             Extras::Music => {
-                draw_scroll_thumb_color(
+                // Under Wine: a star thumb, the music volume as a bar
+                // with a star at its end, and the share of tracks heard in
+                // the sheet's digits.
+                draw_star_thumb(
                     canvas,
+                    &sheet,
+                    MUSIC_STAR,
                     MUSIC_TRACK,
                     s.scroll,
-                    Self::music_max_scroll() + 4,
-                    4,
+                    Self::music_max_scroll().max(1),
                 );
-                if let Some((pos, len)) = music_pos.filter(|p| p.1 > 0.0) {
-                    let (x, y, w, h) = MUSIC_BAR;
-                    let filled = ((pos / len).clamp(0.0, 1.0) * w as f64) as u32;
-                    canvas.draw_part(
-                        &sheet,
-                        (x, y, filled, h),
-                        MUSIC_BAR_POS.0,
-                        MUSIC_BAR_POS.1,
-                        false,
-                        255,
-                    );
-                }
+                let (x, y, w, h) = MUSIC_BAR;
+                let filled = (data.settings.music.clamp(0.0, 1.0) * w as f32) as u32;
+                let (bx, by) = MUSIC_BAR_POS;
+                canvas.draw_part(&sheet, (x, y, filled, h), bx, by, false, 255);
+                let (sx, sy, sw, sh) = MUSIC_STAR.part(0);
+                let knob = (sx, sy + 1, sw, sh);
+                let kx = bx + filled as i32 - sw as i32 / 2;
+                canvas.draw_part(&sheet, knob, kx, MUSIC_KNOB_TOP, false, 255);
+                let heard = (0..MUSIC.len())
+                    .filter(|&t| Self::track_unlocked(data, t))
+                    .count();
+                let pct = heard * 100 / MUSIC.len().max(1);
+                draw_percent(canvas, &sheet, pct, MUSIC_PERCENT_RIGHT, MUSIC_PERCENT_TOP);
             }
             Extras::Scenes => {}
         }
@@ -1110,20 +1261,6 @@ impl Menus {
         }
         Ok(())
     }
-}
-
-fn draw_scroll_thumb_color(
-    canvas: &mut Canvas,
-    track: (i32, i32, i32, i32),
-    pos: usize,
-    len: usize,
-    shown: usize,
-) {
-    let (x, y, w, h) = track;
-    let size = (h as usize * shown / len.max(1)).max(40) as i32;
-    let max = len.saturating_sub(shown).max(1);
-    let top = y + ((h - size) as usize * pos.min(max) / max) as i32;
-    canvas.fill(x, top, w as u32, size as u32, MUSIC_THUMB_COLOR);
 }
 
 /// The system page's toggles.
@@ -1196,7 +1333,8 @@ pub fn system_slider(st: &Settings, id: i32) -> Option<f32> {
         1025 => st.skip_speed,
         1537 => st.auto_speed,
         2048..=2050 => st.window_color[(id - 2048) as usize],
-        2051 => st.window_opacity,
+        // "T": transparency.
+        2051 => 1.0 - st.window_opacity,
         _ => return None,
     })
 }
@@ -1243,7 +1381,7 @@ pub fn apply(st: &mut Settings, page: Page, id: i32, value: f32) -> bool {
             1025 => st.skip_speed = value,
             1537 => st.auto_speed = value,
             2048..=2050 => st.window_color[(id - 2048) as usize] = value,
-            2051 => st.window_opacity = value,
+            2051 => st.window_opacity = 1.0 - value,
             2560..=2562 => st.effect_speed = (id - 2560) as u8,
             3072..=3077 => st.right_click = right_click_option((id - 3072) as usize),
             4352..=4354 => st.language = Some(language_option((id - 4352) as usize)),

@@ -436,8 +436,5 @@ pub(crate) fn nothing_to_do(class: i32, sub: i32) -> bool {
             | (27, 2 | 4 | 5 | 6)
             // Its own backlog: size, clear, voice marks of the entry.
             | (22, 0..=2)
-            // Settings read from the XML configuration (scene skip, auto
-            // read, ...), read as 0 (off).
-            | (25, 0 | 1)
     )
 }

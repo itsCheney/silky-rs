@@ -258,8 +258,17 @@ const LOG_JUMP: Cells = Cells::new(212, 0, 60, 62, 62);
 const LOG_ARROW: Cells = Cells::new(274, 0, 52, 53, 54);
 const LOG_PAGE: Cells = Cells::new(328, 0, 75, 75, 76);
 const LOG_BACK: Cells = Cells::new(468, 0, 88, 91, 91);
+/// Star scroll thumbs: normal, hover, pressed, disabled.
+const LOG_STAR: Cells = Cells::new(401, 0, 67, 76, 77);
+const SAVE_STAR: Cells = Cells::new(498, 0, 67, 76, 77);
+/// ふゆから、くるる。's `save_load_p`: large digits 0 to 9, 18 pixels
+/// apart, and the colour of a save's title.
+const BIG_DIGITS: (u32, u32, u32, u32) = (653, 737, 18, 25);
+const TITLE_ORANGE: [u8; 4] = [255, 132, 0, 255];
 const LOG_TEXT_SIZE: f32 = 21.0;
 const LOG_LINE: f32 = 32.0;
+const LOG_STAR_TEXT_SIZE: f32 = 24.0;
+const LOG_STAR_LINE: f32 = 28.0;
 const NAMEPLATE: (u32, u32) = (376, 56);
 
 /// Look of the yes/no dialog.
@@ -291,7 +300,7 @@ const FUYUKURU_DIALOG: DialogStyle = DialogStyle {
     box_pos: (382, 221),
     question: (700, 3, 780, 31),
     question_pitch: 36,
-    question_center: 640,
+    question_center: 620,
     question_y: 251,
 };
 
@@ -502,6 +511,8 @@ pub struct Screens {
     help: Option<HelpLines>,
     /// きまぐれテンプテーション2: its own backlog look.
     kimaten2: bool,
+    /// ふゆから、くるる。: star scroll thumbs.
+    stars: bool,
 }
 
 pub(crate) fn area_file(assets: &Assets, name: &str) -> Vec<Area> {
@@ -548,6 +559,7 @@ impl Screens {
             backlog,
             dialog: area_file(assets, "dialog.area"),
             kimaten2: assets.game().title == silky_format::game::Title::Kimaten2,
+            stars: assets.game().title == silky_format::game::Title::Fuyukuru,
             help: HelpLines::load(assets, "saveloadhelp"),
         }
     }
@@ -634,6 +646,9 @@ impl Screens {
                     .draw(canvas, &sheet, state(id, s.mode == Mode::Load), a),
                 DELETE_ALL => sl.delete_all.draw(canvas, &sheet, state(id, false), a),
                 BACK => sl.back.draw(canvas, &sheet, state(id, false), a),
+                // ふゆから、くるる。 leaves out the arrows and thumb while
+                // there is nothing to scroll.
+                UP | DOWN if self.stars && s.max_scroll() == 0 => {}
                 UP => sl.arrow.draw(canvas, &sheet, state(id, false), a),
                 DOWN => sl.arrow.draw(canvas, &sheet, 4 + state(id, false), a),
                 TAB_MANUAL => {
@@ -641,6 +656,8 @@ impl Screens {
                     let st = state(id, s.tab == Kind::Manual);
                     sl.tab_manual.draw(canvas, &sheet, base + st, a)
                 }
+                // ふゆから、くるる。 shows them only when loading.
+                TAB_AUTO | TAB_QUICK if self.stars && s.mode == Mode::Save => {}
                 TAB_AUTO => sl
                     .tab_other
                     .draw(canvas, &sheet, state(id, s.tab == Kind::Auto), a),
@@ -663,6 +680,52 @@ impl Screens {
             match item {
                 Item::Create => {
                     canvas.draw_part(&sheet, sl.row.part(st), x, y, false, 255);
+                }
+                Item::Slot(r) if self.stars => {
+                    let cell = if r.newest { 6 } else { 3 } + st;
+                    canvas.draw_part(&sheet, sl.row.part(cell), x, y, false, 255);
+                    if let Some(t) = &r.thumb {
+                        canvas.draw(t, x + ROW_THUMB.0, y + ROW_THUMB.1, false);
+                    }
+                    // Under Wine: the number in the large digits after
+                    // the NEW mark, the time to the second in the small
+                    // ones, the title in orange in the black field.
+                    let lx = x + if r.newest { sl.label_x.1 } else { sl.label_x.0 } as i32 + 1;
+                    let number = format!("{:03}", r.number);
+                    let mut nx = lx;
+                    for d in number.bytes() {
+                        let i = (d - b'0') as u32;
+                        let (bx, by, bw, bh) = BIG_DIGITS;
+                        canvas.draw_part(&sheet, (bx + bw * i, by, bw, bh), nx, y + 10, false, 255);
+                        nx += bw as i32;
+                    }
+                    let date = format_time_seconds(r.saved_at);
+                    let left = nx + 21;
+                    draw_digits(
+                        canvas,
+                        &sheet,
+                        sl,
+                        &date,
+                        left + digits_width(sl, &date),
+                        y + 18,
+                    );
+                    if let Some(tr) = text {
+                        let label = self.slot_label(r);
+                        tr.with_wide_advance(28.0 / 20.0, |tr| {
+                            tr.draw_plain(
+                                canvas,
+                                &label,
+                                x as f32 + 159.0,
+                                y as f32 + 65.0,
+                                20.0,
+                                TITLE_ORANGE,
+                            )
+                        });
+                    }
+                    if let Some(a) = area(&self.save_load, DELETE + row as i32) {
+                        sl.delete
+                            .draw(canvas, &sheet, state(DELETE + row as i32, false), a);
+                    }
                 }
                 Item::Slot(r) => {
                     let cell = if r.newest { 6 } else { 3 } + st;
@@ -705,6 +768,12 @@ impl Screens {
                     let max = s.max_scroll().max(1);
                     draw_gem_thumb(canvas, &sheet, gem, sl.track, s.scroll, max, pressed, hover);
                 }
+                None if self.stars => {
+                    if s.max_scroll() > 0 {
+                        let max = s.max_scroll();
+                        draw_star_thumb(canvas, &sheet, SAVE_STAR, sl.track, s.scroll, max);
+                    }
+                }
                 None => draw_scroll_thumb(canvas, sl.track, s.scroll, s.len(), SAVE_ROWS),
             }
         }
@@ -730,6 +799,9 @@ impl Screens {
         pos: (f32, f32),
         ink: [u8; 4],
     ) {
+        if self.stars {
+            return draw_fuyukuru_help(tr, canvas, line);
+        }
         match self.kimaten2 {
             true => tr.draw_outlined(canvas, line, pos.0, pos.1, HELP_SIZE, ink, K2_INK),
             false => tr.draw_plain(canvas, line, pos.0, pos.1, HELP_SIZE, ink),
@@ -854,7 +926,7 @@ impl Screens {
                 break;
             };
             if let Some(a) = area(&self.backlog, TEXT + i) {
-                let mut baseline = a.top as f32 + 40.0;
+                let mut baseline = a.top as f32 + if self.stars { 38.0 } else { 40.0 };
                 if let Some(row) = e.speaker {
                     let (w, h) = NAMEPLATE;
                     let plate = Arc::new(inked(&nameplate, (0, h * row as u32, w, h)));
@@ -862,21 +934,27 @@ impl Screens {
                     baseline = a.top as f32 + h as f32 + 30.0;
                 }
                 if let Some(tr) = text {
+                    // ふゆから、くるる。 (under Wine, English): the message
+                    // text's cells, white with a black edge, lines 28 apart.
+                    let (size, pitch) = match self.stars {
+                        true => (LOG_STAR_TEXT_SIZE, LOG_STAR_LINE),
+                        false => (LOG_TEXT_SIZE, LOG_LINE),
+                    };
                     let width = a.width() as f32 - 24.0;
-                    let lines = tr.wrap(&e.text, LOG_TEXT_SIZE, width);
+                    let lines = tr.wrap(&e.text, size, width);
                     for line in lines.iter().take(4) {
                         if baseline > a.bottom as f32 {
                             break;
                         }
-                        tr.draw_plain(
-                            canvas,
-                            line,
-                            a.left as f32 + 12.0,
-                            baseline,
-                            LOG_TEXT_SIZE,
-                            INK,
-                        );
-                        baseline += LOG_LINE;
+                        let x = a.left as f32 + if self.stars { 15.0 } else { 12.0 };
+                        if self.stars {
+                            let white = [255, 255, 255, 255];
+                            let edge = [0, 0, 0, 255];
+                            tr.draw_outlined(canvas, line, x, baseline, size, white, edge);
+                        } else {
+                            tr.draw_plain(canvas, line, x, baseline, size, INK);
+                        }
+                        baseline += pitch;
                     }
                 }
             }
@@ -897,7 +975,12 @@ impl Screens {
                 LOG_JUMP.draw(canvas, &sheet, state(JUMP + i, false), a);
             }
         }
-        draw_scroll_thumb(canvas, self.log_track(), b.top, log.len(), LOG_ROWS);
+        if self.stars {
+            let max = log.len().saturating_sub(LOG_ROWS).max(1);
+            draw_star_thumb(canvas, &sheet, LOG_STAR, self.log_track(), b.top, max);
+        } else {
+            draw_scroll_thumb(canvas, self.log_track(), b.top, log.len(), LOG_ROWS);
+        }
         Ok(())
     }
 
@@ -1141,6 +1224,27 @@ fn draw_row_cell(
 }
 
 /// Draws a date in the small digits of the sheet, right-aligned at `right`.
+/// A help line of ふゆから、くるる。 (under Wine): white with a black
+/// edge in 26-pixel cells (13 for a letter).
+pub(crate) fn draw_fuyukuru_help(tr: &TextRenderer, canvas: &mut Canvas, line: &str) {
+    let size = 20.0;
+    tr.with_wide_advance(26.0 / size, |tr| {
+        tr.draw_outlined(canvas, line, 89.0, 690.0, size, [255; 4], [0, 0, 0, 255])
+    });
+}
+
+/// Width of a time drawn with [`draw_digits`].
+fn digits_width(sl: &SaveStyle, s: &str) -> i32 {
+    s.chars()
+        .map(|c| match c {
+            '/' => sl.slash.1 as i32,
+            ':' => sl.colon.1 as i32,
+            '0'..='9' => sl.digits.1 as i32,
+            _ => 6,
+        })
+        .sum()
+}
+
 fn draw_digits(
     canvas: &mut Canvas,
     sheet: &Arc<Image>,
@@ -1202,6 +1306,22 @@ pub(crate) fn draw_gem_thumb(
     };
     let left = x + (w - gem.w as i32) / 2;
     canvas.draw_part(sheet, gem.part(row), left, top, false, 255);
+}
+
+/// A star thumb (ふゆから、くるる。, under Wine): its centre runs from the
+/// top of the track to ten pixels above its bottom.
+pub(crate) fn draw_star_thumb(
+    canvas: &mut Canvas,
+    sheet: &Arc<Image>,
+    star: Cells,
+    track: (i32, i32, i32, i32),
+    pos: usize,
+    max: usize,
+) {
+    let (x, y, w, h) = track;
+    let half = star.h as i32 / 2;
+    let track = (x, y - half, w, h - 10 + star.h as i32);
+    draw_gem_thumb(canvas, sheet, star, track, pos, max, false, false);
 }
 
 pub(crate) fn draw_scroll_thumb(
@@ -1276,6 +1396,15 @@ pub(crate) fn format_number(f: &str, n: u32) -> String {
 }
 
 /// Local date and time, as `2026/11/06 12:34`.
+/// Time as ふゆから、くるる。 shows it on a save: 26/11/16 04:25:41.
+fn format_time_seconds(secs: u64) -> String {
+    use chrono::{Local, TimeZone};
+    match Local.timestamp_opt(secs as i64, 0).single() {
+        Some(t) => t.format("%y/%m/%d %H:%M:%S").to_string(),
+        None => String::new(),
+    }
+}
+
 fn format_time(secs: u64) -> String {
     use chrono::{Local, TimeZone};
     match Local.timestamp_opt(secs as i64, 0).single() {

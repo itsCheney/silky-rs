@@ -22,6 +22,9 @@ pub struct TextRenderer {
     /// set it for Chinese text only. A screen with its own spacing changes
     /// it for a while with [`TextRenderer::with_wide_advance`].
     wide_advance: std::cell::Cell<Option<f32>>,
+    /// Other characters take half that advance (the engine's half-width
+    /// cells), while a wide advance is set.
+    half_cells: bool,
     /// Rasterized glyphs by font, character and size (bits of the f32).
     glyphs: RefCell<HashMap<(usize, char, u32), Arc<Glyph>>>,
 }
@@ -46,12 +49,17 @@ impl TextRenderer {
         Ok(Self {
             fonts,
             wide_advance: Default::default(),
+            half_cells: false,
             glyphs: Default::default(),
         })
     }
 
     pub fn set_wide_advance(&mut self, k: Option<f32>) {
         self.wide_advance.set(k);
+    }
+
+    pub fn set_half_cells(&mut self, on: bool) {
+        self.half_cells = on;
     }
 
     /// Runs `f` with CJK characters `k` times the size apart (if the text
@@ -101,6 +109,7 @@ impl TextRenderer {
     fn advance(&self, c: char, size: f32) -> f32 {
         match self.wide_advance.get() {
             Some(k) if takes_cell(c) => size * k,
+            Some(k) if self.half_cells => size * k / 2.0,
             _ => self.font_for(c).metrics(c, size).advance_width,
         }
     }
@@ -159,6 +168,37 @@ impl TextRenderer {
                 (1.0, 1.0, [0, 0, 0, 160]),
                 (-1.0, 0.0, [0, 0, 0, 90]),
                 (0.0, 0.0, color),
+            ],
+        );
+    }
+
+    /// Draws one line over a solid black shadow two pixels to the lower
+    /// right.
+    pub fn draw_dropped(
+        &self,
+        canvas: &mut Canvas,
+        line: &str,
+        x: f32,
+        y: f32,
+        size: f32,
+        color: [u8; 4],
+    ) {
+        let black = [0, 0, 0, 255];
+        self.draw_layers(
+            canvas,
+            line,
+            x,
+            y,
+            size,
+            &[
+                (3.0, 2.0, black),
+                (2.0, 2.0, black),
+                (1.0, 2.0, black),
+                (3.0, 1.0, black),
+                (2.0, 1.0, black),
+                (1.0, 1.0, black),
+                (0.0, 0.0, color),
+                (1.0, 0.0, color),
             ],
         );
     }

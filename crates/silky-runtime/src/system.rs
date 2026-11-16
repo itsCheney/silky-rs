@@ -112,12 +112,15 @@ impl Default for Settings {
 impl Settings {
     /// Defaults of a game: 景の海のアペイリア's own configuration starts
     /// the window dark blue (red 0, green 25, blue 46 of 100) and 30 %
-    /// transparent.
+    /// transparent; the programs of the other games start it 40 %
+    /// transparent (`/Config/MesWnd/Alpha` reads 40 when not set).
     pub fn for_title(title: silky_format::game::Title) -> Self {
         let mut s = Self::default();
         if title == silky_format::game::Title::Apeiria {
             s.window_color = [0.0, 0.25, 0.46];
             s.window_opacity = 0.7;
+        } else {
+            s.window_opacity = 0.6;
         }
         s
     }

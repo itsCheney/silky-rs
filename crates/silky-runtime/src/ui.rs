@@ -403,6 +403,8 @@ const WAIT_SHEET: (u32, u32) = (1347, 0);
 const WAIT_CELL: u32 = 67;
 const WAIT_FRAMES: u32 = 10;
 const WAIT_POS: (i32, i32) = (1215, 607);
+/// The 2021 package draws it 32 pixels left and 31 up (under Wine).
+const WAIT_POS_2021: (i32, i32) = (1183, 576);
 const WAIT_FRAME_MS: u64 = 100;
 
 /// Selection options: bars of 692 x 76 on the sheet, rows by state.
@@ -1604,11 +1606,16 @@ impl Layout {
         if ui.waiting {
             let frame = (ui.clock / WAIT_FRAME_MS) as u32 % WAIT_FRAMES;
             let (x, y) = WAIT_SHEET;
+            let (dx, dy) = if assets.game().engine.profile.name == "engine-2021" {
+                WAIT_POS_2021
+            } else {
+                WAIT_POS
+            };
             canvas.draw_part(
                 &sheet,
                 (x, y + WAIT_CELL * frame, WAIT_CELL, WAIT_CELL),
-                WAIT_POS.0,
-                WAIT_POS.1,
+                dx,
+                dy,
                 false,
                 255,
             );

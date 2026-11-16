@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use silky_format::game::{Kind, Title};
 use silky_format::map::MapFile;
@@ -26,6 +26,7 @@ const MESWND: i32 = 2;
 const MOUSE: i32 = 12;
 const FLAG: i32 = 14;
 const BACKLOG: i32 = 22;
+const XML: i32 = 25;
 
 /// Screen calls (class 20). Times are in frames of 1/60 s (provisional).
 mod screen {
@@ -247,6 +248,9 @@ pub struct Runtime {
     pub auto_save: bool,
     /// What 景の海のアペイリア's `Game.12` has put up, for its CG mode.
     pub(crate) cg_track: crate::games::apeiria::omake::CgTrack,
+    /// Values the scripts wrote to the original's XML configuration
+    /// (`Xml.1`); the rest read as the configuration the games ship.
+    xml: HashMap<String, i32>,
 }
 
 /// Second step of a two-step effect.
@@ -304,6 +308,7 @@ impl Runtime {
             queued_music: BTreeMap::new(),
             auto_save: false,
             cg_track: Default::default(),
+            xml: HashMap::new(),
         }
     }
 
@@ -920,6 +925,19 @@ impl Host for Runtime {
                 if class == MOVIE && engine.movie_2_closes {
                     match (sub, args.as_slice()) {
                         (0, [Value::Str(name)]) => self.movie = Some(name.clone()),
+                        // Movie.1(_, file): a moving background, played
+                        // when the configuration has movies on. Not decoded
+                        // yet: its first frame, the picture of the same
+                        // name, stands in.
+                        (1, [_, Value::Str(name)]) => {
+                            let still = format!(
+                                "{}.akb",
+                                name.rsplit_once('.').map_or(name.as_str(), |n| n.0)
+                            );
+                            if self.assets.exists(silky_format::game::Kind::Layer, &still) {
+                                self.scene.background = Some(still);
+                            }
+                        }
                         (2, []) => self.movie = None,
                         (3, []) if self.movie.is_some() => {
                             self.handled += 1;
@@ -929,7 +947,7 @@ impl Host for Runtime {
                         (3, []) => vm.push(0),
                         _ => {}
                     }
-                    if matches!((sub, args.len()), (0, 1) | (2, 0) | (3, 0)) {
+                    if matches!((sub, args.len()), (0, 1) | (1, 2) | (2, 0) | (3, 0)) {
                         self.handled += 1;
                         return Ok(Flow::Continue);
                     }
@@ -960,6 +978,33 @@ impl Host for Runtime {
                             return Ok(Flow::Continue);
                         }
                         _ => {}
+                    }
+                }
+                // Xml.0(_, path) reads the original's configuration file,
+                // Xml.1(value, path) writes it. The configuration the
+                // three games ship has movies on (`/Config/Movie/Play` 1)
+                // and auto read, scene skip and the one-line message off.
+                if class == XML {
+                    if let Some(Value::Str(path)) = args.last() {
+                        match sub {
+                            0 => {
+                                let value = self
+                                    .xml
+                                    .get(path)
+                                    .copied()
+                                    .unwrap_or((path == "/Config/Movie/Play") as i32);
+                                vm.push(value);
+                            }
+                            1 => {
+                                let value = args.first().map(Value::int).unwrap_or(0);
+                                self.xml.insert(path.clone(), value);
+                            }
+                            _ => {}
+                        }
+                        if matches!(sub, 0 | 1) {
+                            self.handled += 1;
+                            return Ok(Flow::Continue);
+                        }
                     }
                 }
                 if matches!(class, MUSIC | EFFECT | VOICE)
