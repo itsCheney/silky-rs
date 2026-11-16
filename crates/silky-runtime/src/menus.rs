@@ -950,7 +950,7 @@ impl Menus {
         self.extras_areas(kind)
     }
 
-    fn extras_areas(&self, kind: Extras) -> &[Area] {
+    pub fn extras_areas(&self, kind: Extras) -> &[Area] {
         match kind {
             Extras::Gallery => &self.gallery,
             Extras::Scenes => &self.scenes,

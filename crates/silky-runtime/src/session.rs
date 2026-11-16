@@ -67,6 +67,7 @@ pub struct Session {
     layout: Layout,
     start: String,
     state: State,
+    veil: Option<Veil>,
     /// Scene without the interface, rendered again only when it changes.
     base: Option<Canvas>,
     /// The part of `base` below the E-mote pictures, and whether those
@@ -142,6 +143,32 @@ struct Busy {
 /// Length of one frame for input polls.
 const FRAME_MS: u32 = 16;
 
+/// 景の海のアペイリア's extras fade in from black when they open and out to
+/// black when they close: 12 steps of the 20 ms tick (0x4a2bc0, 0x4a2d90).
+#[derive(Debug, Clone, Copy)]
+struct Veil {
+    start: u64,
+    out: bool,
+    /// Closing: the result to leave the extras with once black.
+    then: Option<i32>,
+}
+
+impl Veil {
+    const STEPS: u64 = 12;
+    const STEP_MS: u64 = 20;
+
+    fn done(&self, clock: u64) -> bool {
+        clock >= self.start + Self::STEPS * Self::STEP_MS
+    }
+
+    /// Opacity of the black over the screen.
+    fn alpha(&self, clock: u64) -> u8 {
+        let step = ((clock - self.start) / Self::STEP_MS).min(Self::STEPS);
+        let shown = if self.out { step } else { Self::STEPS - step };
+        (shown * 255 / Self::STEPS) as u8
+    }
+}
+
 impl Session {
     /// Loads the game and runs its scripts from `start` (`start.mes`) to
     /// the first stop.
@@ -169,6 +196,7 @@ impl Session {
             layout,
             start: start.to_string(),
             state: State::Text,
+            veil: None,
             base: None,
             under: None,
             emote_moved: false,
@@ -588,6 +616,11 @@ impl Session {
                         self.screen = Some(Screen::Extras(ExtrasScreen::new(kind)));
                         self.state = State::Extras;
                         if self.menus.is_apeiria() {
+                            self.veil = Some(Veil {
+                                start: self.ui.clock,
+                                out: false,
+                                then: None,
+                            });
                             self.apeiria_extras_music(kind);
                         }
                         break;
@@ -818,6 +851,7 @@ impl Session {
 
     /// Pointer moved to (x, y) in screen pixels.
     pub fn pointer_move(&mut self, x: i32, y: i32) {
+        self.ui.pointer = (x, y);
         if let Some(h) = &mut self.hmode {
             h.pointer_move(x, y);
             return;
@@ -850,6 +884,10 @@ impl Session {
 
     /// Primary button pressed at (x, y).
     pub fn pointer_down(&mut self, x: i32, y: i32) {
+        // Input waits for the extras' fade.
+        if self.veil.is_some() {
+            return;
+        }
         if let Some(h) = &mut self.hmode {
             let mut ops = Vec::new();
             h.pointer_down(x, y, &mut ops);
@@ -890,6 +928,15 @@ impl Session {
                 if id == ids::SCROLL {
                     e.ap.dragging_scroll = true;
                     self.drag_apeiria_scroll(y);
+                    return;
+                }
+                // The arrows scroll once as they go down, and not again
+                // while held (as under Wine).
+                if id == ids::PREVIOUS || id == ids::NEXT {
+                    let d = if id == ids::NEXT { 1 } else { -1 };
+                    let max = crate::games::apeiria::omake::MAX_SCROLL as isize;
+                    e.scroll = (e.scroll as isize + d).clamp(0, max) as usize;
+                    self.ui.pressed = None;
                     return;
                 }
             }
@@ -935,6 +982,10 @@ impl Session {
 
     /// Primary button released at (x, y): a click.
     pub fn pointer_up(&mut self, x: i32, y: i32) -> Result<()> {
+        // Input waits for the extras' fade.
+        if self.veil.is_some() {
+            return Ok(());
+        }
         if let Some(h) = &mut self.hmode {
             let mut ops = Vec::new();
             h.pointer_up(x, y, &mut ops);
@@ -1080,7 +1131,7 @@ impl Session {
     /// right click). Returns false if there was none.
     pub fn back(&mut self) -> Result<bool> {
         // H mode ends only with its own finish button.
-        if self.hmode.is_some() {
+        if self.hmode.is_some() || self.veil.is_some() {
             return Ok(true);
         }
         if self.dialog.take().is_some() {
@@ -1146,6 +1197,25 @@ impl Session {
     /// Leaves an extras screen with `result` for the script: -1 back to
     /// the title, or a scene to replay.
     fn leave_extras(&mut self, result: i32) -> Result<()> {
+        if self.menus.is_apeiria() {
+            match self.veil {
+                Some(Veil { out: true, .. }) => return Ok(()),
+                _ => {
+                    self.veil = Some(Veil {
+                        start: self.ui.clock,
+                        out: true,
+                        then: Some(result),
+                    });
+                    self.frame = None;
+                    return Ok(());
+                }
+            }
+        }
+        self.close_extras(result)
+    }
+
+    fn close_extras(&mut self, result: i32) -> Result<()> {
+        self.veil = None;
         self.rt.stop_music();
         self.screen = None;
         self.ui.hover = None;
@@ -1172,7 +1242,52 @@ impl Session {
     /// Mouse wheel: `up` towards older text. Up on a message opens the
     /// backlog; down at its newest entry closes it, and on a message of
     /// きまぐれテンプテーション2 goes on like a click.
+    /// An arrow key. On 景の海のアペイリア's extras it moves the pointer to
+    /// another button, as the original does; the new place is returned for
+    /// the host to move its own pointer there.
+    pub fn arrow(&mut self, key: crate::games::apeiria::keys::Arrow) -> Result<Option<(i32, i32)>> {
+        use crate::games::apeiria::keys::{self, Move};
+        use crate::games::apeiria::omake;
+        if !self.menus.is_apeiria() || self.dialog.is_some() || self.veil.is_some() {
+            return Ok(None);
+        }
+        let Some(Screen::Extras(e)) = &self.screen else {
+            return Ok(None);
+        };
+        let at = match self.ui.hover {
+            Some(Button::Screen(id)) if e.ap.view.is_some() => keys::to_view(id),
+            Some(Button::Screen(id)) => id,
+            _ => -1,
+        };
+        let bytes = &self.vm.bytes;
+        let on = |i: i32| {
+            i >= 0
+                && match &e.ap.view {
+                    Some(v) => omake::view_on(v, bytes, i as usize),
+                    None => omake::item(e.kind, e.page, e.scroll, i as usize)
+                        .is_some_and(|it| omake::open(e.kind, bytes, it)),
+                }
+        };
+        match keys::arrow(e.kind, &e.ap, at, key, &on) {
+            Move::To(id) => {
+                let areas = self.menus.extras_areas(e.kind);
+                if let Some((x, y)) = keys::centre(areas, &e.ap, id) {
+                    self.pointer_move(x, y);
+                    return Ok(Some((x, y)));
+                }
+            }
+            Move::ScrollDown => self.wheel(false)?,
+            Move::Picture { next } => self.wheel(!next)?,
+            Move::Stay => {}
+        }
+        Ok(None)
+    }
+
     pub fn wheel(&mut self, up: bool) -> Result<()> {
+        // Input waits for the extras' fade.
+        if self.veil.is_some() {
+            return Ok(());
+        }
         if self.dialog.is_some() {
             return Ok(());
         }
@@ -2135,6 +2250,13 @@ impl Session {
 
     /// Key that goes on (Enter, Space).
     pub fn proceed(&mut self) -> Result<()> {
+        // 景の海のアペイリア's extras: Enter clicks where the arrow keys
+        // put the pointer.
+        if self.menus.is_apeiria() && matches!(self.screen, Some(Screen::Extras(_))) {
+            let (x, y) = self.ui.pointer;
+            self.pointer_down(x, y);
+            return self.pointer_up(x, y);
+        }
         if self.ui.window_hidden {
             self.ui.window_hidden = false;
             self.base = None;
@@ -2167,6 +2289,11 @@ impl Session {
                 i => {
                     if let Some(result) = title::result(i) {
                         self.ui.title = None;
+                        // The script's fade starts from the title as shown,
+                        // menu included.
+                        if let Some(f) = self.frame.take() {
+                            self.base = Some(f);
+                        }
                         self.rt.answer_title(&mut self.vm, result);
                         self.run()?;
                     } else {
@@ -2321,6 +2448,15 @@ impl Session {
         }
         if self.layout.keeps_global_bytes() {
             self.store_global_bytes();
+        }
+        if let Some(v) = self.veil {
+            self.frame = None;
+            if v.done(self.ui.clock) {
+                match v.then {
+                    Some(result) => self.close_extras(result)?,
+                    None => self.veil = None,
+                }
+            }
         }
         if self.rt.system_changed && self.ui.clock >= self.system_stored + SYSTEM_STORE_MS {
             self.flush_system();
@@ -2571,6 +2707,9 @@ impl Session {
             if let Some(d) = &self.dialog {
                 self.screens
                     .draw_dialog(&mut frame, &mut self.rt.assets, &self.ui, d)?;
+            }
+            if let Some(v) = &self.veil {
+                frame.fill(0, 0, 1280, 720, [0, 0, 0, v.alpha(self.ui.clock)]);
             }
             self.frame = Some(if frame.ops().is_some() {
                 frame

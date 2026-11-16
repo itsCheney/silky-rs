@@ -268,6 +268,20 @@ impl App {
         (gx.floor() as i32, gy.floor() as i32)
     }
 
+    /// Moves the system pointer to a place on the game screen.
+    fn warp(&mut self, (gx, gy): (i32, i32)) {
+        self.cursor = (gx, gy);
+        let Some(view) = &self.view else {
+            return;
+        };
+        let (x, y, w, h) = view.rect;
+        let px = x as f64 + (gx as f64 + 0.5) * w as f64 / SCREEN_WIDTH as f64;
+        let py = y as f64 + (gy as f64 + 0.5) * h as f64 / SCREEN_HEIGHT as f64;
+        let _ = view
+            .window
+            .set_cursor_position(PhysicalPosition::new(px, py));
+    }
+
     fn redraw(&mut self) -> Result<()> {
         let Some(view) = &mut self.view else {
             return Ok(());
@@ -399,6 +413,25 @@ impl ApplicationHandler for App {
                 let r = match event.logical_key {
                     Key::Named(NamedKey::Enter | NamedKey::Space) => self.session.proceed(),
                     Key::Named(NamedKey::Escape) => self.session.back().map(|_| ()),
+                    Key::Named(
+                        k @ (NamedKey::ArrowUp
+                        | NamedKey::ArrowDown
+                        | NamedKey::ArrowLeft
+                        | NamedKey::ArrowRight),
+                    ) => {
+                        use silky_runtime::games::apeiria::keys::Arrow;
+                        let a = match k {
+                            NamedKey::ArrowUp => Arrow::Up,
+                            NamedKey::ArrowDown => Arrow::Down,
+                            NamedKey::ArrowLeft => Arrow::Left,
+                            _ => Arrow::Right,
+                        };
+                        self.session.arrow(a).map(|to| {
+                            if let Some(p) = to {
+                                self.warp(p);
+                            }
+                        })
+                    }
                     _ => Ok(()),
                 };
                 self.after_input(event_loop, r);

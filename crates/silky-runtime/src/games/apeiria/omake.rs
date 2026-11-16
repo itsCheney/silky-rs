@@ -281,6 +281,27 @@ const VIEW_PREVIOUS_AT: (i32, i32, i32, i32) = (536, 647, 566, 703);
 const VIEW_NEXT_AT: (i32, i32, i32, i32) = (716, 647, 746, 703);
 const VIEW_BACK_AT: (i32, i32, i32, i32) = (1055, 640, 1270, 713);
 
+/// Place of a button on a CG entry's grid (left, top, right, bottom).
+pub fn view_rect(v: &View, id: i32) -> Option<(i32, i32, i32, i32)> {
+    match id {
+        ids::VIEW_PREVIOUS => Some(VIEW_PREVIOUS_AT),
+        ids::VIEW_NEXT => Some(VIEW_NEXT_AT),
+        ids::VIEW_BACK => Some(VIEW_BACK_AT),
+        i if (ids::VIEW_CELL..ids::VIEW_CELL + CELLS as i32).contains(&i) => {
+            let n = view_count(v);
+            let i = (i - ids::VIEW_CELL) as usize;
+            let (x, y) = view_cell(i, n);
+            (i < n).then_some((x, y, x + CARD.0 as i32, y + CARD.1 as i32))
+        }
+        _ => None,
+    }
+}
+
+/// Whether cell `i` of the grid of `v` holds a seen picture.
+pub fn view_on(v: &View, bytes: &[u8], i: usize) -> bool {
+    i < view_count(v) && cg_seen(bytes, CG_ENTRIES[v.entry].0 + v.page * CELLS + i)
+}
+
 fn inside(r: (i32, i32, i32, i32), x: i32, y: i32) -> bool {
     x >= r.0 && x < r.2 && y >= r.1 && y < r.3
 }

@@ -33,11 +33,12 @@ All 171 scripts decode; the story text is in the scripts (no MAP tables). Headle
 - CG, scene and music modes (`Game.30` to `Game.32`), read from the executable and compared with the original under Wine. What was seen is kept in the byte variables from 3000, across games: a CG bit set from byte 3300, one bit per picture, set when the background and layers `Game.12` put up (subs 0, 1, 10, 12) match a row of the executable's table once the screen is shown (subs 2, 3, 4, 6, 11), or directly (sub 13); scenes from byte 3101 and music from byte 3050, set by the scripts; bytes 3002 to 3004 open the three modes.
   - CG mode: eight pages of twelve entries (`cgmode_thmNN.akb`), the count of seen pictures on each, and the completion of all three modes at the bottom. An entry opens a grid of its pictures over the dimmed page (from its `cg_evNNNN.akb` strip), with pages of twelve; a picture shows over the whole screen, and clicks walk through every seen picture to the last, then back to the grid. The wheel walks back and forth.
   - Scene mode: six pages of twelve scenes; under the pointer a scene shows a slide show of `scene_thumbNN.akb` (a second each, a second's fade). A click plays the scene.
-  - Music mode: 41 tracks in eight slanted rows of `music_title.akb`, a scroll bar and the music volume. The CG and scene modes play `ape_27.ogg` when nothing plays; the music mode stops the music it finds.
+  - Music mode: 41 tracks in eight slanted rows of `music_title.akb`, a scroll bar and the music volume. The CG and scene modes play `ape_27.ogg` when nothing plays; the music mode stops the music it finds. The scroll bar's arrows scroll one row as they go down and not again while held, as under Wine.
+  - The modes fade in from black when they open and out to black when they close, 12 steps of the 20 ms tick (240 ms, matched under Wine); input waits for the fade. The title menu fades out with the screen.
+  - Arrow keys move the pointer to the middle of another button, by each screen's own table (a key from no button goes to the first cell), and Enter clicks there. On a picture over the whole screen, left and right walk back and forth.
 
 ## Not done yet
 
-- In the extras: the fades between screens, keyboard moves, and the slide of the scroll bar's arrows while held.
 - Effects that leave nothing behind are passed over: attack and spell effects (998, 1001, 1002) and a sprite animation (1000). Fades, slides and particles of the pictures above are not done; they appear and go at once.
 
 ## Where things are in the executable
@@ -77,6 +78,8 @@ Addresses in `apeiria.exe` of the build above. The code itself does not name the
 | Scene mode: open, page, buttons, click, slide show | 0x4593a0, 0x459dc0, 0x459ae0, 0x459470, 0x45a410 |
 | Scene bytes, slide show lengths | 0x56e8b0, 0x5299f0 |
 | Music mode: open, list, scroll bar, play, volume | 0x469740, 0x46ad60, 0x46b1d0, 0x46a490, 0x46aa70 |
+| Extras arrow keys (up, down, left, right): CG mode, CG entry grid, scene mode, music mode | 0x444ca0.., 0x447d00.., 0x459770.., 0x469f10.. (+0x50..+0x5c of each screen's vtable) |
+| Extras fade in, fade out; key loop | 0x4a2bc0, 0x4a2d90; 0x4a6e60 |
 | Standing characters: centre shift by slot, top edge by character | 0x44c690, 0x44c710 |
 | Window portrait: place and size | 0x461ca0 |
 | αMAIL subs 7, 10, 14 | 0x478700, 0x479790, 0x4786b0 |

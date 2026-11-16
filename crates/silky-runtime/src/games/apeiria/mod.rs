@@ -5,6 +5,7 @@
 pub mod characters;
 pub(crate) mod commands;
 pub mod holo;
+pub mod keys;
 pub mod mail;
 pub mod omake;
 pub mod panels;

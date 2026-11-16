@@ -123,6 +123,8 @@ pub struct Ui {
     /// The title menu is up; `true` shows the extras page.
     pub title: Option<bool>,
     pub hover: Option<Button>,
+    /// Where the pointer last was.
+    pub pointer: (i32, i32),
     pub pressed: Option<Button>,
     /// Message window hidden by the player (right click or the hide
     /// button); any click shows it again.
