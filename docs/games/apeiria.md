@@ -13,7 +13,8 @@ All 171 scripts decode; the story text is in the scripts (no MAP tables). Headle
 - Title menu, read from the executable: six entries from `title.area`, the extras page (CG, scene, music) from `title2.area`, cells of `title_p.akb` in four 42-pixel state rows. Continue and load are grey without saves; CG, scene and music need bytes 3002, 3003 and 3004.
 - Message window: a band at y = 508 (rows 212..424 of `message_p.akb`, the alpha mask the executable fills with the window colour) under faint lines (rows 0..212). The game's own defaults: colour red 0, green 25, blue 46 of 100, 30 % transparent.
 - Window buttons, read from the executable: a ring around the `MENU` ball. The ball and the ring backdrop are 302-pixel cells of `menu_p00.akb`; the eleven buttons and the hide button are 40-pixel cells of `message_p.akb`. `mes_o.area` holds the ring buttons as ids 1..11 (save, load, quick save, quick load, voice, previous choice, backlog, auto, skip, next choice, settings); the hide button and the window are relative to the window top. The ball folds the ring away.
-- Click wait: the hourglass of `message_p.akb` (ten 80-pixel frames from (1280, 0)) at (1204, 642), measured under Wine.
+- Click wait: the hourglass of `message_p.akb` (ten 76 x 80 frames down from (1280, 0)) at (1204, 642), a frame every tenth tick, 200 ms as measured under Wine.
+- The window position: the program places the window parts relative to `/Config/MesWnd/Pos` (the hourglass at Pos + 132) but only reads it; the config screen has no control for it, so the window stays where it starts.
 - Name plate, read from the executable: a left cap, 14-pixel middle pieces for the width of the name and a right end with its flourish, from row 584 of `message_p.akb`, each over the same piece of row 643 filled with the window colour. The name goes 69 pixels in and 17 down; the plate's place (47, 498) was measured under Wine.
 - Text: glyphs about 24 pixels tall every 28.3 pixels from x = 152, lines 41 apart, bold with a one-pixel black edge, measured under Wine.
 - Screen shake (`Game.993`), read from the executable: sub 0 sets it up, 2 picks one of two tables of eight offsets (sideways only, or both ways, up to 16 pixels), 3 starts it, 1 stops it. The screen takes the next offset each step; the step time (a sixtieth of a second) is a guess.
@@ -38,7 +39,6 @@ All 171 scripts decode; the story text is in the scripts (no MAP tables). Headle
 
 - In the extras: the fades between screens, keyboard moves, and the slide of the scroll bar's arrows while held.
 - Effects that leave nothing behind are passed over: attack and spell effects (998, 1001, 1002) and a sprite animation (1000). Fades, slides and particles of the pictures above are not done; they appear and go at once.
-- The window position setting, the hourglass frame time.
 
 ## Where things are in the executable
 
@@ -49,6 +49,7 @@ Addresses in `apeiria.exe` of the build above. The code itself does not name the
 | `Game` command dispatch | 0x48bf50 |
 | Title menu (`Game.110`) | 0x490250 |
 | Message window: sheets, ring button places (0x529b08) | 0x45eac0 |
+| Click-wait hourglass: sprite, frame step | 0x463720, 0x46fc80 |
 | Message window: band and window colour | 0x4639c0 |
 | Message window: one button drawn | 0x460350 |
 | Message window: button states | 0x45ffd0 |

@@ -638,12 +638,13 @@ impl Ring {
     const SHEET_TOP: u32 = 424;
     const HIDE_COLUMN: u32 = 11;
     const WINDOW_TOP: i32 = 508;
-    /// Click-wait hourglass: ten 80-pixel frames down `message_p.akb`
-    /// from (1280, 0), placed as measured under Wine; the frame time is
-    /// not read yet.
+    /// Click-wait hourglass: ten 76 x 80 frames down `message_p.akb` from
+    /// (1280, 0), at (1204, window top + 132). The original steps it every
+    /// tenth tick (0x46fc80), 200 ms as measured under Wine.
     const WAIT_SHEET: (u32, u32) = (1280, 0);
-    const WAIT_CELL: u32 = 80;
+    const WAIT_CELL: (u32, u32) = (76, 80);
     const WAIT_POS: (i32, i32) = (1204, 642);
+    const WAIT_FRAME_MS: u64 = 200;
 
     fn load(assets: &Assets) -> Result<Self> {
         let mut buttons = Vec::new();
@@ -702,11 +703,11 @@ impl Ring {
             }
         }
         if ui.waiting {
-            let frame = (ui.clock / WAIT_FRAME_MS) as u32 % WAIT_FRAMES;
+            let frame = (ui.clock / Self::WAIT_FRAME_MS) as u32 % WAIT_FRAMES;
             let (x, y) = Self::WAIT_SHEET;
-            let n = Self::WAIT_CELL;
+            let (w, h) = Self::WAIT_CELL;
             let (dx, dy) = Self::WAIT_POS;
-            canvas.draw_part(&sheet, (x, y + n * frame, n, n), dx, dy, false, 255);
+            canvas.draw_part(&sheet, (x, y + h * frame, w, h), dx, dy, false, 255);
         }
         Ok(())
     }
