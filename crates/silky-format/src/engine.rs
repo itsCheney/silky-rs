@@ -80,6 +80,14 @@ pub const ENGINE_2026: Profile = Profile {
     results: &[],
 };
 
+/// The engine of 同級生 Remake's program (2022). Its screen is 1920 x
+/// 1080. Not checked call by call yet.
+pub const ENGINE_2022: Profile = Profile {
+    name: "engine-2022",
+    sprites_and_flags: false,
+    ..ENGINE_2026
+};
+
 /// The engine of きまぐれテンプテーション2's program (2024, Visual Studio
 /// 2019). Its movie calls are those of [`ENGINE_2026`].
 pub const ENGINE_2024: Profile = Profile {
@@ -140,6 +148,15 @@ pub const BUILDS: &[Build] = &[
         size: 3117568,
         sha256: "eeaf1f25cfcc8105c0d0720a46266815c2bb3ee28696cc1374f863f8cdfdb707",
         profile: &ENGINE_2026,
+    },
+    // Steam release; the program carries Steam's DRM wrapper.
+    Build {
+        exe: "doukyuusei.exe",
+        version: "1.0.4.0",
+        linked: 1647330885, // 2022-03-15 07:54:45
+        size: 11159880,
+        sha256: "9c9841fbca3a422a36f7ddef696f6164b4206ff622ecdb5cc1b4f45c8b231451",
+        profile: &ENGINE_2022,
     },
     Build {
         exe: "kimaten2.exe",

@@ -2668,11 +2668,16 @@ impl Session {
         Ok(self.frame.is_none())
     }
 
+    /// The size the game lays its screen out in (1280 x 720 for most).
+    pub fn screen_size(&self) -> (u32, u32) {
+        self.renderer.size()
+    }
+
     /// Sets the height of the frames in output pixels (the game is laid
-    /// out in 1280 x 720; pictures are scaled up, text is drawn at this
-    /// size). Below 720 the frames stay at 720.
+    /// out in [`Session::screen_size`]; pictures are scaled up, text is
+    /// drawn at this size). Below the game's height the frames stay at it.
     pub fn set_output_height(&mut self, height: u32) {
-        let scale = (height as f32 / crate::SCREEN_HEIGHT as f32).max(1.0);
+        let scale = (height as f32 / self.renderer.size().1 as f32).max(1.0);
         if (scale - self.renderer.scale).abs() > 1e-3 {
             self.renderer.scale = scale;
             self.base = None;
@@ -2762,7 +2767,8 @@ impl Session {
                     .draw_dialog(&mut frame, &mut self.rt.assets, &self.ui, d)?;
             }
             if let Some(v) = &self.veil {
-                frame.fill(0, 0, 1280, 720, [0, 0, 0, v.alpha(self.ui.clock)]);
+                let (w, h) = self.renderer.size();
+                frame.fill(0, 0, w, h, [0, 0, 0, v.alpha(self.ui.clock)]);
             }
             self.frame = Some(if frame.ops().is_some() {
                 frame

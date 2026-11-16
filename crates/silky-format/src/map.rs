@@ -11,6 +11,16 @@
 //! at each section offset, count times: u32 line id, u32 text offset
 //! text: NUL-terminated (UTF-8 in the 2026 international build)
 //! ```
+//!
+//! The 2022 build (同級生 Remake) keeps one file per language,
+//! `X_EN.MAP`, `X_CN.MAP`, `X_TW.MAP`, with a single table indexed by the
+//! message number:
+//!
+//! ```text
+//! u32 count
+//! count times: u32 line id, u32 text offset
+//! text: UTF-16LE, terminated by a 16-bit 0
+//! ```
 
 use crate::error::{invalid, Result};
 
@@ -30,6 +40,9 @@ impl MapFile {
                 None => invalid(FORMAT, format!("read past the end at {o:#x}")),
             }
         };
+        if let Some(map) = Self::parse_utf16(data) {
+            return Ok(map);
+        }
         let header_size = u32_at(0)? as usize;
         if header_size == 0 || header_size % 8 != 0 || header_size > data.len() {
             return invalid(FORMAT, format!("bad header size {header_size}"));
@@ -51,6 +64,39 @@ impl MapFile {
             sections.push(table);
         }
         Ok(Self { sections })
+    }
+
+    /// The one-table UTF-16 layout, recognised by its texts following the
+    /// table and each other without gaps.
+    fn parse_utf16(data: &[u8]) -> Option<Self> {
+        let u32_at = |o: usize| -> Option<usize> {
+            Some(u32::from_le_bytes(data.get(o..o + 4)?.try_into().ok()?) as usize)
+        };
+        let count = u32_at(0)?;
+        let table_end = 4 + 8 * count;
+        if count == 0 || u32_at(8)? != table_end || table_end > data.len() {
+            return None;
+        }
+        let mut table = Vec::with_capacity(count);
+        let mut next = table_end;
+        for i in 0..count {
+            let number = u32_at(4 + 8 * i)? as u32;
+            let at = u32_at(8 + 8 * i)?;
+            if at != next {
+                return None;
+            }
+            let units: Vec<u16> = data
+                .get(at..)?
+                .chunks_exact(2)
+                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .take_while(|&u| u != 0)
+                .collect();
+            next = at + 2 * (units.len() + 1);
+            table.push((number, String::from_utf16_lossy(&units)));
+        }
+        Some(Self {
+            sections: vec![table],
+        })
     }
 
     pub fn section_count(&self) -> usize {
@@ -143,5 +189,24 @@ mod tests {
         assert_eq!(map.line(0, 0), Some("Hello"));
         assert_eq!(map.line(1, 1), Some("世界"));
         assert_eq!(map.line(1, 2), None);
+    }
+
+    #[test]
+    fn utf16_table() {
+        let texts = ["Welp.", "你好"];
+        let mut data = 2u32.to_le_bytes().to_vec();
+        let mut at = 4 + 16;
+        let mut body = Vec::new();
+        for (i, t) in texts.iter().enumerate() {
+            data.extend_from_slice(&(i as u32).to_le_bytes());
+            data.extend_from_slice(&(at as u32).to_le_bytes());
+            let units: Vec<u16> = t.encode_utf16().chain([0]).collect();
+            at += 2 * units.len();
+            body.extend(units.iter().flat_map(|u| u.to_le_bytes()));
+        }
+        data.extend(body);
+        let map = MapFile::parse(&data).unwrap();
+        assert_eq!(map.section_count(), 1);
+        assert_eq!(map.line(0, 1), Some("你好"));
     }
 }

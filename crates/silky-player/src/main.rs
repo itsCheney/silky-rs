@@ -19,7 +19,7 @@ use silky_runtime::audio::Mixer;
 use silky_runtime::render::Canvas;
 use silky_runtime::save::Saves;
 use silky_runtime::text::TextRenderer;
-use silky_runtime::{Config, Language, Session, State, SCREEN_HEIGHT, SCREEN_WIDTH};
+use silky_runtime::{Config, Language, Session, State};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition};
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
@@ -263,8 +263,9 @@ impl App {
             return (0, 0);
         };
         let (x, y, w, h) = view.rect;
-        let gx = (p.x - x as f64) * SCREEN_WIDTH as f64 / w.max(1) as f64;
-        let gy = (p.y - y as f64) * SCREEN_HEIGHT as f64 / h.max(1) as f64;
+        let (sw, sh) = self.session.screen_size();
+        let gx = (p.x - x as f64) * sw as f64 / w.max(1) as f64;
+        let gy = (p.y - y as f64) * sh as f64 / h.max(1) as f64;
         (gx.floor() as i32, gy.floor() as i32)
     }
 
@@ -275,8 +276,9 @@ impl App {
             return;
         };
         let (x, y, w, h) = view.rect;
-        let px = x as f64 + (gx as f64 + 0.5) * w as f64 / SCREEN_WIDTH as f64;
-        let py = y as f64 + (gy as f64 + 0.5) * h as f64 / SCREEN_HEIGHT as f64;
+        let (sw, sh) = self.session.screen_size();
+        let px = x as f64 + (gx as f64 + 0.5) * w as f64 / sw as f64;
+        let py = y as f64 + (gy as f64 + 0.5) * h as f64 / sh as f64;
         let _ = view
             .window
             .set_cursor_position(PhysicalPosition::new(px, py));
@@ -325,8 +327,8 @@ impl ApplicationHandler for App {
         }
         let attrs = Window::default_attributes()
             .with_title("Silky Player")
-            .with_inner_size(LogicalSize::new(SCREEN_WIDTH, SCREEN_HEIGHT))
-            .with_min_inner_size(LogicalSize::new(SCREEN_WIDTH / 4, SCREEN_HEIGHT / 4));
+            .with_inner_size(LogicalSize::new(1280, 720))
+            .with_min_inner_size(LogicalSize::new(320, 180));
         let window = match event_loop.create_window(attrs) {
             Ok(w) => Arc::new(w),
             Err(e) => return self.fail(event_loop, e),
@@ -463,7 +465,8 @@ impl ApplicationHandler for App {
 
 /// The largest 16:9 rectangle centred in a window.
 fn letterbox(w: u32, h: u32) -> (u32, u32, u32, u32) {
-    let (sw, sh) = (SCREEN_WIDTH as u64, SCREEN_HEIGHT as u64);
+    // Every game's screen is 16:9.
+    let (sw, sh) = (16u64, 9u64);
     let (fw, fh) = if w as u64 * sh > h as u64 * sw {
         ((h as u64 * sw / sh) as u32, h)
     } else {

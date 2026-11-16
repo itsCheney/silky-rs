@@ -57,6 +57,15 @@ impl From<Error> for silky_vm::Error {
     }
 }
 
-/// Screen size of the 2026 build.
+/// Screen size of the 2026 build, and of every game but those
+/// [`screen_size`] lists.
 pub const SCREEN_WIDTH: u32 = 1280;
 pub const SCREEN_HEIGHT: u32 = 720;
+
+/// The size a game lays its screen out in.
+pub fn screen_size(title: silky_format::game::Title) -> (u32, u32) {
+    match title {
+        silky_format::game::Title::Doukyuusei => (1920, 1080),
+        _ => (SCREEN_WIDTH, SCREEN_HEIGHT),
+    }
+}

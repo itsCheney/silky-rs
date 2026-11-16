@@ -191,7 +191,10 @@ fn write_png(path: &Path, img: &akb::Image) -> Result<()> {
 
 fn map_for(game: &Game, script: &str) -> Option<MapFile> {
     let stem = script.rsplit_once('.').map_or(script, |(s, _)| s);
-    let data = game.set(Kind::Data).read(&format!("{stem}.map")).ok()?;
+    // One table per language (`X_EN.MAP`) in the 2022 build.
+    let data = ["", "_en"]
+        .iter()
+        .find_map(|l| game.set(Kind::Data).read(&format!("{stem}{l}.map")).ok())?;
     MapFile::parse(&data).ok()
 }
 
@@ -281,6 +284,19 @@ fn check(game: &Game, profile: Profile, images: bool) -> Result<()> {
         if script_messages > 0 && map_entries.is_none() {
             // Scene replay scripts reuse the story scripts' texts.
             println!("note: {name}: {script_messages} messages, no MAP table of its own");
+        }
+        if let Some(n) = map_entries.filter(|&n| n > 0) {
+            let top = instrs
+                .iter()
+                .filter_map(|i| match i.operand {
+                    Operand::Message(m) => Some(m as usize),
+                    _ => None,
+                })
+                .max();
+            if top.is_some_and(|t| t >= n) {
+                println!("{name}: message {} beyond its {n} MAP lines", top.unwrap());
+                problems += 1;
+            }
         }
         map_texts += map_entries.unwrap_or(0);
         for (i, ins) in instrs.iter().enumerate() {

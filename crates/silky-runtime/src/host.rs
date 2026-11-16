@@ -216,6 +216,8 @@ pub struct Runtime {
     pub scene: Scene,
     pub config: Config,
     pub(crate) text_table: Option<(String, MapFile)>,
+    /// The hero's name entered on the name screen (同級生 Remake).
+    pub hero_name: Option<String>,
     /// Set when a callback yields.
     pub pause: Option<Pause>,
     /// Engine calls not carried out yet, by name, with counts.
@@ -314,6 +316,7 @@ impl Runtime {
             scene: Scene::default(),
             config,
             text_table: None,
+            hero_name: None,
             pause: None,
             unhandled: BTreeMap::new(),
             missing_sounds: Default::default(),
@@ -533,6 +536,10 @@ impl Runtime {
     /// Re-reads the current message in the configured language.
     pub fn set_language(&mut self, language: Language) {
         self.config.language = language;
+        if self.assets.game().title == silky_format::game::Title::Doukyuusei {
+            self.doukyuusei_relanguage();
+            return;
+        }
         let section = language.map_section();
         if let (Some(index), Some((_, map))) = (self.last_text, &self.text_table) {
             if self.scene.text.is_some() {
@@ -939,7 +946,12 @@ impl Host for Runtime {
                 }
                 if class == MESWND && sub == 3 {
                     if let Some(text) = self.pending_text.take() {
-                        let index = args.first().map(Value::int).unwrap_or(0).max(0) as usize;
+                        // 同級生 Remake gives no index: its text call keeps
+                        // the line id.
+                        let index = match args.first() {
+                            Some(v) => v.int().max(0) as usize,
+                            None => self.last_text.unwrap_or(0),
+                        };
                         self.scene.text = Some(text);
                         if self.message_script.is_empty() {
                             self.message_script =

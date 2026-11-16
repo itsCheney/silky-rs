@@ -13,7 +13,7 @@ use crate::assets::{Assets, Language};
 use crate::games::kimaten2;
 use crate::scene::Scene;
 use crate::text::TextRenderer;
-use crate::{Result, SCREEN_HEIGHT, SCREEN_WIDTH};
+use crate::{screen_size, Result};
 use silky_format::game::Title;
 
 pub use crate::canvas::Canvas;
@@ -90,7 +90,8 @@ impl TextLayout {
             // sit 8 pixels higher, lines 28 apart), a solid black shadow
             // two pixels to the lower right. A line holds at most 61
             // letters (854 pixels; the English text under Wine).
-            Title::Fuyukuru | Title::Unknown => Self {
+            // 同級生 Remake: not measured yet (its screen is 1920 x 1080).
+            Title::Fuyukuru | Title::Unknown | Title::Doukyuusei => Self {
                 left: 282.0,
                 baseline: if language == Language::Japanese {
                     585.0
@@ -212,13 +213,18 @@ impl Renderer {
     /// An empty (black) frame: drawn, or recorded for a compositor.
     pub fn canvas(&self) -> Canvas {
         if self.record {
-            Canvas::recording(SCREEN_WIDTH, SCREEN_HEIGHT, self.scale)
+            Canvas::recording(self.size().0, self.size().1, self.scale)
         } else {
-            Canvas::with_scale(SCREEN_WIDTH, SCREEN_HEIGHT, self.scale)
+            Canvas::with_scale(self.size().0, self.size().1, self.scale)
         }
     }
 
     /// Draws the message window of this game.
+    /// The game's screen size.
+    pub fn size(&self) -> (u32, u32) {
+        screen_size(self.title)
+    }
+
     pub fn set_title(&mut self, title: Title) {
         self.title = title;
         self.set_language(self.language);
@@ -567,8 +573,9 @@ impl Renderer {
         let mut canvas = self.canvas();
         if let Some(bg) = &scene.background {
             let img = assets.image(bg)?;
-            let x = (SCREEN_WIDTH as i32 - img.width as i32) / 2 + scene.background_offset.0;
-            let y = (SCREEN_HEIGHT as i32 - img.height as i32) / 2 + scene.background_offset.1;
+            let (w, h) = self.size();
+            let x = (w as i32 - img.width as i32) / 2 + scene.background_offset.0;
+            let y = (h as i32 - img.height as i32) / 2 + scene.background_offset.1;
             match scene.background_zoom {
                 0 | 100 => canvas.draw(&img, x, y, false),
                 z if z > 100 => canvas.draw_zoomed(&img, x as f32, y as f32, z as f32 / 100.0),
@@ -664,7 +671,7 @@ impl Renderer {
             } else {
                 (slot_layout(*slot).0, 300.0 - 700.0 * s)
             };
-            let x = SCREEN_WIDTH as f32 / 2.0 + dx - img.width as f32 * s / 2.0
+            let x = self.size().0 as f32 / 2.0 + dx - img.width as f32 * s / 2.0
                 + (c.offset.0 + jolt.0) as f32;
             let y = top + (c.offset.1 + jolt.1) as f32;
             canvas.draw_scaled(&img, x, y, s);
@@ -899,7 +906,7 @@ impl Renderer {
         }
         if let Some(z) = scene.zoom.filter(|&z| z > 100) {
             let z = z as f32 / 100.0;
-            let (w, h) = (SCREEN_WIDTH as f32, SCREEN_HEIGHT as f32);
+            let (w, h) = (self.size().0 as f32, self.size().1 as f32);
             canvas.zoom_whole(z, -w * (z - 1.0) / 2.0, -h * (z - 1.0) / 2.0);
         }
 

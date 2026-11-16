@@ -5,8 +5,9 @@
 //! `<ScriptArchive><File>Script.arc;Script1.arc</File></ScriptArchive>`.
 //! Later archives are newer and win when both hold the same name. Without
 //! either file, the usual names (`script.arc`, then `script1.arc`) are used.
-//! `update.arc`, which the engine also opens, is read as the newest data
-//! archive (it holds E-mote motions added by patches).
+//! `update.arc`, which the engine also opens, is read as the newest
+//! archive of every kind: it holds E-mote motions added by patches, and in
+//! 同級生 Remake newer scripts, text tables and pictures.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -99,6 +100,8 @@ pub enum Title {
     Kimaten2,
     /// 景の海のアペイリア.
     Apeiria,
+    /// 同級生 Remake.
+    Doukyuusei,
     /// A game not known yet: it gets the shared engine and the common
     /// `Game` commands only.
     Unknown,
@@ -111,6 +114,7 @@ impl Title {
             ("kimaten2.exe", Title::Kimaten2),
             ("apeiria.exe", Title::Apeiria),
             ("fuyukuru.exe", Title::Fuyukuru),
+            ("doukyuusei.exe", Title::Doukyuusei),
         ] {
             if let Some(path) = find_file(root, exe) {
                 return (title, Some(path));
@@ -146,8 +150,7 @@ impl Game {
                 ],
             };
             let mut archives = Vec::new();
-            let update = (kind == Kind::Data).then(|| "update.arc".to_string());
-            for name in names.into_iter().chain(update) {
+            for name in names.into_iter().chain(["update.arc".to_string()]) {
                 if let Some(path) = find_file(&root, &name) {
                     archives.push(Archive::open(path)?);
                 }

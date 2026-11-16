@@ -15,6 +15,7 @@
 //! carried out.
 
 pub mod apeiria;
+pub mod doukyuusei;
 pub mod fuyukuru;
 pub mod kimaten2;
 
@@ -100,6 +101,15 @@ impl Runtime {
             args.pop();
         }
         let call = Call { command, sub, args };
+        if title == Title::Doukyuusei {
+            if let Some(flow) = self.doukyuusei_game(vm, &call) {
+                return flow;
+            }
+            // Its commands are numbered its own way: none of the common
+            // ones apply until read from its executable.
+            self.skip(format!("Game.{command}.{sub}"), vm, GAME, command);
+            return Ok(Flow::Continue);
+        }
         if title == Title::Fuyukuru {
             if let Some(flow) = self.fuyukuru_game(vm, &call) {
                 return flow;

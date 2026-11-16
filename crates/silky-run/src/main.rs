@@ -194,7 +194,6 @@ fn snap(
         Some(TextRenderer::new(&files)?)
     };
     let mut renderer = Renderer::new(text, language);
-    renderer.scale = (height as f32 / silky_runtime::SCREEN_HEIGHT as f32).max(1.0);
     match picks.renderer.as_str() {
         "cpu" => {}
         "record" => renderer.record = true,
@@ -212,6 +211,7 @@ fn snap(
         ..Config::default()
     };
     renderer.set_title(game.title);
+    renderer.scale = (height as f32 / renderer.size().1 as f32).max(1.0);
     let st = silky_runtime::system::Settings::for_title(game.title);
     renderer.window = (st.window_color, st.window_opacity);
     let assets = Assets::new(game);

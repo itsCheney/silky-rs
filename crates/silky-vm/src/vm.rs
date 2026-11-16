@@ -714,14 +714,18 @@ impl Vm {
                 self.option_labels.push(label.clone());
             }
         }
+        let top = self.stack.pop();
         self.stack.clear();
         self.statement_base = 0;
         self.options.clear();
         match self.contexts.pop() {
             Some(ctx) => {
                 if ctx.kind == ContextKind::Function && !function {
-                    // A plain `ret` inside a function body still leaves it.
+                    // A plain `ret` inside a function body still leaves it,
+                    // with the value on top as the function's result
+                    // (`push 4; ret` in 同級生 Remake's library).
                     self.locals.pop();
+                    self.stack.extend(top);
                 }
                 self.current = Some(ctx.script);
                 self.pc = ctx.pc;
