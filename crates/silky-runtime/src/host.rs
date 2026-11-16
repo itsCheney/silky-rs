@@ -131,6 +131,9 @@ pub enum Pause {
     /// きまぐれテンプテーション2's map is up ([`Runtime::map`]); answer
     /// with [`Runtime::answer_action`].
     Map,
+    /// A screen of 同級生 Remake is up ([`Runtime::panel`]); answer
+    /// with [`Runtime::answer_action`].
+    Panel,
     /// きまぐれテンプテーション2's H mode (`Game.49`, see
     /// [`crate::games::kimaten2::hmode`]); the scripts go on when it ends.
     HMode,
@@ -268,6 +271,8 @@ pub struct Runtime {
     pub actions: Vec<ActionButton>,
     /// The map that is up.
     pub map: Option<crate::games::kimaten2::map::Map>,
+    /// The screen of 同級生 Remake that is up.
+    pub panel: Option<crate::games::doukyuusei::Panel>,
     /// Sprite animations (class 19, subs 16 to 28).
     pub(crate) sprites: crate::sprite::Sprites,
     /// Second step of an effect, after the transition that started it.
@@ -339,6 +344,7 @@ impl Runtime {
             message_script: String::new(),
             actions: Vec::new(),
             map: None,
+            panel: None,
             sprites: Default::default(),
             then: None,
             vo_steps: Vec::new(),
@@ -595,6 +601,7 @@ impl Runtime {
     pub fn answer_action(&mut self, vm: &mut Vm, result: i32) {
         self.actions.clear();
         self.map = None;
+        self.panel = None;
         vm.push(result);
     }
 
@@ -1110,6 +1117,9 @@ impl Host for Runtime {
                 // picked, from 1.
                 if class == native::SELECT && sub == 2 && args.is_empty() {
                     self.choices = std::mem::take(&mut vm.option_labels);
+                    if title == Title::Doukyuusei {
+                        self.choices = self.doukyuusei_options(vm);
+                    }
                     self.option_count = 0;
                     self.pause = Some(Pause::Choice);
                     self.handled += 1;

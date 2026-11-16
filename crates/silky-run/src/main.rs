@@ -225,6 +225,7 @@ fn snap(
     let mut selections = 0usize;
     let mut action_menus = 0usize;
     let mut maps = 0usize;
+    let mut rooms = 0usize;
     let mut last_menu: (Vec<u32>, usize) = (Vec::new(), 0);
     // Frame shown when the game first waits after a movie (the movie's
     // still picture, the end card after the ending).
@@ -403,6 +404,42 @@ fn snap(
                     }
                     println!("map {} -> {pick}", if m.second { 2 } else { 1 });
                     maps += 1;
+                    rt.answer_action(&mut vm, pick);
+                }
+                Some(Pause::Panel) => {
+                    use silky_runtime::games::doukyuusei::{room::THING, Click, Panel};
+                    let panel = rt.panel.clone().unwrap();
+                    let (name, pick) = match &panel {
+                        // Each thing in turn but the bed (the last), then
+                        // out.
+                        Panel::Room(r) => {
+                            let mut things = r.things();
+                            things.pop();
+                            let pick = match things.get(rooms % (things.len() + 1)) {
+                                Some(&t) => r.click(THING + t),
+                                None => r.click(0),
+                            };
+                            ("room", pick)
+                        }
+                        // One hour.
+                        Panel::Hours(_) => ("hours", panel.click(0)),
+                    };
+                    let Click::Result(pick) = pick else {
+                        unreachable!()
+                    };
+                    if rooms < 5 {
+                        let mut frame = renderer.render_scene(&rt.scene, &mut rt.assets, false)?;
+                        let ui = Ui {
+                            panel: Some(panel.clone()),
+                            ..Ui::default()
+                        };
+                        layout.draw(&mut frame, &mut rt.assets, &ui, false, None)?;
+                        let path = out.join(format!("{name}{rooms}.png"));
+                        write_png(&path, &frame)?;
+                        println!("{}", path.display());
+                    }
+                    println!("{name} -> {pick}");
+                    rooms += 1;
                     rt.answer_action(&mut vm, pick);
                 }
                 // Headless: leave extras screens, movies end at once.

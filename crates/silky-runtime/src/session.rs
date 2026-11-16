@@ -608,6 +608,16 @@ impl Session {
                         self.base = None;
                         break;
                     }
+                    Some(Pause::Panel) => {
+                        self.ui.panel = self.rt.panel.clone();
+                        self.ui.waiting = false;
+                        self.ui.skip = false;
+                        self.ui.auto = false;
+                        self.skip_to_choice = false;
+                        self.state = State::Choice;
+                        self.base = None;
+                        break;
+                    }
                     Some(Pause::HMode) => {
                         self.open_hmode();
                         break;
@@ -2372,6 +2382,25 @@ impl Session {
                     None => {}
                 }
             }
+            Button::Panel(id) => {
+                use crate::games::doukyuusei::Click;
+                let Some(p) = &mut self.ui.panel else {
+                    return Ok(());
+                };
+                match p.click(id) {
+                    Click::Result(result) => {
+                        self.ui.panel = None;
+                        self.base = None;
+                        self.rt.answer_action(&mut self.vm, result);
+                        self.run()?;
+                    }
+                    Click::Look(on) => {
+                        p.set_look(on);
+                        self.ui.hover = None;
+                    }
+                    Click::None => {}
+                }
+            }
             Button::Choice(i) => {
                 self.ui.choices.clear();
                 let (skip, auto) = self.modes_at_choice;
@@ -2789,7 +2818,8 @@ impl Session {
                 && self.hmode.is_none()
                 && self.state != State::Title
                 && self.ui.actions.is_empty()
-                && self.ui.map.is_none();
+                && self.ui.map.is_none()
+                && self.ui.panel.is_none();
             let moved = std::mem::take(&mut self.emote_moved);
             if self.base.is_none() || (moved && self.under.is_none()) {
                 let under = self

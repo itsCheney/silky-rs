@@ -28,6 +28,9 @@ pub enum Button {
     /// Button of きまぐれテンプテーション2's map, by its area id: places
     /// 0.., panel buttons 256.., back 512.
     Map(i32),
+    /// Element of a screen of 同級生 Remake, by the id its
+    /// [`crate::games::doukyuusei::Panel`] gives.
+    Panel(i32),
     /// Element of an engine screen (save/load, backlog), by area id.
     Screen(i32),
     /// Yes, no or "do not ask again" of a dialog, by `dialog.area` id.
@@ -164,6 +167,8 @@ pub struct Ui {
     pub actions: Vec<crate::ActionButton>,
     /// きまぐれテンプテーション2's map, while it is up.
     pub map: Option<crate::games::kimaten2::map::Map>,
+    /// A screen of 同級生 Remake (room, hours dial), while it is up.
+    pub panel: Option<crate::games::doukyuusei::Panel>,
     /// きまぐれテンプテーション2: some notebook entry, some collection
     /// item is open (enables their buttons).
     pub notebook: bool,
@@ -888,6 +893,9 @@ impl Ring {
 struct DoukBar {
     /// (bar id, click area on screen, sheet cell, cell size, row step).
     buttons: Vec<(i32, Area, (u32, u32), (u32, u32), u32)>,
+    /// The bitmap fonts, for the room's hint bar, loaded when first
+    /// needed.
+    font: std::cell::OnceCell<Option<crate::games::doukyuusei::window::Font>>,
 }
 
 impl DoukBar {
@@ -920,7 +928,10 @@ impl DoukBar {
             }
             buttons.push((id, a, cell, size, step));
         }
-        Ok(Self { buttons })
+        Ok(Self {
+            buttons,
+            font: Default::default(),
+        })
     }
 
     fn hit(&self, ui: &Ui, x: i32, y: i32) -> Option<Button> {
@@ -1770,6 +1781,9 @@ impl Layout {
         if let (Some(m), Some(k)) = (&ui.map, &self.kimaten2) {
             return k.hit_map(ui, m, x, y);
         }
+        if let Some(p) = &ui.panel {
+            return p.hit(x, y).map(Button::Panel);
+        }
         if let (false, Some(k)) = (ui.actions.is_empty(), &self.kimaten2) {
             return k.hit_actions(ui, x, y);
         }
@@ -1879,6 +1893,25 @@ impl Layout {
         }
         if let (Some(m), Some(k)) = (&ui.map, &self.kimaten2) {
             return k.draw_map(canvas, assets, ui, m);
+        }
+        if let Some(p) = &ui.panel {
+            let hover = match ui.hover {
+                Some(Button::Panel(id)) => Some(id),
+                _ => None,
+            };
+            let font = self.douk.as_ref().and_then(|d| {
+                d.font
+                    .get_or_init(|| crate::games::doukyuusei::window::Font::load(assets).ok())
+                    .as_ref()
+            });
+            return p.draw(
+                canvas,
+                assets,
+                self.language,
+                |id| (ui.state(Button::Panel(id), true, false) as u32).min(2),
+                hover,
+                font,
+            );
         }
         if let (false, Some(k)) = (ui.actions.is_empty(), &self.kimaten2) {
             return k.draw_actions(canvas, assets, ui);

@@ -19,11 +19,22 @@ The game is an adventure in a town: the hero spends the days of a summer break g
   - The first lines match the original under Wine within a few levels per pixel.
 - Title menu (`Game.28`): `title_bg_<lang>.akb` (logo included) and six entries from `title.area`, 494 x 78 cells of `title_p_<lang>.akb` three to a row with four state rows; continue and quick load are grey without saves. The extras page (`title2.area`): album, memory reel, music, a hidden fourth entry and back. New game returns 0 and the extras 257 to 260; quit closes the game. Matches the original under Wine.
 - Backgrounds take the common `Game.12` calls.
-- Headless, `silky-run snap` reaches the hero's room: the opening and the first phone call play with their text.
+- Movies: `Movie.0` (file), `Movie.3` plays and returns whether it played, `Movie.2` closes, as in the 2017 and 2021 builds; the opening plays after the first phone call.
+- The room screen (`Game.16(set)`, the program's area selection), read from the executable and matched under Wine within a level per pixel:
+  - Buttons from `search_p.akb`: three large ones (168 x 171 cells, a row per state) at x = 1752, 1584, 1416, y = 909, and two small ones (150 x 153) at (15, 927) and (165, 927). Set 0 has go out, look and sleep; the other sets have a back arrow (138 x 140 from (672, 0), at (1782, 940)) in place of go out and talk in place of sleep. The small buttons are quick save and quick load, quick load gray without a quick save.
+  - `areasel_0N.carea` (a byte per screen pixel, 255 for none) says which button a pixel belongs to.
+  - Look hides the buttons and shows the back arrow; the place's hot spots come from `<background up to "_">.area` (`42.area` for the hero's room), many rectangles per id. The high byte of an id is the verb (0 look, 4 open and so on), the low byte the object.
+  - The call returns (verb + 1) × 256 + object for a hot spot and 255 × 256 + id for a button.
+  - Hint bar: `search_p.akb` (0, 684, 584, 68) at (658, 1005), and the line of `SYSTEM_<lang>.MAP` for the element under the pointer: 232 to 238 for the buttons, 239 + verb for a hot spot, 252 for back; empty on nothing. The text is the bitmap font at half size from (725, 1029).
+- The hours dial (`Game.29(kind)`, the program's time selection): `time_p_<lang>.akb` with the dial (750 x 756 from (0, 592)) at (586, 42), the question of the kind (403 x 76 from (1152, 76 × kind)) at (760, 456), eight hour buttons (144 x 148 cells) and back (151 x 153 from (750, 592)) placed by `TimeSelect.area`. Kind 0 asks how long to sleep, 1 how far to wind back, 2 how far to skip forward. Returns the hours, 0 for back. Matches the original under Wine.
+- Selections (`Select.2`): each option body leaves its line id in `h[40 + i]`; the labels are those lines of the script's text table.
+- Headless, `silky-run snap` plays the opening, looks around the hero's room and goes to sleep.
 
 ## Not done yet
 
-- The room screen (`Game.16`): the program's area selection (`CAreaSelect`). The room's hot spots come from an `.AREA` file per room (`42.AREA` for the hero's room: many rectangles per object), the buttons (sleep, look, talk, go out) from `search_p.akb`, the date, time and money plate from `cal_p_<lang>.akb`. The call returns verb × 256 + object (verb 1 looks, 255 is a button). Until it is done, the story stops in the hero's room.
+- The room screen: the date, time and money plate (`cal_p_<lang>.akb`) and the system menu button at the top right; the quick save and quick load buttons do nothing yet.
+- The selection bars of this game (they are drawn with the generic look for now).
+- After sleeping, the scripts divide by a calendar value that is still 0 headless; the day change is not done.
 - The town map, the time of day and the people present (`Game.17`, `Game.29`, `Game.36` and others), the name entry (`Game.18`), the system menu and the other screens.
 - Chinese text: the layout of full-width characters is assumed (two cells each, a character a word); it is not checked under Wine yet.
 - The other `Game` commands; the engine classes are taken from [engine-2026](../builds/engine-2026.md) unchecked.
@@ -39,6 +50,12 @@ Addresses in the program as it runs (the Steam wrapper unpacks it at its own ima
 | `Game.22` hero speaks | 0x4e31e0 |
 | `Game.28` title menu | 0x4e5820 |
 | `Game.16` room screen (`CAreaSelect`, run) | 0x4a3500 |
+| Room buttons placed | 0x4a2720 |
+| Room button drawn by state | 0x4a39b0 |
+| Room hint for a hot spot (verb) | 0x46e490 |
+| Room hint for a button | 0x46cc90 |
+| `Game.29` hours dial (`CTimeSelect`): call, set up, drawn | 0x4e250c, 0x4dd5d0, 0x4ddc70 |
+| Hours dial: button drawn, clicked | 0x4ddae0, 0x4dd750 |
 | Bitmap fonts loaded | 0x4a4340 |
 | One glyph drawn with its outline | 0x4a44e0 |
 | Message text laid out (words, `\n`, `\i`) | 0x4a6a00 |

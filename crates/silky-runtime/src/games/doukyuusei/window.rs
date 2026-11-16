@@ -151,6 +151,37 @@ struct Sheet {
     w: u32,
 }
 
+/// Half the size, each pixel the average of four (straight alpha).
+fn halve(img: &Image) -> Image {
+    let (w, h) = (img.width / 2, img.height / 2);
+    let mut rgba = vec![0u8; (w * h * 4) as usize];
+    for y in 0..h {
+        for x in 0..w {
+            let mut acc = [0u32; 4];
+            for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                let i = (((2 * y + dy) * img.width + 2 * x + dx) * 4) as usize;
+                let a = img.rgba[i + 3] as u32;
+                for k in 0..3 {
+                    acc[k] += img.rgba[i + k] as u32 * a;
+                }
+                acc[3] += a;
+            }
+            let o = ((y * w + x) * 4) as usize;
+            if acc[3] > 0 {
+                for k in 0..3 {
+                    rgba[o + k] = (acc[k] / acc[3]) as u8;
+                }
+                rgba[o + 3] = ((acc[3] + 2) / 4) as u8;
+            }
+        }
+    }
+    Image {
+        width: w,
+        height: h,
+        rgba,
+    }
+}
+
 impl Sheet {
     fn new(img: Arc<Image>, w: u32) -> Self {
         let mut rgba = img.rgba.clone();
@@ -180,11 +211,26 @@ pub struct Font {
     han: Sheet,
     han_i: Sheet,
     zen: Sheet,
+    /// Half-size sheets, for the room's hint bar (size 20 in the
+    /// executable).
+    han_small: Sheet,
+    zen_small: Sheet,
     han_index: HashMap<char, u32>,
     zen_index: HashMap<char, u32>,
 }
 
 const GLYPH_H: u32 = 40;
+/// Where the black copies of a glyph go.
+const OUTLINE: [(i32, i32); 8] = [
+    (0, -1),
+    (0, 1),
+    (-1, 0),
+    (1, 0),
+    (-1, -1),
+    (-1, 1),
+    (1, -1),
+    (1, 1),
+];
 const PER_ROW: u32 = 20;
 
 fn index(data: &[u8]) -> HashMap<char, u32> {
@@ -205,10 +251,14 @@ fn index(data: &[u8]) -> HashMap<char, u32> {
 
 impl Font {
     pub fn load(assets: &mut Assets) -> Result<Self> {
+        let han = assets.image("font_han.akb")?;
+        let zen = assets.image("font_zen.akb")?;
         Ok(Self {
-            han: Sheet::new(assets.image("font_han.akb")?, 20),
+            han_small: Sheet::new(Arc::new(halve(&han)), 10),
+            zen_small: Sheet::new(Arc::new(halve(&zen)), 20),
+            han: Sheet::new(han, 20),
             han_i: Sheet::new(assets.image("font_han_i.akb")?, 20),
-            zen: Sheet::new(assets.image("font_zen.akb")?, 40),
+            zen: Sheet::new(zen, 40),
             han_index: index(&assets.data("font_han.map")?),
             zen_index: index(&assets.data("font_zen.map")?),
         })
@@ -242,16 +292,7 @@ impl Font {
             sheet.w,
             GLYPH_H,
         );
-        for (dx, dy) in [
-            (0, -1),
-            (0, 1),
-            (-1, 0),
-            (1, 0),
-            (-1, -1),
-            (-1, 1),
-            (1, -1),
-            (1, 1),
-        ] {
+        for (dx, dy) in OUTLINE {
             canvas.draw_part(&sheet.black, part, x + dx, y + dy, false, opacity);
         }
         canvas.draw_part(&sheet.white, part, x, y, false, opacity);
@@ -272,6 +313,28 @@ impl Font {
                 break;
             }
             self.draw_char(canvas, p.ch, x0 + p.x, y0 + p.y, p.italic, 255);
+        }
+    }
+
+    /// Draws a line of text at half size from (x, y), outlined like the
+    /// message text.
+    pub fn draw_small(&self, canvas: &mut Canvas, text: &str, x: i32, y: i32) {
+        let mut cx = x;
+        for c in text.chars() {
+            let (sheet, at) = if half(c) {
+                (&self.han_small, self.han_index.get(&c))
+            } else {
+                (&self.zen_small, self.zen_index.get(&c))
+            };
+            if let Some(&i) = at {
+                let h = GLYPH_H / 2;
+                let part = ((i % PER_ROW) * sheet.w, (i / PER_ROW) * h, sheet.w, h);
+                for (dx, dy) in OUTLINE {
+                    canvas.draw_part(&sheet.black, part, cx + dx, y + dy, false, 255);
+                }
+                canvas.draw_part(&sheet.white, part, cx, y, false, 255);
+            }
+            cx += cells(c) * CELL / 2;
         }
     }
 

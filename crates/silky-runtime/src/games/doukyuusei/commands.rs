@@ -4,7 +4,7 @@
 use silky_format::map::MapFile;
 use silky_vm::{Flow, Vm};
 
-use super::shown_text;
+use super::{shown_text, Panel};
 use crate::games::Call;
 use crate::host::{host_error, Runtime};
 
@@ -18,6 +18,14 @@ pub const TITLE: i32 = 28;
 /// `Game.22(name)`: the hero speaks; the plate shows the name entered at
 /// the start (the executable reads its own copy, not the argument).
 pub const HERO_SPEAKS: i32 = 22;
+/// `Game.16(set)`: the room screen over the current background (see
+/// [`super::room`]); `set` picks the button set. Returns verb × 256 +
+/// object.
+pub const ROOM: i32 = 16;
+/// `Game.29(kind)`: the hours dial (see [`super::hours`]); kind 0 asks
+/// how long to sleep, 1 how far to wind back, 2 how far to skip forward.
+/// Returns the hours, 0 for back.
+pub const HOURS: i32 = 29;
 
 impl Runtime {
     pub(crate) fn doukyuusei_game(
@@ -58,6 +66,28 @@ impl Runtime {
                 self.scene.background = Some(format!("title_bg_{lang}.akb"));
                 self.scene.text = None;
                 self.wait_for(crate::host::Pause::Title)
+            }
+            (ROOM, _) => {
+                let bg = self.scene.background.clone();
+                match super::room::Room::load(
+                    &self.assets,
+                    bg.as_deref(),
+                    c.int(0),
+                    self.config.language,
+                ) {
+                    Ok(r) => self.panel = Some(Panel::Room(r)),
+                    Err(e) => return Some(Err(host_error(e.to_string()))),
+                }
+                self.scene.text = None;
+                self.wait_for(crate::host::Pause::Panel)
+            }
+            (HOURS, _) => {
+                match super::hours::Hours::load(&self.assets, c.int(0)) {
+                    Ok(h) => self.panel = Some(Panel::Hours(h)),
+                    Err(e) => return Some(Err(host_error(e.to_string()))),
+                }
+                self.scene.text = None;
+                self.wait_for(crate::host::Pause::Panel)
             }
             (HERO_SPEAKS, _) => {
                 self.scene.speaker_name = Some(self.hero_name());

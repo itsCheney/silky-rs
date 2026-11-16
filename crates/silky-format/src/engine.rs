@@ -81,10 +81,13 @@ pub const ENGINE_2026: Profile = Profile {
 };
 
 /// The engine of 同級生 Remake's program (2022). Its screen is 1920 x
-/// 1080. Not checked call by call yet.
+/// 1080. Not checked call by call yet; its scripts use the movie calls of
+/// 2017 (they keep what `Movie.3` returns).
 pub const ENGINE_2022: Profile = Profile {
     name: "engine-2022",
     sprites_and_flags: false,
+    movie_2_closes: true,
+    results: &[(23, 2, false), (23, 3, true)],
     ..ENGINE_2026
 };
 

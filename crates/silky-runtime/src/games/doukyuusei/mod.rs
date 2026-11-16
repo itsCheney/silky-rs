@@ -6,12 +6,67 @@
 //! See `docs/games/doukyuusei.md`.
 
 pub(crate) mod commands;
+pub mod hours;
+pub mod room;
 pub mod window;
 
 use silky_format::map::MapFile;
+use silky_vm::Vm;
 
-use crate::assets::Language;
+use crate::assets::{Assets, Language};
 use crate::host::Runtime;
+use crate::render::Canvas;
+
+pub use room::Click;
+
+/// A screen of the game that answers the script with a number: the room
+/// (`Game.16`) or the hours dial (`Game.29`).
+#[derive(Debug, Clone)]
+pub enum Panel {
+    Room(room::Room),
+    Hours(hours::Hours),
+}
+
+impl Panel {
+    /// The element under (x, y), as an id for [`crate::ui::Button::Panel`].
+    pub fn hit(&self, x: i32, y: i32) -> Option<i32> {
+        match self {
+            Panel::Room(r) => r.hit(x, y),
+            Panel::Hours(h) => h.hit(x, y),
+        }
+    }
+
+    pub fn click(&self, id: i32) -> Click {
+        match self {
+            Panel::Room(r) => r.click(id),
+            Panel::Hours(h) => Click::Result(h.click(id)),
+        }
+    }
+
+    /// Room look mode on or off.
+    pub fn set_look(&mut self, on: bool) {
+        if let Panel::Room(r) = self {
+            r.look = on;
+        }
+    }
+
+    /// `state` gives the row (0 normal, 1 hover, 2 pressed) of an id;
+    /// `hover` is the id under the pointer.
+    pub fn draw(
+        &self,
+        canvas: &mut Canvas,
+        assets: &mut Assets,
+        language: Language,
+        state: impl Fn(i32) -> u32,
+        hover: Option<i32>,
+        font: Option<&window::Font>,
+    ) -> crate::Result<()> {
+        match self {
+            Panel::Room(r) => r.draw(canvas, assets, state, hover, font),
+            Panel::Hours(h) => h.draw(canvas, assets, language, state),
+        }
+    }
+}
 
 /// The hero's name when none was entered, by language, from the program.
 pub fn default_hero_name(language: Language) -> &'static str {
@@ -66,6 +121,24 @@ impl Runtime {
             self.text_table = Some((name, map));
         }
         Ok(&self.text_table.as_ref().unwrap().1)
+    }
+
+    /// Labels of the options before `Select.2`: each option body leaves
+    /// its line id of the script's text table in `h[40 + i]`.
+    pub(crate) fn doukyuusei_options(&mut self, vm: &Vm) -> Vec<String> {
+        let script = self.message_script.clone();
+        let hero = self.hero_name();
+        let count = self.option_count;
+        (0..count)
+            .map(|i| {
+                let id = vm.var_h(40 + i).int();
+                self.doukyuusei_table(&script)
+                    .ok()
+                    .and_then(|t| t.get(0, id.max(0) as u32))
+                    .map(|l| plain_text(&shown_text(l, &hero)))
+                    .unwrap_or_else(|| format!("{}", i + 1))
+            })
+            .collect()
     }
 
     /// After a language change: the message shown, again in the new
