@@ -9,6 +9,7 @@ Each game carries its own copy of the engine, linked into its program file, and 
 | [engine-2017](engine-2017.md) | `apeiria.exe` (景の海のアペイリア) | 1.0.3.0 | 2017-11-09 07:06:49 | Visual Studio 2013 (linker 12.0) | `dba4857ac6adb02b453a73694737124725bd4c91a9a7ecd60816fa7266e6317e` |
 | [engine-2021](engine-2021.md) | `fuyukuru.exe` (ふゆから、くるる。 package) | 1.0.0.0 | 2021-09-06 20:52:27 | Visual Studio 2019 (linker 14.29) | `9797a7cb71955c0ddb4b4865e0e592166f82386a5e642bd25072922cf9d6d9fa` |
 | [engine-2021](engine-2021.md) | `fuyukuru.exe` (package, update 1.01) | 1.0.1.0 | 2021-09-29 05:47:46 | Visual Studio 2019 (linker 14.29) | `b5b163ceb979d9825c6586401da005d51a57f4005a93cf227ca304bf9e831988` |
+| [engine-2022](engine-2022.md) | `doukyuusei.exe` (同級生 Remake, Steam) | 1.0.4.0 | 2022-03-15 07:54:45 | Visual Studio 2017 (linker 14.16) | `9c9841fbca3a422a36f7ddef696f6164b4206ff622ecdb5cc1b4f45c8b231451` |
 | [engine-2024](engine-2024.md) | `kimaten2.exe` (きまぐれテンプテーション2) | 1.0.0.0 | 2024-10-15 01:13:11 | Visual Studio 2019 (linker 14.29) | `5cbd99107b94befe4935bbb7b8fdd7015d715a795945b434788657dee0a50d29` |
 | [engine-2026](engine-2026.md) | `fuyukuru.exe` (ふゆから、くるる。 download, Japanese, English and Chinese) | 1.0.1.0 | 2026-03-18 14:12:42 | Visual Studio 2022 (linker 14.44) | `eeaf1f25cfcc8105c0d0720a46266815c2bb3ee28696cc1374f863f8cdfdb707` |
 

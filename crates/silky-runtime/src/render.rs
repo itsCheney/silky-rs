@@ -90,7 +90,8 @@ impl TextLayout {
             // sit 8 pixels higher, lines 28 apart), a solid black shadow
             // two pixels to the lower right. A line holds at most 61
             // letters (854 pixels; the English text under Wine).
-            // 同級生 Remake: not measured yet (its screen is 1920 x 1080).
+            // 同級生 Remake draws its text in bitmap fonts instead (see
+            // `games::doukyuusei::window`).
             Title::Fuyukuru | Title::Unknown | Title::Doukyuusei => Self {
                 left: 282.0,
                 baseline: if language == Language::Japanese {
