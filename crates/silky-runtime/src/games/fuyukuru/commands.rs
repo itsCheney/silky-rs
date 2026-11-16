@@ -88,13 +88,20 @@ impl Runtime {
             (cmd::VOICE_PICTURES, 1, 0) => self.vo_steps.clear(),
             (cmd::AUTO_SAVE, -1, 0) => self.auto_save = true,
             // (time) with 0 first: the picture goes white through rule 17
-            // ("future_in"); with 1 or 2 it comes back ("future_out"). The
-            // original also shrinks the picture to nothing and grows it
-            // back; that is left out.
+            // ("future_in") while it shrinks away turning; with 1 or 2 it
+            // comes back ("future_out"), growing while its turns slow.
             (cmd::FUTURE, mode @ 0..=2, 1) => {
                 scene.cover = (mode == 0).then_some(0xff_ffff);
                 self.handled += 1;
-                return Some(Ok(self.transition(c.int(0), Some(17))));
+                let flow = self.transition(c.int(0), Some(17));
+                if let Some(crate::host::Pause::Transition(t)) = &mut self.pause {
+                    t.spin = Some(crate::host::Spin {
+                        grow: mode != 0,
+                        reverse: mode == 2,
+                        frames: c.int(0),
+                    });
+                }
+                return Some(Ok(flow));
             }
             // "doki": the screen jumps to 1.2 times its size and shrinks
             // back over 8 frames.

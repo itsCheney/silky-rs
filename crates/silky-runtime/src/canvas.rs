@@ -99,12 +99,14 @@ pub enum Op {
         rule: Option<Arc<Vec<u8>>>,
     },
     /// The frame so far scaled by `scale` and moved by (dx, dy) game
-    /// pixels, over black; replaces what was drawn.
+    /// pixels, then turned `turn` degrees clockwise about the middle of
+    /// the frame, over black; replaces what was drawn.
     Transform {
         ops: Arc<Vec<Op>>,
         scale: f32,
         dx: f32,
         dy: f32,
+        turn: f32,
     },
 }
 
@@ -284,10 +286,14 @@ impl Canvas {
                     scale,
                     dx,
                     dy,
+                    turn,
                 } => {
                     let mut inner = Canvas::with_scale(self.width, self.height, self.scale);
                     inner.replay(ops);
-                    if *scale == 1.0 {
+                    if *turn != 0.0 {
+                        inner.spin_whole(*scale, *turn);
+                        *self = inner;
+                    } else if *scale == 1.0 {
                         inner.shift(dx.round() as i32, dy.round() as i32);
                         *self = inner;
                     } else {
@@ -669,6 +675,7 @@ impl Canvas {
                 scale: 1.0,
                 dx: dx as f32,
                 dy: dy as f32,
+                turn: 0.0,
             }]));
             return;
         }
@@ -718,6 +725,7 @@ impl Canvas {
                 scale,
                 dx: x,
                 dy: y,
+                turn: 0.0,
             }]));
             return;
         }
@@ -730,6 +738,49 @@ impl Canvas {
         self.draw_zoomed(&img, x, y, scale);
     }
 
+    /// Scales the picture by `scale` and turns it `turn` degrees clockwise,
+    /// both about the middle of the frame, over black.
+    pub fn spin_whole(&mut self, scale: f32, turn: f32) {
+        let (w, h) = (self.width as f32, self.height as f32);
+        if let Some(ops) = self.ops.take() {
+            self.ops = Some(Arc::new(vec![Op::Transform {
+                ops,
+                scale,
+                dx: w * (1.0 - scale) / 2.0,
+                dy: h * (1.0 - scale) / 2.0,
+                turn,
+            }]));
+            return;
+        }
+        let img = Image {
+            width: self.width,
+            height: self.height,
+            rgba: std::mem::take(&mut self.rgba),
+        };
+        *self = Canvas::with_scale(self.width, self.height, self.scale);
+        if scale <= 0.0 {
+            return;
+        }
+        let (sin, cos) = turn.to_radians().sin_cos();
+        let (cx, cy) = (w / 2.0, h / 2.0);
+        let full = (0, 0, img.width, img.height);
+        for ty in 0..self.height {
+            for tx in 0..self.width {
+                // Back from the screen to the picture: turn the other way,
+                // then undo the scale.
+                let (x, y) = (tx as f32 + 0.5 - cx, ty as f32 + 0.5 - cy);
+                let u = (x * cos + y * sin) / scale + cx;
+                let v = (-x * sin + y * cos) / scale + cy;
+                if u < 0.0 || v < 0.0 || u >= w || v >= h {
+                    continue;
+                }
+                if let Some(px) = sample(&img, full, u, v, false) {
+                    self.blend_px(tx as i32, ty as i32, px);
+                }
+            }
+        }
+    }
+
     /// Mixes two frames of the same size: `t` from 0 (all `from`) to 1
     /// (all `to`). With a rule mask (one byte per pixel), pixels change in
     /// the order of their mask value, with a soft edge.
@@ -738,12 +789,7 @@ impl Canvas {
     }
 
     /// [`Canvas::blend`] with a rule mask a recording can keep.
-    pub fn blend_shared(
-        from: &Canvas,
-        to: &Canvas,
-        t: f32,
-        rule: Option<Arc<Vec<u8>>>,
-    ) -> Canvas {
+    pub fn blend_shared(from: &Canvas, to: &Canvas, t: f32, rule: Option<Arc<Vec<u8>>>) -> Canvas {
         if let (Some(f), Some(g)) = (&from.ops, &to.ops) {
             let mut c = Canvas::recording(to.width, to.height, from.scale.max(to.scale));
             c.record(Op::Blend {

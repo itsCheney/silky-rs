@@ -164,6 +164,38 @@ pub struct Transition {
     pub ms: u32,
     /// Rule mask number (`NN.bin`), or `None` for a crossfade.
     pub rule: Option<u32>,
+    /// The picture turns and scales during the change.
+    pub spin: Option<Spin>,
+}
+
+/// ふゆから、くるる。's future flash (`CFutureAnime`): over `frames`, the
+/// picture shrinks to nothing while it turns, a turn every 16 frames
+/// (`grow` false); or grows back from nothing while its turns slow down,
+/// every 16, 32, 64 and then 128 frames, the other way round when
+/// `reverse`. It turns about the middle of the screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Spin {
+    pub grow: bool,
+    pub reverse: bool,
+    pub frames: i32,
+}
+
+impl Spin {
+    /// Scale and angle in degrees (clockwise) at frame `f`.
+    pub fn at(&self, f: i32) -> (f32, f32) {
+        let t = (f as f32 / self.frames.max(1) as f32).clamp(0.0, 1.0);
+        if !self.grow {
+            return (1.0 - t, 360.0 - (f % 16) as f32 * 22.5);
+        }
+        let period = match f {
+            ..32 => 16,
+            ..64 => 32,
+            ..128 => 64,
+            _ => 128,
+        };
+        let turn = (f % period) as f32 * 360.0 / period as f32;
+        (t, if self.reverse { turn } else { 360.0 - turn })
+    }
 }
 
 /// A character jolt: offsets, one for each step of `step_ms`.
@@ -630,7 +662,11 @@ impl Runtime {
         if ms == 0 {
             return Flow::Continue;
         }
-        self.pause = Some(Pause::Transition(Transition { ms, rule }));
+        self.pause = Some(Pause::Transition(Transition {
+            ms,
+            rule,
+            spin: None,
+        }));
         Flow::Yield
     }
 
@@ -672,7 +708,11 @@ impl Runtime {
             (UI, ui_call::WAIT, 1) => {
                 let ms = n(0).max(0) as u32;
                 if ms > 0 {
-                    self.pause = Some(Pause::Transition(Transition { ms, rule: None }));
+                    self.pause = Some(Pause::Transition(Transition {
+                        ms,
+                        rule: None,
+                        spin: None,
+                    }));
                     Flow::Yield
                 } else {
                     Flow::Continue
@@ -793,15 +833,16 @@ impl Runtime {
             (5, [_, Value::Str(file)]) if bus == Bus::Music => {
                 self.queued_music.insert(ch, file.clone());
             }
-            // (channel, time): start the queued music. The original fades
-            // it in over the time; it starts at full volume here.
-            (4, [_, _]) if bus == Bus::Music => {
+            // (channel, time): start the queued music, fading it in over
+            // the time in frames.
+            (4, [_, t]) if bus == Bus::Music => {
                 if let Some(file) = self.queued_music.remove(&ch) {
                     self.scene.music.insert(ch, file.clone());
                     if self.system.music.insert(file.to_ascii_lowercase()) {
                         self.system_changed = true;
                     }
                     self.play(bus, kind, ch, &file)?;
+                    self.audio.fade_in(bus, ch, frames_ms(t.int()));
                 }
             }
             // Scripts poll this once a frame to wait for a sound to end.

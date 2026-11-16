@@ -88,7 +88,8 @@ impl TextLayout {
             // letter), glyphs about 24 pixels tall from x = 285 with their
             // kana rows at 565..585, lines 36 apart (English and Chinese
             // sit 8 pixels higher, lines 28 apart), a solid black shadow
-            // two pixels to the lower right.
+            // two pixels to the lower right. A line holds at most 61
+            // letters (854 pixels; the English text under Wine).
             Title::Fuyukuru | Title::Unknown => Self {
                 left: 282.0,
                 baseline: if language == Language::Japanese {
@@ -96,7 +97,7 @@ impl TextLayout {
                 } else {
                     577.0
                 },
-                width: 28.0 * 28.0,
+                width: 61.0 * 14.0,
                 line: if language == Language::Japanese {
                     36.0
                 } else {

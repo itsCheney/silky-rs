@@ -1,6 +1,6 @@
 //! Arrow keys on the extras of 景の海のアペイリア, read from the
-//! executable (the four key handlers of each screen: CG mode 0x444ca0..,
-//! its grid 0x447d00.., scene mode 0x459770.., music mode 0x469f10..).
+//! executable (the four key handlers of each screen: CG mode, its grid, scene mode
+//! and music mode).
 //!
 //! A key moves the mouse pointer to the middle of another button, so the
 //! hover follows it and Enter clicks there. Each handler works on the id

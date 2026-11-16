@@ -82,6 +82,9 @@ struct Track {
     gain: f32,
     /// Gain change per output frame while fading out; the track ends at 0.
     fade: Option<f32>,
+    /// Gain change per output frame while fading in, and the gain to
+    /// stop at.
+    rise: Option<(f32, f32)>,
 }
 
 #[derive(Debug)]
@@ -93,6 +96,8 @@ struct State {
     /// token of that request.
     pending: HashMap<(Bus, i32), u64>,
     next_token: u64,
+    /// Fade-ins (ms) for channels whose sound is still decoding.
+    rising: HashMap<(Bus, i32), u32>,
 }
 
 impl Default for State {
@@ -102,6 +107,7 @@ impl Default for State {
             volume: [1.0; 3],
             pending: HashMap::new(),
             next_token: 0,
+            rising: HashMap::new(),
         }
     }
 }
@@ -177,6 +183,7 @@ impl Mixer {
                     looping,
                     gain: 1.0,
                     fade: None,
+                    rise: None,
                 },
             );
         });
@@ -202,19 +209,25 @@ impl Mixer {
             return;
         };
         let mixer = self.clone();
+        let rate = self.rate;
         std::thread::spawn(move || match decode() {
             Ok(pcm) => {
                 mixer.with(|s| {
                     if s.pending.get(&(bus, channel)) == Some(&token) {
                         s.pending.remove(&(bus, channel));
+                        let rise = s.rising.remove(&(bus, channel)).map(|ms| {
+                            let frames = (rate as u64 * ms as u64 / 1000).max(1) as f32;
+                            (gain / frames, gain)
+                        });
                         s.tracks.insert(
                             (bus, channel),
                             Track {
                                 pcm,
                                 pos: 0.0,
                                 looping,
-                                gain,
+                                gain: if rise.is_some() { 0.0 } else { gain },
                                 fade: None,
+                                rise,
                             },
                         );
                     }
@@ -234,6 +247,7 @@ impl Mixer {
     pub fn stop(&self, bus: Bus, channel: i32) {
         self.with(|s| {
             s.pending.remove(&(bus, channel));
+            s.rising.remove(&(bus, channel));
             s.tracks.remove(&(bus, channel))
         });
     }
@@ -242,6 +256,7 @@ impl Mixer {
     pub fn stop_bus(&self, bus: Bus) {
         self.with(|s| {
             s.pending.retain(|k, _| k.0 != bus);
+            s.rising.retain(|k, _| k.0 != bus);
             s.tracks.retain(|k, _| k.0 != bus)
         });
     }
@@ -252,6 +267,21 @@ impl Mixer {
         self.with(|s| {
             if let Some(t) = s.tracks.get_mut(&(bus, channel)) {
                 t.fade = Some(t.gain / frames);
+            }
+        });
+    }
+
+    /// Fades the sound just started on a channel in over `ms`
+    /// milliseconds, from silence.
+    pub fn fade_in(&self, bus: Bus, channel: i32, ms: u32) {
+        let frames = (self.rate as u64 * ms as u64 / 1000).max(1) as f32;
+        self.with(|s| {
+            if let Some(t) = s.tracks.get_mut(&(bus, channel)) {
+                let target = t.gain;
+                t.gain = 0.0;
+                t.rise = Some((target / frames, target));
+            } else if s.pending.contains_key(&(bus, channel)) {
+                s.rising.insert((bus, channel), ms);
             }
         });
     }
@@ -298,6 +328,12 @@ impl Mixer {
                         t.gain -= d;
                         if t.gain <= 0.0 {
                             return false;
+                        }
+                    } else if let Some((d, target)) = t.rise {
+                        t.gain += d;
+                        if t.gain >= target {
+                            t.gain = target;
+                            t.rise = None;
                         }
                     }
                     t.pos += step;
@@ -359,5 +395,22 @@ mod tests {
         let mut out = [0.0f32; 40];
         m.fill(&mut out, 2);
         assert!(!m.is_playing(Bus::Voice, 1));
+    }
+
+    #[test]
+    fn fade_in_rises_from_silence() {
+        let m = Mixer::new(1000);
+        let flat = Arc::new(Pcm {
+            rate: 1000,
+            frames: vec![[1.0, 1.0]; 100],
+            loop_frames: None,
+        });
+        m.play(Bus::Music, 0, flat, false);
+        m.fade_in(Bus::Music, 0, 10);
+        let mut out = [0.0f32; 40];
+        m.fill(&mut out, 2);
+        assert_eq!(out[0], 0.0);
+        assert!(out[8] > 0.0 && out[8] < 1.0);
+        assert_eq!(out[38], 1.0);
     }
 }

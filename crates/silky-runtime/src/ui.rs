@@ -420,8 +420,8 @@ const WAIT_POS: (i32, i32) = (1215, 607);
 const WAIT_POS_2021: (i32, i32) = (1183, 576);
 const WAIT_FRAME_MS: u64 = 100;
 
-/// Selection options: bars of 692 x 76 on the sheet, rows by state.
-/// Their place on screen is provisional (no screenshot of a selection).
+/// Selection options of きまぐれテンプテーション2: bars of 692 x 76 on the
+/// sheet, rows by state. Their place on screen is provisional.
 const CHOICE_SHEET: (u32, u32) = (2, 440);
 const CHOICE_CELL: (u32, u32) = (692, 76);
 const CHOICE_LEFT: i32 = (1280 - 692) / 2;
@@ -432,6 +432,94 @@ const CHOICE_TEXT_SIZE: f32 = 21.0;
 
 fn choice_top(i: usize, n: usize) -> i32 {
     CHOICE_CENTER_Y - CHOICE_PITCH * n as i32 / 2 + CHOICE_PITCH * i as i32
+}
+
+/// Selection options of ふゆから、くるる。 (`CNormalSelect`): one bar width for all, built from `message_p.akb` row 440
+/// (three 76-pixel state rows) as a 123-pixel left end, 72-pixel middle
+/// pieces and a 141-pixel right end (from x = 555). The middle pieces
+/// number the longest label's half-width letters times 15, over 72, less
+/// one. Bars are centred across the screen, 84 pixels apart, centred
+/// down the 495 pixels above the window. Text starts 123 pixels into the
+/// bar, its baseline 46 pixels down, with the message text's shadow
+/// (checked under Wine).
+struct ChoiceBars {
+    left: i32,
+    middles: i32,
+    count: usize,
+}
+
+impl ChoiceBars {
+    const ROW: u32 = 440;
+    const HEIGHT: i32 = 76;
+    const PITCH: i32 = 84;
+    const LEFT_END: i32 = 123;
+    const MIDDLE: i32 = 72;
+    const RIGHT_END: (u32, i32) = (555, 141);
+    const TEXT_BASELINE: f32 = 46.0;
+    /// The executable starts the text 123 pixels in; our font's glyphs
+    /// sit 2 pixels further left than the game's.
+    const TEXT_LEFT: f32 = 125.0;
+    const TEXT_SIZE: f32 = 24.0;
+
+    fn new(labels: &[String]) -> Self {
+        let longest = labels
+            .iter()
+            .map(|l| {
+                l.chars()
+                    .map(|c| if (c as u32) < 0x100 { 1 } else { 2 })
+                    .sum::<i32>()
+            })
+            .max()
+            .unwrap_or(0);
+        let middles = (longest * 15 / 72 - 1).max(0);
+        let width = middles * Self::MIDDLE + Self::LEFT_END + Self::RIGHT_END.1;
+        Self {
+            left: (1280 - width) / 2,
+            middles,
+            count: labels.len().min(5),
+        }
+    }
+
+    fn width(&self) -> i32 {
+        self.middles * Self::MIDDLE + Self::LEFT_END + Self::RIGHT_END.1
+    }
+
+    fn top(&self, i: usize) -> i32 {
+        (720 - 225 - self.count as i32 * Self::PITCH) / 2 + i as i32 * Self::PITCH
+    }
+
+    fn draw(
+        &self,
+        canvas: &mut Canvas,
+        sheet: &Arc<silky_format::akb::Image>,
+        i: usize,
+        state: u32,
+    ) {
+        let (top, row) = (self.top(i), Self::ROW + Self::HEIGHT as u32 * state);
+        let h = Self::HEIGHT as u32;
+        canvas.draw_part(
+            sheet,
+            (0, row, Self::LEFT_END as u32, h),
+            self.left,
+            top,
+            false,
+            255,
+        );
+        for k in 0..self.middles {
+            let x = self.left + Self::LEFT_END + k * Self::MIDDLE;
+            canvas.draw_part(
+                sheet,
+                (Self::LEFT_END as u32, row, Self::MIDDLE as u32, h),
+                x,
+                top,
+                false,
+                255,
+            );
+        }
+        let x = self.left + Self::LEFT_END + self.middles * Self::MIDDLE;
+        let (rx, rw) = Self::RIGHT_END;
+        canvas.draw_part(sheet, (rx, row, rw as u32, h), x, top, false, 255);
+    }
 }
 
 /// Title menu of きまぐれテンプテーション2: click areas from `title.area`
@@ -649,7 +737,7 @@ impl Ring {
     const WINDOW_TOP: i32 = 508;
     /// Click-wait hourglass: ten 76 x 80 frames down `message_p.akb` from
     /// (1280, 0), at (1204, window top + 132). The original steps it every
-    /// tenth tick (0x46fc80), 200 ms as measured under Wine.
+    /// tenth tick, 200 ms as measured under Wine.
     const WAIT_SHEET: (u32, u32) = (1280, 0);
     const WAIT_CELL: (u32, u32) = (76, 80);
     const WAIT_POS: (i32, i32) = (1204, 642);
@@ -736,9 +824,8 @@ struct Cell {
 }
 
 /// きまぐれテンプテーション2's bar slides 44 pixels out of sight (the
-/// buttons from y = 678 and the pin from 676 to 720), 2 pixels every 15 ms,
-/// when the pin is off and the pointer is above y = 671 (0x49a6b0,
-/// 0x49a800, 0x49df50).
+/// buttons from y = 678 and the pin from 676 to 720), 2 pixels a step,
+/// when the pin is off and the pointer is above y = 671.
 pub const BAR_DROP: i32 = 44;
 /// The bar's animation task runs once more than 15 ms have passed.
 pub const BAR_STEP_MS: u64 = 16;
@@ -1482,6 +1569,18 @@ impl Layout {
 
     /// Button under a point (screen pixels).
     pub fn hit(&self, ui: &Ui, text_shown: bool, x: i32, y: i32) -> Option<Button> {
+        if !ui.choices.is_empty() && self.kimaten2.is_none() && self.ring.is_none() {
+            let bars = ChoiceBars::new(&ui.choices);
+            return (0..bars.count)
+                .find(|&i| {
+                    let top = bars.top(i);
+                    x >= bars.left
+                        && x < bars.left + bars.width()
+                        && y >= top
+                        && y < top + ChoiceBars::HEIGHT
+                })
+                .map(Button::Choice);
+        }
         if !ui.choices.is_empty() {
             let n = ui.choices.len();
             return (0..n)
@@ -1546,7 +1645,24 @@ impl Layout {
         text_shown: bool,
         text: Option<&TextRenderer>,
     ) -> Result<()> {
-        if !ui.choices.is_empty() {
+        if !ui.choices.is_empty() && self.kimaten2.is_none() && self.ring.is_none() {
+            let sheet = assets.image("message_p.akb")?;
+            let bars = ChoiceBars::new(&ui.choices);
+            for (i, label) in ui.choices.iter().take(bars.count).enumerate() {
+                let state = ui.state(Button::Choice(i), true, false) as u32;
+                bars.draw(canvas, &sheet, i, state);
+                if let Some(tr) = text {
+                    tr.draw_dropped(
+                        canvas,
+                        label,
+                        bars.left as f32 + ChoiceBars::TEXT_LEFT,
+                        bars.top(i) as f32 + ChoiceBars::TEXT_BASELINE,
+                        ChoiceBars::TEXT_SIZE,
+                        [255, 255, 255, 255],
+                    );
+                }
+            }
+        } else if !ui.choices.is_empty() {
             let sheet = assets.image("message_p.akb")?;
             let n = ui.choices.len();
             for (i, label) in ui.choices.iter().enumerate() {

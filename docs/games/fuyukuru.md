@@ -8,10 +8,21 @@ The Japanese package (`fuyukuru.exe` 1.0.0.0, or 1.0.1.0 with the official updat
 
 All 56 scripts (7.9 million instructions) decode with every jump landing on an instruction, and all 3,255 images decode. Headless, the VM boots `start.mes` through the logo, caution and title scripts, and plays the story from `fk001.mes` on with its text in all three languages. Every route plays to its ending.
 
-Compared with the original running under Wine, in English and Chinese (the download) and Japanese (the package with update 1.01): message text in `Font.0(28, 28)` cells (14 pixels for a letter) with a solid black shadow, lines 36 apart in Japanese and 28 in English and Chinese; the window band at the window opacity under the paper texture, 40 % transparent by default as in both programs; the settings page with the window sample (the game shows through it while the sample text types out); the star thumbs of the settings, backlog, save and music screens; backlog text with a black edge; save rows (number, time to the second, title in orange; the Auto and Quick tabs only when loading); help lines; the music volume and the share of tracks heard. Screenshots of the same places differ in under 2.5 % of their pixels, most of it in glyph shapes (the fonts differ). Still provisional: the wrap width and where selections sit on screen.
+Compared with the original running under Wine, in English and Chinese (the download) and Japanese (the package with update 1.01): message text in `Font.0(28, 28)` cells (14 pixels for a letter) with a solid black shadow, lines 36 apart in Japanese and 28 in English and Chinese; the window band at the window opacity under the paper texture, 40 % transparent by default as in both programs; the settings page with the window sample (the game shows through it while the sample text types out); the star thumbs of the settings, backlog, save and music screens; backlog text with a black edge; save rows (number, time to the second, title in orange; the Auto and Quick tabs only when loading); help lines; the music volume and the share of tracks heard. Screenshots of the same places differ in under 2.5 % of their pixels, most of it in glyph shapes (the fonts differ). A line wraps at 61 letters (854 pixels), as the English text does under Wine. Selections are built like the game's: bars from three pieces of `message_p` sized to the longest choice, centred, 84 pixels apart above the window, with the text in white over a shadow.
 
 With movies on (the setting both programs start with), the scripts ask for moving backgrounds of the running scenes (`Game.12` sub 10); the picture stands still here, as it does with movies off.
 
-Effects read from the executable: rule-mask wipes and screen dimming (sprite animations), snow, the future flash, pulse zoom, slash, white zoom flash, screen quake, character swing, and the pictures that change while a voice line plays (`.vo` files). Approximate: the picture does not shrink during the future flash, queued music starts without its fade-in, and the step time of character hops is a guess.
+Effects read from the executable: rule-mask wipes and screen dimming (sprite animations), snow, the future flash (the picture shrinks away turning once every 16 frames, and comes back growing while its turns slow down), pulse zoom, slash, white zoom flash, screen quake, character hops and swings (steps of 16 ms, the engine's sprite animation step), queued music that fades in over the time the script gives, and the pictures that change while a voice line plays (`.vo` files).
 
 The `Flag` calls keep the flags from byte 1000 on across games in the system data, as the executable does with its system flag file. A run through every route leaves no engine call undone. The "fixed window" setting is kept but changes nothing, since the window never moves here.
+
+## Where things are in the executable
+
+Addresses in `fuyukuru.exe` of the download build above, for checking the code against the original. The code itself does not name them.
+
+| What | Address |
+| --- | --- |
+| Future flash (`Game.112`) | 0x4a2770 |
+| Future flash animation (spin and scale per frame) | 0x46d7f0 |
+| Selection bars (size and placement, drawing) | 0x485aa0, 0x485ea0 |
+| Character hop and swing steps, keyframe table | 0x460a40, 0x45fb50 |

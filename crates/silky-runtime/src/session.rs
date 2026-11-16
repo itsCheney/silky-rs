@@ -138,13 +138,15 @@ struct Busy {
     elapsed: u32,
     /// Input poll: lasts one frame, clicks do not end it.
     frame: bool,
+    /// The picture turns and scales meanwhile.
+    spin: Option<crate::host::Spin>,
 }
 
 /// Length of one frame for input polls.
 const FRAME_MS: u32 = 16;
 
 /// 景の海のアペイリア's extras fade in from black when they open and out to
-/// black when they close: 12 steps of the 20 ms tick (0x4a2bc0, 0x4a2d90).
+/// black when they close: 12 steps of the 20 ms tick.
 #[derive(Debug, Clone, Copy)]
 struct Veil {
     start: u64,
@@ -548,6 +550,7 @@ impl Session {
                             ms: t.ms,
                             elapsed: 0,
                             frame: false,
+                            spin: t.spin,
                         });
                         self.state = State::Busy;
                         break;
@@ -559,6 +562,7 @@ impl Session {
                             ms: FRAME_MS,
                             elapsed: 0,
                             frame: true,
+                            spin: None,
                         });
                         self.state = State::Busy;
                         break;
@@ -1664,8 +1668,7 @@ impl Session {
         let any = |base: usize, n: usize| (base..base + n).any(|i| self.vm.var_b(i) != 0);
         let notebook = any(archive::NOTEBOOK_VAR, archive::NOTEBOOK_ENTRIES);
         let collection = any(archive::ITEM_VAR, archive::ITEMS);
-        // The costume button is grey until the scripts set byte 700
-        // (0x498640, button 0).
+        // The costume button is grey until the scripts set byte 700.
         let costume = self.vm.var_b(archive::COSTUME_ON) != 0;
         if (notebook, collection, costume)
             != (self.ui.notebook, self.ui.collection, self.ui.costume)
@@ -2802,13 +2805,27 @@ impl Session {
                     rule,
                     ms,
                     elapsed,
+                    spin,
                     ..
-                }) => Canvas::blend_shared(
-                    from,
-                    self.base.as_ref().unwrap(),
-                    *elapsed as f32 / (*ms).max(1) as f32,
-                    rule.clone(),
-                ),
+                }) => {
+                    let t = *elapsed as f32 / (*ms).max(1) as f32;
+                    let base = self.base.as_ref().unwrap();
+                    match spin {
+                        // The picture leaving shrinks; the one coming grows.
+                        Some(spin) => {
+                            let f = (t * spin.frames as f32) as i32;
+                            let (scale, turn) = spin.at(f);
+                            let (mut a, mut b) = (from.clone(), base.clone());
+                            if spin.grow {
+                                b.spin_whole(scale, turn);
+                            } else {
+                                a.spin_whole(scale, turn);
+                            }
+                            Canvas::blend_shared(&a, &b, t, rule.clone())
+                        }
+                        None => Canvas::blend_shared(from, base, t, rule.clone()),
+                    }
+                }
                 _ => self.base.clone().unwrap(),
             };
             if window {

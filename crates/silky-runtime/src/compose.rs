@@ -427,7 +427,13 @@ impl Compositor {
         texture
     }
 
-    fn r8(device: &wgpu::Device, queue: &wgpu::Queue, w: u32, h: u32, data: &[u8]) -> wgpu::Texture {
+    fn r8(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        w: u32,
+        h: u32,
+        data: &[u8],
+    ) -> wgpu::Texture {
         device.create_texture_with_data(
             queue,
             &wgpu::TextureDescriptor {
@@ -598,10 +604,7 @@ impl Compositor {
                     let (rect, alpha) = match *placing {
                         Placing::Part { x, y, opacity } => {
                             let (x, y) = (x as f32, y as f32);
-                            (
-                                [x, y, x + pw as f32, y + ph as f32],
-                                opacity as f32 / 255.0,
-                            )
+                            ([x, y, x + pw as f32, y + ph as f32], opacity as f32 / 255.0)
                         }
                         Placing::Scaled { x, y, scale } => {
                             let (x, y) = (x.round(), y.round());
@@ -711,24 +714,15 @@ impl Compositor {
                         .as_ref()
                         .filter(|r| r.len() >= (gw * gh) as usize)
                         .map(|r| self.rule(r, gw, gh));
-                    let params = [
-                        *t,
-                        rule.is_some() as u32 as f32,
-                        gw as f32,
-                        gh as f32,
-                    ];
-                    let uniform = self
-                        .device
-                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("compose mix"),
-                            contents: bytemuck::cast_slice(&params),
-                            usage: wgpu::BufferUsages::UNIFORM,
-                        });
-                    let view = |k: usize| {
-                        self.lists[&k]
-                            .texture
-                            .create_view(&Default::default())
-                    };
+                    let params = [*t, rule.is_some() as u32 as f32, gw as f32, gh as f32];
+                    let uniform =
+                        self.device
+                            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                label: Some("compose mix"),
+                                contents: bytemuck::cast_slice(&params),
+                                usage: wgpu::BufferUsages::UNIFORM,
+                            });
+                    let view = |k: usize| self.lists[&k].texture.create_view(&Default::default());
                     let (va, vb) = (view(a), view(b));
                     let rule_view = rule.unwrap_or_else(|| self.no_rule.clone());
                     let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -764,11 +758,13 @@ impl Compositor {
                     scale,
                     dx,
                     dy,
+                    turn,
                 } => {
                     let k = self.list(encoder, inner, frame);
                     let group = self.lists[&k].group.clone();
                     let (gw, gh) = (frame.game.0 as f32, frame.game.1 as f32);
                     let rect = [*dx, *dy, dx + gw * scale, dy + gh * scale].map(|v| v * s);
+                    let start = vertices.len();
                     push_quad(
                         &mut vertices,
                         &mut steps,
@@ -780,6 +776,19 @@ impl Compositor {
                         [1.0; 4],
                         0,
                     );
+                    if *turn != 0.0 {
+                        // Turn the corners about the middle of the frame
+                        // (clip space is square to the frame, so undo its
+                        // aspect around the turn).
+                        let (sin, cos) = turn.to_radians().sin_cos();
+                        let (w, h) = (frame.size.0 as f32, frame.size.1 as f32);
+                        for v in &mut vertices[start..] {
+                            let x = v.clip[0] * w / 2.0;
+                            let y = -v.clip[1] * h / 2.0;
+                            let (x, y) = (x * cos - y * sin, x * sin + y * cos);
+                            v.clip = [x * 2.0 / w, -y * 2.0 / h];
+                        }
+                    }
                 }
             }
         }
@@ -979,7 +988,12 @@ mod tests {
         let mut rgba = Vec::new();
         for y in 0..h {
             for x in 0..w {
-                rgba.extend([(x * 7) as u8, (y * 5) as u8, 128, if x < 4 { 0 } else { 200 }]);
+                rgba.extend([
+                    (x * 7) as u8,
+                    (y * 5) as u8,
+                    128,
+                    if x < 4 { 0 } else { 200 },
+                ]);
             }
         }
         Arc::new(Image {

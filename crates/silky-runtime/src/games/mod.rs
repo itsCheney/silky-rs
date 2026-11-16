@@ -300,9 +300,9 @@ impl Runtime {
                 } else {
                     vec![(-p, 0), (p, 0), (0, 0), (0, 0)]
                 };
-                // 50 ms a step is a guess: the engine's timing is not read
-                // yet.
-                self.jolts.push((c.int(2), Jolt { steps, step_ms: 50 }));
+                // A step of the engine's sprite animation task, which runs
+                // once more than 15 ms have passed: 16 ms.
+                self.jolts.push((c.int(2), Jolt { steps, step_ms: 16 }));
             }
             // (time, new slot, slot): a character moves to another slot.
             (cmd::CHARACTER, 10, 3) => {
