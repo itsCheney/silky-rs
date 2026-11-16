@@ -657,14 +657,27 @@ impl Session {
             self.base = None;
             self.frame = None;
         }
-        if let Some(a) = self.rt.scene.quake {
-            let y = match (clock * 60 / 1000) % 8 {
-                0 => a,
-                1 => -a,
-                _ => 0,
-            };
-            if self.rt.scene.shake != (0, y) {
-                self.rt.scene.shake = (0, y);
+        let step = (clock * 60 / 1000) as usize;
+        let shake = if let Some(a) = self.rt.scene.quake {
+            Some((
+                0,
+                match step % 8 {
+                    0 => a,
+                    1 => -a,
+                    _ => 0,
+                },
+            ))
+        } else {
+            self.rt
+                .scene
+                .quake_steps
+                .as_ref()
+                .filter(|s| !s.is_empty())
+                .map(|s| s[step % s.len()])
+        };
+        if let Some(o) = shake {
+            if self.rt.scene.shake != o {
+                self.rt.scene.shake = o;
                 self.frame = None;
             }
         }

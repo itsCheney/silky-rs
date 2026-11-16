@@ -213,7 +213,11 @@ impl Runtime {
                 scene.background_offset = (0, 0);
                 scene.background_zoom = 0;
             }
-            (cmd::PICTURE, 0, 1) => {
+            // 10 (file): a background too. きまぐれテンプテーション2 puts
+            // its event pictures up so; ふゆから、くるる。 asks for its
+            // running scenes so when movies are on, and the picture
+            // stands still here, as with movies off.
+            (cmd::PICTURE, 0 | 10, 1) => {
                 scene.background = c.str(0);
                 if let Some(name) = &scene.background {
                     self.system

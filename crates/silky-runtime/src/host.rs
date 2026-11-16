@@ -564,6 +564,10 @@ impl Runtime {
         match (sub, args.len()) {
             // Set up at the start: create (0), clear (2), order (13).
             (0, 5) | (2, 1) | (13, 2) => return Some(Flow::Continue),
+            // (x, y, sprite): moves a sprite. The 2017 scripts only put
+            // sprite 6, the copy of the screen a shake moves, back at
+            // (0, 0); the runtime shakes the whole frame instead.
+            (13, 3) => return Some(Flow::Continue),
             // (sprite): hide (10), show (11). Hiding sprite 6 takes the
             // dimming away.
             (10, 1) => {

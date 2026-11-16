@@ -28,6 +28,36 @@ const BATTLE: i32 = 1015;
 const LONG_VOICE: i32 = 961;
 /// Lip sync of an event picture, from a `.vo` file.
 const EVENT_LIPS: i32 = 1007;
+/// `Game.999`, a movie over the scene.
+const CHANGE_MOVIE: i32 = 999;
+/// `Game.1005`, the white flash of a zoomed screen.
+const FLUSH: i32 = 1005;
+/// `Game.993`, the screen shake.
+const QUAKE: i32 = 993;
+/// Offsets of the shaken screen, eight steps for each kind of shake
+/// (`Game.993` sub 2), read from the program.
+const QUAKE_STEPS: [[(i32, i32); 8]; 2] = [
+    [
+        (2, 0),
+        (16, 0),
+        (-2, 0),
+        (-16, 0),
+        (4, 0),
+        (8, 0),
+        (-4, 0),
+        (-8, 0),
+    ],
+    [
+        (2, 4),
+        (-16, 0),
+        (-4, 2),
+        (0, 8),
+        (8, -16),
+        (0, -8),
+        (-2, -4),
+        (-4, -2),
+    ],
+];
 /// Timers of the library script.
 const TIMERS: i32 = 1006;
 /// Saves to the auto save slot.
@@ -39,6 +69,26 @@ use crate::games::cmd::{CHARACTER, PICTURE, PORTRAIT};
 use silky_format::game::Kind;
 
 impl Runtime {
+    /// `Game.993`: 0 sets the shake up, 2 (kind) picks its steps, 3
+    /// starts it, 1 stops it.
+    fn apeiria_quake(&mut self, c: &Call) {
+        match c.sub {
+            0 => self.quake_mode = 0,
+            2 => {
+                self.quake_mode = c.int(0).clamp(0, 1);
+                if self.scene.quake_steps.is_some() {
+                    self.scene.quake_steps = Some(QUAKE_STEPS[self.quake_mode as usize].to_vec());
+                }
+            }
+            3 => self.scene.quake_steps = Some(QUAKE_STEPS[self.quake_mode as usize].to_vec()),
+            1 => {
+                self.scene.quake_steps = None;
+                self.scene.shake = (0, 0);
+            }
+            _ => {}
+        }
+    }
+
     /// This game's own commands. `None` for the others.
     pub(crate) fn apeiria_game(&mut self, vm: &mut Vm, c: &Call) -> Option<silky_vm::Result<Flow>> {
         match c.command {
@@ -64,12 +114,26 @@ impl Runtime {
                 }
                 self.done()
             }
+            QUAKE => {
+                self.apeiria_quake(c);
+                self.done()
+            }
+            // (): the screen zooms to 120% and flashes white, then fades
+            // back (the same steps as ふゆから、くるる。's).
+            FLUSH if c.sub == 0 => {
+                self.scene.zoom = Some(120);
+                self.then = Some(crate::host::FollowUp::FlushWhite);
+                self.handled += 1;
+                Some(Ok(self.transition(1, None)))
+            }
             // Effects that leave nothing behind once over, not done: the
-            // screen shake (993), the attack and spell effects (998, 1001,
-            // 1002), the white flash of a zoomed screen (1005), a sprite
-            // animation (1000), and set up calls of the library
-            // script (991, 1003).
-            991 | 993 | 998 | 1000 | 1001 | 1002 | 1003 | 1005 => self.done(),
+            // attack and spell effects (998, 1001, 1002), a sprite animation
+            // (1000), and set up calls of the library script (991, 1003).
+            991 | 998 | 1000 | 1001 | 1002 | 1003 => self.done(),
+            // (file) / (): a movie of a character changing clothes over
+            // the scene (`chNN_chg.vsd`), played when movies are on; 1
+            // closes it. Not played: the scene stays as with movies off.
+            CHANGE_MOVIE if matches!(c.sub, 0 | 1) => self.done(),
             // (): the list of conclusions drawn into the background layer
             // from bytes 0x514 to 0x51a of the save data (once, at the end
             // of s0110); not done.

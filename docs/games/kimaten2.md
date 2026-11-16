@@ -8,7 +8,9 @@ All 64 scripts and 712 images decode. Headless, `silky-run trace` boots to the t
 
 ## Interface
 
-The player and `silky-run snap` open it. The title menu, the message window with the speaker's name plate, the window buttons, the side menu, the selections, the action menu and the map (with the second map's panels) are drawn from the game's sheets. The window, action menu and map layouts are read from the executable, and the text is placed as on screenshots of the game, two-line messages included. The backlog, the save and load screen, the settings pages and the yes/no dialog have the game's own look, with its help lines (`.HLG` tables) and its nine voice groups on the sound page. Saving at an action menu or the map saves the message before it. The bar's voice loop button plays the message's voice again each time it ends, and its skip-all button skips unread text too. Its jump button skips to the next unread text or selection. The buttons and side menu entries show the game's tooltips (`MesButtonHelp.hlg`) in its balloon, placed as the executable does. Auto mode waits for the voice and keeps a message for the time the executable gives, and wheel down on a message goes on like a click.
+The player and `silky-run snap` open it. The title menu, the message window with the speaker's name plate, the window buttons, the side menu, the selections, the action menu and the map (with the second map's panels) are drawn from the game's sheets. The window, action menu and map layouts are read from the executable, and the text is placed as on screenshots of the game, two-line messages included. The backlog, the save and load screen, the settings pages and the yes/no dialog have the game's own look, with its help lines (`.HLG` tables) and its nine voice groups on the sound page. Saving at an action menu or the map saves the message before it. The bar's voice loop button plays the message's voice again each time it ends, and its skip-all button skips unread text too. Its jump button skips to the next unread text or selection; as in the original, it is grey while the message on screen has not been read before. The buttons and side menu entries show the game's tooltips (`MesButtonHelp.hlg`) in its balloon, placed as the executable does. Auto mode waits for the voice and keeps a message for the time the executable gives, and wheel down on a message goes on like a click.
+
+Compared with the original running under Wine: the message text has a one-pixel black edge around bold glyphs, the click-wait icon is the three frames at (1262, 0) of the window sheet, shown at (1062, 609), and the window is 40 % transparent by default, as the program starts it. Event pictures that the scripts put up with `Game.12` sub 10 show (they were left out before). Screenshots of a story line and of an event picture differ in under 0.7 % of their pixels (glyph shapes, the fonts differ).
 
 ## Costume, notebook and collection
 
@@ -53,6 +55,7 @@ The one-shot timelines of these models give a length of 3 ticks while their fram
 ## Not done yet
 
 - The pin of the button bar.
+- The costume button: the original keeps it grey through the prologue; when it opens is not read yet, so here it is always on.
 - In H mode: the mouse cursor per action and region, and one model call whose meaning is not read yet. Two effect timings are guesses. The screen has not been compared with the game yet.
 
 ## Where things are in the executable

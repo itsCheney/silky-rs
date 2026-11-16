@@ -118,7 +118,7 @@ impl TextLayout {
                 line: 41.0,
                 size: 24.0,
                 wide_advance: 28.3 / 24.0,
-                edge: TextEdge::Soft,
+                edge: TextEdge::Outline,
                 cells: false,
             },
             // Measured on PC screenshots of the Chinese patch and under

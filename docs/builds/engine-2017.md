@@ -12,6 +12,7 @@ The engine of `apeiria.exe` 1.0.3.0 (景の海のアペイリア), linked 2017-1
 | `BackLog.3` without arguments | Ends the voice mark of the entry | Not called so |
 | `Movie.2` | Closes the movie, returns nothing (the scripts call it after each scene change) | Plays the movie, returns whether it played |
 | `Movie.3` | Returns a value | Returns nothing |
+| `Movie.1` | (_, file): a moving background, when movies are on (scripts). The runtime does not decode it yet and shows the picture of the same name | Not called |
 | `BackLog.4` to `BackLog.7` | Return a value | Return nothing |
 | `OneMes.5` | Returns a value | Returns nothing |
 | `Save.3`, `Save.8` | Return a value | Return nothing |

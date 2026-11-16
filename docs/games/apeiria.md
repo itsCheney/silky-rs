@@ -15,7 +15,10 @@ All 171 scripts decode; the story text is in the scripts (no MAP tables). Headle
 - Window buttons, read from the executable: a ring around the `MENU` ball. The ball and the ring backdrop are 302-pixel cells of `menu_p00.akb`; the eleven buttons and the hide button are 40-pixel cells of `message_p.akb`. `mes_o.area` holds the ring buttons as ids 1..11 (save, load, quick save, quick load, voice, previous choice, backlog, auto, skip, next choice, settings); the hide button and the window are relative to the window top. The ball folds the ring away.
 - Click wait: the hourglass of `message_p.akb` (ten 80-pixel frames from (1280, 0)) at (1204, 642), measured under Wine.
 - Name plate, read from the executable: a left cap, 14-pixel middle pieces for the width of the name and a right end with its flourish, from row 584 of `message_p.akb`, each over the same piece of row 643 filled with the window colour. The name goes 69 pixels in and 17 down; the plate's place (47, 498) was measured under Wine.
-- Text: glyphs about 24 pixels tall every 28.3 pixels from x = 152, lines 41 apart, measured under Wine.
+- Text: glyphs about 24 pixels tall every 28.3 pixels from x = 152, lines 41 apart, bold with a one-pixel black edge, measured under Wine.
+- Screen shake (`Game.993`), read from the executable: sub 0 sets it up, 2 picks one of two tables of eight offsets (sideways only, or both ways, up to 16 pixels), 3 starts it, 1 stops it. The screen takes the next offset each step; the step time (a sixtieth of a second) is a guess.
+- The white flash of a zoomed screen (`Game.1005`), read from the executable: the screen zooms to 120 %, turns white and fades back over 16 frames, the same steps as ふゆから、くるる。's.
+- With movies on (the setting the program starts with), the scripts ask for movies of characters changing clothes over the scene (`Game.999`, `chNN_chg.vsd`) and move the copy of the screen a shake uses (`Sprite.13`); the movies are not played, so the scene stays as with movies off.
 - αMAIL, the in-game mail screen (`Game.1012`), read from the executable: the phone frame (`SLD.akb`) and the mail list of `mail01_p.akb` with the tray label (sub 0, list A or B), the newest mail row (byte 1200 or 1400, set by sub 11), the "new mail" notice with its count (subs 5 and 6), the selected row (subs 8 and 9) and the open mail on `mail02_p.akb` with its body text (subs 3 and 4). Places were checked against Wine; the body wrap width is a guess.
 - Standing characters, read from the executable: the slot gives the centre (slot 1 at -400, 2 and 3 at +400 from the middle), and the top edge is (1 - size) · a - size · k with a and k by character (`chNN`). Checked against Wine.
 - The window portrait (`Game.10` subs 6, 8, 11 to 13): the face of the body picture, cut by a window per character and drawn at 45 % at (-144, 440), with cheeks over it; the name plate moves to x = 210 while it is up. Characters take cheeks (`Game.13.6`), move at once (13.8) and change body in place (13.13).
@@ -32,9 +35,9 @@ All 171 scripts decode; the story text is in the scripts (no MAP tables). Headle
 ## Not done yet
 
 - In the extras: the fades between screens, keyboard moves, and the slide of the scroll bar's arrows while held.
-- Effects that leave nothing behind are passed over: screen shakes (`Game.993`), attack and spell effects (998, 1001, 1002), the flash of a zoomed screen (1005), a sprite animation (1000). Fades, slides and particles of the pictures above are not done; they appear and go at once.
-- The mouths of event pictures moving with the voice (`Game.1007`, `.vo` files), the draining of HP over time (`Game.1015` subs 6 and 7), the list of conclusions drawn into the background (`Game.992`), and `Game.1012` subs 7, 10 and 14.
-- Text outline, the window position setting, the hourglass frame time.
+- Effects that leave nothing behind are passed over: attack and spell effects (998, 1001, 1002) and a sprite animation (1000). Fades, slides and particles of the pictures above are not done; they appear and go at once.
+- The mouths of event pictures moving with the voice (`Game.1007`; its `.vo` files are an older layout than ふゆから、くるる。's: a 12-byte head, then 792-byte records naming the picture and its mouth layer), the draining of HP over time (`Game.1015` subs 6 and 7), the list of conclusions drawn into the background (`Game.992`), and `Game.1012` subs 7, 10 and 14.
+- The window position setting, the hourglass frame time.
 
 ## Where things are in the executable
 
@@ -80,4 +83,6 @@ Addresses in `apeiria.exe` of the build above. The code itself does not name the
 | Timers (`Game.1006`) | 0x48f840 |
 | Conclusions list (`Game.992`) | 0x491ea0 |
 | Save list (`Game.1016`) | 0x491c50 |
-| Effects not done: shake (993), sprite animation (1000), attacks and spells (998, 1001, 1002), zoom flash (1005) | 0x48d380, 0x48ecd0, 0x48e610, 0x48f150, 0x48ee60, 0x48fa30 |
+| Screen shake (`Game.993`), its step and offset tables | 0x48d380, 0x4779b0, 0x5346c0..0x534b6f |
+| Zoom flash (`Game.1005`) | 0x48fa30 |
+| Effects not done: sprite animation (1000), attacks and spells (998, 1001, 1002) | 0x48ecd0, 0x48e610, 0x48f150, 0x48ee60 |

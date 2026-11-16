@@ -168,4 +168,8 @@ pub struct Scene {
     /// (ふゆから、くるる。, command 993).
     #[serde(default)]
     pub quake: Option<i32>,
+    /// Screen shaking through these offsets, a step a frame, until stopped
+    /// (景の海のアペイリア, command 993).
+    #[serde(default)]
+    pub quake_steps: Option<Vec<(i32, i32)>>,
 }
