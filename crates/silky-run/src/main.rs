@@ -251,7 +251,13 @@ fn snap(
                         println!("{}", path.display());
                         title_saved = true;
                     }
-                    let choice = rt.config.title_choice;
+                    // "Start" is the new game entry of the game's own menu.
+                    let choice = match rt.config.title_choice {
+                        1 => layout
+                            .title_result(silky_runtime::ui::title::NEW_GAME)
+                            .unwrap_or(1),
+                        c => c,
+                    };
                     rt.answer_title(&mut vm, choice);
                 }
                 Some(Pause::Text { index }) => {

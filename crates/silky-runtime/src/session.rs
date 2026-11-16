@@ -2326,8 +2326,10 @@ impl Session {
                 }
                 // The engine's own screen; the script does nothing with 261.
                 title::NOTEBOOK => self.open_archive(Book::Notebook),
+                // 同級生 Remake quits from the title on its own.
+                title::QUIT if self.layout.title_result(i).is_none() => self.ask(Action::Quit)?,
                 i => {
-                    if let Some(result) = title::result(i) {
+                    if let Some(result) = self.layout.title_result(i) {
                         self.ui.title = None;
                         // The script's fade starts from the title as shown,
                         // menu included.

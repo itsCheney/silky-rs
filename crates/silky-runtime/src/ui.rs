@@ -622,12 +622,65 @@ struct SheetTitle {
     /// drawn disabled and take no clicks.
     main: Vec<(Option<usize>, Area, (u32, u32))>,
     extras: Vec<(Option<usize>, Area, (u32, u32))>,
+    /// Height of a state row.
+    row: u32,
+    /// The sheet comes in one picture per language.
+    localized: bool,
 }
 
 impl SheetTitle {
-    const ROW: u32 = 42;
     /// Disabled state row.
     const DISABLED: u32 = 3;
+
+    /// 同級生 Remake: `title_p_<lang>.akb` holds 494 x 78 cells, three to
+    /// a row, four state rows (312 pixels) per block, in `title.area`
+    /// order; the extras are a fourth column from x = 1482 (615 wide;
+    /// music 655) and a fifth from 2097 for the hidden entry and back.
+    /// Checked under Wine (English).
+    fn load_doukyuusei(assets: &Assets) -> Result<Self> {
+        let main_areas = area::parse(&assets.data("title.area")?)?;
+        let extra_areas = area::parse(&assets.data("title2.area")?)?;
+        const MAIN: [usize; 6] = [
+            title::NEW_GAME,
+            title::CONTINUE,
+            title::LOAD,
+            title::SETTINGS,
+            title::EXTRAS,
+            title::QUIT,
+        ];
+        let main = main_areas
+            .iter()
+            .filter(|a| (0..6).contains(&a.id))
+            .map(|a| {
+                let i = a.id as u32;
+                (
+                    Some(MAIN[a.id as usize]),
+                    *a,
+                    (494 * (i % 3), 312 * (i / 3)),
+                )
+            })
+            .collect();
+        const EXTRAS: [(usize, (u32, u32)); 5] = [
+            (title::CG_MODE, (1482, 0)),
+            (title::SCENE_MODE, (1482, 312)),
+            (title::MUSIC_MODE, (1482, 624)),
+            (title::VIEWER, (2097, 0)),
+            (title::BACK, (2097, 312)),
+        ];
+        let extras = extra_areas
+            .iter()
+            .filter_map(|a| {
+                let &(entry, cell) = EXTRAS.get(usize::try_from(a.id).ok()?)?;
+                Some((Some(entry), *a, cell))
+            })
+            .collect();
+        Ok(Self {
+            main,
+            extras,
+            row: 78,
+            localized: true,
+        })
+    }
 
     fn load_apeiria(assets: &Assets) -> Result<Self> {
         let main_areas = area::parse(&assets.data("title.area")?)?;
@@ -665,7 +718,12 @@ impl SheetTitle {
                 extras.push((Some(entry), *a, cell));
             }
         }
-        Ok(Self { main, extras })
+        Ok(Self {
+            main,
+            extras,
+            row: 42,
+            localized: false,
+        })
     }
 
     fn entries(&self, extras: bool) -> &[(Option<usize>, Area, (u32, u32))] {
@@ -683,8 +741,19 @@ impl SheetTitle {
             .and_then(|(e, _, _)| e.map(Button::Title))
     }
 
-    fn draw(&self, canvas: &mut Canvas, assets: &mut Assets, ui: &Ui, extras: bool) -> Result<()> {
-        let sheet = assets.image("title_p.akb")?;
+    fn draw(
+        &self,
+        canvas: &mut Canvas,
+        assets: &mut Assets,
+        ui: &Ui,
+        extras: bool,
+        language: Language,
+    ) -> Result<()> {
+        let sheet = if self.localized {
+            assets.localized_image("title_p.akb", language)?
+        } else {
+            assets.image("title_p.akb")?
+        };
         for &(entry, a, (sx, sy)) in self.entries(extras) {
             let state = match entry {
                 Some(e) => {
@@ -693,7 +762,7 @@ impl SheetTitle {
                 }
                 None => Self::DISABLED,
             };
-            let part = (sx, sy + Self::ROW * state, a.width(), Self::ROW);
+            let part = (sx, sy + self.row * state, a.width(), self.row);
             canvas.draw_part(&sheet, part, a.left, a.top, false, 255);
         }
         Ok(())
@@ -1596,7 +1665,7 @@ impl Layout {
     /// Whether the byte variables from [`crate::system::GLOBAL_BYTES`] are
     /// kept across games (きまぐれテンプテーション2, 景の海のアペイリア).
     pub fn keeps_global_bytes(&self) -> bool {
-        self.kimaten2.is_some() || self.sheet_title.is_some()
+        self.kimaten2.is_some() || self.ring.is_some()
     }
 
     pub fn load(assets: &Assets, language: Language) -> Result<Self> {
@@ -1625,7 +1694,7 @@ impl Layout {
                 language,
                 bar: Vec::new(),
                 kimaten2: None,
-                sheet_title: None,
+                sheet_title: Some(SheetTitle::load_doukyuusei(assets)?),
                 ring: None,
                 douk: Some(DoukBar::load(assets)?),
             });
@@ -1648,9 +1717,24 @@ impl Layout {
         })
     }
 
+    /// Value the title menu call returns to the script for an entry (see
+    /// [`title::result`]); 同級生 Remake starts a new game with 0 and
+    /// numbers its extras 257..=260.
+    pub fn title_result(&self, entry: usize) -> Option<i32> {
+        if self.douk.is_some() {
+            return match entry {
+                title::NEW_GAME => Some(0),
+                title::VIEWER => Some(260),
+                title::QUIT => None,
+                e => title::result(e),
+            };
+        }
+        title::result(entry)
+    }
+
     /// Extras entries and the byte variables that unlock them.
     pub fn title_unlocks(&self) -> &'static [(usize, usize)] {
-        match (&self.kimaten2, &self.sheet_title) {
+        match (&self.kimaten2, &self.ring) {
             (Some(_), _) => &title::KIMATEN2_UNLOCK,
             (None, Some(_)) => &title::APEIRIA_UNLOCK,
             _ => &[],
@@ -1817,7 +1901,7 @@ impl Layout {
             return Ok(());
         }
         if let (Some(extras), Some(t)) = (ui.title, &self.sheet_title) {
-            return t.draw(canvas, assets, ui, extras);
+            return t.draw(canvas, assets, ui, extras, self.language);
         }
         if let Some(extras) = ui.title {
             let sheet = assets.localized_image("title_p.akb", self.language)?;

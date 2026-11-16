@@ -12,6 +12,9 @@ use crate::host::{host_error, Runtime};
 /// the next `MesWnd.3`, sub 1 (name id) names the speaker from
 /// `NAMES_<lang>.MAP`, sub 2 loads the script's table.
 pub const TEXT: i32 = 24;
+/// `Game.28(0)`: the title menu over `title_bg_<lang>.akb` (logo
+/// included); returns 0 for a new game, 257..=260 for the extras.
+pub const TITLE: i32 = 28;
 /// `Game.22(name)`: the hero speaks; the plate shows the name entered at
 /// the start (the executable reads its own copy, not the argument).
 pub const HERO_SPEAKS: i32 = 22;
@@ -49,6 +52,12 @@ impl Runtime {
                     .and_then(|b| MapFile::parse(&b).ok())
                     .and_then(|m| m.get(0, id as u32).map(str::to_string));
                 self.done()
+            }
+            (TITLE, _) => {
+                let lang = super::picture_suffix(self.config.language);
+                self.scene.background = Some(format!("title_bg_{lang}.akb"));
+                self.scene.text = None;
+                self.wait_for(crate::host::Pause::Title)
             }
             (HERO_SPEAKS, _) => {
                 self.scene.speaker_name = Some(self.hero_name());

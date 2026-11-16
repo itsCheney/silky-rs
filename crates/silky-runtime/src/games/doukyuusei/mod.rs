@@ -35,6 +35,16 @@ pub fn plain_text(shown: &str) -> String {
     shown.replace(window::ITALIC, "")
 }
 
+/// Language part of picture names: `en`, `ch` (Simplified Chinese) or
+/// `tw`; the text tables say `cn` instead of `ch`.
+pub fn picture_suffix(language: Language) -> &'static str {
+    match language {
+        Language::SimplifiedChinese => "ch",
+        Language::TraditionalChinese => "tw",
+        _ => "en",
+    }
+}
+
 /// `cafe.mes` -> `cafe_en.map`.
 pub fn table_name(script: &str, language: Language) -> String {
     let stem = script.rsplit_once('.').map_or(script, |(s, _)| s);
