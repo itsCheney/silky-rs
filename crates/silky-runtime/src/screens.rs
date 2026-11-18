@@ -486,6 +486,9 @@ impl Action {
 
 pub struct Dialog {
     pub action: Action,
+    /// Saving to an empty place (同級生 Remake asks a different question
+    /// then than for overwriting).
+    pub fresh: bool,
     /// "Do not ask again" ticked.
     pub dont_ask: bool,
 }
@@ -500,6 +503,8 @@ pub enum Screen {
     Archive(crate::games::kimaten2::archive::ArchiveScreen),
     /// きまぐれテンプテーション2's costume screen.
     Costume(crate::games::kimaten2::archive::CostumeScreen),
+    /// 同級生 Remake's save and load screen.
+    DoukSave(crate::games::doukyuusei::system::SaveScreen),
 }
 
 /// Layouts of the screens, loaded once per game.
@@ -513,6 +518,8 @@ pub struct Screens {
     kimaten2: bool,
     /// ふゆから、くるる。: star scroll thumbs.
     stars: bool,
+    /// 同級生 Remake: its own dialog.
+    douk: bool,
 }
 
 pub(crate) fn area_file(assets: &Assets, name: &str) -> Vec<Area> {
@@ -560,6 +567,7 @@ impl Screens {
             dialog: area_file(assets, "dialog.area"),
             kimaten2: assets.game().title == silky_format::game::Title::Kimaten2,
             stars: assets.game().title == silky_format::game::Title::Fuyukuru,
+            douk: assets.game().title == silky_format::game::Title::Doukyuusei,
             help: HelpLines::load(assets, "saveloadhelp"),
         }
     }
@@ -1119,6 +1127,12 @@ impl Screens {
         d: &Dialog,
     ) -> Result<()> {
         use dialog_ids::*;
+        if self.douk {
+            let sheet = self.sheet(assets, "dialog_p.akb")?;
+            let state = |id| ui.state(Button::Dialog(id), true, false) as u32;
+            crate::games::doukyuusei::system::draw_dialog(canvas, &sheet, d, &self.dialog, state);
+            return Ok(());
+        }
         canvas.fill(0, 0, canvas.width, canvas.height, [0, 0, 0, 110]);
         let ds = match self.kimaten2 {
             true => &KIMATEN2_DIALOG,

@@ -8,9 +8,9 @@
 //! schedule and map. `mesmenu.carea` (a byte per screen pixel, 255 for
 //! none) gives the button under a point; the six only count while the menu
 //! is open. The program slides them out from the menu button and fades
-//! them in over twelve frames; here they show at once. The screens the six
-//! open (the program's system menu, `menu_p.akb`) are not done yet, so
-//! they are drawn gray and do nothing.
+//! them in over twelve frames; here they show at once. Save and load open
+//! the system menu's save screen ([`super::system`]); the other screens
+//! are not done yet, so their buttons are drawn gray and do nothing.
 
 use std::sync::Arc;
 

@@ -172,6 +172,13 @@ pub struct Snapshot {
     source: SourcePos,
 }
 
+impl Snapshot {
+    /// A G variable as it was, for a save list.
+    pub fn var_g(&self, index: usize) -> Value {
+        self.g.get(index).cloned().unwrap_or_default()
+    }
+}
+
 pub struct Vm {
     profile: Profile,
     current: Option<Arc<Loaded>>,

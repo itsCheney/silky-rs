@@ -221,11 +221,13 @@ impl Ui {
         match b {
             Button::Title(t) if self.locked_titles.contains(&t) => false,
             Button::Title(title::CONTINUE | title::LOAD) => self.has_saves,
-            // 同級生 Remake's menu: the screens of its six buttons are not
-            // done yet (see `games::doukyuusei::menu`).
-            Button::Bar(
-                bar::CONFIG | bar::SAVE | bar::LOAD | bar::BACKLOG | bar::SCHEDULE | bar::MAP,
-            ) if self.plate.is_some() => false,
+            // 同級生 Remake's menu: the screens of four of its six buttons
+            // are not done yet (see `games::doukyuusei::menu`).
+            Button::Bar(bar::CONFIG | bar::BACKLOG | bar::SCHEDULE | bar::MAP)
+                if self.plate.is_some() =>
+            {
+                false
+            }
             Button::Bar(bar::LOAD | bar::QUICK_LOAD) => self.has_saves,
             Button::Bar(bar::PREVIOUS_CHOICE) => self.previous_choice,
             Button::Bar(bar::NEXT_CHOICE) => !self.jump_off,
@@ -1895,9 +1897,8 @@ impl Layout {
                 let walking = matches!(ui.panel, Some(Panel::Town));
                 m.draw(canvas, assets, ui.side_menu, |id| {
                     // The map jump shows only on the walking maps. The
-                    // game's own settings, save, load, backlog and schedule
-                    // screens and the map jump are not done yet, so the six
-                    // stay gray.
+                    // game's own settings, backlog and schedule screens and
+                    // the map jump are not done yet, so those stay gray.
                     if id == bar::MAP && !walking {
                         return HIDDEN;
                     }

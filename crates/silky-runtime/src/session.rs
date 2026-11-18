@@ -128,6 +128,8 @@ pub struct Session {
     town_input: crate::games::doukyuusei::town::Input,
     town_pointer_down: bool,
     town_ms: u64,
+    /// 同級生 Remake's system menu screens.
+    douk_system: Option<crate::games::doukyuusei::system::System>,
 }
 
 struct MoviePlay {
@@ -190,6 +192,9 @@ impl Session {
         let screens = Screens::load(&assets, config.language);
         let menus = Menus::load(&assets, config.language);
         let archive = Archive::load(&assets);
+        let douk_system = (assets.game().title == silky_format::game::Title::Doukyuusei)
+            .then(|| crate::games::doukyuusei::system::System::load(&assets, config.language).ok())
+            .flatten();
         let mut renderer = Renderer::new(text, config.language);
         renderer.set_title(assets.game().title);
         let rt = Runtime::new(assets, config);
@@ -235,6 +240,7 @@ impl Session {
             town_input: Default::default(),
             town_pointer_down: false,
             town_ms: 0,
+            douk_system,
         };
         s.restart()?;
         Ok(s)
@@ -350,7 +356,16 @@ impl Session {
             !self.ui.window_hidden && self.state != State::Title,
         )?;
         let canvas = canvas.rasterize();
-        Ok(save::thumbnail(&canvas.rgba, canvas.width, canvas.height))
+        let size = match self.douk_system {
+            Some(_) => crate::games::doukyuusei::system::THUMB,
+            None => save::THUMB_SIZE,
+        };
+        Ok(save::thumbnail_sized(
+            &canvas.rgba,
+            canvas.width,
+            canvas.height,
+            size,
+        ))
     }
 
     /// Writes an auto save of the last message (when a selection comes
@@ -1379,7 +1394,7 @@ impl Session {
                 let max = self.archive.max_scroll(&mut self.rt.assets, s);
                 Archive::wheel(s, up, max);
             }
-            Some(Screen::Costume(_)) => return Ok(()),
+            Some(Screen::Costume(_) | Screen::DoukSave(_)) => return Ok(()),
             Some(Screen::Extras(e)) if self.menus.is_apeiria() => {
                 use crate::games::apeiria::omake;
                 match (&mut e.ap.view, e.kind) {
@@ -1462,7 +1477,9 @@ impl Session {
     }
 
     fn open_save_load(&mut self, mode: Mode) {
-        let can_save = self.state == State::Text && self.saves.is_some();
+        // 同級生 Remake saves at its room and map screens too.
+        let at_panel = self.douk_system.is_some() && self.state == State::Choice;
+        let can_save = (self.state == State::Text || at_panel) && self.saves.is_some();
         if mode == Mode::Save && !can_save {
             return;
         }
@@ -1471,6 +1488,16 @@ impl Session {
         } else {
             None
         };
+        if self.douk_system.is_some() {
+            use crate::games::doukyuusei::system::SaveScreen;
+            let s = SaveScreen::new(mode == Mode::Load, can_save, self.saves.as_ref());
+            self.screen = Some(Screen::DoukSave(s));
+            self.ui.auto = false;
+            self.ui.skip = false;
+            self.ui.hover = None;
+            self.frame = None;
+            return;
+        }
         let mut s = SaveLoad {
             mode,
             tab: save::Kind::Manual,
@@ -1486,6 +1513,91 @@ impl Session {
         self.ui.skip = false;
         self.ui.hover = None;
         self.frame = None;
+    }
+
+    /// A click on 同級生 Remake's save screen.
+    fn press_douk_save(&mut self, id: i32) -> Result<()> {
+        use crate::games::doukyuusei::system::{ids, side, slot_name, SaveScreen};
+        let Some(Screen::DoukSave(s)) = &mut self.screen else {
+            return Ok(());
+        };
+        if !s.enabled(id) {
+            return Ok(());
+        }
+        let mut ask = None;
+        let mut refresh = false;
+        match id {
+            _ if id >= ids::SIDE => match (id - ids::SIDE) as usize {
+                side::SAVE | side::LOAD => {
+                    let load = id - ids::SIDE == side::LOAD as i32;
+                    if load || s.can_save {
+                        s.load = load;
+                        s.page = s
+                            .page
+                            .min(crate::games::doukyuusei::system::MANUAL_PAGES - 1);
+                        s.deleting = false;
+                        refresh = true;
+                    }
+                }
+                side::TITLE => ask = Some(Action::Title),
+                side::QUIT => ask = Some(Action::Quit),
+                side::BACK => {
+                    self.close_screen();
+                    return Ok(());
+                }
+                _ => {}
+            },
+            _ if (ids::CARD..ids::CARD + 10).contains(&id) => {
+                let i = (id - ids::CARD) as usize;
+                let Some(slot) = slot_name(s.page, i) else {
+                    return Ok(());
+                };
+                ask = if s.deleting {
+                    Some(Action::Delete(slot))
+                } else if s.load {
+                    Some(Action::Load(slot))
+                } else {
+                    Some(Action::Save(Some(slot)))
+                };
+            }
+            ids::PREVIOUS => {
+                s.turn(-1);
+                refresh = true;
+            }
+            ids::NEXT => {
+                s.turn(1);
+                refresh = true;
+            }
+            ids::QUICK if s.deleting => ask = Some(Action::Delete(save::QUICK.to_string())),
+            ids::QUICK if s.load => ask = Some(Action::Load(save::QUICK.to_string())),
+            ids::QUICK => {
+                self.save(save::QUICK)?;
+                self.refresh_screen();
+                return Ok(());
+            }
+            ids::AUTO => {
+                if let Some(c) = &s.auto {
+                    ask = Some(Action::Load(c.slot.clone()));
+                }
+            }
+            ids::DELETE => s.deleting = !s.deleting,
+            ids::DELETE_ALL => ask = Some(Action::DeleteAll),
+            _ => {
+                if let Some(p) = SaveScreen::page_of(id) {
+                    if s.page_open(p) {
+                        s.page = p;
+                        refresh = true;
+                    }
+                }
+            }
+        }
+        if refresh {
+            self.refresh_screen();
+        }
+        if let Some(action) = ask {
+            self.ask(action)?;
+        }
+        Ok(())
     }
 
     fn open_backlog(&mut self) {
@@ -1796,6 +1908,9 @@ impl Session {
         if let (Some(Screen::SaveLoad(s)), Some(saves)) = (&mut self.screen, &self.saves) {
             s.refresh(saves);
         }
+        if let (Some(Screen::DoukSave(s)), Some(saves)) = (&mut self.screen, &self.saves) {
+            s.refresh(saves);
+        }
         self.ui.has_saves = self.saves.as_ref().is_some_and(|s| !s.list().is_empty());
     }
 
@@ -1805,7 +1920,12 @@ impl Session {
         if !always && !self.rt.system.settings.confirm[action.question()] {
             return self.carry_out(action);
         }
+        let fresh = match (&action, &self.saves) {
+            (Action::Save(Some(slot)), Some(saves)) => !saves.list().contains(slot),
+            _ => false,
+        };
         self.dialog = Some(Dialog {
+            fresh,
             action,
             dont_ask: false,
         });
@@ -1897,6 +2017,7 @@ impl Session {
             Some(Screen::Settings(_)) => return self.press_settings(id, x, y),
             Some(Screen::Extras(_)) => return self.press_extras(id, x, y),
             Some(Screen::Archive(_) | Screen::Costume(_)) => return self.press_archive(id, x, y),
+            Some(Screen::DoukSave(_)) => return self.press_douk_save(id),
             _ => {}
         }
         let mut ask = None;
@@ -2018,7 +2139,7 @@ impl Session {
                 }
             }
             Some(Screen::Settings(_) | Screen::Extras(_)) | None => {}
-            Some(Screen::Archive(_) | Screen::Costume(_)) => {}
+            Some(Screen::Archive(_) | Screen::Costume(_) | Screen::DoukSave(_)) => {}
         }
         if close {
             self.close_screen();
@@ -2541,6 +2662,13 @@ impl Session {
             }
             Some(Screen::Archive(s)) => return self.archive.hit(s, x, y),
             Some(Screen::Costume(c)) => return self.archive.hit_costume(c, x, y),
+            Some(Screen::DoukSave(s)) => {
+                return self
+                    .douk_system
+                    .as_ref()?
+                    .hit_save(s, x, y)
+                    .map(Button::Screen)
+            }
             None => {}
         }
         if matches!(self.state, State::Busy | State::Movie | State::Extras) {
@@ -2846,6 +2974,22 @@ impl Session {
                         Screen::Archive(s) => self.archive.draw(&mut c, assets, &self.ui, s)?,
                         Screen::Costume(k) => {
                             self.archive.draw_costume(&mut c, assets, &self.ui, k)?
+                        }
+                        Screen::DoukSave(s) => {
+                            if let Some(sys) = &self.douk_system {
+                                let ui = &self.ui;
+                                let hover = match ui.hover {
+                                    Some(Button::Screen(id)) => Some(id),
+                                    _ => None,
+                                };
+                                sys.draw_save(
+                                    &mut c,
+                                    assets,
+                                    s,
+                                    |id| ui.state(Button::Screen(id), true, false) as u32,
+                                    hover,
+                                )?;
+                            }
                         }
                         Screen::Extras(e) => self.menus.draw_extras(
                             &mut c,

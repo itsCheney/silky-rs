@@ -37,10 +37,10 @@ const SHEET: &str = "cal_p.akb";
 pub const GAME_MODE: i32 = 1;
 
 /// Globals the plate shows.
-const WEEKDAY: usize = 4;
-const DATE: usize = 7;
-const MONEY: usize = 12;
-const TIME: usize = 19;
+pub(crate) const WEEKDAY: usize = 4;
+pub(crate) const DATE: usize = 7;
+pub(crate) const MONEY: usize = 12;
+pub(crate) const TIME: usize = 19;
 
 const LEAF_POS: (i32, i32) = (6, 0);
 const LEAF: (u32, u32) = (265, 177);

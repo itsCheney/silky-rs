@@ -193,7 +193,12 @@ impl Saves {
 
 /// Shrinks a frame to a thumbnail by averaging blocks of pixels.
 pub fn thumbnail(rgba: &[u8], width: u32, height: u32) -> Image {
-    let (tw, th) = THUMB_SIZE;
+    thumbnail_sized(rgba, width, height, THUMB_SIZE)
+}
+
+/// Shrinks a frame to a thumbnail of the given size.
+pub fn thumbnail_sized(rgba: &[u8], width: u32, height: u32, size: (u32, u32)) -> Image {
+    let (tw, th) = size;
     let mut out = vec![0u8; (tw * th * 4) as usize];
     for ty in 0..th {
         let (y0, y1) = (
