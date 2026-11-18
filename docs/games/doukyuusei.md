@@ -29,6 +29,7 @@ The game is an adventure in a town: the hero spends the days of a summer break g
   - Quick save and quick load (quick load gray without a save). The save holds the message before the room; loading it shows that message, then the room again (the original returns to the room itself).
   - Hint bar: `search_p.akb` (0, 684, 584, 68) at (658, 1005), and the line of `SYSTEM_<lang>.MAP` for the element under the pointer: 232 to 238 for the buttons, 239 + verb for a hot spot, 252 for back; empty on nothing. The text is the bitmap font at half size from (725, 1029).
 - The hours dial (`Game.29(kind)`, the program's time selection): `time_p_<lang>.akb` with the dial (750 x 756 from (0, 592)) at (586, 42), the question of the kind (403 x 76 from (1152, 76 × kind)) at (760, 456), eight hour buttons (144 x 148 cells) and back (151 x 153 from (750, 592)) placed by `TimeSelect.area`. Kind 0 asks how long to sleep, 1 how far to wind back, 2 how far to skip forward. Returns the hours, 0 for back. Matches the original under Wine.
+- The character picker (`Game.36(sub)`; the fortune teller and the confession), read from the executable, not compared under Wine: the screen dimmed with black at half opacity, then `charselect.area` places 14 cards (ids 0..13, 316 x 305 from `chara_list.akb`, seven to a row, a row per state and the second seven 1220 lower), the side buttons settings, backlog, save, load (256..259, 164 x 164 from `chara_menu.akb`), quick save and load (260, 261, 91 x 54 from (0, 656) and (91, 656)) and, for sub 0 only, back (512, 295 x 134 from (951, 0)). Byte variable i is 1 when card i can be picked (the script sets them first); the others are gray. Returns the card from 1, or 15 for back or the secondary click (sub 0).
 - Selections (`Select.2`, the program's normal selection): each option body leaves its line id in `h[40 + i]`; the labels are those lines of the script's text table. Each option is a bar of `sel_p.akb` (rows of 110 pixels by state): the 60-pixel ends, 105 pixels of body next to each end and a 40-pixel body slice per two cells of the longest label. The bars are centred across the screen and, 118 pixels apart, in the 780 pixels above the bottom buttons; a label is centred in its bar, 35 pixels from its top, in the message font. The message window goes away; its bottom buttons stay. Matches the original under Wine; only the first four options show (paging is not done).
 - The calendar (`Game.25`): the executable writes a year into the raw area from byte 18000, 32 bytes a month, a byte a day: the weekday (1 Monday to 7 Sunday), plus 8 on a holiday, 0 past the month's end. The scripts count a month's days and read the weekdays from it.
 - The walking maps (`Game.20`, the program's `CCps`), read from the executable. The program takes a call's values from the last one back; the sub command is the last.
@@ -81,8 +82,9 @@ The game is an adventure in a town: the hero spends the days of a summer break g
 - The walking maps: walking to a target (`Game.20(15)`, the program's path search), the place labels of game mode 1 (sub 32) and saving while on a map.
 - The extras screens (`Game.50` to `Game.53`, also reached from the hero's computer) close at once, returning -1.
 - More than four options (the original pages them with arrows), and options grayed once taken.
-- The character picker (`Game.36`, sub 0 or 1, returns the girl picked; `chara_list.akb`, `chara_menu.akb`; the fortune teller and the confession), the other place screens, the name entry (`Game.18`) and the other screens.
+- The other place screens, the name entry (`Game.18`) and the other screens.
 - Chinese text: the layout of full-width characters is assumed (two cells each, a character a word); it is not checked under Wine yet.
+- The character picker's sounds (`ses_003.wav`, `ses_004.wav` for the quick buttons and a system sound for a card).
 - Calls that change nothing here: `Select.0(-1)` (the engine readies the layers of its selection bars), `Game.20(24)` with a `.pal` file (not a sub command of this build), `Game.27` (the game's own mouse pointer on and off) and `Game.35` (marks for the "skip scenes" setting).
 - The other `Game` commands; the engine classes are taken from [engine-2026](../builds/engine-2026.md) unchecked.
 
@@ -125,6 +127,7 @@ Addresses in the program as it runs (the Steam wrapper unpacks it at its own ima
 | `Game.34` face, `Game.13` pictures, a picture laid in | 0x4e26f5, 0x4e3ae0, 0x48a510 |
 | `Game.13` object made, faded out | 0x48a340, 0x4899b0 |
 | `Game.27` mouse pointer, `Game.35` scene marks, `Game.36` character picker | 0x4ba9c0, 0x4e5df0, 0x48b610 |
+| Character picker: laid out, a card or button drawn, clicked, side button gray | 0x48c370, 0x48c020, 0x48b980, 0x48c790 |
 | Save screen: set up, a card drawn, the newest quick and auto saves drawn | 0x4c8ea0, 0x4ca7e0, 0x4cb2c0 |
 | Save card digits: number, date made, day, time, money | 0x4cc1c0, 0x4cc3f0, 0x4cc670, 0x4cc800, 0x4cca40 |
 | System menu side buttons and strip (`SystemParts`) | 0x4dbb30 |

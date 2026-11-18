@@ -496,12 +496,23 @@ fn snap(
                         }
                         // One hour.
                         Panel::Hours(_) => ("hours", panel.click(0)),
+                        // The first girl that can be picked, else back.
+                        Panel::Picker(p) => {
+                            use silky_runtime::games::doukyuusei::picker::{BACK, CARDS};
+                            let card = (0..CARDS as i32).find(|&i| p.enabled(i));
+                            let pick = match (card, p.sub) {
+                                (Some(i), _) => p.click(i),
+                                (None, 0) => p.click(BACK),
+                                (None, _) => Click::Result(1),
+                            };
+                            ("picker", pick)
+                        }
                         Panel::Town => unreachable!(),
                     };
                     let Click::Result(pick) = pick else {
                         unreachable!()
                     };
-                    if rooms < 5 {
+                    if rooms < 5 || name == "picker" {
                         let mut frame = renderer.render_scene(&rt.scene, &mut rt.assets, false)?;
                         let ui = Ui {
                             panel: Some(panel.clone()),

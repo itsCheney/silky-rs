@@ -1985,10 +1985,17 @@ impl Layout {
                 assets,
                 self.language,
                 |id| {
-                    use crate::games::doukyuusei::{room::QUICK_LOAD, Panel};
+                    use crate::games::doukyuusei::{picker, room::QUICK_LOAD, Panel};
                     // The room's quick load is gray without a save.
-                    let room = matches!(p, Panel::Room(_));
-                    let on = !(room && id == QUICK_LOAD as i32) || ui.has_saves;
+                    let on = match p {
+                        Panel::Room(_) => id != QUICK_LOAD as i32 || ui.has_saves,
+                        Panel::Picker(k) => match id {
+                            picker::BACKLOG => ui.has_log,
+                            picker::LOAD | picker::QUICK_LOAD => ui.has_saves,
+                            _ => k.enabled(id),
+                        },
+                        _ => true,
+                    };
                     ui.state(Button::Panel(id), on, false) as u32
                 },
                 hover,

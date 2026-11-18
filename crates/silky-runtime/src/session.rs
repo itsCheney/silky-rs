@@ -1292,6 +1292,20 @@ impl Session {
             self.end_movie()?;
             return Ok(true);
         }
+        // 同級生 Remake's character picker leaves on a secondary click.
+        if self.screen.is_none() {
+            let cancel = match &self.ui.panel {
+                Some(crate::games::doukyuusei::Panel::Picker(p)) => p.cancel(),
+                _ => None,
+            };
+            if let Some(result) = cancel {
+                self.ui.panel = None;
+                self.base = None;
+                self.rt.answer_action(&mut self.vm, result);
+                self.run()?;
+                return Ok(true);
+            }
+        }
         match &mut self.screen {
             Some(Screen::Extras(e)) if e.view.is_some() => {
                 e.view = None;
@@ -2806,6 +2820,13 @@ impl Session {
                     }
                     Click::QuickSave => self.save(save::QUICK)?,
                     Click::QuickLoad => self.load(save::QUICK)?,
+                    Click::Settings => {
+                        self.open_douk_settings(crate::games::doukyuusei::config::Page::System1)
+                    }
+                    Click::Backlog if self.ui.has_log => self.open_backlog(),
+                    Click::Backlog => {}
+                    Click::Save => self.open_save_load(Mode::Save),
+                    Click::Load => self.open_save_load(Mode::Load),
                     Click::None => {}
                 }
             }

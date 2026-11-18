@@ -11,6 +11,7 @@ pub mod config;
 pub mod hours;
 pub mod log;
 pub mod menu;
+pub mod picker;
 pub mod plate;
 pub mod room;
 pub mod select;
@@ -34,6 +35,8 @@ pub use room::Click;
 pub enum Panel {
     Room(room::Room),
     Hours(hours::Hours),
+    /// The character picker (`Game.36`).
+    Picker(picker::Picker),
     /// A walk on the map (`Game.20(30)`); the map itself is
     /// [`Runtime::town`], drawn as the background.
     Town,
@@ -45,6 +48,7 @@ impl Panel {
         match self {
             Panel::Room(r) => r.hit(x, y),
             Panel::Hours(h) => h.hit(x, y),
+            Panel::Picker(p) => p.hit(x, y),
             Panel::Town => None,
         }
     }
@@ -53,6 +57,7 @@ impl Panel {
         match self {
             Panel::Room(r) => r.click(id),
             Panel::Hours(h) => Click::Result(h.click(id)),
+            Panel::Picker(p) => p.click(id),
             Panel::Town => Click::None,
         }
     }
@@ -78,6 +83,7 @@ impl Panel {
         match self {
             Panel::Room(r) => r.draw(canvas, assets, state, hover, font),
             Panel::Hours(h) => h.draw(canvas, assets, language, state),
+            Panel::Picker(p) => p.draw(canvas, assets, state),
             Panel::Town => Ok(()),
         }
     }

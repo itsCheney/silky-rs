@@ -50,6 +50,11 @@ pub enum Click {
     /// room; loading it shows that message, then the room again.
     QuickSave,
     QuickLoad,
+    /// Open a system screen over it.
+    Settings,
+    Backlog,
+    Save,
+    Load,
     /// Nothing happens.
     None,
 }

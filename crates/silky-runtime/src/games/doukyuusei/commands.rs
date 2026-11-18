@@ -57,6 +57,9 @@ pub const AREA: i32 = 17;
 /// starts `Anime` program `index` of `group` unless it already runs (see
 /// [`crate::anime`]). The name is not used.
 pub const FACE: i32 = 34;
+/// `Game.36(sub)`: the character picker (see [`super::picker`]); returns
+/// the girl picked from 1, or 15 for back (sub 0 only).
+pub const PICKER: i32 = 36;
 /// `Game.27(sub)`: the game's mouse pointer.
 pub const POINTER: i32 = 27;
 /// `Game.35(sub)`: scene skip marks.
@@ -137,6 +140,13 @@ impl Runtime {
                 self.wait_for(crate::host::Pause::Panel)
             }
             (TOWN, sub) => self.doukyuusei_town(vm, c, sub),
+            (PICKER, sub) => {
+                match super::picker::Picker::load(&self.assets, sub, &vm.bytes) {
+                    Ok(p) => self.panel = Some(Panel::Picker(p)),
+                    Err(e) => return Some(Err(host_error(e.to_string()))),
+                }
+                self.wait_for(crate::host::Pause::Panel)
+            }
             (SCREEN, 28 | 29) => {
                 self.scene.plate = c.sub == 28;
                 self.done()
