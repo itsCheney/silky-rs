@@ -1175,6 +1175,9 @@ impl Host for Runtime {
                 let no_op = match title {
                     Title::Fuyukuru => crate::games::fuyukuru::commands::nothing_to_do(class, sub),
                     Title::Apeiria => crate::games::apeiria::commands::nothing_to_do(class, sub),
+                    // Select.0(-1): the engine readies the layers its
+                    // selection bars are drawn on.
+                    Title::Doukyuusei => class == native::SELECT && sub == 0,
                     _ => false,
                 };
                 if no_op {

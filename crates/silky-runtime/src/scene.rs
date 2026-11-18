@@ -21,6 +21,18 @@ pub struct Character {
     pub cheeks: Option<String>,
 }
 
+/// 同級生 Remake: a picture object of `Game.13`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct Picture {
+    pub name: String,
+    /// Picture laid onto it (`Game.13` sub 1), the same size; a new one
+    /// covers the last.
+    pub face: Option<String>,
+    /// Opacity in percent.
+    pub alpha: i32,
+}
+
 /// Where an E-mote model stands: its size in percent and the position the
 /// game hands the E-mote driver (read from the executable).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -164,6 +176,11 @@ pub struct Scene {
     /// [`crate::games::doukyuusei::plate`]).
     #[serde(default)]
     pub plate: bool,
+    /// 同級生 Remake: picture objects over the background by id
+    /// (`Game.13`): a standing character the size of the screen and the
+    /// face laid onto it.
+    #[serde(default)]
+    pub pictures: BTreeMap<i32, Picture>,
     /// Snow falls (ふゆから、くるる。, command 115).
     #[serde(default)]
     pub snow: bool,

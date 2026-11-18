@@ -43,7 +43,8 @@ The game is an adventure in a town: the hero spends the days of a summer break g
 - The menu button (`menu_m_p.akb`, 186 x 188 cells, rows normal, hover, pressed, disabled) at (1729, 2), up with the status plate. It opens six buttons (164 x 164 cells) down the right edge from (1655, 111), alternately 85 pixels right: settings, save, load, backlog, schedule and map jump; `mesmenu.carea` (a byte per screen pixel) says which is under the pointer. The map jump shows only on the walking maps, the backlog button only once the log has an entry. Placed as in the original under Wine. Settings opens the settings screen, save and load the save screen, backlog the backlog; schedule and map jump are not done, so their buttons are gray.
 - Faces in conversations, read from the executable (not compared under Wine yet):
   - The engine's `Anime` class runs the frame programs of an `.ax` file: 10 groups of 32 programs, then cells of seven numbers (kind, source x, y, width, height, screen x, y) from byte 1280, then the programs. Their operations draw a cell, wait, hold (where a program stops or pauses when asked), loop on two levels, start again and end. Every program that runs takes a step a frame. The cells come from the picture in sprite 5 (`Sprite.1(5, name)`) and are drawn into the background, so a cell stays until the background is loaded again; a cell of kind 3 puts the background back under itself first.
-  - A conversation loads its pictures first (`c_ce.mes` for one, `irce.mes` for two people): the face coming in, as three pictures the size of the screen laid into the background over 12 frames each (`Game.13(frames, effect, picture)`, sub 1), then the sheet (`can.akb`, 176 x 192 faces, an expression a column) and its programs (`c.ax`, a blinking loop per expression).
+  - A conversation loads its pictures first (`c_ce.mes` for one, `irce.mes` for two people): the standing picture, then the face coming in as three pictures laid onto it, then the sheet (`can.akb`, 176 x 192 faces, an expression a column) and its programs (`c.ax`, a blinking loop per expression).
+  - Pictures over the background are objects of `Game.13`, by id (the library only uses id 0, at 100 %): sub 0 `(frames, alpha, picture, id)` puts a picture the size of the screen up (`c.akb`, a standing character), sub 1 `(frames, id, picture)` lays a picture of the same size onto an object (the faces; without the object it does nothing), sub 4 `(frames)` fades all objects out (library function 39, at the end of each conversation) and sub 2 forgets those that faded. While an object is up, the `Anime` cells are drawn onto it instead of the background. The original fades while the program goes on; here a fade is a cross-fade of the screen.
   - `Game.34(index, group, name)` changes the face of a person (the group) to an expression (the program); it starts the program unless it already runs. The name is not used.
   - The speaker's icon (`message_icon.akb`, 144 x 144 cells four to a row) for some lines: `Game.10(n, 15)` shows icon n (from 1) at (78, 848), `Game.10(16)` takes it away. Values of `Game.10` below 10 do nothing in the program.
   - `Anime.10` (pause at the next hold) and `Anime.12` (wait for a program to end) do not wait here: the first pauses at once, the second runs the program to its end at once.
@@ -80,8 +81,9 @@ The game is an adventure in a town: the hero spends the days of a summer break g
 - The walking maps: walking to a target (`Game.20(15)`, the program's path search), the place labels of game mode 1 (sub 32) and saving while on a map.
 - The extras screens (`Game.50` to `Game.53`, also reached from the hero's computer) close at once, returning -1.
 - More than four options (the original pages them with arrows), and options grayed once taken.
-- The other place screens (`Game.36` and others), the name entry (`Game.18`) and the other screens.
+- The character picker (`Game.36`, sub 0 or 1, returns the girl picked; `chara_list.akb`, `chara_menu.akb`; the fortune teller and the confession), the other place screens, the name entry (`Game.18`) and the other screens.
 - Chinese text: the layout of full-width characters is assumed (two cells each, a character a word); it is not checked under Wine yet.
+- Calls that change nothing here: `Select.0(-1)` (the engine readies the layers of its selection bars), `Game.20(24)` with a `.pal` file (not a sub command of this build), `Game.27` (the game's own mouse pointer on and off) and `Game.35` (marks for the "skip scenes" setting).
 - The other `Game` commands; the engine classes are taken from [engine-2026](../builds/engine-2026.md) unchecked.
 
 ## Where things are in the executable
@@ -121,6 +123,8 @@ Addresses in the program as it runs (the Steam wrapper unpacks it at its own ima
 | `Anime` cell drawn over the background (kind 3) | 0x426a00 |
 | Speaker icon shown, taken away (`Game.10` 15, 16) | 0x4e2d11, 0x4e2e41 |
 | `Game.34` face, `Game.13` pictures, a picture laid in | 0x4e26f5, 0x4e3ae0, 0x48a510 |
+| `Game.13` object made, faded out | 0x48a340, 0x4899b0 |
+| `Game.27` mouse pointer, `Game.35` scene marks, `Game.36` character picker | 0x4ba9c0, 0x4e5df0, 0x48b610 |
 | Save screen: set up, a card drawn, the newest quick and auto saves drawn | 0x4c8ea0, 0x4ca7e0, 0x4cb2c0 |
 | Save card digits: number, date made, day, time, money | 0x4cc1c0, 0x4cc3f0, 0x4cc670, 0x4cc800, 0x4cca40 |
 | System menu side buttons and strip (`SystemParts`) | 0x4dbb30 |

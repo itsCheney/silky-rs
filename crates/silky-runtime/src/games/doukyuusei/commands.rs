@@ -41,10 +41,14 @@ pub const EXTRAS: std::ops::RangeInclusive<i32> = 50..=53;
 /// yet.
 pub const SCREEN: i32 = 10;
 
-/// `Game.13(frames, effect, picture)` with sub 1: lays a picture the
-/// size of the screen (the faces coming in before the `Anime` class takes
-/// them over) into the background over `frames`. The program leaves it
-/// out when the settings skip scene effects, which they do not here.
+/// `Game.13`: picture objects over the background, by id (the library
+/// only uses id 0). Sub 0 `(frames, alpha, picture, id)` puts a picture
+/// the size of the screen up (a standing character) at `alpha` percent;
+/// sub 1 `(frames, id, picture)` lays a picture of the same size onto
+/// object `id` (the faces), and does nothing without one; sub 4
+/// `(frames)` fades every object out; sub 2 forgets those that faded out.
+/// The fades take `frames` in the original while the program goes on;
+/// here they are a cross-fade of the screen.
 pub const PICTURE_IN: i32 = 13;
 /// `Game.17(file, 0)`: the `.area` file of the room screen's hot spots
 /// (see [`super::room`]), kept until the next one.
@@ -53,6 +57,10 @@ pub const AREA: i32 = 17;
 /// starts `Anime` program `index` of `group` unless it already runs (see
 /// [`crate::anime`]). The name is not used.
 pub const FACE: i32 = 34;
+/// `Game.27(sub)`: the game's mouse pointer.
+pub const POINTER: i32 = 27;
+/// `Game.35(sub)`: scene skip marks.
+pub const SCENE_MARKS: i32 = 35;
 
 impl Runtime {
     /// The status plate's values now, in 同級生 Remake.
@@ -160,22 +168,34 @@ impl Runtime {
                 self.scene.text = None;
                 self.wait_for(crate::host::Pause::Panel)
             }
-            (PICTURE_IN, 1) => {
-                let Some(name) = back_str(c, 0) else {
-                    return None;
-                };
-                let frames = back_int(c, 2);
-                let slot = self
-                    .scene
-                    .overlays
-                    .keys()
-                    .next_back()
-                    .map_or(0, |k| k + 1)
-                    .max(1000);
-                self.scene.overlays.insert(slot, name);
+            (PICTURE_IN, 0) => {
+                let name = back_str(c, 1)?;
+                let (id, alpha, frames) = (back_int(c, 0), back_int(c, 2), back_int(c, 3));
+                let face = None;
+                let picture = crate::scene::Picture { name, face, alpha };
+                self.scene.pictures.insert(id, picture);
                 self.handled += 1;
                 Some(Ok(self.transition(frames, None)))
             }
+            (PICTURE_IN, 1) => {
+                let name = back_str(c, 0)?;
+                let (id, frames) = (back_int(c, 1), back_int(c, 2));
+                self.handled += 1;
+                let Some(p) = self.scene.pictures.get_mut(&id) else {
+                    return Some(Ok(Flow::Continue));
+                };
+                p.face = Some(name);
+                Some(Ok(self.transition(frames, None)))
+            }
+            (PICTURE_IN, 4) => {
+                self.handled += 1;
+                if self.scene.pictures.is_empty() {
+                    return Some(Ok(Flow::Continue));
+                }
+                self.scene.pictures.clear();
+                Some(Ok(self.transition(back_int(c, 0), None)))
+            }
+            (PICTURE_IN, 2) => self.done(),
             (FACE, _) => {
                 let (index, group) = (back_int(c, 2), back_int(c, 1));
                 if !self.scene.anime.running(group, index) {
@@ -201,6 +221,10 @@ impl Runtime {
                 super::calendar::write(&mut vm.raw);
                 self.done()
             }
+            // The game's own mouse pointer on (0) and off (1), and the
+            // marks of scenes that the "skip scenes" setting jumps over
+            // (35: 0 marks, 1 clears); neither changes what is shown here.
+            (POINTER | SCENE_MARKS, _) => self.done(),
             (HERO_SPEAKS, _) => {
                 self.scene.speaker_name = Some(self.hero_name());
                 self.done()
@@ -313,8 +337,9 @@ impl Runtime {
                 return self.wait_for(crate::host::Pause::Panel);
             }
             // The place names drawn over the map (only in a mode of the
-            // settings not offered) and the program's own tile drawing.
-            29 | 32 => {}
+            // settings not offered) and the program's own tile drawing;
+            // 24 (a `.pal` file) is not one of this build's sub commands.
+            24 | 29 | 32 => {}
             34 => {
                 self.town = None;
                 self.scene.town = None;

@@ -597,11 +597,31 @@ impl Renderer {
             let img = assets.image(name)?;
             canvas.draw(&img, 0, 0, true);
         }
-        // Cells of the Anime class, drawn into the background; most put
-        // the background back under themselves first.
+        // 同級生 Remake: picture objects over the background. While one is
+        // up, the Anime cells are drawn onto it instead.
+        for p in scene.pictures.values() {
+            let alpha = (p.alpha.clamp(0, 100) * 255 / 100) as u8;
+            for name in std::iter::once(&p.name).chain(&p.face) {
+                let img = assets.image(name)?;
+                let (w, h) = (img.width, img.height);
+                canvas.draw_part(&img, (0, 0, w, h), 0, 0, false, alpha);
+            }
+        }
+        // Cells of the Anime class, drawn into the background (or the
+        // picture object); most put what lay under them back first.
         for cell in &scene.anime.shown {
             let (_, _, w, h) = cell.part;
-            if cell.restore {
+            if cell.restore && !scene.pictures.is_empty() {
+                for p in scene.pictures.values() {
+                    for name in std::iter::once(&p.name).chain(&p.face) {
+                        let img = assets.image(name)?;
+                        if cell.x >= 0 && cell.y >= 0 {
+                            let part = (cell.x as u32, cell.y as u32, w, h);
+                            canvas.draw_part(&img, part, cell.x, cell.y, false, 255);
+                        }
+                    }
+                }
+            } else if cell.restore {
                 if let (Some(bg), 0 | 100) = (&scene.background, scene.background_zoom) {
                     let img = assets.image(bg)?;
                     let (sw, sh) = self.size();
