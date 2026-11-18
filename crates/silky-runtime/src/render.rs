@@ -951,6 +951,11 @@ impl Renderer {
             mail.draw(&mut canvas, assets, self.text.as_ref())?;
         }
         if scene.text.is_some() && window && self.title == Title::Doukyuusei {
+            let (color, opacity) = self.window;
+            let rgb = color.map(|c| (c.clamp(0.0, 1.0) * 255.0).round() as u8);
+            let parts = assets.image("message_p.akb")?;
+            let band = self.tinted(&parts, crate::games::doukyuusei::window::BAND, rgb);
+            let alpha = (opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
             if self.douk_font.is_none() {
                 self.douk_font = Some(crate::games::doukyuusei::window::Font::load(assets)?);
             }
@@ -960,6 +965,7 @@ impl Renderer {
                 &mut canvas,
                 assets,
                 font,
+                (&band, alpha),
                 speaker,
                 scene.speaker_icon,
             )?;

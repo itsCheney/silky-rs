@@ -513,6 +513,7 @@ pub enum Screen {
     Costume(crate::games::kimaten2::archive::CostumeScreen),
     /// 同級生 Remake's save and load screen.
     DoukSave(crate::games::doukyuusei::system::SaveScreen),
+    DoukConfig(crate::games::doukyuusei::config::ConfigScreen),
 }
 
 /// Layouts of the screens, loaded once per game.

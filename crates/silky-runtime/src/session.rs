@@ -321,6 +321,10 @@ impl Session {
         self.screens = Screens::load(&self.rt.assets, language);
         self.menus = Menus::load(&self.rt.assets, language);
         self.renderer.set_language(language);
+        if self.douk_system.is_some() {
+            self.douk_system =
+                crate::games::doukyuusei::system::System::load(&self.rt.assets, language).ok();
+        }
     }
 
     /// Saves the shown message to `slot` (see [`save::QUICK`]).
@@ -947,6 +951,12 @@ impl Session {
             self.drag_settings(id, x, y);
             return;
         }
+        if let Some(Screen::DoukConfig(s)) = &self.screen {
+            if let Some(id) = s.dragging {
+                self.drag_douk_config(id, x);
+                return;
+            }
+        }
         if let Some(Screen::Extras(e)) = &self.screen {
             if e.k2.dragging_volume || e.ap.dragging_volume {
                 self.drag_omake_volume(x);
@@ -1037,6 +1047,31 @@ impl Session {
                 self.drag_settings(id, x, y);
             }
         }
+        if let (Some(Screen::DoukConfig(s)), Some(Button::Screen(id))) =
+            (&mut self.screen, self.ui.pressed)
+        {
+            if crate::games::doukyuusei::config::is_slider(s.page, id) {
+                s.dragging = Some(id);
+                self.drag_douk_config(id, x);
+            }
+        }
+    }
+
+    /// A slider of 同級生 Remake's settings follows the pointer.
+    fn drag_douk_config(&mut self, id: i32, x: i32) {
+        use crate::games::doukyuusei::config;
+        let (Some(Screen::DoukConfig(s)), Some(sys)) = (&self.screen, &self.douk_system) else {
+            return;
+        };
+        let Some(a) = sys.config_area(s.page, id) else {
+            return;
+        };
+        let value = config::slider_value(a, id, x);
+        let old = self.rt.system.settings.clone();
+        if config::apply(&mut self.rt.system.settings, id, value) {
+            self.settings_changed(old);
+        }
+        self.frame = None;
     }
 
     /// A slider or the scroll bar of the settings screen follows the
@@ -1086,6 +1121,11 @@ impl Session {
         let pressed = self.ui.pressed.take();
         self.frame = None;
         if let Some(Screen::Settings(s)) = &mut self.screen {
+            if s.dragging.take().is_some() {
+                return Ok(());
+            }
+        }
+        if let Some(Screen::DoukConfig(s)) = &mut self.screen {
             if s.dragging.take().is_some() {
                 return Ok(());
             }
@@ -1322,6 +1362,15 @@ impl Session {
     }
 
     fn open_settings(&mut self) {
+        if self.douk_system.is_some() {
+            use crate::games::doukyuusei::config::ConfigScreen;
+            self.screen = Some(Screen::DoukConfig(ConfigScreen::new(self.ui.clock)));
+            self.ui.skip = false;
+            self.sync_douk_speeds();
+            self.ui.hover = None;
+            self.frame = None;
+            return;
+        }
         self.screen = Some(Screen::Settings(SettingsScreen {
             opened: self.ui.clock,
             ..SettingsScreen::new()
@@ -1394,7 +1443,7 @@ impl Session {
                 let max = self.archive.max_scroll(&mut self.rt.assets, s);
                 Archive::wheel(s, up, max);
             }
-            Some(Screen::Costume(_) | Screen::DoukSave(_)) => return Ok(()),
+            Some(Screen::Costume(_) | Screen::DoukSave(_) | Screen::DoukConfig(_)) => return Ok(()),
             Some(Screen::Extras(e)) if self.menus.is_apeiria() => {
                 use crate::games::apeiria::omake;
                 match (&mut e.ap.view, e.kind) {
@@ -1476,6 +1525,90 @@ impl Session {
         Ok(())
     }
 
+    /// 同級生 Remake: whether the game can be saved now, and whether the
+    /// backlog has entries.
+    fn douk_can(&self) -> (bool, bool) {
+        let at_panel = self.douk_system.is_some() && self.state == State::Choice;
+        let can_save = (self.state == State::Text || at_panel) && self.saves.is_some();
+        (can_save, !self.log.is_empty())
+    }
+
+    /// A click on 同級生 Remake's settings.
+    fn press_douk_config(&mut self, id: i32, x: i32) -> Result<()> {
+        use crate::games::doukyuusei::config::{self, ids, Page};
+        use crate::games::doukyuusei::system::{side, System};
+        let (can_save, has_log) = self.douk_can();
+        let (Some(Screen::DoukConfig(s)), Some(sys)) = (&mut self.screen, &self.douk_system) else {
+            return Ok(());
+        };
+        if !System::config_enabled(s, id, can_save, has_log) {
+            return Ok(());
+        }
+        match id {
+            _ if id >= ids::SIDE => match (id - ids::SIDE) as usize {
+                side::SAVE | side::LOAD => {
+                    let mode = if id - ids::SIDE == side::SAVE as i32 {
+                        Mode::Save
+                    } else {
+                        Mode::Load
+                    };
+                    self.close_screen();
+                    self.open_save_load(mode);
+                }
+                side::LOG => {
+                    self.close_screen();
+                    self.open_backlog();
+                }
+                side::TITLE => self.ask(Action::Title)?,
+                side::QUIT => self.ask(Action::Quit)?,
+                side::BACK => self.close_screen(),
+                _ => {}
+            },
+            ids::PREVIOUS | ids::TAB => s.page = Page::System1,
+            ids::NEXT => s.page = Page::System2,
+            _ if id == ids::TAB + 1 => s.page = Page::System2,
+            ids::RESET => {
+                let old = self.rt.system.settings.clone();
+                let defaults = Settings::for_title(self.rt.assets.game().title);
+                config::reset(&mut self.rt.system.settings, &defaults);
+                self.settings_changed(old);
+            }
+            ids::SKIP => {
+                self.ui.skip = !self.ui.skip;
+                self.ui.auto = false;
+            }
+            ids::AUTO => {
+                self.ui.auto = !self.ui.auto;
+                self.ui.skip = false;
+                self.shown_ms = 0;
+            }
+            _ => {
+                let value = sys
+                    .config_area(s.page, id)
+                    .map_or(0.0, |a| config::slider_value(a, id, x));
+                let old = self.rt.system.settings.clone();
+                if config::apply(&mut self.rt.system.settings, id, value) {
+                    self.settings_changed(old);
+                }
+            }
+        }
+        self.sync_douk_speeds();
+        self.frame = None;
+        Ok(())
+    }
+
+    /// The speed sliders of 同級生 Remake's settings follow their switches.
+    fn sync_douk_speeds(&mut self) {
+        let speeds = [
+            self.rt.system.settings.typewriter,
+            self.ui.skip,
+            self.ui.auto,
+        ];
+        if let Some(Screen::DoukConfig(s)) = &mut self.screen {
+            s.speeds = speeds;
+        }
+    }
+
     fn open_save_load(&mut self, mode: Mode) {
         // 同級生 Remake saves at its room and map screens too.
         let at_panel = self.douk_system.is_some() && self.state == State::Choice;
@@ -1542,6 +1675,11 @@ impl Session {
                 }
                 side::LOG => {
                     self.open_backlog();
+                    return Ok(());
+                }
+                side::SETTINGS => {
+                    self.close_screen();
+                    self.open_settings();
                     return Ok(());
                 }
                 side::TITLE => ask = Some(Action::Title),
@@ -1897,7 +2035,7 @@ impl Session {
 
     fn close_screen(&mut self) {
         match &self.screen {
-            Some(Screen::Settings(_)) => self.flush_system(),
+            Some(Screen::Settings(_) | Screen::DoukConfig(_)) => self.flush_system(),
             Some(Screen::Archive(s)) if s.recording.is_some() => self.rt.stop_sound_voice(),
             // The costume screen writes its choice back when it closes.
             Some(Screen::Costume(c)) => {
@@ -2030,6 +2168,7 @@ impl Session {
             Some(Screen::Extras(_)) => return self.press_extras(id, x, y),
             Some(Screen::Archive(_) | Screen::Costume(_)) => return self.press_archive(id, x, y),
             Some(Screen::DoukSave(_)) => return self.press_douk_save(id),
+            Some(Screen::DoukConfig(_)) => return self.press_douk_config(id, x),
             _ => {}
         }
         let mut ask = None;
@@ -2154,7 +2293,12 @@ impl Session {
                 }
             }
             Some(Screen::Settings(_) | Screen::Extras(_)) | None => {}
-            Some(Screen::Archive(_) | Screen::Costume(_) | Screen::DoukSave(_)) => {}
+            Some(
+                Screen::Archive(_)
+                | Screen::Costume(_)
+                | Screen::DoukSave(_)
+                | Screen::DoukConfig(_),
+            ) => {}
         }
         if close {
             self.close_screen();
@@ -2684,6 +2828,13 @@ impl Session {
                     .hit_save(s, x, y)
                     .map(Button::Screen)
             }
+            Some(Screen::DoukConfig(s)) => {
+                use crate::games::doukyuusei::system::System;
+                let id = self.douk_system.as_ref()?.hit_config(s, x, y)?;
+                let (can_save, has_log) = self.douk_can();
+                return System::config_enabled(s, id, can_save, has_log)
+                    .then_some(Button::Screen(id));
+            }
             None => {}
         }
         if matches!(self.state, State::Busy | State::Movie | State::Extras) {
@@ -2806,6 +2957,14 @@ impl Session {
             };
             if self.renderer.progress_emote(&self.rt.scene, ms, talking) {
                 self.emote_moved = true;
+                self.frame = None;
+            }
+        }
+        if let Some(Screen::DoukConfig(s)) = &self.screen {
+            let per = self.rt.system.settings.char_ms().max(1);
+            if s.page == crate::games::doukyuusei::config::Page::System1
+                && (before - s.opened) / per != (self.ui.clock - s.opened) / per
+            {
                 self.frame = None;
             }
         }
@@ -2943,7 +3102,9 @@ impl Session {
                     // The settings screen's window sample shows the game
                     // screen through it.
                     let under = match screen {
-                        Screen::Settings(_) if !self.layout.is_kimaten2() => {
+                        Screen::Settings(_) | Screen::DoukConfig(_)
+                            if !self.layout.is_kimaten2() =>
+                        {
                             let c = self
                                 .renderer
                                 .render_scene(&self.rt.scene, &mut self.rt.assets, false)?
@@ -2956,6 +3117,7 @@ impl Session {
                         }
                         _ => None,
                     };
+                    let douk_can = self.douk_can();
                     let mut c = self.renderer.canvas();
                     let text = self.renderer.text();
                     let assets = &mut self.rt.assets;
@@ -3016,6 +3178,26 @@ impl Session {
                         Screen::Archive(s) => self.archive.draw(&mut c, assets, &self.ui, s)?,
                         Screen::Costume(k) => {
                             self.archive.draw_costume(&mut c, assets, &self.ui, k)?
+                        }
+                        Screen::DoukConfig(s) => {
+                            if let Some(sys) = &self.douk_system {
+                                let ui = &self.ui;
+                                let hover = match ui.hover {
+                                    Some(Button::Screen(id)) => Some(id),
+                                    _ => None,
+                                };
+                                let (can_save, has_log) = douk_can;
+                                sys.draw_config(
+                                    &mut c,
+                                    assets,
+                                    s,
+                                    &self.rt.system.settings,
+                                    |id| ui.state(Button::Screen(id), true, false) as u32,
+                                    hover,
+                                    (ui.skip, ui.auto, can_save, has_log),
+                                    (under.as_ref(), ui.clock),
+                                )?;
+                            }
                         }
                         Screen::DoukSave(s) => {
                             if let Some(sys) = &self.douk_system {

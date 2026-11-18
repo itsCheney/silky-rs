@@ -75,6 +75,14 @@ pub struct Settings {
     /// Animated E-mote characters (きまぐれテンプテーション2); kept for the
     /// settings screen, E-mote is not drawn yet.
     pub emote_animation: bool,
+    /// 同級生 Remake: classic rather than easy mode; kept for the settings
+    /// screen.
+    pub classic_mode: bool,
+    /// 同級生 Remake: walking speed on the maps (slow, normal, fast); kept
+    /// for the settings screen.
+    pub map_speed: u8,
+    /// 同級生 Remake: ask before jumping to an event of the flag list.
+    pub confirm_event: bool,
 }
 
 impl Default for Settings {
@@ -110,6 +118,9 @@ impl Default for Settings {
             voice_group: [1.0; VOICE_GROUPS],
             cut_voice: true,
             emote_animation: true,
+            classic_mode: false,
+            map_speed: 1,
+            confirm_event: true,
         }
     }
 }
@@ -124,6 +135,16 @@ impl Settings {
         if title == silky_format::game::Title::Apeiria {
             s.window_color = [0.0, 0.25, 0.46];
             s.window_opacity = 0.7;
+        } else if title == silky_format::game::Title::Doukyuusei {
+            // The message band's own opacity (161 of 255) and the other
+            // defaults of its settings screen, as a new install shows them
+            // under Wine.
+            s.window_opacity = 161.0 / 255.0;
+            s.text_speed = 0.8;
+            s.punctuation_pause = true;
+            s.keep_auto_after_choices = true;
+            s.keep_skip_after_choices = true;
+            s.fixed_window = true;
         } else {
             s.window_opacity = 0.6;
         }

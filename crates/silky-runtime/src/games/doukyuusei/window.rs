@@ -17,12 +17,10 @@ use crate::Result;
 /// (`mes_o.area` gives the window as 1920 x 350).
 pub const TOP: i32 = 730;
 /// Translucent black band (sheet rows 0..350) and its frame lines (rows
-/// 350..700), both drawn at [`TOP`].
-const BAND: (u32, u32, u32, u32) = (0, 0, 1920, 350);
+/// 350..700), both drawn at [`TOP`]. The band's alpha masks the window
+/// colour of the settings, drawn at the window opacity.
+pub const BAND: (u32, u32, u32, u32) = (0, 0, 1920, 350);
 const FRAME: (u32, u32, u32, u32) = (0, 350, 1920, 350);
-/// Opacity of the band under Wine with the default settings: the picture
-/// behind it keeps 37% of its brightness.
-pub const BAND_OPACITY: u8 = 161;
 /// Name plate (a star and a gold rule, sheet rows 1350..1400) and where its
 /// text starts.
 const NAME_PART: (u32, u32, u32, u32) = (0, 1350, 1500, 50);
@@ -429,17 +427,25 @@ impl Font {
     }
 }
 
-/// Draws the window band, frame and name plate. The band keeps the
-/// original's default opacity; the window settings do not apply yet.
+/// Draws the window band (the [`BAND`] mask filled with the window colour,
+/// at an opacity), frame and name plate.
 pub fn draw_window(
     canvas: &mut Canvas,
     assets: &mut Assets,
     font: &Font,
+    (band, opacity): (&Arc<Image>, u8),
     speaker: Option<&str>,
     icon: Option<u32>,
 ) -> Result<()> {
     let parts = assets.image("message_p.akb")?;
-    canvas.draw_part(&parts, BAND, 0, TOP, false, BAND_OPACITY);
+    canvas.draw_part(
+        band,
+        (0, 0, band.width, band.height),
+        0,
+        TOP,
+        false,
+        opacity,
+    );
     canvas.draw_part(&parts, FRAME, 0, TOP, false, 255);
     if let Some(i) = icon {
         let sheet = assets.image(ICONS)?;
