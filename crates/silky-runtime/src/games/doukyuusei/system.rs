@@ -312,9 +312,8 @@ impl SaveScreen {
             AUTO => self.load && !self.deleting && self.auto.is_some(),
             DELETE => self.load && self.any,
             DELETE_ALL => self.any && !self.deleting,
-            // The sound screen is not done yet.
             _ if id >= SIDE => match (id - SIDE) as usize {
-                side::SOUND => false,
+                side::SOUND => true,
                 side::LOG => self.log,
                 side::SAVE => self.can_save,
                 _ => true,
@@ -359,8 +358,9 @@ pub struct System {
     pub(super) language: Language,
     side: Arc<Vec<u8>>,
     areas: Vec<Area>,
-    /// `config00.area` and `config01.area` (the settings' two pages).
-    pub(super) config: [Vec<Area>; 2],
+    /// `config00.area`, `config01.area` and `config02.area` (the
+    /// settings' two system pages and the sound page).
+    pub(super) config: [Vec<Area>; 3],
     pub(super) system: Option<Arc<MapFile>>,
     font: std::cell::OnceCell<Option<Font>>,
 }
@@ -382,6 +382,7 @@ impl System {
             config: [
                 crate::screens::area_file(assets, "config00.area"),
                 crate::screens::area_file(assets, "config01.area"),
+                crate::screens::area_file(assets, "config02.area"),
             ],
             system: assets
                 .data(&format!("system_{}.map", language.suffix()))

@@ -1457,8 +1457,8 @@ pub fn reset(st: &mut Settings, page: Page) {
             st.effects = d.effects;
             st.voice_on = d.voice_on;
             st.voice = d.voice;
-            st.voice_group_on = [true; VOICE_GROUPS];
-            st.voice_group = [1.0; VOICE_GROUPS];
+            st.voice_group_on = [true; crate::system::VOICE_GROUP_SLOTS];
+            st.voice_group = [1.0; crate::system::VOICE_GROUP_SLOTS];
             st.cut_voice = d.cut_voice;
         }
     }

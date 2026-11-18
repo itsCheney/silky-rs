@@ -26,6 +26,37 @@ pub enum RightClick {
 /// characters (voice files `va*`..`vi*`) and everyone else.
 pub const VOICE_GROUPS: usize = 10;
 
+/// Voice groups kept in the settings: the most a game has (同級生 Remake's
+/// fourteen characters and everyone else).
+pub const VOICE_GROUP_SLOTS: usize = 15;
+
+/// Reads a list of voice groups of any length (older settings kept ten),
+/// filling the rest with `fill`.
+fn groups<'de, D, T>(d: D, fill: T) -> std::result::Result<[T; VOICE_GROUP_SLOTS], D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de> + Copy,
+{
+    let v: Vec<T> = serde::Deserialize::deserialize(d)?;
+    let mut out = [fill; VOICE_GROUP_SLOTS];
+    for (o, x) in out.iter_mut().zip(v) {
+        *o = x;
+    }
+    Ok(out)
+}
+
+fn groups_on<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<[bool; VOICE_GROUP_SLOTS], D::Error> {
+    groups(d, true)
+}
+
+fn groups_volume<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<[f32; VOICE_GROUP_SLOTS], D::Error> {
+    groups(d, 1.0)
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -68,8 +99,10 @@ pub struct Settings {
     pub effects: f32,
     pub voice_on: bool,
     pub voice: f32,
-    pub voice_group_on: [bool; VOICE_GROUPS],
-    pub voice_group: [f32; VOICE_GROUPS],
+    #[serde(deserialize_with = "groups_on")]
+    pub voice_group_on: [bool; VOICE_GROUP_SLOTS],
+    #[serde(deserialize_with = "groups_volume")]
+    pub voice_group: [f32; VOICE_GROUP_SLOTS],
     /// A click cuts the voice of the message.
     pub cut_voice: bool,
     /// Animated E-mote characters (きまぐれテンプテーション2); kept for the
@@ -114,8 +147,8 @@ impl Default for Settings {
             effects: 0.8,
             voice_on: true,
             voice: 1.0,
-            voice_group_on: [true; VOICE_GROUPS],
-            voice_group: [1.0; VOICE_GROUPS],
+            voice_group_on: [true; VOICE_GROUP_SLOTS],
+            voice_group: [1.0; VOICE_GROUP_SLOTS],
             cut_voice: true,
             emote_animation: true,
             classic_mode: false,
@@ -145,6 +178,9 @@ impl Settings {
             s.keep_auto_after_choices = true;
             s.keep_skip_after_choices = true;
             s.fixed_window = true;
+            s.music = 0.55;
+            s.effects = 0.7;
+            s.cut_voice = false;
         } else {
             s.window_opacity = 0.6;
         }
@@ -194,6 +230,18 @@ impl Settings {
             (Some(b'v'), Some(c @ b'a'..=b'i')) => (c - b'a') as usize,
             _ => VOICE_GROUPS - 1,
         }
+    }
+
+    /// Voice group in 同級生 Remake: the first letter names the speaker.
+    /// The sound page's fourteen characters have the letters of their
+    /// sample voices (`v9998.ogg` and on, listed in the executable in page
+    /// order); every other letter is the last group.
+    pub fn voice_group_of_doukyuusei(file: &str) -> usize {
+        const LETTERS: &[u8] = b"vlpmqtgneuojcd";
+        file.as_bytes()
+            .first()
+            .and_then(|c| LETTERS.iter().position(|l| *l == c.to_ascii_lowercase()))
+            .unwrap_or(VOICE_GROUP_SLOTS - 1)
     }
 
     /// Voice group in きまぐれテンプテーション2 (`k2a0001.ogg`): the third
@@ -288,6 +336,10 @@ mod tests {
         assert_eq!(Settings::voice_group_of("vk0145a.ogg"), 9);
         assert_eq!(Settings::voice_group_of_kimaten2("K2E0001.OGG"), 7);
         assert_eq!(Settings::voice_group_of_kimaten2("k2x0001.ogg"), 8);
+        assert_eq!(Settings::voice_group_of_doukyuusei("V0029.OGG"), 0);
+        assert_eq!(Settings::voice_group_of_doukyuusei("d9998.ogg"), 13);
+        assert_eq!(Settings::voice_group_of_doukyuusei("X0001.ogg"), 14);
+        assert_eq!(Settings::voice_group_of_doukyuusei("i9998.ogg"), 14);
     }
 
     #[test]

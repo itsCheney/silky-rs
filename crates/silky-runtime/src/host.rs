@@ -835,6 +835,9 @@ impl Runtime {
                     silky_format::game::Title::Kimaten2 => {
                         crate::system::Settings::voice_group_of_kimaten2(file)
                     }
+                    silky_format::game::Title::Doukyuusei => {
+                        crate::system::Settings::voice_group_of_doukyuusei(file)
+                    }
                     _ => crate::system::Settings::voice_group_of(file),
                 };
                 if st.voice_group_on[g] {

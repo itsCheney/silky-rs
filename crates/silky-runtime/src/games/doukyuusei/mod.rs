@@ -14,6 +14,7 @@ pub mod menu;
 pub mod plate;
 pub mod room;
 pub mod select;
+pub mod sound;
 pub mod system;
 pub mod town;
 pub mod window;

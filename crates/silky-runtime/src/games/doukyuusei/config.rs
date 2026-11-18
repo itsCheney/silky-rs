@@ -19,6 +19,7 @@ use std::sync::Arc;
 use silky_format::akb::Image;
 use silky_format::area::Area;
 
+use super::sound;
 use super::system::{side, System};
 use crate::assets::{Assets, Language};
 use crate::render::Canvas;
@@ -69,6 +70,8 @@ pub mod ids {
 pub enum Page {
     System1,
     System2,
+    /// The sound page ([`super::sound`]).
+    Sound,
 }
 
 /// The settings screen's state.
@@ -81,15 +84,18 @@ pub struct ConfigScreen {
     /// The text, skip and auto speed sliders are up (their switches are
     /// on); the knob is left out and the slider does nothing otherwise.
     pub speeds: [bool; 3],
+    /// The sound page's page of characters.
+    pub voices: usize,
 }
 
 impl ConfigScreen {
-    pub fn new(opened: u64) -> Self {
+    pub fn new(page: Page, opened: u64) -> Self {
         Self {
-            page: Page::System1,
+            page,
             dragging: None,
             opened,
             speeds: [true; 3],
+            voices: 0,
         }
     }
 }
@@ -155,7 +161,11 @@ fn is_speed(id: i32) -> bool {
 
 /// Whether control `id` is a slider (it follows a held pointer).
 pub fn is_slider(page: Page, id: i32) -> bool {
-    page == Page::System1 && (is_speed(id) || (ids::COLOR..=ids::ALPHA).contains(&id))
+    match page {
+        Page::System1 => is_speed(id) || (ids::COLOR..=ids::ALPHA).contains(&id),
+        Page::System2 => false,
+        Page::Sound => sound::is_slider(id),
+    }
 }
 
 fn slider(st: &Settings, id: i32) -> Option<f32> {
@@ -287,6 +297,7 @@ impl System {
         match page {
             Page::System1 => &self.config[0],
             Page::System2 => &self.config[1],
+            Page::Sound => &self.config[2],
         }
     }
 
@@ -295,13 +306,21 @@ impl System {
     }
 
     /// Whether an element of the settings does something now.
-    pub fn config_enabled(s: &ConfigScreen, id: i32, can_save: bool, has_log: bool) -> bool {
+    pub fn config_enabled(
+        s: &ConfigScreen,
+        st: &Settings,
+        id: i32,
+        can_save: bool,
+        has_log: bool,
+    ) -> bool {
+        if s.page == Page::Sound && id < ids::SIDE {
+            return sound::enabled(st, s.voices, id);
+        }
         match id {
             ids::TEXT_SPEED | ids::SKIP_SPEED | ids::AUTO_SPEED => s.speeds[speed_index(id)],
             ids::PREVIOUS => s.page == Page::System2,
             ids::NEXT => s.page == Page::System1,
             _ if id >= ids::SIDE => match (id - ids::SIDE) as usize {
-                side::SOUND => false,
                 side::SAVE => can_save,
                 side::LOG => has_log,
                 _ => true,
@@ -323,10 +342,11 @@ impl System {
     }
 
     /// The hint for an element of the settings (`SYSTEM_<lang>.MAP`).
-    fn config_hint(&self, id: i32) -> Option<String> {
+    fn config_hint(&self, s: &ConfigScreen, id: i32) -> Option<String> {
         use ids::*;
         let n = match id {
             _ if id >= SIDE => 79 + (id - SIDE) as u32,
+            _ if s.page == Page::Sound => sound::hint_line(s.voices, id)?,
             MODE | 1 => 70,
             _ if (SCREEN_SPEED..SCREEN_SPEED + 3).contains(&id) => 71,
             TYPEWRITER => 57,
@@ -370,13 +390,39 @@ impl System {
         (skip, auto, can_save, has_log): (bool, bool, bool, bool),
         (under, clock): (Option<&Arc<Image>>, u64),
     ) -> Result<()> {
+        let enabled = |id| Self::config_enabled(s, st, id, can_save, has_log);
+        let side_state = |i: usize| {
+            let id = ids::SIDE + i as i32;
+            let current = match s.page {
+                Page::Sound => side::SOUND,
+                _ => side::SETTINGS,
+            };
+            if i == current {
+                2
+            } else if !enabled(id) {
+                3
+            } else {
+                state(id).min(1)
+            }
+        };
+        let hint = hover.and_then(|id| self.config_hint(s, id));
+        if s.page == Page::Sound {
+            self.draw_sound(canvas, assets, s, st, &state)?;
+            self.draw_base(canvas, assets, hint.as_deref())?;
+            self.draw_reset(
+                canvas,
+                assets,
+                self.config_area(s.page, sound::ids::RESET),
+                &state,
+            )?;
+            return self.draw_side(canvas, assets, side_state);
+        }
         let bg = match s.page {
             Page::System1 => "system2_bg.akb",
-            Page::System2 => "system1_bg.akb",
+            _ => "system1_bg.akb",
         };
         let bg = assets.localized_image(bg, self.language)?;
         canvas.draw(&bg, 0, 0, false);
-        let hint = hover.and_then(|id| self.config_hint(id));
         self.draw_base(canvas, assets, hint.as_deref())?;
         let sheet = assets.localized_image("system_p.akb", self.language)?;
         let areas = self.config_areas(s.page);
@@ -441,7 +487,7 @@ impl System {
         // The page tabs and reset.
         let current_tab = match s.page {
             Page::System1 => ids::TAB,
-            Page::System2 => ids::TAB + 1,
+            _ => ids::TAB + 1,
         };
         for (k, id) in [ids::PREVIOUS, ids::TAB, ids::TAB + 1, ids::NEXT]
             .into_iter()
@@ -450,7 +496,7 @@ impl System {
             let Some(a) = area(id) else { continue };
             let row = if id == current_tab {
                 2
-            } else if !Self::config_enabled(s, id, can_save, has_log) {
+            } else if !enabled(id) {
                 3
             } else {
                 state(id).min(1)
@@ -463,22 +509,25 @@ impl System {
             );
             canvas.draw_part(&sheet, part, a.left, a.top, false, 255);
         }
-        if let Some(a) = area(ids::RESET) {
+        self.draw_reset(canvas, assets, area(ids::RESET), &state)?;
+        self.draw_side(canvas, assets, side_state)
+    }
+
+    /// The reset button of `menu_p.akb`.
+    fn draw_reset(
+        &self,
+        canvas: &mut Canvas,
+        assets: &mut Assets,
+        a: Option<&Area>,
+        state: &dyn Fn(i32) -> u32,
+    ) -> Result<()> {
+        if let Some(a) = a {
             let menu = assets.image("menu_p.akb")?;
             let (px, py, w, h) = RESET_PART;
-            let part = (px, py + state(ids::RESET).min(2) * h, w, h);
+            let part = (px, py + state(a.id).min(2) * h, w, h);
             canvas.draw_part(&menu, part, a.left, a.top, false, 255);
         }
-        self.draw_side(canvas, assets, |i| {
-            let id = ids::SIDE + i as i32;
-            if i == side::SETTINGS {
-                2
-            } else if !Self::config_enabled(s, id, can_save, has_log) {
-                3
-            } else {
-                state(id).min(1)
-            }
-        })
+        Ok(())
     }
 
     /// The window colour box: the game screen behind the menu, the

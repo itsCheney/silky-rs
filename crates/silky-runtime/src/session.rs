@@ -1059,16 +1059,26 @@ impl Session {
 
     /// A slider of 同級生 Remake's settings follows the pointer.
     fn drag_douk_config(&mut self, id: i32, x: i32) {
-        use crate::games::doukyuusei::config;
+        use crate::games::doukyuusei::{config, sound};
         let (Some(Screen::DoukConfig(s)), Some(sys)) = (&self.screen, &self.douk_system) else {
             return;
         };
         let Some(a) = sys.config_area(s.page, id) else {
             return;
         };
-        let value = config::slider_value(a, id, x);
         let old = self.rt.system.settings.clone();
-        if config::apply(&mut self.rt.system.settings, id, value) {
+        let changed = match s.page {
+            config::Page::Sound => {
+                let value = sound::slider_value(a, x);
+                sound::apply(&mut self.rt.system.settings, s.voices, id, value)
+            }
+            _ => config::apply(
+                &mut self.rt.system.settings,
+                id,
+                config::slider_value(a, id, x),
+            ),
+        };
+        if changed {
             self.settings_changed(old);
         }
         self.frame = None;
@@ -1126,7 +1136,11 @@ impl Session {
             }
         }
         if let Some(Screen::DoukConfig(s)) = &mut self.screen {
-            if s.dragging.take().is_some() {
+            if let Some(id) = s.dragging.take() {
+                if s.page == crate::games::doukyuusei::config::Page::Sound {
+                    let voices = s.voices;
+                    self.douk_sound_sample(voices, id);
+                }
                 return Ok(());
             }
         }
@@ -1363,12 +1377,7 @@ impl Session {
 
     fn open_settings(&mut self) {
         if self.douk_system.is_some() {
-            use crate::games::doukyuusei::config::ConfigScreen;
-            self.screen = Some(Screen::DoukConfig(ConfigScreen::new(self.ui.clock)));
-            self.ui.skip = false;
-            self.sync_douk_speeds();
-            self.ui.hover = None;
-            self.frame = None;
+            self.open_douk_settings(crate::games::doukyuusei::config::Page::System1);
             return;
         }
         self.screen = Some(Screen::Settings(SettingsScreen {
@@ -1533,19 +1542,59 @@ impl Session {
         (can_save, !self.log.is_empty())
     }
 
+    /// Opens 同級生 Remake's settings at `page`.
+    fn open_douk_settings(&mut self, page: crate::games::doukyuusei::config::Page) {
+        use crate::games::doukyuusei::config::ConfigScreen;
+        self.screen = Some(Screen::DoukConfig(ConfigScreen::new(page, self.ui.clock)));
+        self.ui.skip = false;
+        self.sync_douk_speeds();
+        self.ui.hover = None;
+        self.frame = None;
+    }
+
     /// A click on 同級生 Remake's settings.
     fn press_douk_config(&mut self, id: i32, x: i32) -> Result<()> {
         use crate::games::doukyuusei::config::{self, ids, Page};
+        use crate::games::doukyuusei::sound;
         use crate::games::doukyuusei::system::{side, System};
         let (can_save, has_log) = self.douk_can();
         let (Some(Screen::DoukConfig(s)), Some(sys)) = (&mut self.screen, &self.douk_system) else {
             return Ok(());
         };
-        if !System::config_enabled(s, id, can_save, has_log) {
+        if !System::config_enabled(s, &self.rt.system.settings, id, can_save, has_log) {
+            return Ok(());
+        }
+        if s.page == Page::Sound && id < ids::SIDE {
+            let voices = s.voices;
+            match id {
+                sound::ids::PREVIOUS => s.voices = voices.saturating_sub(1),
+                sound::ids::NEXT => s.voices = (voices + 1).min(sound::PAGES - 1),
+                _ if (sound::ids::TAB..sound::ids::TAB + sound::PAGES as i32).contains(&id) => {
+                    s.voices = (id - sound::ids::TAB) as usize
+                }
+                sound::ids::RESET => {
+                    let old = self.rt.system.settings.clone();
+                    let defaults = Settings::for_title(self.rt.assets.game().title);
+                    sound::reset(&mut self.rt.system.settings, &defaults);
+                    self.settings_changed(old);
+                }
+                _ => {
+                    let value = sys
+                        .config_area(s.page, id)
+                        .map_or(0.0, |a| sound::slider_value(a, x));
+                    let old = self.rt.system.settings.clone();
+                    if sound::apply(&mut self.rt.system.settings, voices, id, value) {
+                        self.settings_changed(old);
+                    }
+                }
+            }
+            self.frame = None;
             return Ok(());
         }
         match id {
             _ if id >= ids::SIDE => match (id - ids::SIDE) as usize {
+                side::SETTINGS => s.page = Page::System1,
+                side::SOUND => s.page = Page::Sound,
                 side::SAVE | side::LOAD => {
                     let mode = if id - ids::SIDE == side::SAVE as i32 {
                         Mode::Save
@@ -1595,6 +1644,22 @@ impl Session {
         self.sync_douk_speeds();
         self.frame = None;
         Ok(())
+    }
+
+    /// Plays the sample of a slider of 同級生 Remake's sound page once it
+    /// is let go.
+    fn douk_sound_sample(&mut self, voices: usize, id: i32) {
+        use crate::games::doukyuusei::sound;
+        let Some(file) = sound::sample(voices, id) else {
+            return;
+        };
+        let played = match id {
+            sound::ids::EFFECTS => self.rt.play_sound(file),
+            _ => self.rt.replay_voice(file),
+        };
+        if let Err(e) = played {
+            eprintln!("sound sample {file}: {e}");
+        }
     }
 
     /// The speed sliders of 同級生 Remake's settings follow their switches.
@@ -1677,9 +1742,14 @@ impl Session {
                     self.open_backlog();
                     return Ok(());
                 }
-                side::SETTINGS => {
+                side::SETTINGS | side::SOUND => {
+                    use crate::games::doukyuusei::config::Page;
+                    let page = match (id - ids::SIDE) as usize {
+                        side::SOUND => Page::Sound,
+                        _ => Page::System1,
+                    };
                     self.close_screen();
-                    self.open_settings();
+                    self.open_douk_settings(page);
                     return Ok(());
                 }
                 side::TITLE => ask = Some(Action::Title),
@@ -2832,7 +2902,8 @@ impl Session {
                 use crate::games::doukyuusei::system::System;
                 let id = self.douk_system.as_ref()?.hit_config(s, x, y)?;
                 let (can_save, has_log) = self.douk_can();
-                return System::config_enabled(s, id, can_save, has_log)
+                let st = &self.rt.system.settings;
+                return System::config_enabled(s, st, id, can_save, has_log)
                     .then_some(Button::Screen(id));
             }
             None => {}
