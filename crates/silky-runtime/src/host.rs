@@ -273,6 +273,8 @@ pub struct Runtime {
     pub map: Option<crate::games::kimaten2::map::Map>,
     /// The screen of 同級生 Remake that is up.
     pub panel: Option<crate::games::doukyuusei::Panel>,
+    /// 同級生 Remake: the walking map loaded (`Game.20`).
+    pub town: Option<crate::games::doukyuusei::town::Town>,
     /// Sprite animations (class 19, subs 16 to 28).
     pub(crate) sprites: crate::sprite::Sprites,
     /// Second step of an effect, after the transition that started it.
@@ -345,6 +347,7 @@ impl Runtime {
             actions: Vec::new(),
             map: None,
             panel: None,
+            town: None,
             sprites: Default::default(),
             then: None,
             vo_steps: Vec::new(),

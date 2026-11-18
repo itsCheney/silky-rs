@@ -579,6 +579,9 @@ impl Renderer {
     /// redraws what lies above it.
     pub fn render_under(&mut self, scene: &Scene, assets: &mut Assets) -> Result<Canvas> {
         let mut canvas = self.canvas();
+        if let (None, Some(town)) = (&scene.background, &scene.town) {
+            town.draw(&mut canvas, assets)?;
+        }
         if let Some(bg) = &scene.background {
             let img = assets.image(bg)?;
             let (w, h) = self.size();

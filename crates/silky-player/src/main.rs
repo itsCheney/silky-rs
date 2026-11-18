@@ -154,6 +154,8 @@ fn main() -> Result<()> {
         last_tick: Instant::now(),
         cursor: (0, 0),
         wheel: 0.0,
+        held: 0,
+        fast: false,
         error: None,
     };
     event_loop.run_app(&mut app)?;
@@ -246,6 +248,9 @@ struct App {
     cursor: (i32, i32),
     /// Trackpad scrolling not yet turned into wheel steps.
     wheel: f64,
+    /// Arrow keys held (同級生 Remake's walking map) and Shift or Ctrl.
+    held: u8,
+    fast: bool,
     error: Option<anyhow::Error>,
 }
 
@@ -317,6 +322,18 @@ impl App {
         if let Some(v) = &self.view {
             v.window.request_redraw();
         }
+    }
+}
+
+/// The walking map's direction bit of an arrow key.
+fn arrow_bit(k: NamedKey) -> u8 {
+    use silky_runtime::games::doukyuusei::town::dir;
+    match k {
+        NamedKey::ArrowUp => dir::UP,
+        NamedKey::ArrowDown => dir::DOWN,
+        NamedKey::ArrowLeft => dir::LEFT,
+        NamedKey::ArrowRight => dir::RIGHT,
+        _ => 0,
     }
 }
 
@@ -414,7 +431,21 @@ impl ApplicationHandler for App {
                     self.after_input(event_loop, r);
                 }
             }
+            WindowEvent::ModifiersChanged(m) => {
+                self.fast = m.state().shift_key() || m.state().control_key();
+                self.session.set_held_keys(self.held, self.fast);
+            }
+            WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Released => {
+                if let Key::Named(k) = event.logical_key {
+                    self.held &= !arrow_bit(k);
+                    self.session.set_held_keys(self.held, self.fast);
+                }
+            }
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                if let Key::Named(k) = event.logical_key {
+                    self.held |= arrow_bit(k);
+                    self.session.set_held_keys(self.held, self.fast);
+                }
                 let r = match event.logical_key {
                     Key::Named(NamedKey::Enter | NamedKey::Space) => self.session.proceed(),
                     Key::Named(NamedKey::Escape) => self.session.back().map(|_| ()),

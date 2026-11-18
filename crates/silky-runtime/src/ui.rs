@@ -169,6 +169,8 @@ pub struct Ui {
     pub map: Option<crate::games::kimaten2::map::Map>,
     /// A screen of 同級生 Remake (room, hours dial), while it is up.
     pub panel: Option<crate::games::doukyuusei::Panel>,
+    /// 同級生 Remake's status plate, while it is up.
+    pub plate: Option<crate::games::doukyuusei::plate::Plate>,
     /// きまぐれテンプテーション2: some notebook entry, some collection
     /// item is open (enables their buttons).
     pub notebook: bool,
@@ -1857,6 +1859,19 @@ impl Layout {
     ) -> Result<()> {
         // 同級生 Remake: its own bars, with the bottom buttons of the
         // message window.
+        if let (Some(plate), Some(_)) = (&ui.plate, &self.douk) {
+            use crate::games::doukyuusei::Panel;
+            // Up over the room, the walking maps and selections, not the
+            // hours dial.
+            let up = match &ui.panel {
+                Some(Panel::Room(_) | Panel::Town) => true,
+                Some(Panel::Hours(_)) => false,
+                None => !ui.choices.is_empty(),
+            };
+            if up {
+                plate.draw(canvas, assets, self.language)?;
+            }
+        }
         if let (false, Some(d)) = (ui.choices.is_empty(), &self.douk) {
             let bars = crate::games::doukyuusei::select::Bars::new(&ui.choices);
             let font = d.font(assets);

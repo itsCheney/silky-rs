@@ -8,8 +8,10 @@
 pub mod calendar;
 pub(crate) mod commands;
 pub mod hours;
+pub mod plate;
 pub mod room;
 pub mod select;
+pub mod town;
 pub mod window;
 
 use silky_format::map::MapFile;
@@ -27,6 +29,9 @@ pub use room::Click;
 pub enum Panel {
     Room(room::Room),
     Hours(hours::Hours),
+    /// A walk on the map (`Game.20(30)`); the map itself is
+    /// [`Runtime::town`], drawn as the background.
+    Town,
 }
 
 impl Panel {
@@ -35,6 +40,7 @@ impl Panel {
         match self {
             Panel::Room(r) => r.hit(x, y),
             Panel::Hours(h) => h.hit(x, y),
+            Panel::Town => None,
         }
     }
 
@@ -42,6 +48,7 @@ impl Panel {
         match self {
             Panel::Room(r) => r.click(id),
             Panel::Hours(h) => Click::Result(h.click(id)),
+            Panel::Town => Click::None,
         }
     }
 
@@ -66,6 +73,7 @@ impl Panel {
         match self {
             Panel::Room(r) => r.draw(canvas, assets, state, hover, font),
             Panel::Hours(h) => h.draw(canvas, assets, language, state),
+            Panel::Town => Ok(()),
         }
     }
 }

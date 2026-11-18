@@ -145,6 +145,10 @@ pub struct Scene {
     /// 997).
     #[serde(default)]
     pub panels: crate::games::apeiria::panels::Panels,
+    /// 同級生 Remake: the walking map drawn as the background (`Game.20`
+    /// sub 10), shown while no background picture is loaded.
+    #[serde(default)]
+    pub town: Option<crate::games::doukyuusei::town::View>,
     /// Snow falls (ふゆから、くるる。, command 115).
     #[serde(default)]
     pub snow: bool,

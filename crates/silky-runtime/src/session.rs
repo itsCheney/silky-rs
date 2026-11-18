@@ -123,6 +123,11 @@ pub struct Session {
     playing_marked: bool,
     /// きまぐれテンプテーション2's H mode, over the game.
     hmode: Option<crate::games::kimaten2::hmode::HMode>,
+    /// 同級生 Remake's walking map: the input held and the time towards
+    /// the next step.
+    town_input: crate::games::doukyuusei::town::Input,
+    town_pointer_down: bool,
+    town_ms: u64,
 }
 
 struct MoviePlay {
@@ -227,6 +232,9 @@ impl Session {
             jolts: Vec::new(),
             vo_steps: Vec::new(),
             hmode: None,
+            town_input: Default::default(),
+            town_pointer_down: false,
+            town_ms: 0,
         };
         s.restart()?;
         Ok(s)
@@ -577,6 +585,7 @@ impl Session {
                             self.choice_points.push((len, e.state.clone()));
                         }
                         self.ui.choices = self.rt.choices.clone();
+                        self.ui.plate = self.rt.plate(&self.vm);
                         self.ui.waiting = false;
                         self.state = State::Choice;
                         self.modes_at_choice = (self.ui.skip && !self.skip_to_choice, self.ui.auto);
@@ -610,6 +619,7 @@ impl Session {
                     }
                     Some(Pause::Panel) => {
                         self.ui.panel = self.rt.panel.clone();
+                        self.ui.plate = self.rt.plate(&self.vm);
                         self.ui.waiting = false;
                         self.ui.skip = false;
                         self.ui.auto = false;
@@ -870,6 +880,44 @@ impl Session {
         self.hmode.as_ref().is_some_and(|h| h.own_cursor())
     }
 
+    /// 同級生 Remake: the walk on the map is up.
+    fn walking(&self) -> bool {
+        use crate::games::doukyuusei::Panel;
+        self.screen.is_none() && self.dialog.is_none() && matches!(self.ui.panel, Some(Panel::Town))
+    }
+
+    /// Arrow keys held ([`crate::games::doukyuusei::town::dir`] bits) and
+    /// Shift or Ctrl, for the walking map of 同級生 Remake.
+    pub fn set_held_keys(&mut self, keys: u8, fast: bool) {
+        self.town_input.keys = keys;
+        self.town_input.fast = fast;
+    }
+
+    /// Steps of the walk on the map, one per step time; a place reached
+    /// ends the walk with its id.
+    fn tick_town(&mut self, ms: u64) -> Result<()> {
+        use crate::games::doukyuusei::town::STEP_MS;
+        self.town_ms += ms;
+        let step = STEP_MS[1];
+        self.town_input.pointer = self.town_pointer_down.then_some(self.ui.pointer);
+        while self.town_ms >= step {
+            self.town_ms -= step;
+            let input = self.town_input;
+            let found = self.rt.town_tick(&mut self.vm, &input);
+            self.base = None;
+            self.frame = None;
+            if let Some(id) = found {
+                self.town_ms = 0;
+                self.town_pointer_down = false;
+                self.ui.panel = None;
+                self.rt.answer_action(&mut self.vm, id);
+                self.run()?;
+                break;
+            }
+        }
+        Ok(())
+    }
+
     /// Pointer moved to (x, y) in screen pixels.
     pub fn pointer_move(&mut self, x: i32, y: i32) {
         self.ui.pointer = (x, y);
@@ -917,6 +965,11 @@ impl Session {
         }
         self.ui.pressed = self.hit(x, y);
         self.frame = None;
+        if self.walking() && self.ui.pressed.is_none() {
+            self.ui.pointer = (x, y);
+            self.town_pointer_down = true;
+            return;
+        }
         if let (Some(Screen::Extras(e)), Some(Button::Screen(id))) =
             (&mut self.screen, self.ui.pressed)
         {
@@ -1011,6 +1064,9 @@ impl Session {
             let mut ops = Vec::new();
             h.pointer_up(x, y, &mut ops);
             self.apply_hmode(ops);
+            return Ok(());
+        }
+        if std::mem::take(&mut self.town_pointer_down) {
             return Ok(());
         }
         let pressed = self.ui.pressed.take();
@@ -2559,6 +2615,9 @@ impl Session {
         }
         if self.hmode.is_some() {
             self.tick_hmode(ms)?;
+        }
+        if self.walking() {
+            self.tick_town(ms)?;
         }
         if self.screen.is_none() && self.renderer.progress_snow(&self.rt.scene, ms) {
             self.frame = None;

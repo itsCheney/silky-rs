@@ -226,6 +226,7 @@ fn snap(
     let mut action_menus = 0usize;
     let mut maps = 0usize;
     let mut rooms = 0usize;
+    let mut towns = 0;
     let mut last_menu: (Vec<u32>, usize) = (Vec::new(), 0);
     // Frame shown when the game first waits after a movie (the movie's
     // still picture, the end card after the ending).
@@ -406,23 +407,84 @@ fn snap(
                     maps += 1;
                     rt.answer_action(&mut vm, pick);
                 }
+                Some(Pause::Panel)
+                    if matches!(
+                        rt.panel,
+                        Some(silky_runtime::games::doukyuusei::Panel::Town)
+                    ) =>
+                {
+                    // The walk on the map: the frame as it opens, then the
+                    // shortest way to the nearest place at least a few
+                    // steps away.
+                    use silky_runtime::games::doukyuusei::town::{dir, Input};
+                    if towns < 5 {
+                        let mut frame = renderer.render_scene(&rt.scene, &mut rt.assets, false)?;
+                        let ui = Ui {
+                            panel: rt.panel.clone(),
+                            plate: rt.plate(&vm),
+                            ..Ui::default()
+                        };
+                        layout.draw(&mut frame, &mut rt.assets, &ui, false, None)?;
+                        let path = out.join(format!("town{towns}.png"));
+                        write_png(&path, &frame)?;
+                        println!("{}", path.display());
+                    }
+                    let keys = rt
+                        .town
+                        .as_ref()
+                        .and_then(|t| route_to_place(t, 4, towns))
+                        .unwrap_or_default();
+                    let mut found = None;
+                    for (k, &key) in keys.iter().chain([0u8; 8].iter()).enumerate() {
+                        let input = Input {
+                            keys: key,
+                            ..Default::default()
+                        };
+                        if let Some(id) = rt.town_tick(&mut vm, &input) {
+                            found = Some(id);
+                            break;
+                        }
+                        let _ = k;
+                    }
+                    let Some(id) = found else {
+                        let frame = renderer.render_scene(&rt.scene, &mut rt.assets, false)?;
+                        write_png(&out.join("town_stuck.png"), &frame)?;
+                        let h = rt.town.as_ref().map(|t| t.walkers[0]);
+                        anyhow::bail!("no place reached on the map: {h:?}");
+                    };
+                    if towns < 5 {
+                        let frame = renderer.render_scene(&rt.scene, &mut rt.assets, false)?;
+                        let path = out.join(format!("town{towns}_end.png"));
+                        write_png(&path, &frame)?;
+                        println!("{}", path.display());
+                    }
+                    println!("town -> {id}");
+                    towns += 1;
+                    rt.answer_action(&mut vm, id);
+                }
                 Some(Pause::Panel) => {
                     use silky_runtime::games::doukyuusei::{room::THING, Click, Panel};
                     let panel = rt.panel.clone().unwrap();
                     let (name, pick) = match &panel {
-                        // Each thing in turn but the bed (the last), then
-                        // out.
+                        // Each thing in turn but the bed (the last) at
+                        // home, then talk (away from home), then out.
                         Panel::Room(r) => {
+                            use silky_runtime::games::doukyuusei::room::{EXIT, SLEEP};
                             let mut things = r.things();
-                            things.pop();
-                            let pick = match things.get(rooms % (things.len() + 1)) {
-                                Some(&t) => r.click(THING + t),
-                                None => r.click(0),
-                            };
+                            if r.set() == 0 {
+                                things.pop();
+                            }
+                            let mut ids: Vec<i32> = things.iter().map(|&t| THING + t).collect();
+                            if r.set() != 0 {
+                                ids.push(SLEEP as i32);
+                            }
+                            ids.push(EXIT as i32);
+                            let pick = r.click(ids[rooms % ids.len()]);
                             ("room", pick)
                         }
                         // One hour.
                         Panel::Hours(_) => ("hours", panel.click(0)),
+                        Panel::Town => unreachable!(),
                     };
                     let Click::Result(pick) = pick else {
                         unreachable!()
@@ -431,6 +493,7 @@ fn snap(
                         let mut frame = renderer.render_scene(&rt.scene, &mut rt.assets, false)?;
                         let ui = Ui {
                             panel: Some(panel.clone()),
+                            plate: rt.plate(&vm),
                             ..Ui::default()
                         };
                         layout.draw(&mut frame, &mut rt.assets, &ui, false, None)?;
@@ -709,4 +772,78 @@ impl Host for TraceHost {
         self.log(vm, &format!("select message {number}"));
         Ok(Flow::Continue)
     }
+}
+
+/// Arrow keys, a step each, that take the hero of a walking map into a
+/// place at least `min` steps away: the `pick`-th nearest (counting
+/// around), breadth first and without the sliding along walls.
+fn route_to_place(
+    t: &silky_runtime::games::doukyuusei::town::Town,
+    min: usize,
+    pick: usize,
+) -> Option<Vec<u8>> {
+    use silky_runtime::games::doukyuusei::town::dir;
+    use std::collections::{HashMap, VecDeque};
+    let hero = t.walkers.iter().position(|w| w.flags & 0x40 != 0)?;
+    let h = t.walkers[hero];
+    let (mw, mh) = t.size();
+    let (bw, bh) = (h.w as i32, h.h as i32);
+    let places = t.places();
+    let start = (h.x as i32, h.y as i32);
+    let mut came: HashMap<(i32, i32), ((i32, i32), u8)> = HashMap::new();
+    let mut depth: HashMap<(i32, i32), usize> = HashMap::from([(start, 0)]);
+    let mut queue = VecDeque::from([start]);
+    let mut found: Vec<(u16, (i32, i32))> = Vec::new();
+    // Key, facing bit of the place table.
+    let moves = [
+        (dir::UP, 1u16, 0, -1),
+        (dir::DOWN, 2, 0, 1),
+        (dir::LEFT, 4, -1, 0),
+        (dir::RIGHT, 8, 1, 0),
+    ];
+    while let Some((x, y)) = queue.pop_front() {
+        let d = depth[&(x, y)];
+        for &(key, bit, dx, dy) in &moves {
+            let blocked = match key {
+                dir::UP => y == 0 || (0..bw).any(|k| t.wall(x + k, y)),
+                dir::DOWN => y + bh >= mh || (0..bw).any(|k| t.wall(x + k, y + bh)),
+                dir::LEFT => x == 0 || (1..bh).any(|k| t.wall(x - 1, y + k)),
+                _ => x + bw >= mw || (1..bh).any(|k| t.wall(x + bw, y + k)),
+            };
+            if blocked {
+                continue;
+            }
+            let n = (x + dx, y + dy);
+            if depth.contains_key(&n) {
+                continue;
+            }
+            depth.insert(n, d + 1);
+            came.insert(n, ((x, y), key));
+            let inside = places.iter().find(|&&(_, l, tp, r, b, f)| {
+                n.0 <= r as i32
+                    && n.0 + bw > l as i32
+                    && n.1 + 1 <= b as i32
+                    && n.1 + bh > tp as i32
+                    && f & bit != 0
+            });
+            match inside {
+                Some(p) if d + 1 >= min => {
+                    if !found.iter().any(|f| f.0 == p.0) {
+                        found.push((p.0, n));
+                    }
+                }
+                // Walking through another place would end the walk there.
+                Some(_) => {}
+                None => queue.push_back(n),
+            }
+        }
+    }
+    let &(_, mut at) = found.get(pick % found.len().max(1))?;
+    let mut keys = Vec::new();
+    while let Some(&(from, key)) = came.get(&at) {
+        keys.push(key);
+        at = from;
+    }
+    keys.reverse();
+    Some(keys)
 }

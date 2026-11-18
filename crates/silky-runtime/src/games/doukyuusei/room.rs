@@ -137,6 +137,11 @@ impl Room {
         })
     }
 
+    /// The button set (`areasel_0N.carea`).
+    pub fn set(&self) -> i32 {
+        self.set
+    }
+
     /// Ids of the things that can be looked at, in order.
     pub fn things(&self) -> Vec<i32> {
         let mut ids: Vec<i32> = self.spots.iter().map(|a| a.id).collect();

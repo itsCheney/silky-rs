@@ -29,13 +29,24 @@ The game is an adventure in a town: the hero spends the days of a summer break g
 - The hours dial (`Game.29(kind)`, the program's time selection): `time_p_<lang>.akb` with the dial (750 x 756 from (0, 592)) at (586, 42), the question of the kind (403 x 76 from (1152, 76 × kind)) at (760, 456), eight hour buttons (144 x 148 cells) and back (151 x 153 from (750, 592)) placed by `TimeSelect.area`. Kind 0 asks how long to sleep, 1 how far to wind back, 2 how far to skip forward. Returns the hours, 0 for back. Matches the original under Wine.
 - Selections (`Select.2`, the program's normal selection): each option body leaves its line id in `h[40 + i]`; the labels are those lines of the script's text table. Each option is a bar of `sel_p.akb` (rows of 110 pixels by state): the 60-pixel ends, 105 pixels of body next to each end and a 40-pixel body slice per two cells of the longest label. The bars are centred across the screen and, 118 pixels apart, in the 780 pixels above the bottom buttons; a label is centred in its bar, 35 pixels from its top, in the message font. The message window goes away; its bottom buttons stay. Matches the original under Wine; only the first four options show (paging is not done).
 - The calendar (`Game.25`): the executable writes a year into the raw area from byte 18000, 32 bytes a month, a byte a day: the weekday (1 Monday to 7 Sunday), plus 8 on a holiday, 0 past the month's end. The scripts count a month's days and read the weekdays from it.
-- Headless, `silky-run snap` plays the opening, looks around the hero's room, sleeps an hour, looks at everything again and goes out; it stops at the town map.
+- The walking maps (`Game.20`, the program's `CCps`), read from the executable. The program takes a call's values from the last one back; the sub command is the last.
+  - Sub 0 (`name.mpx`) loads the grid: width and height (u16), then 5 bytes a 48-pixel tile, row by row; byte 4 is the wall flag.
+  - Sub 4 (`name.ccd`) loads the walkers. Header words: walker table, program table (a u16 offset per program), start table (camera x, y, walker x, y, a byte each) and tile patterns; there are (word 1 − 9) / 14 walkers of 14 bytes: flags (1 shown, 0x10 stopped by walls, 0x20 the camera follows, 0x40 the hero), look, width, height, x and y (u16), facing × 16 + frame, program, command, count and program counter. Sub 1 places a walker from the start table, sub 5 gives it a program, sub 7 sets its flags, sub 14 and 22 step and turn it, sub 20 makes it follow another, sub 31 puts the walkers and camera back from the raw area (camera at bytes 7097 and 7098, walker i at 7091 + 3i).
+  - Programs: 0 restarts, 1 and 8 face, 2 to 5 step up, down, left, right, 6 follows the trail, 9 waits, 14 takes the player's input.
+  - Sub 12 (`mode`, `name.eve`) loads the places: 12-byte records of id, left, top, right, bottom and the facings they take (up 1, down 2, left 4, right 8), up to 0xffff. A walker of size w × h at (x, y) is in a place when x ≤ right, x + w > left, y + 1 ≤ bottom, y + h > top and its facing is allowed. Sub 13 returns the place the hero is in.
+  - Sub 30 lets the player walk and returns the place reached. Arrow keys step a tile, Shift or Ctrl two; holding the mouse walks towards the pointer in eight directions. The hero is stopped by walls along the rows y + 1 to y + h − 1 and slides along them as the program does. A step takes 33 ms (`/Config/MapSpeed`: 66, 33 or 16).
+  - The view is 40 × 23 tiles with the program's scroll margins (20 and 12). Sub 27 and 28 load the map picture and its overlay; the picture is drawn from the camera, then the walkers sorted by y (144 × 144 frames: column [864, 0, 0, 864][facing] + (frame mod 6) × 144, row facing / 2 × 144; sheet slot 0 (sub 25) is the hero, slot 1 the others), then the overlay.
+  - Under Wine the first map frame matches within a level or two per pixel away from the edges, and a step up into the home door enters the house as in the original.
+- The status plate (the program's `CStatusPlate`, `cal_p_<lang>.akb`), up over the room, the walking maps and the selections: the calendar leaf (gray, red on Sunday, blue on Saturday) at (6, 0) with the day and weekday, the clock at (241, 13) (`HH:MM` on a 12-hour dial, am or pm), the money at (541, 13) (with a comma from 1,000 yen) and the game mode diamond at (841, 9). The values are the scripts' globals 4 (weekday, 0 for Sunday), 7 (month × 100 + day), 12 (money in hundreds of yen) and 19 (hours × 100 + minutes). The program puts it up with those screens; `Game.10` also shows it (28), hides it (29) and draws it again (30), which the runtime does not follow yet. Matches the original under Wine.
+- Headless, `silky-run snap` plays the opening, looks around the hero's room, sleeps an hour, then walks the town to one place after another (the shortest way, without walking through other places), looking at and talking to everything inside; it runs through more than two hundred visits over several days.
 
 ## Not done yet
 
-- The room screen: the date, time and money plate (`cal_p_<lang>.akb`) and the system menu button at the top right; the quick save and quick load buttons do nothing yet.
+- The menu button at the top right of the room and maps (`menu_m_p.akb`, `menu.carea`) and the system menu; the room's quick save and quick load buttons do nothing yet.
+- The walking maps: walking to a target (`Game.20(15)`, the program's path search), the place labels of game mode 1 (sub 32) and saving while on a map.
+- The extras screens (`Game.50` to `Game.53`, also reached from the hero's computer) close at once, returning -1.
 - More than four options (the original pages them with arrows), and options grayed once taken.
-- The town map (`Game.20(30)` in `town1.mes`, where the story stops headless), the people present and the other place screens (`Game.17`, `Game.36` and others), the name entry (`Game.18`), the system menu and the other screens.
+- The people present and the other place screens (`Game.17`, `Game.36` and others), the name entry (`Game.18`), the system menu and the other screens.
 - Chinese text: the layout of full-width characters is assumed (two cells each, a character a word); it is not checked under Wine yet.
 - The other `Game` commands; the engine classes are taken from [engine-2026](../builds/engine-2026.md) unchecked.
 
@@ -62,3 +73,10 @@ Addresses in the program as it runs (the Steam wrapper unpacks it at its own ima
 | One glyph drawn with its outline | 0x4a44e0 |
 | Message text laid out (words, `\n`, `\i`) | 0x4a6a00 |
 | Line breaks before closing punctuation | 0x4a7150 |
+| `Game.20` walking maps (`CCps`): sub commands | 0x493c20 |
+| Walking maps: walker programs, hero steps, wall slides | 0x495c20, 0x496250, 0x4973f0 |
+| Walking maps: input, way to the pointer, places reached | 0x496eb0, 0x4978f0, 0x4960a0 |
+| Walking maps: drawn, path search | 0x497e20, 0x4983e0 |
+| Status plate (`CStatusPlate`): made, drawn, time text | 0x4d8410, 0x4d8a90, 0x4d9120 |
+| Status plate shown, hidden (`Game.10` subs) | 0x4d8610, 0x4d87e0, 0x4e2bb0 |
+| `Game.50` to `Game.53` extras screens | 0x4e5ff0 |
