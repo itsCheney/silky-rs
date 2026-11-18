@@ -36,11 +36,15 @@ pub const CALENDAR: i32 = 25;
 /// the one it hands on to, until -1), also reached from the hero's
 /// computer. Not done yet: they close at once, returning -1.
 pub const EXTRAS: std::ops::RangeInclusive<i32> = 50..=53;
+/// `Game.10(sub)`: sub 28 puts the status plate up, 29 takes it down, 30
+/// draws it again (see [`super::plate`]); the other subs are not read
+/// yet.
+pub const SCREEN: i32 = 10;
 
 impl Runtime {
     /// The status plate's values now, in 同級生 Remake.
     pub fn plate(&self, vm: &Vm) -> Option<super::plate::Plate> {
-        (self.assets.game().title == silky_format::game::Title::Doukyuusei)
+        (self.assets.game().title == silky_format::game::Title::Doukyuusei && self.scene.plate)
             .then(|| super::plate::Plate::read(vm, super::plate::GAME_MODE))
     }
 
@@ -92,7 +96,10 @@ impl Runtime {
                     c.sub,
                     self.config.language,
                 ) {
-                    Ok(r) => self.panel = Some(Panel::Room(r)),
+                    Ok(r) => {
+                        self.panel = Some(Panel::Room(r));
+                        self.scene.plate = true;
+                    }
                     Err(e) => return Some(Err(host_error(e.to_string()))),
                 }
                 self.scene.text = None;
@@ -107,6 +114,11 @@ impl Runtime {
                 self.wait_for(crate::host::Pause::Panel)
             }
             (TOWN, sub) => self.doukyuusei_town(vm, c, sub),
+            (SCREEN, 28 | 29) => {
+                self.scene.plate = c.sub == 28;
+                self.done()
+            }
+            (SCREEN, 30) => self.done(),
             (command, _) if EXTRAS.contains(&command) => {
                 *self.unhandled.entry(format!("Game.{command}")).or_default() += 1;
                 vm.push(-1);
@@ -224,6 +236,7 @@ impl Runtime {
                 self.scene.background = None;
                 self.scene.text = None;
                 self.panel = Some(super::Panel::Town);
+                self.scene.plate = true;
                 return self.wait_for(crate::host::Pause::Panel);
             }
             // The place names drawn over the map (only in a mode of the

@@ -414,6 +414,8 @@ impl Runtime {
     /// [`Pause::Choice`].
     pub fn answer_choice(&mut self, vm: &mut Vm, index: usize) {
         self.choices.clear();
+        // 同級生 Remake's selection takes its status plate down again.
+        self.scene.plate = false;
         vm.push(index as i32 + 1);
     }
 
@@ -604,7 +606,11 @@ impl Runtime {
     pub fn answer_action(&mut self, vm: &mut Vm, result: i32) {
         self.actions.clear();
         self.map = None;
-        self.panel = None;
+        // 同級生 Remake's room takes its status plate down; the walking
+        // maps leave it up.
+        if let Some(crate::games::doukyuusei::Panel::Room(_)) = self.panel.take() {
+            self.scene.plate = false;
+        }
         vm.push(result);
     }
 
@@ -1122,6 +1128,7 @@ impl Host for Runtime {
                     self.choices = std::mem::take(&mut vm.option_labels);
                     if title == Title::Doukyuusei {
                         self.choices = self.doukyuusei_options(vm);
+                        self.scene.plate = true;
                     }
                     self.option_count = 0;
                     self.pause = Some(Pause::Choice);

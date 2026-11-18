@@ -149,6 +149,10 @@ pub struct Scene {
     /// sub 10), shown while no background picture is loaded.
     #[serde(default)]
     pub town: Option<crate::games::doukyuusei::town::View>,
+    /// 同級生 Remake: the status plate and menu button are up (see
+    /// [`crate::games::doukyuusei::plate`]).
+    #[serde(default)]
+    pub plate: bool,
     /// Snow falls (ふゆから、くるる。, command 115).
     #[serde(default)]
     pub snow: bool,

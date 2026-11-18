@@ -118,6 +118,10 @@ pub mod bar {
     /// 景の海のアペイリア only: the ball in the middle of the button ring,
     /// which folds the ring away and back.
     pub const RING: i32 = 22;
+    /// 同級生 Remake only: the schedule and the map jump of its menu (not
+    /// done yet).
+    pub const SCHEDULE: i32 = 23;
+    pub const MAP: i32 = 24;
 }
 
 /// Interface state kept by the frontend.
@@ -208,10 +212,20 @@ impl Ui {
     }
 
     /// Whether a button does anything right now.
+    /// 同級生 Remake: the status plate and the menu button are up.
+    pub fn plate_up(&self) -> bool {
+        self.plate.is_some()
+    }
+
     pub fn enabled(&self, b: Button) -> bool {
         match b {
             Button::Title(t) if self.locked_titles.contains(&t) => false,
             Button::Title(title::CONTINUE | title::LOAD) => self.has_saves,
+            // 同級生 Remake's menu: the screens of its six buttons are not
+            // done yet (see `games::doukyuusei::menu`).
+            Button::Bar(
+                bar::CONFIG | bar::SAVE | bar::LOAD | bar::BACKLOG | bar::SCHEDULE | bar::MAP,
+            ) if self.plate.is_some() => false,
             Button::Bar(bar::LOAD | bar::QUICK_LOAD) => self.has_saves,
             Button::Bar(bar::PREVIOUS_CHOICE) => self.previous_choice,
             Button::Bar(bar::NEXT_CHOICE) => !self.jump_off,
@@ -898,6 +912,9 @@ struct DoukBar {
     /// The bitmap fonts, for the room's hint bar, loaded when first
     /// needed.
     font: std::cell::OnceCell<Option<crate::games::doukyuusei::window::Font>>,
+    /// The menu button at the top right (see
+    /// [`crate::games::doukyuusei::menu`]).
+    menu: Option<crate::games::doukyuusei::menu::Menu>,
 }
 
 impl DoukBar {
@@ -933,6 +950,7 @@ impl DoukBar {
         Ok(Self {
             buttons,
             font: Default::default(),
+            menu: crate::games::doukyuusei::menu::Menu::load(assets).ok(),
         })
     }
 
@@ -1768,6 +1786,17 @@ impl Layout {
 
     /// Button under a point (screen pixels).
     pub fn hit(&self, ui: &Ui, text_shown: bool, x: i32, y: i32) -> Option<Button> {
+        if let (Some(m), true) = (
+            self.douk.as_ref().and_then(|d| d.menu.as_ref()),
+            ui.plate_up(),
+        ) {
+            let walking = matches!(ui.panel, Some(crate::games::doukyuusei::Panel::Town));
+            match m.hit(ui.side_menu, x, y) {
+                Some(bar::MAP) if !walking => {}
+                Some(id) => return Some(Button::Bar(id)),
+                None => {}
+            }
+        }
         if let (false, Some(d)) = (ui.choices.is_empty(), &self.douk) {
             let bars = crate::games::doukyuusei::select::Bars::new(&ui.choices);
             if let Some(i) = bars.hit(x, y) {
@@ -1859,17 +1888,22 @@ impl Layout {
     ) -> Result<()> {
         // 同級生 Remake: its own bars, with the bottom buttons of the
         // message window.
-        if let (Some(plate), Some(_)) = (&ui.plate, &self.douk) {
-            use crate::games::doukyuusei::Panel;
-            // Up over the room, the walking maps and selections, not the
-            // hours dial.
-            let up = match &ui.panel {
-                Some(Panel::Room(_) | Panel::Town) => true,
-                Some(Panel::Hours(_)) => false,
-                None => !ui.choices.is_empty(),
-            };
-            if up {
-                plate.draw(canvas, assets, self.language)?;
+        if let (Some(plate), Some(d), true) = (&ui.plate, &self.douk, ui.plate_up()) {
+            plate.draw(canvas, assets, self.language)?;
+            if let Some(m) = &d.menu {
+                use crate::games::doukyuusei::{menu::HIDDEN, Panel};
+                let walking = matches!(ui.panel, Some(Panel::Town));
+                m.draw(canvas, assets, ui.side_menu, |id| {
+                    // The map jump shows only on the walking maps. The
+                    // game's own settings, save, load, backlog and schedule
+                    // screens and the map jump are not done yet, so the six
+                    // stay gray.
+                    if id == bar::MAP && !walking {
+                        return HIDDEN;
+                    }
+                    let b = Button::Bar(id);
+                    ui.state(b, ui.enabled(b), false) as u32
+                })?;
             }
         }
         if let (false, Some(d)) = (ui.choices.is_empty(), &self.douk) {
@@ -1948,7 +1982,13 @@ impl Layout {
                 canvas,
                 assets,
                 self.language,
-                |id| (ui.state(Button::Panel(id), true, false) as u32).min(2),
+                |id| {
+                    use crate::games::doukyuusei::{room::QUICK_LOAD, Panel};
+                    // The room's quick load is gray without a save.
+                    let room = matches!(p, Panel::Room(_));
+                    let on = !(room && id == QUICK_LOAD as i32) || ui.has_saves;
+                    ui.state(Button::Panel(id), on, false) as u32
+                },
                 hover,
                 font,
             );

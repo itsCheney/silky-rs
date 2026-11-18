@@ -42,6 +42,10 @@ pub enum Click {
     Result(i32),
     /// Switch look mode on or off.
     Look(bool),
+    /// Quick save and quick load. The save holds the message before the
+    /// room; loading it shows that message, then the room again.
+    QuickSave,
+    QuickLoad,
     /// Nothing happens.
     None,
 }
@@ -198,14 +202,14 @@ impl Room {
             BACK => Click::Look(false),
             i if i >= THING => Click::Result(VERB_LOOK * 256 + (i - THING)),
             i if i == LOOK as i32 => Click::Look(true),
-            // Not done yet.
-            i if i == QUICK_SAVE as i32 || i == QUICK_LOAD as i32 => Click::None,
+            i if i == QUICK_SAVE as i32 => Click::QuickSave,
+            i if i == QUICK_LOAD as i32 => Click::QuickLoad,
             i => Click::Result(BUTTON * 256 + i),
         }
     }
 
     /// Draws the buttons; `state` gives the row (0 normal, 1 hover, 2
-    /// pressed) of an element id.
+    /// pressed, 3 gray) of an element id.
     /// `hover` is the element under the pointer, for the hint bar.
     pub fn draw(
         &self,
@@ -247,17 +251,12 @@ impl Room {
             let part = (168 * big_column(id, self.set), 171 * s, 168, 171);
             canvas.draw_part(&sheet, part, x, 909, false, 255);
         }
-        // Quick save and quick load; they do nothing yet, so quick load
-        // stays gray (row 3) as it is without a quick save.
+        // Quick save and quick load (gray, row 3, without a save).
         for (x, sx, id) in [(15, 960, QUICK_SAVE), (165, 810, QUICK_LOAD)] {
             if !present(id) {
                 continue;
             }
-            let s = if id == QUICK_LOAD {
-                3
-            } else {
-                state(id as i32)
-            };
+            let s = state(id as i32);
             canvas.draw_part(&sheet, (sx, 153 * s, 150, 153), x, 927, false, 255);
         }
         Ok(())

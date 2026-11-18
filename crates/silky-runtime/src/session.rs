@@ -585,7 +585,6 @@ impl Session {
                             self.choice_points.push((len, e.state.clone()));
                         }
                         self.ui.choices = self.rt.choices.clone();
-                        self.ui.plate = self.rt.plate(&self.vm);
                         self.ui.waiting = false;
                         self.state = State::Choice;
                         self.modes_at_choice = (self.ui.skip && !self.skip_to_choice, self.ui.auto);
@@ -619,7 +618,6 @@ impl Session {
                     }
                     Some(Pause::Panel) => {
                         self.ui.panel = self.rt.panel.clone();
-                        self.ui.plate = self.rt.plate(&self.vm);
                         self.ui.waiting = false;
                         self.ui.skip = false;
                         self.ui.auto = false;
@@ -910,6 +908,7 @@ impl Session {
                 self.town_ms = 0;
                 self.town_pointer_down = false;
                 self.ui.panel = None;
+                self.ui.side_menu = false;
                 self.rt.answer_action(&mut self.vm, id);
                 self.run()?;
                 break;
@@ -1155,8 +1154,9 @@ impl Session {
             self.base = None;
             return Ok(());
         }
-        // A click beside the open side menu closes it.
-        if self.ui.side_menu && !matches!(hit, Some(Button::Bar(_))) {
+        // A click beside the open side menu closes it (同級生 Remake's
+        // menu stays open beside the room and the maps).
+        if self.ui.side_menu && !matches!(hit, Some(Button::Bar(_))) && self.ui.plate.is_none() {
             self.ui.side_menu = false;
             self.frame = None;
             return Ok(());
@@ -2454,6 +2454,8 @@ impl Session {
                         p.set_look(on);
                         self.ui.hover = None;
                     }
+                    Click::QuickSave => self.save(save::QUICK)?,
+                    Click::QuickLoad => self.load(save::QUICK)?,
                     Click::None => {}
                 }
             }
@@ -2555,6 +2557,11 @@ impl Session {
         let before = self.ui.clock;
         self.ui.clock += ms;
         self.ui.tooltips = self.rt.system.settings.tooltips;
+        let plate = self.rt.plate(&self.vm);
+        if plate != self.ui.plate {
+            self.ui.plate = plate;
+            self.frame = None;
+        }
         if self.playing_marked && !self.rt.voice_playing() {
             match self.voice_queue.pop_front() {
                 Some(file) => self.rt.replay_voice(&file)?,

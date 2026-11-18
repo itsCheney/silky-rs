@@ -277,6 +277,7 @@ fn snap(
                         let mut frame = renderer.render(&rt.scene, &mut rt.assets)?;
                         let ui = Ui {
                             waiting: true,
+                            plate: rt.plate(&vm),
                             jump_off: layout.is_kimaten2() && !rt.read_before,
                             ..Ui::default()
                         };
@@ -500,6 +501,19 @@ fn snap(
                         let path = out.join(format!("{name}{rooms}.png"));
                         write_png(&path, &frame)?;
                         println!("{}", path.display());
+                        // The first room again with its menu open.
+                        if rooms == 0 {
+                            let mut frame =
+                                renderer.render_scene(&rt.scene, &mut rt.assets, false)?;
+                            let ui = Ui {
+                                side_menu: true,
+                                ..ui
+                            };
+                            layout.draw(&mut frame, &mut rt.assets, &ui, false, None)?;
+                            let path = out.join("room0_menu.png");
+                            write_png(&path, &frame)?;
+                            println!("{}", path.display());
+                        }
                     }
                     println!("{name} -> {pick}");
                     rooms += 1;
