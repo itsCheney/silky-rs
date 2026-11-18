@@ -46,6 +46,9 @@ pub const SCREEN: i32 = 10;
 /// them over) into the background over `frames`. The program leaves it
 /// out when the settings skip scene effects, which they do not here.
 pub const PICTURE_IN: i32 = 13;
+/// `Game.17(file, 0)`: the `.area` file of the room screen's hot spots
+/// (see [`super::room`]), kept until the next one.
+pub const AREA: i32 = 17;
 /// `Game.34(index, group, name)`: the face of a conversation changes;
 /// starts `Anime` program `index` of `group` unless it already runs (see
 /// [`crate::anime`]). The name is not used.
@@ -99,8 +102,10 @@ impl Runtime {
             }
             (ROOM, _) => {
                 let bg = self.scene.background.clone();
+                let area = self.scene.room_area.clone();
                 match super::room::Room::load(
                     &self.assets,
+                    area.as_deref(),
                     bg.as_deref(),
                     // The one value is taken as the sub command.
                     c.sub,
@@ -141,6 +146,20 @@ impl Runtime {
                 self.done()
             }
             (SCREEN, sub) if sub < 10 => self.done(),
+            (AREA, 0) => {
+                self.scene.room_area = back_str(c, 0);
+                self.done()
+            }
+            (AREA, 1) => {
+                let area = self.scene.room_area.clone();
+                match super::room::Room::plain(&self.assets, area.as_deref(), self.config.language)
+                {
+                    Ok(r) => self.panel = Some(Panel::Room(r)),
+                    Err(e) => return Some(Err(host_error(e.to_string()))),
+                }
+                self.scene.text = None;
+                self.wait_for(crate::host::Pause::Panel)
+            }
             (PICTURE_IN, 1) => {
                 let Some(name) = back_str(c, 0) else {
                     return None;

@@ -612,8 +612,10 @@ impl Runtime {
         self.map = None;
         // 同級生 Remake's room takes its status plate down; the walking
         // maps leave it up.
-        if let Some(crate::games::doukyuusei::Panel::Room(_)) = self.panel.take() {
-            self.scene.plate = false;
+        if let Some(crate::games::doukyuusei::Panel::Room(r)) = self.panel.take() {
+            if !r.is_plain() {
+                self.scene.plate = false;
+            }
         }
         vm.push(result);
     }

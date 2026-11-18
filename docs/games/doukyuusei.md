@@ -23,8 +23,9 @@ The game is an adventure in a town: the hero spends the days of a summer break g
 - The room screen (`Game.16(set)`, the program's area selection), read from the executable and matched under Wine within a level per pixel:
   - Buttons from `search_p.akb`: three large ones (168 x 171 cells, a row per state) at x = 1752, 1584, 1416, y = 909, and two small ones (150 x 153) at (15, 927) and (165, 927). Set 0 has go out, look and sleep; the other sets have a back arrow (138 x 140 from (672, 0), at (1782, 940)) in place of go out and talk in place of sleep. The small buttons are quick save and quick load, quick load gray without a quick save.
   - `areasel_0N.carea` (a byte per screen pixel, 255 for none) says which button a pixel belongs to.
-  - Look hides the buttons and shows the back arrow; the place's hot spots come from `<background up to "_">.area` (`42.area` for the hero's room), many rectangles per id. The high byte of an id is the verb (0 look, 4 open and so on), the low byte the object.
+  - Look hides the buttons and shows the back arrow; the place's hot spots come from the `.area` file the scripts name with `Game.17(file, 0)` (`42.area` for the hero's room), many rectangles per id. The high byte of an id is the verb (0 look, 4 open and so on), the low byte the object.
   - The call returns (verb + 1) × 256 + object for a hot spot and 255 × 256 + id for a button.
+  - `Game.17(1)` (the program's plain `CAreaSelect`) is the same selection without buttons: the hot spots of that file and the hint bar, returning (verb + 1) × 256 + object. Talk scenes use it. Not seen under Wine yet.
   - Quick save and quick load (quick load gray without a save). The save holds the message before the room; loading it shows that message, then the room again (the original returns to the room itself).
   - Hint bar: `search_p.akb` (0, 684, 584, 68) at (658, 1005), and the line of `SYSTEM_<lang>.MAP` for the element under the pointer: 232 to 238 for the buttons, 239 + verb for a hot spot, 252 for back; empty on nothing. The text is the bitmap font at half size from (725, 1029).
 - The hours dial (`Game.29(kind)`, the program's time selection): `time_p_<lang>.akb` with the dial (750 x 756 from (0, 592)) at (586, 42), the question of the kind (403 x 76 from (1152, 76 × kind)) at (760, 456), eight hour buttons (144 x 148 cells) and back (151 x 153 from (750, 592)) placed by `TimeSelect.area`. Kind 0 asks how long to sleep, 1 how far to wind back, 2 how far to skip forward. Returns the hours, 0 for back. Matches the original under Wine.
@@ -54,7 +55,7 @@ The game is an adventure in a town: the hero spends the days of a summer break g
 - The walking maps: walking to a target (`Game.20(15)`, the program's path search), the place labels of game mode 1 (sub 32) and saving while on a map.
 - The extras screens (`Game.50` to `Game.53`, also reached from the hero's computer) close at once, returning -1.
 - More than four options (the original pages them with arrows), and options grayed once taken.
-- The people present and the other place screens (`Game.17`, `Game.36` and others), the name entry (`Game.18`), the system menu and the other screens.
+- The other place screens (`Game.36` and others), the name entry (`Game.18`), the system menu and the other screens.
 - Chinese text: the layout of full-width characters is assumed (two cells each, a character a word); it is not checked under Wine yet.
 - The other `Game` commands; the engine classes are taken from [engine-2026](../builds/engine-2026.md) unchecked.
 
@@ -73,6 +74,7 @@ Addresses in the program as it runs (the Steam wrapper unpacks it at its own ima
 | Room button drawn by state | 0x4a39b0 |
 | Room hint for a hot spot (verb) | 0x46e490 |
 | Room hint for a button | 0x46cc90 |
+| `Game.17` area file, plain area selection (`CAreaSelect`: set up, result) | 0x4e2238, 0x46d960, 0x46dd20 |
 | `Game.29` hours dial (`CTimeSelect`): call, set up, drawn | 0x4e250c, 0x4dd5d0, 0x4ddc70 |
 | Hours dial: button drawn, clicked | 0x4ddae0, 0x4dd750 |
 | Selection bars built, placed (`CNormalSelect`) | 0x4c5f50, 0x4c62a0 |

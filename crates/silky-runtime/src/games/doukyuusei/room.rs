@@ -12,6 +12,10 @@
 //! hides the others and shows the back arrow; a click on a thing then
 //! returns 1 × 256 + its id in the place's `.area` file. A button returns
 //! 255 × 256 + its id. See `docs/games/doukyuusei.md`.
+//!
+//! `Game.17(1)` (the program's plain area selection) is the same without
+//! buttons: the hot spots of the file `Game.17(file, 0)` named and the
+//! hint bar, until a thing is clicked.
 
 use std::sync::Arc;
 
@@ -68,6 +72,8 @@ pub struct Room {
     /// `SYSTEM_<lang>.MAP`, for the hint bar.
     system: Option<Arc<MapFile>>,
     pub look: bool,
+    /// The plain area selection: things only, no buttons or back arrow.
+    plain: bool,
 }
 
 impl std::fmt::Debug for Room {
@@ -82,7 +88,8 @@ impl std::fmt::Debug for Room {
 const W: usize = 1920;
 const H: usize = 1080;
 
-/// The `.area` file of a background: `42_x.akb` -> `42.area`.
+/// The `.area` file of a background: `42_x.akb` -> `42.area`. Only for
+/// a room the scripts gave no file for (`Game.17`).
 pub fn area_name(background: &str) -> String {
     let stem = background.rsplit_once('.').map_or(background, |(s, _)| s);
     let place = stem.split('_').next().unwrap_or(stem);
@@ -108,8 +115,10 @@ fn big_column(id: u8, set: i32) -> u32 {
 
 impl Room {
     /// `set` picks `areasel_0N.carea`: 0 for exit, look and sleep.
+    /// `area` is the hot spots' file, else the background's.
     pub fn load(
         assets: &Assets,
+        area: Option<&str>,
         background: Option<&str>,
         set: i32,
         language: Language,
@@ -119,9 +128,12 @@ impl Room {
             d.resize(W * H, 255);
             Ok(Arc::new(d))
         };
-        let spots = match background {
-            Some(bg) => assets
-                .data(&area_name(bg))
+        let name = area
+            .map(str::to_string)
+            .or_else(|| background.map(area_name));
+        let spots = match name {
+            Some(name) => assets
+                .data(&name)
                 .ok()
                 .and_then(|d| area::parse(&d).ok())
                 .unwrap_or_default(),
@@ -138,7 +150,22 @@ impl Room {
                 .and_then(|d| MapFile::parse(&d).ok())
                 .map(Arc::new),
             look: false,
+            plain: false,
         })
+    }
+
+    /// The plain area selection of `Game.17(1)` over the hot spots of
+    /// `area`.
+    pub fn plain(assets: &Assets, area: Option<&str>, language: Language) -> Result<Self> {
+        let mut room = Self::load(assets, area, None, 0, language)?;
+        room.look = true;
+        room.plain = true;
+        Ok(room)
+    }
+
+    /// Whether this is the plain area selection of `Game.17(1)`.
+    pub fn is_plain(&self) -> bool {
+        self.plain
     }
 
     /// The button set (`areasel_0N.carea`).
@@ -164,7 +191,7 @@ impl Room {
     /// The element under (x, y), as an id for [`crate::ui::Button::Room`].
     pub fn hit(&self, x: i32, y: i32) -> Option<i32> {
         if self.look {
-            if Self::at(&self.back, x, y).is_some() {
+            if !self.plain && Self::at(&self.back, x, y).is_some() {
                 return Some(BACK);
             }
             return self
@@ -233,6 +260,9 @@ impl Room {
             let (x, w, h) = BACK_CELL;
             canvas.draw_part(&sheet, (x, h * s, w, h), BACK_POS.0, BACK_POS.1, false, 255);
         };
+        if self.plain {
+            return Ok(());
+        }
         if self.look {
             back(canvas, state(BACK));
             return Ok(());

@@ -478,12 +478,21 @@ fn snap(
                                 things.pop();
                             }
                             let mut ids: Vec<i32> = things.iter().map(|&t| THING + t).collect();
-                            if r.set() != 0 {
-                                ids.push(SLEEP as i32);
+                            // The plain area selection: things only.
+                            if r.is_plain() {
+                                let pick = match ids.is_empty() {
+                                    true => Click::Result(0),
+                                    false => r.click(ids[rooms % ids.len()]),
+                                };
+                                ("area", pick)
+                            } else {
+                                if r.set() != 0 {
+                                    ids.push(SLEEP as i32);
+                                }
+                                ids.push(EXIT as i32);
+                                let pick = r.click(ids[rooms % ids.len()]);
+                                ("room", pick)
                             }
-                            ids.push(EXIT as i32);
-                            let pick = r.click(ids[rooms % ids.len()]);
-                            ("room", pick)
                         }
                         // One hour.
                         Panel::Hours(_) => ("hours", panel.click(0)),

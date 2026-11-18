@@ -128,6 +128,9 @@ pub struct Scene {
     /// Speaker of the current line: row of the nameplate sheet (command
     /// 11). Cleared at every message.
     pub speaker: Option<i32>,
+    /// 同級生 Remake: the `.area` file of the room screen (`Game.17`).
+    #[serde(default)]
+    pub room_area: Option<String>,
     /// 同級生 Remake: the speaker's icon in the message window, a cell of
     /// `message_icon.akb` (`Game.10` sub 15).
     #[serde(default)]

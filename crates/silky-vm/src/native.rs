@@ -75,7 +75,8 @@ pub fn returns_value(title: Title, engine: &Engine, class: i32, sub: i32) -> boo
             // results.
             Title::Apeiria => matches!(sub, 30..=32 | 110 | 960 | 990 | 1009 | 1016),
             // 同級生 Remake: the handlers that push onto the script stack
-            // (17 only with its sub 1, which the scripts do not use).
+            // (17 only with its sub 1, the plain area selection; its
+            // panel answers it).
             Title::Doukyuusei => matches!(sub, 10 | 16 | 23 | 28 | 29 | 33 | 36 | 50..=53),
             Title::Kimaten2 => matches!(
                 sub,
