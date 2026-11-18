@@ -956,7 +956,13 @@ impl Renderer {
             }
             let font = self.douk_font.as_ref().unwrap();
             let speaker = scene.speaker_name.as_deref();
-            crate::games::doukyuusei::window::draw_window(&mut canvas, assets, font, speaker)?;
+            crate::games::doukyuusei::window::draw_window(
+                &mut canvas,
+                assets,
+                font,
+                speaker,
+                scene.speaker_icon,
+            )?;
             if text {
                 self.draw_text_at(&mut canvas, scene, None, (0, 0));
             }

@@ -28,6 +28,11 @@ pub const BAND_OPACITY: u8 = 161;
 const NAME_PART: (u32, u32, u32, u32) = (0, 1350, 1500, 50);
 const NAME_PART_POS: (i32, i32) = (231, 799);
 const NAME_TEXT: (i32, i32) = (294, 800);
+/// Speaker icons: 144 x 144 cells of `message_icon.akb`, four to a row,
+/// 118 pixels below the window top.
+const ICONS: &str = "message_icon.akb";
+const ICON: u32 = 144;
+const ICON_POS: (i32, i32) = (78, TOP + 118);
 /// Top left of the first glyph cell of the message text.
 pub const TEXT_POS: (i32, i32) = (242, 870);
 /// A half-width letter takes one 20-pixel cell, a full-width one two;
@@ -360,10 +365,16 @@ pub fn draw_window(
     assets: &mut Assets,
     font: &Font,
     speaker: Option<&str>,
+    icon: Option<u32>,
 ) -> Result<()> {
     let parts = assets.image("message_p.akb")?;
     canvas.draw_part(&parts, BAND, 0, TOP, false, BAND_OPACITY);
     canvas.draw_part(&parts, FRAME, 0, TOP, false, 255);
+    if let Some(i) = icon {
+        let sheet = assets.image(ICONS)?;
+        let part = (i % 4 * ICON, i / 4 * ICON, ICON, ICON);
+        canvas.draw_part(&sheet, part, ICON_POS.0, ICON_POS.1, false, 255);
+    }
     if let Some(name) = speaker {
         let (x, y) = NAME_PART_POS;
         canvas.draw_part(&parts, NAME_PART, x, y, false, 255);

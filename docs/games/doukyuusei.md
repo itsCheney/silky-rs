@@ -44,6 +44,7 @@ The game is an adventure in a town: the hero spends the days of a summer break g
   - The engine's `Anime` class runs the frame programs of an `.ax` file: 10 groups of 32 programs, then cells of seven numbers (kind, source x, y, width, height, screen x, y) from byte 1280, then the programs. Their operations draw a cell, wait, hold (where a program stops or pauses when asked), loop on two levels, start again and end. Every program that runs takes a step a frame. The cells come from the picture in sprite 5 (`Sprite.1(5, name)`) and are drawn into the background, so a cell stays until the background is loaded again; a cell of kind 3 puts the background back under itself first.
   - A conversation loads its pictures first (`c_ce.mes` for one, `irce.mes` for two people): the face coming in, as three pictures the size of the screen laid into the background over 12 frames each (`Game.13(frames, effect, picture)`, sub 1), then the sheet (`can.akb`, 176 x 192 faces, an expression a column) and its programs (`c.ax`, a blinking loop per expression).
   - `Game.34(index, group, name)` changes the face of a person (the group) to an expression (the program); it starts the program unless it already runs. The name is not used.
+  - The speaker's icon (`message_icon.akb`, 144 x 144 cells four to a row) for some lines: `Game.10(n, 15)` shows icon n (from 1) at (78, 848), `Game.10(16)` takes it away. Values of `Game.10` below 10 do nothing in the program.
   - `Anime.10` (pause at the next hold) and `Anime.12` (wait for a program to end) do not wait here: the first pauses at once, the second runs the program to its end at once.
 - Headless, `silky-run snap` plays the opening, looks around the hero's room, sleeps an hour, then walks the town to one place after another (the shortest way, without walking through other places), looking at and talking to everything inside; it runs through more than two hundred visits over several days.
 
@@ -91,4 +92,5 @@ Addresses in the program as it runs (the Steam wrapper unpacks it at its own ima
 | `Game.50` to `Game.53` extras screens | 0x4e5ff0 |
 | `Anime` class calls (`CFuncAnime`), frame step, update | 0x454b00, 0x427180, 0x4270f0 |
 | `Anime` cell drawn over the background (kind 3) | 0x426a00 |
+| Speaker icon shown, taken away (`Game.10` 15, 16) | 0x4e2d11, 0x4e2e41 |
 | `Game.34` face, `Game.13` pictures, a picture laid in | 0x4e26f5, 0x4e3ae0, 0x48a510 |

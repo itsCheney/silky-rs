@@ -129,6 +129,18 @@ impl Runtime {
                 self.done()
             }
             (SCREEN, 30) => self.done(),
+            // The speaker's icon: 15 shows icon n (from 1), 16 takes it
+            // away. Values below 10 do nothing in the program.
+            (SCREEN, 15) => {
+                let n = (back_int(c, 0) - 1).max(0);
+                self.scene.speaker_icon = (n < 43).then_some(n as u32);
+                self.done()
+            }
+            (SCREEN, 16) => {
+                self.scene.speaker_icon = None;
+                self.done()
+            }
+            (SCREEN, sub) if sub < 10 => self.done(),
             (PICTURE_IN, 1) => {
                 let Some(name) = back_str(c, 0) else {
                     return None;
