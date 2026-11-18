@@ -5,6 +5,7 @@
 //! line of it by its line id; speaker names are in `NAMES_<lang>.MAP`.
 //! See `docs/games/doukyuusei.md`.
 
+pub mod calendar;
 pub(crate) mod commands;
 pub mod hours;
 pub mod room;

@@ -26,6 +26,9 @@ pub const ROOM: i32 = 16;
 /// how long to sleep, 1 how far to wind back, 2 how far to skip forward.
 /// Returns the hours, 0 for back.
 pub const HOURS: i32 = 29;
+/// `Game.25()`: writes the calendar into the raw area (see
+/// [`super::calendar`]).
+pub const CALENDAR: i32 = 25;
 
 impl Runtime {
     pub(crate) fn doukyuusei_game(
@@ -88,6 +91,10 @@ impl Runtime {
                 }
                 self.scene.text = None;
                 self.wait_for(crate::host::Pause::Panel)
+            }
+            (CALENDAR, _) => {
+                super::calendar::write(&mut vm.raw);
+                self.done()
             }
             (HERO_SPEAKS, _) => {
                 self.scene.speaker_name = Some(self.hero_name());
