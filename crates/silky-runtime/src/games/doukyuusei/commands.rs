@@ -41,6 +41,16 @@ pub const EXTRAS: std::ops::RangeInclusive<i32> = 50..=53;
 /// yet.
 pub const SCREEN: i32 = 10;
 
+/// `Game.13(frames, effect, picture)` with sub 1: lays a picture the
+/// size of the screen (the faces coming in before the `Anime` class takes
+/// them over) into the background over `frames`. The program leaves it
+/// out when the settings skip scene effects, which they do not here.
+pub const PICTURE_IN: i32 = 13;
+/// `Game.34(index, group, name)`: the face of a conversation changes;
+/// starts `Anime` program `index` of `group` unless it already runs (see
+/// [`crate::anime`]). The name is not used.
+pub const FACE: i32 = 34;
+
 impl Runtime {
     /// The status plate's values now, in 同級生 Remake.
     pub fn plate(&self, vm: &Vm) -> Option<super::plate::Plate> {
@@ -119,6 +129,38 @@ impl Runtime {
                 self.done()
             }
             (SCREEN, 30) => self.done(),
+            (PICTURE_IN, 1) => {
+                let Some(name) = back_str(c, 0) else {
+                    return None;
+                };
+                let frames = back_int(c, 2);
+                let slot = self
+                    .scene
+                    .overlays
+                    .keys()
+                    .next_back()
+                    .map_or(0, |k| k + 1)
+                    .max(1000);
+                self.scene.overlays.insert(slot, name);
+                self.handled += 1;
+                Some(Ok(self.transition(frames, None)))
+            }
+            (FACE, _) => {
+                let (index, group) = (back_int(c, 2), back_int(c, 1));
+                if !self.scene.anime.running(group, index) {
+                    let ax = match self.ax() {
+                        Ok(ax) => ax,
+                        Err(e) => return Some(Err(host_error(e.to_string()))),
+                    };
+                    let Some(ax) = ax else {
+                        return Some(Err(host_error("Game.34 before an .ax file")));
+                    };
+                    self.scene.anime.stop_group(group);
+                    self.scene.anime.set(&ax, group, index);
+                    self.scene.anime.start(group, index);
+                }
+                self.done()
+            }
             (command, _) if EXTRAS.contains(&command) => {
                 *self.unhandled.entry(format!("Game.{command}")).or_default() += 1;
                 vm.push(-1);

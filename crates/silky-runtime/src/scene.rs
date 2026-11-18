@@ -104,6 +104,10 @@ pub struct Scene {
     /// Difference pictures drawn over the background, by slot (command 12,
     /// sub 1). Cleared when a new background is loaded.
     pub overlays: BTreeMap<i32, String>,
+    /// Cells the `Anime` class drew into the background, and its programs
+    /// (see [`crate::anime`]).
+    #[serde(default)]
+    pub anime: crate::anime::Anime,
     /// Standing characters by slot 0..3 (command 13).
     pub characters: BTreeMap<i32, Character>,
     /// Images loaded into sprite layers (class Sprite, sub 1); the title

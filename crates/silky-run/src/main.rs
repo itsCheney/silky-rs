@@ -269,10 +269,12 @@ fn snap(
                     let name = rt.message_script();
                     if name != script {
                         script = name.to_string();
-                        println!("script {script}");
+                        println!("script {script} at line {line_no}");
                     }
-                    // Snow falls on for a second each message.
+                    // Snow falls on for a second each message; the faces
+                    // take their first step.
                     renderer.progress_snow(&rt.scene, 1000);
+                    rt.tick_anime(1);
                     if lines.contains(&line_no) {
                         let mut frame = renderer.render(&rt.scene, &mut rt.assets)?;
                         let ui = Ui {
@@ -417,7 +419,7 @@ fn snap(
                     // The walk on the map: the frame as it opens, then the
                     // shortest way to the nearest place at least a few
                     // steps away.
-                    use silky_runtime::games::doukyuusei::town::{dir, Input};
+                    use silky_runtime::games::doukyuusei::town::Input;
                     if towns < 5 {
                         let mut frame = renderer.render_scene(&rt.scene, &mut rt.assets, false)?;
                         let ui = Ui {

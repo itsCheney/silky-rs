@@ -243,6 +243,7 @@ impl Runtime {
                     self.system_changed = true;
                 }
                 scene.overlays.clear();
+                scene.anime.clear_shown();
                 // Provisional: the title picture sits in a sprite layer;
                 // the first background of the game replaces it.
                 scene.layers.clear();

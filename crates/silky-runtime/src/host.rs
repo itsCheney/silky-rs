@@ -16,6 +16,7 @@ const EFFECT: i32 = 16;
 const VOICE: i32 = 18;
 const SHAKE: i32 = 3;
 const SPRITE: i32 = 19;
+const ANIME: i32 = 13;
 const SCREEN: i32 = 20;
 const UI: i32 = 26;
 const MOVIE: i32 = 23;
@@ -223,6 +224,8 @@ pub struct Runtime {
     pub hero_name: Option<String>,
     /// Set when a callback yields.
     pub pause: Option<Pause>,
+    /// The `.ax` file of the `Anime` class (see [`crate::anime`]).
+    pub(crate) ax: crate::anime::Loaded,
     /// Engine calls not carried out yet, by name, with counts.
     pub unhandled: BTreeMap<String, u64>,
     /// Sound files the scripts asked for that are not in the game.
@@ -325,6 +328,7 @@ impl Runtime {
             text_table: None,
             hero_name: None,
             pause: None,
+            ax: None,
             unhandled: BTreeMap::new(),
             missing_sounds: Default::default(),
             handled: 0,
@@ -669,6 +673,47 @@ impl Runtime {
         }
     }
 
+    /// The `.ax` file loaded, read again after a saved game is loaded.
+    pub(crate) fn ax(&mut self) -> crate::Result<Option<Arc<silky_format::ax::Ax>>> {
+        let Some(file) = self.scene.anime.file.clone() else {
+            return Ok(None);
+        };
+        if let Some((name, ax)) = &self.ax {
+            if *name == file {
+                return Ok(Some(ax.clone()));
+            }
+        }
+        let ax = Arc::new(silky_format::ax::Ax::parse(&self.assets.data(&file)?)?);
+        self.ax = Some((file, ax.clone()));
+        Ok(Some(ax))
+    }
+
+    /// One call of the `Anime` class; false if not known.
+    fn anime_call(&mut self, sub: i32, args: &[Value]) -> crate::Result<bool> {
+        if sub == 0 {
+            let Some(file) = args.last().and_then(Value::as_str) else {
+                return Ok(false);
+            };
+            self.scene.anime.load(file);
+            self.ax()?;
+            return Ok(true);
+        }
+        let ax = self.ax()?;
+        Ok(self.scene.anime.call(ax.as_deref(), sub, args))
+    }
+
+    /// Steps the `Anime` programs `frames` frames; true if a cell was
+    /// drawn.
+    pub fn tick_anime(&mut self, frames: u32) -> bool {
+        if frames == 0 || !self.scene.anime.active() {
+            return false;
+        }
+        match self.ax() {
+            Ok(Some(ax)) => self.scene.anime.tick(&ax, frames),
+            _ => false,
+        }
+    }
+
     pub(crate) fn skip(&mut self, name: String, vm: &mut Vm, class: i32, sub: i32) {
         *self.unhandled.entry(name).or_default() += 1;
         if native::returns_value(
@@ -910,6 +955,27 @@ impl Host for Runtime {
                 let title = self.assets.game().title;
                 let engine = self.assets.game().engine.profile;
                 let base = engine.sprites_and_flags;
+                // 同級生 Remake: the Anime class, and the picture its
+                // cells come from (sprite 5).
+                if title == Title::Doukyuusei {
+                    if class == ANIME {
+                        match self.anime_call(sub, &args) {
+                            Ok(true) => {
+                                self.handled += 1;
+                                return Ok(Flow::Continue);
+                            }
+                            Ok(false) => {}
+                            Err(e) => return Err(host_error(e.to_string())),
+                        }
+                    }
+                    if class == SPRITE && sub == 1 && args.len() == 2 {
+                        if args[0].int() == crate::anime::SHEET_SPRITE {
+                            self.scene.anime.sheet = args[1].as_str().map(str::to_string);
+                            self.handled += 1;
+                            return Ok(Flow::Continue);
+                        }
+                    }
+                }
                 if class == SPRITE && sub == 1 && args.len() == 2 && base {
                     let layer = args[0].int();
                     // The 2017 build creates sprite 5 hidden and 2048

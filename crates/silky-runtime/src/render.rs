@@ -597,6 +597,32 @@ impl Renderer {
             let img = assets.image(name)?;
             canvas.draw(&img, 0, 0, true);
         }
+        // Cells of the Anime class, drawn into the background; most put
+        // the background back under themselves first.
+        for cell in &scene.anime.shown {
+            let (_, _, w, h) = cell.part;
+            if cell.restore {
+                if let (Some(bg), 0 | 100) = (&scene.background, scene.background_zoom) {
+                    let img = assets.image(bg)?;
+                    let (sw, sh) = self.size();
+                    let bx = (sw as i32 - img.width as i32) / 2 + scene.background_offset.0;
+                    let by = (sh as i32 - img.height as i32) / 2 + scene.background_offset.1;
+                    let (sx, sy) = (cell.x - bx, cell.y - by);
+                    if sx >= 0 && sy >= 0 {
+                        canvas.draw_part(
+                            &img,
+                            (sx as u32, sy as u32, w, h),
+                            cell.x,
+                            cell.y,
+                            false,
+                            255,
+                        );
+                    }
+                }
+            }
+            let sheet = assets.image(&cell.sheet)?;
+            canvas.draw_part(&sheet, cell.part, cell.x, cell.y, false, 255);
+        }
 
         // 景の海のアペイリア: the conclusions list is drawn into the
         // background it was drawn on.

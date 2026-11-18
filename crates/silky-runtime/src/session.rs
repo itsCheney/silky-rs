@@ -2626,6 +2626,11 @@ impl Session {
         if self.walking() {
             self.tick_town(ms)?;
         }
+        // The Anime class takes a step a frame (60 a second).
+        let frames = (self.ui.clock * 60 / 1000 - before * 60 / 1000) as u32;
+        if self.screen.is_none() && self.rt.tick_anime(frames) {
+            self.frame = None;
+        }
         if self.screen.is_none() && self.renderer.progress_snow(&self.rt.scene, ms) {
             self.frame = None;
         }

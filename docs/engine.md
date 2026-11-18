@@ -29,7 +29,7 @@ Each game links its own copy of the engine, and the engine classes changed betwe
 | 10 | Font | Not used: the runtime lays out text itself |
 | 11 | Value | Not done yet |
 | 12 | Mouse | Whether the player clicked, polled once a frame |
-| 13 | Anime | Not done yet |
+| 13 | Anime | Frame programs from `.ax` files that draw cells of a sheet into the background (blinking faces); read from 同級生 Remake's program and used for it only so far |
 | 14 | Flag | Flags from byte 1000 on, kept across games |
 | 15, 16, 18 | Music, Effect, Voice | Channels, play, stop, fade out, whether a sound plays |
 | 17 | HEffect | Sounds in the 2017 build; otherwise not done yet |
