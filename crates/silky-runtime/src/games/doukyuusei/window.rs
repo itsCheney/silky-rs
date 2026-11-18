@@ -192,6 +192,48 @@ fn halve(img: &Image) -> Image {
     }
 }
 
+/// A part of an image resized to `w` x `h`, each pixel the area-weighted
+/// average of the pixels it covers (straight alpha).
+fn resized(img: &Image, part: (u32, u32, u32, u32), w: u32, h: u32) -> Image {
+    let (px, py, pw, ph) = part;
+    let mut rgba = vec![0u8; (w * h * 4) as usize];
+    // Weights in 1/(w*h) source pixels: output pixel (x, y) covers source
+    // [x*pw/w, (x+1)*pw/w).
+    for y in 0..h {
+        for x in 0..w {
+            let mut acc = [0u64; 4];
+            let mut total = 0u64;
+            let (sx0, sx1) = (x * pw, (x + 1) * pw);
+            let (sy0, sy1) = (y * ph, (y + 1) * ph);
+            for sy in sy0 / h..sy1.div_ceil(h) {
+                let wy = ((sy + 1) * h).min(sy1).saturating_sub((sy * h).max(sy0)) as u64;
+                for sx in sx0 / w..sx1.div_ceil(w) {
+                    let wx = ((sx + 1) * w).min(sx1).saturating_sub((sx * w).max(sx0)) as u64;
+                    let i = (((py + sy) * img.width + px + sx) * 4) as usize;
+                    let a = img.rgba[i + 3] as u64 * wx * wy;
+                    for k in 0..3 {
+                        acc[k] += img.rgba[i + k] as u64 * a;
+                    }
+                    acc[3] += a;
+                    total += wx * wy;
+                }
+            }
+            let o = ((y * w + x) * 4) as usize;
+            if acc[3] > 0 {
+                for k in 0..3 {
+                    rgba[o + k] = (acc[k] / acc[3]) as u8;
+                }
+                rgba[o + 3] = ((acc[3] + total / 2) / total) as u8;
+            }
+        }
+    }
+    Image {
+        width: w,
+        height: h,
+        rgba,
+    }
+}
+
 impl Sheet {
     fn new(img: Arc<Image>, w: u32) -> Self {
         let mut rgba = img.rgba.clone();
@@ -345,6 +387,35 @@ impl Font {
                 canvas.draw_part(&sheet.white, part, cx, y, false, 255);
             }
             cx += cells(c) * CELL / 2;
+        }
+    }
+
+    /// Draws a line of text from (x, y) at a font size below the glyphs'
+    /// 40 (the cells scaled down), outlined like the message text.
+    pub fn draw_sized(&self, canvas: &mut Canvas, text: &str, x: i32, y: i32, size: u32) {
+        let mut cx = x;
+        for c in text.chars() {
+            let (sheet, at) = if half(c) {
+                (&self.han, self.han_index.get(&c))
+            } else {
+                (&self.zen, self.zen_index.get(&c))
+            };
+            if let Some(&i) = at {
+                let part = (
+                    (i % PER_ROW) * sheet.w,
+                    (i / PER_ROW) * GLYPH_H,
+                    sheet.w,
+                    GLYPH_H,
+                );
+                let (w, h) = (sheet.w * size / GLYPH_H, size);
+                let white = Arc::new(resized(&sheet.white, part, w, h));
+                let black = Arc::new(resized(&sheet.black, part, w, h));
+                for (dx, dy) in OUTLINE {
+                    canvas.draw(&black, cx + dx, y + dy, false);
+                }
+                canvas.draw(&white, cx, y, false);
+            }
+            cx += cells(c) * CELL * size as i32 / GLYPH_H as i32;
         }
     }
 

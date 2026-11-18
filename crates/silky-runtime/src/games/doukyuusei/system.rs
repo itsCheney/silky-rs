@@ -217,6 +217,8 @@ pub struct SaveScreen {
     pub any: bool,
     /// The game can be saved now (not from the title menu).
     pub can_save: bool,
+    /// The backlog has something to show.
+    pub log: bool,
 }
 
 impl SaveScreen {
@@ -231,6 +233,7 @@ impl SaveScreen {
             auto: None,
             newest: None,
             any: false,
+            log: false,
         };
         if let Some(saves) = saves {
             s.refresh(saves);
@@ -309,9 +312,10 @@ impl SaveScreen {
             AUTO => self.load && !self.deleting && self.auto.is_some(),
             DELETE => self.load && self.any,
             DELETE_ALL => self.any && !self.deleting,
-            // The settings, sound and log screens are not done yet.
+            // The settings and sound screens are not done yet.
             _ if id >= SIDE => match (id - SIDE) as usize {
-                side::SETTINGS | side::SOUND | side::LOG => false,
+                side::SETTINGS | side::SOUND => false,
+                side::LOG => self.log,
                 side::SAVE => self.can_save,
                 _ => true,
             },
@@ -355,7 +359,7 @@ pub struct System {
     language: Language,
     side: Arc<Vec<u8>>,
     areas: Vec<Area>,
-    system: Option<Arc<MapFile>>,
+    pub(super) system: Option<Arc<MapFile>>,
     font: std::cell::OnceCell<Option<Font>>,
 }
 
@@ -382,7 +386,7 @@ impl System {
         })
     }
 
-    fn font(&self, assets: &mut Assets) -> Option<&Font> {
+    pub(super) fn font(&self, assets: &mut Assets) -> Option<&Font> {
         self.font.get_or_init(|| Font::load(assets).ok()).as_ref()
     }
 

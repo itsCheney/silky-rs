@@ -9,8 +9,9 @@
 //! none) gives the button under a point; the six only count while the menu
 //! is open. The program slides them out from the menu button and fades
 //! them in over twelve frames; here they show at once. Save and load open
-//! the system menu's save screen ([`super::system`]); the other screens
-//! are not done yet, so their buttons are drawn gray and do nothing.
+//! the system menu's save screen ([`super::system`]), backlog the game's
+//! backlog ([`super::log`]); the other screens are not done yet, so their
+//! buttons are drawn gray and do nothing.
 
 use std::sync::Arc;
 
@@ -75,8 +76,8 @@ impl Menu {
 
     /// `state` gives the row (0 normal, 1 hover, 2 pressed, 3 disabled) of
     /// a button id, or [`HIDDEN`]. The program grays save and load when
-    /// they cannot be used, backlog with no log, and shows the map jump
-    /// only on the walking maps.
+    /// they cannot be used, leaves the backlog out while the log is empty
+    /// (seen under Wine) and shows the map jump only on the walking maps.
     pub fn draw(
         &self,
         canvas: &mut Canvas,

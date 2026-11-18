@@ -1490,7 +1490,8 @@ impl Session {
         };
         if self.douk_system.is_some() {
             use crate::games::doukyuusei::system::SaveScreen;
-            let s = SaveScreen::new(mode == Mode::Load, can_save, self.saves.as_ref());
+            let mut s = SaveScreen::new(mode == Mode::Load, can_save, self.saves.as_ref());
+            s.log = !self.log.is_empty();
             self.screen = Some(Screen::DoukSave(s));
             self.ui.auto = false;
             self.ui.skip = false;
@@ -1538,6 +1539,10 @@ impl Session {
                         s.deleting = false;
                         refresh = true;
                     }
+                }
+                side::LOG => {
+                    self.open_backlog();
+                    return Ok(());
                 }
                 side::TITLE => ask = Some(Action::Title),
                 side::QUIT => ask = Some(Action::Quit),
@@ -1601,14 +1606,21 @@ impl Session {
     }
 
     fn open_backlog(&mut self) {
-        if self.log.is_empty() || self.state != State::Text {
+        // 同級生 Remake opens it at its room and map screens too.
+        let at_panel = self.douk_system.is_some() && self.state == State::Choice;
+        if self.log.is_empty() || !(self.state == State::Text || at_panel) {
             return;
         }
         for e in &mut self.log {
             e.marked = false;
         }
+        let pad = match self.douk_system {
+            Some(_) => LOG_ROWS.saturating_sub(self.log.len()),
+            None => 0,
+        };
         self.screen = Some(Screen::Backlog(Backlog {
             top: Backlog::max_top(self.log.len()),
+            pad,
         }));
         self.ui.auto = false;
         self.ui.skip = false;
@@ -2094,7 +2106,7 @@ impl Session {
                     _ if rows.contains(&(id - VOICE)) => {
                         let file = self
                             .log
-                            .get(b.top + (id - VOICE) as usize)
+                            .get(b.entry((id - VOICE) as usize).unwrap_or(usize::MAX))
                             .and_then(|e| e.voice.clone());
                         if let Some(file) = file {
                             self.voice_queue.clear();
@@ -2103,12 +2115,15 @@ impl Session {
                         }
                     }
                     _ if rows.contains(&(id - CHECK)) => {
-                        if let Some(e) = self.log.get_mut(b.top + (id - CHECK) as usize) {
+                        if let Some(e) = self
+                            .log
+                            .get_mut(b.entry((id - CHECK) as usize).unwrap_or(usize::MAX))
+                        {
                             e.marked = !e.marked;
                         }
                     }
                     _ if rows.contains(&(id - JUMP)) => {
-                        ask = Some(Action::Jump(b.top + (id - JUMP) as usize));
+                        ask = b.entry((id - JUMP) as usize).map(Action::Jump);
                     }
                     UP => b.scroll_by(-1, len),
                     DOWN => b.scroll_by(1, len),
@@ -2690,6 +2705,10 @@ impl Session {
             self.ui.plate = plate;
             self.frame = None;
         }
+        if self.ui.has_log == self.log.is_empty() {
+            self.ui.has_log = !self.log.is_empty();
+            self.frame = None;
+        }
         if self.playing_marked && !self.rt.voice_playing() {
             match self.voice_queue.pop_front() {
                 Some(file) => self.rt.replay_voice(&file)?,
@@ -2949,6 +2968,29 @@ impl Session {
                             self.ui.has_saves,
                             text,
                         )?,
+                        Screen::Backlog(b) if self.douk_system.is_some() => {
+                            let sys = self.douk_system.as_ref().unwrap();
+                            let ui = &self.ui;
+                            let log = &self.log;
+                            let playing = self.playing_marked;
+                            let hover = match ui.hover {
+                                Some(Button::Screen(id)) => Some(id),
+                                _ => None,
+                            };
+                            sys.draw_backlog(
+                                &mut c,
+                                assets,
+                                self.screens.backlog_areas(),
+                                b,
+                                log,
+                                |id| {
+                                    let on = Screens::backlog_enabled(b, log, id);
+                                    let active = playing && id == log_ids::PLAY_MARKED;
+                                    ui.state(Button::Screen(id), on, active) as u32
+                                },
+                                hover,
+                            )?;
+                        }
                         Screen::Backlog(b) => self.screens.draw_backlog(
                             &mut c,
                             assets,

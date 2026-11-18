@@ -437,9 +437,17 @@ pub struct LogEntry {
 pub struct Backlog {
     /// First entry shown.
     pub top: usize,
+    /// Empty rows above the first entry (同級生 Remake shows a short log
+    /// at the bottom).
+    pub pad: usize,
 }
 
 impl Backlog {
+    /// The entry shown in a row.
+    pub fn entry(&self, row: usize) -> Option<usize> {
+        (self.top + row).checked_sub(self.pad)
+    }
+
     pub fn max_top(len: usize) -> usize {
         len.saturating_sub(LOG_ROWS)
     }
@@ -560,6 +568,15 @@ impl Screens {
                 backlog[voice].id += log_ids::VOICE;
             }
         }
+        let douk = assets.game().title == silky_format::game::Title::Doukyuusei;
+        if douk {
+            // 同級生 Remake's back button.
+            for a in &mut backlog {
+                if a.id == 3840 {
+                    a.id = log_ids::BACK;
+                }
+            }
+        }
         Self {
             language,
             save_load: area_file(assets, "saveload.area"),
@@ -567,7 +584,7 @@ impl Screens {
             dialog: area_file(assets, "dialog.area"),
             kimaten2: assets.game().title == silky_format::game::Title::Kimaten2,
             stars: assets.game().title == silky_format::game::Title::Fuyukuru,
-            douk: assets.game().title == silky_format::game::Title::Doukyuusei,
+            douk,
             help: HelpLines::load(assets, "saveloadhelp"),
         }
     }
@@ -877,7 +894,7 @@ impl Screens {
             _ => None,
         };
         if let Some((i, needs_voice)) = entry {
-            let e = log.get(b.top + i as usize)?;
+            let e = log.get(b.entry(i as usize)?)?;
             if needs_voice && e.voice.is_none() {
                 return None;
             }
@@ -992,7 +1009,14 @@ impl Screens {
         Ok(())
     }
 
+    pub fn backlog_areas(&self) -> &[Area] {
+        &self.backlog
+    }
+
     fn log_track(&self) -> (i32, i32, i32, i32) {
+        if self.douk {
+            return crate::games::doukyuusei::log::TRACK;
+        }
         match self.kimaten2 {
             true => K_LOG_TRACK,
             false => LOG_TRACK,

@@ -175,6 +175,9 @@ pub struct Ui {
     pub panel: Option<crate::games::doukyuusei::Panel>,
     /// 同級生 Remake's status plate, while it is up.
     pub plate: Option<crate::games::doukyuusei::plate::Plate>,
+    /// The backlog has entries (同級生 Remake's menu leaves its button out
+    /// otherwise).
+    pub has_log: bool,
     /// きまぐれテンプテーション2: some notebook entry, some collection
     /// item is open (enables their buttons).
     pub notebook: bool,
@@ -221,13 +224,10 @@ impl Ui {
         match b {
             Button::Title(t) if self.locked_titles.contains(&t) => false,
             Button::Title(title::CONTINUE | title::LOAD) => self.has_saves,
-            // 同級生 Remake's menu: the screens of four of its six buttons
+            // 同級生 Remake's menu: the screens of three of its six buttons
             // are not done yet (see `games::doukyuusei::menu`).
-            Button::Bar(bar::CONFIG | bar::BACKLOG | bar::SCHEDULE | bar::MAP)
-                if self.plate.is_some() =>
-            {
-                false
-            }
+            Button::Bar(bar::CONFIG | bar::SCHEDULE | bar::MAP) if self.plate.is_some() => false,
+            Button::Bar(bar::BACKLOG) if self.plate.is_some() => self.has_log,
             Button::Bar(bar::LOAD | bar::QUICK_LOAD) => self.has_saves,
             Button::Bar(bar::PREVIOUS_CHOICE) => self.previous_choice,
             Button::Bar(bar::NEXT_CHOICE) => !self.jump_off,
@@ -1896,10 +1896,11 @@ impl Layout {
                 use crate::games::doukyuusei::{menu::HIDDEN, Panel};
                 let walking = matches!(ui.panel, Some(Panel::Town));
                 m.draw(canvas, assets, ui.side_menu, |id| {
-                    // The map jump shows only on the walking maps. The
-                    // game's own settings, backlog and schedule screens and
-                    // the map jump are not done yet, so those stay gray.
-                    if id == bar::MAP && !walking {
+                    // The map jump shows only on the walking maps, the
+                    // backlog only with a log. The game's own settings and
+                    // schedule screens and the map jump are not done yet,
+                    // so those stay gray.
+                    if (id == bar::MAP && !walking) || (id == bar::BACKLOG && !ui.has_log) {
                         return HIDDEN;
                     }
                     let b = Button::Bar(id);

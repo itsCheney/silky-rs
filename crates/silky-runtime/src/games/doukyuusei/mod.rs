@@ -8,6 +8,7 @@
 pub mod calendar;
 pub(crate) mod commands;
 pub mod hours;
+pub mod log;
 pub mod menu;
 pub mod plate;
 pub mod room;
