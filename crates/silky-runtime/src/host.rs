@@ -322,6 +322,9 @@ pub(crate) enum FollowUp {
     FlushWhite,
     /// "pic_flush": from white back to the scene over `frames`.
     FlushEnd { frames: i32 },
+    /// 同級生 Remake: the intro's colour picture goes into the
+    /// background and the intro is over.
+    EndIntro,
 }
 
 pub(crate) fn host_error(msg: impl Into<String>) -> silky_vm::Error {
@@ -400,6 +403,10 @@ impl Runtime {
             FollowUp::FlushEnd { frames } => {
                 self.scene.cover = None;
                 self.transition(frames, None)
+            }
+            FollowUp::EndIntro => {
+                self.end_intro();
+                Flow::Continue
             }
         };
         if matches!(flow, Flow::Continue) {

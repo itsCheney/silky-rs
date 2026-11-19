@@ -185,6 +185,10 @@ pub struct Scene {
     /// background.
     #[serde(default)]
     pub train: Option<crate::games::doukyuusei::train::Train>,
+    /// 同級生 Remake: the intro of the first start (`Game.31`), while the
+    /// script waits for it.
+    #[serde(default)]
+    pub intro: Option<crate::games::doukyuusei::intro::Intro>,
     /// Snow falls (ふゆから、くるる。, command 115).
     #[serde(default)]
     pub snow: bool,

@@ -13,6 +13,8 @@ pub mod config;
 mod flag_data;
 pub mod flaglist;
 pub mod hours;
+pub mod intro;
+mod intro_data;
 pub mod jump;
 pub mod log;
 pub mod menu;

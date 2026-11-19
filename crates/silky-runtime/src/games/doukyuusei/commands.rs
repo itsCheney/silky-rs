@@ -68,6 +68,9 @@ pub const NAME: i32 = 18;
 /// `Game.30(kind)`: the modal notice (see [`super::notice`]); nothing is
 /// returned.
 pub const NOTICE: i32 = 30;
+/// `Game.31()`: the petal intro of the very first start (see
+/// [`super::intro`]); the script waits, nothing is returned.
+pub const INTRO: i32 = 31;
 /// `Game.5`: puts the name into the speaker plate.
 pub const NAME_PLATE: i32 = 5;
 
@@ -112,6 +115,18 @@ impl Runtime {
     pub fn plate(&self, vm: &Vm) -> Option<super::plate::Plate> {
         (self.assets.game().title == silky_format::game::Title::Doukyuusei && self.scene.plate)
             .then(|| super::plate::Plate::read(vm, super::plate::GAME_MODE))
+    }
+
+    /// The intro is over: its colour picture is drawn over the whole
+    /// background for good.
+    pub(crate) fn end_intro(&mut self) {
+        self.then = None;
+        if let Some(intro) = self.scene.intro.take() {
+            self.scene.background = Some(intro.background);
+            self.scene.background_offset = (0, 0);
+            self.scene.background_zoom = 0;
+            self.scene.overlays.clear();
+        }
     }
 
     pub(crate) fn doukyuusei_game(
@@ -196,6 +211,29 @@ impl Runtime {
                 self.panel = Some(Panel::Notice(n));
                 self.scene.text = None;
                 self.wait_for(crate::host::Pause::Panel)
+            }
+            (INTRO, _) => {
+                let bg = format!(
+                    "{}_{}.akb",
+                    super::intro::BACKGROUND,
+                    super::picture_suffix(self.config.language)
+                );
+                let rule = self
+                    .assets
+                    .data(&format!("{:02}.bin", super::intro::RULE))
+                    .ok()
+                    .map(std::sync::Arc::new);
+                self.scene.intro = Some(super::intro::Intro::new(bg, rule));
+                self.scene.text = None;
+                self.then = Some(crate::host::FollowUp::EndIntro);
+                self.handled += 1;
+                let flow = self.transition(super::intro::FRAMES, None);
+                match &mut self.pause {
+                    Some(crate::host::Pause::Transition(t)) => t.live = true,
+                    // Effects turned off: it is over at once.
+                    _ => self.end_intro(),
+                }
+                Some(Ok(flow))
             }
             (NAME_PLATE, _) => {
                 self.scene.speaker_name = Some(self.hero_name(vm));

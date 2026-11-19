@@ -687,6 +687,9 @@ impl Session {
                         if let (true, Some(train)) = (t.live, &mut self.rt.scene.train) {
                             train.progress(0, t.ms);
                         }
+                        if let (true, Some(intro)) = (t.live, &mut self.rt.scene.intro) {
+                            intro.progress(0, t.ms);
+                        }
                         let from = self.base.take().filter(|_| !t.live);
                         let rule = t.rule.and_then(|n| self.rule(n));
                         let covered = self.rt.scene.cover.is_some();
@@ -1005,6 +1008,10 @@ impl Session {
             if train.frame.take().is_some() {
                 self.base = None;
             }
+        }
+        // The intro's picture becomes the background as the script runs on.
+        if self.rt.scene.intro.is_some() {
+            self.base = None;
         }
         if busy.as_ref().is_some_and(|b| b.ui_fade == Some(true)) {
             self.plate_gone = true;
@@ -1459,8 +1466,9 @@ impl Session {
         }
         if self.state == State::Busy {
             self.rt.clicked = true;
+            // The intro of 同級生 Remake takes no click.
             if let Some(b) = &mut self.busy {
-                if !b.frame {
+                if !b.frame && self.rt.scene.intro.is_none() {
                     b.elapsed = b.ms;
                 }
             }
@@ -3675,7 +3683,7 @@ impl Session {
             let mut steps = 0;
             while self.state == State::Busy && steps < 64 {
                 let Some(b) = &mut self.busy else { break };
-                if self.ui.skip {
+                if self.ui.skip && self.rt.scene.intro.is_none() {
                     b.elapsed = b.ms;
                 }
                 let step = left.min(b.ms - b.elapsed.min(b.ms));
@@ -3686,6 +3694,10 @@ impl Session {
                         train.progress(b.elapsed, b.ms);
                         self.base = None;
                     }
+                }
+                if let Some(intro) = &mut self.rt.scene.intro {
+                    intro.progress(b.elapsed, b.ms);
+                    self.base = None;
                 }
                 if b.elapsed < b.ms {
                     break;

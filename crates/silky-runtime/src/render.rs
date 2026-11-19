@@ -651,6 +651,10 @@ impl Renderer {
         if let Some(train) = &scene.train {
             train.draw(&mut canvas, assets)?;
         }
+        // 同級生 Remake: the petal and the colour picture of the intro.
+        if let Some(intro) = &scene.intro {
+            intro.draw(&mut canvas, assets)?;
+        }
 
         // 景の海のアペイリア: the conclusions list is drawn into the
         // background it was drawn on.

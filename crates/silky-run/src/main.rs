@@ -323,6 +323,21 @@ fn snap(
                             println!("{}", path.display());
                         }
                     }
+                    // The intro of the first start: a frame every few
+                    // passes of its wait (and the last).
+                    if t.live && rt.scene.intro.is_some() {
+                        use silky_runtime::games::doukyuusei::intro::FRAMES;
+                        for f in (0..FRAMES).step_by(16).chain([FRAMES]) {
+                            let mut scene = rt.scene.clone();
+                            if let Some(intro) = &mut scene.intro {
+                                intro.frame = f;
+                            }
+                            let frame = renderer.render_scene(&scene, &mut rt.assets, false)?;
+                            let path = out.join(format!("intro{f:03}.png"));
+                            write_png(&path, &frame)?;
+                            println!("{}", path.display());
+                        }
+                    }
                     // Second steps of effects end at once too.
                     while rt.follow_up() {
                         rt.pause = None;
