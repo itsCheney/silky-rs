@@ -13,6 +13,7 @@ use silky_format::mes::Profile;
 use silky_vm::{Stop, Vm};
 
 use crate::audio::Bus;
+use crate::games::doukyuusei::town::CANCEL_VAR;
 use crate::games::doukyuusei::Panel as DoukPanel;
 use crate::games::kimaten2::archive::{
     self, Archive, ArchiveAction, ArchiveScreen, Book, CostumeScreen,
@@ -128,6 +129,9 @@ pub struct Session {
     /// the next step.
     town_input: crate::games::doukyuusei::town::Input,
     town_pointer_down: bool,
+    /// The press just handled acted already (a walk cancel or a map jump
+    /// choice), so its release does nothing.
+    press_done: bool,
     town_ms: u64,
     /// 同級生 Remake's system menu screens.
     douk_system: Option<crate::games::doukyuusei::system::System>,
@@ -240,6 +244,7 @@ impl Session {
             hmode: None,
             town_input: Default::default(),
             town_pointer_down: false,
+            press_done: false,
             town_ms: 0,
             douk_system,
         };
@@ -911,6 +916,16 @@ impl Session {
         self.town_input.fast = fast;
     }
 
+    /// A click, Escape or Delete during the automatic walk cancels it at
+    /// its next step if [`CANCEL_VAR`] is set. Returns whether it did.
+    pub fn cancel_walk(&mut self) -> bool {
+        if !self.walking() || !self.rt.town_walking() || self.vm.var_b(CANCEL_VAR) == 0 {
+            return false;
+        }
+        self.rt.cancel_town_walk();
+        true
+    }
+
     /// Steps of the walk on the map, one per step time; a place reached
     /// ends the walk with its id.
     fn tick_town(&mut self, ms: u64) -> Result<()> {
@@ -918,6 +933,7 @@ impl Session {
         self.town_ms += ms;
         let step = STEP_MS[1];
         self.town_input.pointer = self.town_pointer_down.then_some(self.ui.pointer);
+        self.town_input.hold = self.vm.var_b(CANCEL_VAR) != 0;
         while self.town_ms >= step {
             self.town_ms -= step;
             let input = self.town_input;
@@ -1000,8 +1016,24 @@ impl Session {
         }
     }
 
-    /// Primary button pressed at (x, y).
-    pub fn pointer_down(&mut self, x: i32, y: i32) {
+    /// Primary button pressed at (x, y). On the map jump a press on a
+    /// place chooses it at once; its release does nothing.
+    pub fn pointer_down(&mut self, x: i32, y: i32) -> Result<()> {
+        if self.veil.is_none() && self.hmode.is_none() {
+            if let (Some(DoukPanel::Jump(_)), Some(Button::Panel(id))) =
+                (&self.ui.panel, self.hit(x, y))
+            {
+                if id != crate::games::doukyuusei::jump::BACK {
+                    self.press_done = true;
+                    return self.press(Button::Panel(id));
+                }
+            }
+        }
+        self.press_down(x, y);
+        Ok(())
+    }
+
+    fn press_down(&mut self, x: i32, y: i32) {
         // Input waits for the extras' fade.
         if self.veil.is_some() {
             return;
@@ -1014,9 +1046,15 @@ impl Session {
         }
         self.ui.pressed = self.hit(x, y);
         self.frame = None;
+        // A click that cancels the walk is no click on the map.
+        let cancelled = self.cancel_walk();
         if self.walking() && self.ui.pressed.is_none() {
-            self.ui.pointer = (x, y);
-            self.town_pointer_down = true;
+            if cancelled {
+                self.press_done = true;
+            } else {
+                self.ui.pointer = (x, y);
+                self.town_pointer_down = true;
+            }
             return;
         }
         if let (Some(Screen::Extras(e)), Some(Button::Screen(id))) =
@@ -1162,6 +1200,9 @@ impl Session {
 
     /// Primary button released at (x, y): a click.
     pub fn pointer_up(&mut self, x: i32, y: i32) -> Result<()> {
+        if std::mem::take(&mut self.press_done) {
+            return Ok(());
+        }
         // Input waits for the extras' fade.
         if self.veil.is_some() {
             return Ok(());
@@ -2857,7 +2898,7 @@ impl Session {
         // put the pointer.
         if self.menus.is_apeiria() && matches!(self.screen, Some(Screen::Extras(_))) {
             let (x, y) = self.ui.pointer;
-            self.pointer_down(x, y);
+            self.pointer_down(x, y)?;
             return self.pointer_up(x, y);
         }
         if self.ui.window_hidden {

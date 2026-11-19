@@ -417,10 +417,7 @@ impl ApplicationHandler for App {
             WindowEvent::MouseInput { state, button, .. } => {
                 let (x, y) = self.cursor;
                 let r = match (button, state) {
-                    (MouseButton::Left, ElementState::Pressed) => {
-                        self.session.pointer_down(x, y);
-                        Ok(())
-                    }
+                    (MouseButton::Left, ElementState::Pressed) => self.session.pointer_down(x, y),
                     (MouseButton::Left, ElementState::Released) => self.session.pointer_up(x, y),
                     (MouseButton::Right, ElementState::Released) => self.session.secondary_click(),
                     _ => Ok(()),
@@ -460,7 +457,17 @@ impl ApplicationHandler for App {
                 }
                 let r = match event.logical_key {
                     Key::Named(NamedKey::Enter | NamedKey::Space) => self.session.proceed(),
-                    Key::Named(NamedKey::Escape) => self.session.back().map(|_| ()),
+                    Key::Named(NamedKey::Escape) => {
+                        if self.session.cancel_walk() {
+                            Ok(())
+                        } else {
+                            self.session.back().map(|_| ())
+                        }
+                    }
+                    Key::Named(NamedKey::Delete) => {
+                        self.session.cancel_walk();
+                        Ok(())
+                    }
                     Key::Named(
                         k @ (NamedKey::ArrowUp
                         | NamedKey::ArrowDown

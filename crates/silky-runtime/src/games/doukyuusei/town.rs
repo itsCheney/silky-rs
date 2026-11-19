@@ -48,6 +48,9 @@ const FREE: u16 = 0xfffe;
 const START: u16 = 0xfffd;
 /// The walker command that follows the trail of a walk.
 const FOLLOW: u8 = 13;
+/// Byte variable: while it is set, a click, Escape or Delete cancels the
+/// automatic walk.
+pub const CANCEL_VAR: usize = 4067;
 
 /// Walker flags.
 pub mod flags {
@@ -84,6 +87,8 @@ pub struct Input {
     pub pointer: Option<(i32, i32)>,
     /// Shift or Ctrl held: two tiles a step.
     pub fast: bool,
+    /// The byte [`CANCEL_VAR`] is set: a cancel ends the automatic walk.
+    pub hold: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -195,6 +200,8 @@ pub struct Town {
     steps: u16,
     /// An automatic walk is going.
     walking: bool,
+    /// A click or key came during the walk, since its last step.
+    cancel_pending: bool,
     /// The walker's flags, command and count before the walk, and its index.
     walk_save: (u8, u8, u8, usize),
     /// The place the last script tick reached (0xffff for none), for the
@@ -586,13 +593,13 @@ impl Town {
             14 => self.player(i, input),
             // 7 (wandering) and 10..=12 are not in the program.
             7 => 0xffff,
-            FOLLOW => self.follow_trail(i),
+            FOLLOW => self.follow_trail(i, input),
             // Up to the trail's length in one tick.
             15 => {
                 self.walkers[i].command = FOLLOW;
                 let mut r = 0;
                 for _ in 0..self.steps {
-                    r = self.follow_trail(i);
+                    r = self.follow_trail(i, input);
                     if r != 0 {
                         break;
                     }
@@ -714,7 +721,16 @@ impl Town {
         w.count = 0xff;
         w.flags = (w.flags & flags::CAMERA) | 0x41;
         self.walking = true;
+        self.cancel_pending = false;
         true
+    }
+
+    /// A click, Escape or Delete during the automatic walk. The next step
+    /// ends the walk if [`CANCEL_VAR`] is set.
+    pub fn cancel_walk(&mut self) {
+        if self.walking {
+            self.cancel_pending = true;
+        }
     }
 
     /// `Game.20(17)`: an automatic walk is going.
@@ -977,13 +993,19 @@ impl Town {
 
     /// One step of the automatic walk: by the trail at the walker's feet.
     /// 0 for a step, 0xff at the end (the walk is ended then).
-    fn follow_trail(&mut self, i: usize) -> u16 {
+    fn follow_trail(&mut self, i: usize, input: &Input) -> u16 {
         let w = self.walkers[i];
         let m = self
             .mask
             .get((w.y as usize + 1) * GRID_W + w.x as usize)
             .map_or(0, |&m| m as u8);
         if m == 0 {
+            self.end_walk();
+            return 0xff;
+        }
+        // A cancel since the last step ends the walk as arrival does; it
+        // is used up either way.
+        if std::mem::take(&mut self.cancel_pending) && input.hold {
             self.end_walk();
             return 0xff;
         }
@@ -1454,6 +1476,32 @@ mod tests {
         }
         assert!(!t.walking());
         assert_eq!((t.walkers[0].x, t.walkers[0].y), (30, 19));
+        assert_eq!(t.walkers[0].flags, 0x71);
+        assert_eq!(t.walkers[0].command, command);
+    }
+
+    #[test]
+    fn cancel_ends_a_walk_only_when_held() {
+        let mut t = town();
+        let mut raw = Vec::new();
+        t.place(0, 0, 1, &mut raw);
+        t.walkers[0].flags = 0x71;
+        t.walkers[0].x = 5;
+        t.walkers[0].y = 12;
+        let command = t.walkers[0].command;
+        assert!(t.walk_to(0, 30, 20, |_| false));
+        // Byte clear: the cancel is used up at the step and the walk goes on.
+        t.cancel_walk();
+        t.tick(&Input::default(), &mut raw);
+        assert!(t.walking());
+        // Byte set: the next step ends the walk as arrival does.
+        t.cancel_walk();
+        let held = Input {
+            hold: true,
+            ..Default::default()
+        };
+        t.tick(&held, &mut raw);
+        assert!(!t.walking());
         assert_eq!(t.walkers[0].flags, 0x71);
         assert_eq!(t.walkers[0].command, command);
     }

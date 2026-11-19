@@ -413,10 +413,11 @@ impl Runtime {
             }
             // One step of every walker; the place reached waits for sub 13.
             9 => {
-                town.reached = Some(
-                    town.tick(&super::town::Input::default(), &mut vm.raw)
-                        .unwrap_or(0xffff),
-                );
+                let input = super::town::Input {
+                    hold: vm.var_b(super::town::CANCEL_VAR) != 0,
+                    ..Default::default()
+                };
+                town.reached = Some(town.tick(&input, &mut vm.raw).unwrap_or(0xffff));
                 self.refresh_town();
                 vm.push(0);
             }
@@ -461,6 +462,18 @@ impl Runtime {
     pub(crate) fn refresh_town(&mut self) {
         if let (Some(_), Some(t)) = (&self.scene.town, &self.town) {
             self.scene.town = Some(t.view());
+        }
+    }
+
+    /// Whether an automatic walk is going.
+    pub fn town_walking(&self) -> bool {
+        self.town.as_ref().is_some_and(|t| t.walking())
+    }
+
+    /// A click or key during the automatic walk (see `Town::cancel_walk`).
+    pub fn cancel_town_walk(&mut self) {
+        if let Some(t) = &mut self.town {
+            t.cancel_walk();
         }
     }
 
