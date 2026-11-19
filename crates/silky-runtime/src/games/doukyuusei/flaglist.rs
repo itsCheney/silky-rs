@@ -329,7 +329,9 @@ pub fn start_event(rec: &Record, vm: &mut Vm) {
 }
 
 /// The record shown in the cell of `day`: one that starts that day, done
-/// before waiting before out of reach, the later one among equals.
+/// before waiting before out of reach; among equals the one the jump goes
+/// to (the original lets that cell be clicked when two events share the
+/// day), else the later one.
 pub fn cell_record(records: &[Record], day: i32) -> Option<usize> {
     let rank = |s: u8| match s {
         1 => 0,
@@ -342,7 +344,11 @@ pub fn cell_record(records: &[Record], day: i32) -> Option<usize> {
         .enumerate()
         .filter(|(_, r)| r.d0 % 100 == day)
     {
-        if best.is_none_or(|b| rank(r.state) <= rank(records[b].state)) {
+        let better = best.is_none_or(|b| {
+            let (new, old) = (rank(r.state), rank(records[b].state));
+            new < old || (new == old && !records[b].jump)
+        });
+        if better {
             best = Some(i);
         }
     }
@@ -1131,8 +1137,9 @@ mod tests {
     #[test]
     fn cells() {
         let r = states(0, &[], &[]);
-        // Two events start on day 10: the later one is shown.
-        assert_eq!(cell_record(&r, 10), Some(1));
+        // Two events start on day 10: the one to jump to is shown, as the
+        // original lets that cell be clicked (Mai's pool event under Wine).
+        assert_eq!(cell_record(&r, 10), Some(0));
         assert_eq!(cell_record(&r, 12), Some(2));
         assert_eq!(cell_record(&r, 14), None);
         // Satomi's two locked events on day 20.
@@ -1169,10 +1176,11 @@ mod tests {
         s.drag(174 + 318 + 30);
         assert_eq!(s.scroll, 3);
         // Girl 1 is in the second row; her first event (day 10) is the one
-        // to jump to. Girl 0's day 10 shows her later event.
+        // to jump to, and so is girl 0's on the same day.
         s.open_calendar(1);
         assert_eq!(s.click(256), Click::Jump);
-        assert_eq!(s.click(0), Click::None);
+        assert_eq!(s.click(0), Click::Jump);
+        assert_eq!(s.click(1), Click::None);
         assert_eq!(s.cancel(), Click::Changed);
         assert_eq!(s.cancel(), Click::Leave);
     }
