@@ -73,6 +73,9 @@ pub const REEL: i32 = 51;
 /// `Game.52`: the music mode (see [`super::music`]); returns -1 to leave,
 /// 100 for another page of the extras.
 pub const MUSIC: i32 = 52;
+/// `Game.53`: the comments page (see [`super::comment`]); returns -1 to
+/// leave, 100 for another page of the extras.
+pub const COMMENT: i32 = 53;
 
 impl Runtime {
     /// The status plate's values now, in 同級生 Remake.
@@ -179,6 +182,14 @@ impl Runtime {
                 let st = &self.system.settings;
                 match super::music::Music::load(&self.assets, &vm.bytes, st.music, st.music_on) {
                     Ok(m) => self.panel = Some(Panel::Music(m)),
+                    Err(e) => return Some(Err(host_error(e.to_string()))),
+                }
+                self.scene.text = None;
+                self.wait_for(crate::host::Pause::Panel)
+            }
+            (COMMENT, _) => {
+                match super::comment::Comment::load(&self.assets, &vm.bytes) {
+                    Ok(c) => self.panel = Some(Panel::Comment(c)),
                     Err(e) => return Some(Err(host_error(e.to_string()))),
                 }
                 self.scene.text = None;

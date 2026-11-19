@@ -522,6 +522,11 @@ fn snap(
                             use silky_runtime::games::doukyuusei::music::BACK;
                             ("music", m.click(BACK))
                         }
+                        // Leave.
+                        Panel::Comment(c) => {
+                            use silky_runtime::games::doukyuusei::comment::BACK;
+                            ("comment", c.click(BACK))
+                        }
                         Panel::Town => unreachable!(),
                     };
                     let Click::Result(pick) = pick else {
@@ -532,6 +537,7 @@ fn snap(
                         || name == "album"
                         || name == "reel"
                         || name == "music"
+                        || name == "comment"
                     {
                         let mut frame = renderer.render_scene(&rt.scene, &mut rt.assets, false)?;
                         let ui = Ui {

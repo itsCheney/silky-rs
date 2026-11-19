@@ -8,6 +8,7 @@
 pub mod album;
 pub mod calendar;
 pub(crate) mod commands;
+pub mod comment;
 pub mod config;
 pub mod hours;
 pub mod log;
@@ -46,6 +47,8 @@ pub enum Panel {
     Reel(reel::Reel),
     /// The music mode (`Game.52`).
     Music(music::Music),
+    /// The comments page (`Game.53`).
+    Comment(comment::Comment),
     /// A walk on the map (`Game.20(30)`); the map itself is
     /// [`Runtime::town`], drawn as the background.
     Town,
@@ -61,6 +64,7 @@ impl Panel {
             Panel::Album(a) => a.hit(x, y),
             Panel::Reel(r) => r.hit(x, y),
             Panel::Music(m) => m.hit(x, y),
+            Panel::Comment(c) => c.hit(x, y),
             Panel::Town => None,
         }
     }
@@ -73,6 +77,7 @@ impl Panel {
             Panel::Album(a) => a.click(id),
             Panel::Reel(r) => r.click(id),
             Panel::Music(m) => m.click(id),
+            Panel::Comment(c) => c.click(id),
             Panel::Town => Click::None,
         }
     }
@@ -102,6 +107,7 @@ impl Panel {
             Panel::Album(a) => a.draw(canvas, assets, language, state),
             Panel::Reel(r) => r.draw(canvas, assets, language, state),
             Panel::Music(m) => m.draw(canvas, assets, language, state),
+            Panel::Comment(c) => c.draw(canvas, assets, language, state),
             Panel::Town => Ok(()),
         }
     }

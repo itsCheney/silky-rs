@@ -1350,6 +1350,7 @@ impl Session {
                     }
                     leave
                 }
+                Some(Panel::Comment(c)) => c.cancel(),
                 Some(Panel::Music(m)) => {
                     let leave = m.cancel();
                     self.rt.stop_music();
@@ -2913,6 +2914,7 @@ impl Session {
                     crate::games::doukyuusei::Panel::Album(a) => a.take_globals(),
                     crate::games::doukyuusei::Panel::Reel(r) => r.take_globals(),
                     crate::games::doukyuusei::Panel::Music(m) => m.take_globals(),
+                    crate::games::doukyuusei::Panel::Comment(c) => c.take_globals(),
                     _ => Vec::new(),
                 };
                 for (i, v) in set {
