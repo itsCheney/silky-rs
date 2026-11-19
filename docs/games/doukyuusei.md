@@ -97,7 +97,7 @@ The game is an adventure in a town: the hero spends the days of a summer break g
 - The walking maps: Wine shots of a map save and load. The place labels are drawn (see the walking maps bullet) but not checked under Wine: their z-order against the walkers, whether the menu or the status plate hides them, and the first-day scene that sets byte 7088 (only the byte is known).
 - Selections: the keyboard focus (the arrow keys move it in the original; the mouse only here), the auto mode's timeout click, and the replay marks `b[1900 + N]`: nothing known writes them, so the gray and the badges are checked by unit tests only. Where the original keeps the marks is not known.
 - The other place screens and the other screens.
-- Chinese text: the layout of full-width characters is assumed (two cells each, a character a word); it is not checked under Wine yet.
+- Chinese text: characters missing from `font_zen` (for example 拓 of the hero's default name) are not drawn; the original draws them with another font. Placement and line breaks match the original under Wine (40 pixels a character, 37 to a line).
 - The character picker's sounds (`ses_003.wav`, `ses_004.wav` for the quick buttons and a system sound for a card).
 - Calls that change nothing here: `Select.0(-1)` (the engine readies the layers of its selection bars), `Game.20(24)` with a `.pal` file (not a sub command of this build), `Game.27` (the game's own mouse pointer on and off) and `Game.35` (marks for the "skip scenes" setting).
 - The other `Game` commands; the engine classes are taken from [engine-2026](../builds/engine-2026.md) unchecked.

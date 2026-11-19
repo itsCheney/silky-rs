@@ -122,7 +122,14 @@ pub fn layout(text: &str) -> Vec<(usize, Placed)> {
         if word.last() == Some(&' ') {
             width -= 1;
         }
-        if x > 0 && (x + width) * CELL >= LINE_CELLS * CELL {
+        // A full-width character may end on the limit (Chinese lines
+        // under Wine hold 37 of them); a word of letters may not.
+        let over = if half(c) {
+            x + width >= LINE_CELLS
+        } else {
+            x + width > LINE_CELLS
+        };
+        if x > 0 && over {
             x = 0;
             y += LINE;
         }
@@ -527,6 +534,16 @@ mod tests {
                 "believe I lucked out! I mean, you're actually free starting today!"
             ]
         );
+    }
+
+    #[test]
+    fn chinese_line_holds_37() {
+        // Matched under Wine: the 37th character ends on the limit.
+        let text =
+            "因为我过着学生版的单身出差生活。那种被温暖家庭仔细呵护长大的家伙是不会懂我的辛苦的。";
+        let rows = lines(text);
+        assert_eq!(rows[0].chars().count(), 37);
+        assert!(rows[1].starts_with('的'));
     }
 
     #[test]
