@@ -21,8 +21,11 @@ pub enum Button {
     Title(usize),
     /// Message window button, by its `mes_o.area` id, see [`bar`].
     Bar(i32),
-    /// Option of a selection.
+    /// Option of a selection, by its index in the list.
     Choice(usize),
+    /// Arrow of a selection that has more than one page, by its hot spot
+    /// id (see [`crate::games::doukyuusei::select::PREV`]).
+    ChoicePage(i32),
     /// Button of きまぐれテンプテーション2's action menu, by index.
     Action(usize),
     /// Button of きまぐれテンプテーション2's map, by its area id: places
@@ -161,6 +164,10 @@ pub struct Ui {
     pub has_saves: bool,
     /// Options of a pending selection, as shown.
     pub choices: Vec<String>,
+    /// Shown status of each option (empty when none applies).
+    pub choice_status: Vec<crate::games::doukyuusei::select::Status>,
+    /// Page of the selection shown.
+    pub choice_page: usize,
     /// There is a selection to go back to.
     pub previous_choice: bool,
     /// きまぐれテンプテーション2's side menu is open.
@@ -241,6 +248,7 @@ impl Ui {
             Button::Bar(bar::NOTEBOOK) => self.notebook,
             Button::Bar(bar::COSTUME) => self.costume,
             Button::Bar(bar::COLLECTION) => self.collection,
+            Button::Choice(i) => self.choice_status.get(i).map_or(true, |s| s.clickable),
             _ => true,
         }
     }
@@ -1826,11 +1834,15 @@ impl Layout {
             }
         }
         if let (false, Some(d)) = (ui.choices.is_empty(), &self.douk) {
-            let bars = crate::games::doukyuusei::select::Bars::new(&ui.choices);
-            if let Some(i) = bars.hit(x, y) {
-                return Some(Button::Choice(i));
-            }
-            return d.hit(ui, x, y);
+            use crate::games::doukyuusei::select::{Bars, Hit, NEXT, PREV};
+            let bars = Bars::on_page(&ui.choices, ui.choice_page);
+            return match bars.hit(x, y) {
+                // A disabled option takes no press and no hover.
+                Some(Hit::Bar(i)) => ui.enabled(Button::Choice(i)).then_some(Button::Choice(i)),
+                Some(Hit::Prev) => Some(Button::ChoicePage(PREV)),
+                Some(Hit::Next) => Some(Button::ChoicePage(NEXT)),
+                None => d.hit(ui, x, y),
+            };
         }
         if !ui.choices.is_empty() && self.kimaten2.is_none() && self.ring.is_none() {
             let bars = ChoiceBars::new(&ui.choices);
@@ -1933,10 +1945,20 @@ impl Layout {
             }
         }
         if let (false, Some(d)) = (ui.choices.is_empty(), &self.douk) {
-            let bars = crate::games::doukyuusei::select::Bars::new(&ui.choices);
+            use crate::games::doukyuusei::select::{Bars, Hit, NEXT, PREV};
+            let bars = Bars::on_page(&ui.choices, ui.choice_page).with_status(&ui.choice_status);
             let font = d.font(assets);
-            bars.draw(canvas, assets, font, &ui.choices, |i| {
-                ui.state(Button::Choice(i), true, false) as u32
+            bars.draw(canvas, assets, font, &ui.choices, |h| {
+                let b = match h {
+                    Hit::Bar(i) => Button::Choice(i),
+                    Hit::Prev => Button::ChoicePage(PREV),
+                    Hit::Next => Button::ChoicePage(NEXT),
+                };
+                // A disabled option keeps its normal row.
+                match ui.state(b, ui.enabled(b), false) {
+                    State::Disabled => 0,
+                    s => s as u32,
+                }
             })?;
             return d.draw(canvas, assets, ui, false);
         }

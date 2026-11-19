@@ -610,6 +610,8 @@ impl Session {
                             self.choice_points.push((len, e.state.clone()));
                         }
                         self.ui.choices = self.rt.choices.clone();
+                        self.ui.choice_status = self.rt.choice_status.clone();
+                        self.ui.choice_page = 0;
                         self.ui.waiting = false;
                         self.state = State::Choice;
                         self.modes_at_choice = (self.ui.skip && !self.skip_to_choice, self.ui.auto);
@@ -687,7 +689,9 @@ impl Session {
                     None => {}
                 },
                 Stop::Options => {
-                    self.rt.begin_options(self.vm.options().len());
+                    let numbers: Vec<i32> =
+                        self.vm.options().iter().map(|(_, v)| v.int()).collect();
+                    self.rt.begin_options(&numbers);
                     self.vm.run_all_options().map_err(vm_error)?;
                 }
                 Stop::Ended => {
@@ -3106,8 +3110,20 @@ impl Session {
                     Click::None => {}
                 }
             }
+            Button::ChoicePage(id) => {
+                // The arrows play the OK sound and do not answer.
+                let _ = self.rt.play_sound(crate::games::doukyuusei::name::OK_SOUND);
+                let count = self.ui.choices.len();
+                self.ui.choice_page =
+                    crate::games::doukyuusei::select::turn(count, self.ui.choice_page, id);
+                // The bar now under the pointer shows its hover.
+                let (x, y) = self.ui.pointer;
+                self.ui.hover = self.hit(x, y);
+                self.frame = None;
+            }
             Button::Choice(i) => {
                 self.ui.choices.clear();
+                self.ui.choice_status.clear();
                 let (skip, auto) = self.modes_at_choice;
                 let st = &self.rt.system.settings;
                 self.ui.skip = skip && st.keep_skip_after_choices;

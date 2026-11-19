@@ -156,6 +156,8 @@ pub fn layout(text: &str) -> Vec<(usize, Placed)> {
 struct Sheet {
     white: Arc<Image>,
     black: Arc<Image>,
+    /// The glyph in gray (0x808080), for disabled options.
+    gray: Arc<Image>,
     w: u32,
 }
 
@@ -234,20 +236,24 @@ pub(super) fn resized(img: &Image, part: (u32, u32, u32, u32), w: u32, h: u32) -
 
 impl Sheet {
     fn new(img: Arc<Image>, w: u32) -> Self {
-        let mut rgba = img.rgba.clone();
-        for p in rgba.chunks_exact_mut(4) {
-            p[0] = 0;
-            p[1] = 0;
-            p[2] = 0;
-        }
-        let black = Arc::new(Image {
-            width: img.width,
-            height: img.height,
-            rgba,
-        });
+        // Same glyph with its colour replaced, the alpha kept.
+        let tint = |v: u8| {
+            let mut rgba = img.rgba.clone();
+            for p in rgba.chunks_exact_mut(4) {
+                p[0] = v;
+                p[1] = v;
+                p[2] = v;
+            }
+            Arc::new(Image {
+                width: img.width,
+                height: img.height,
+                rgba,
+            })
+        };
         Self {
+            black: tint(0),
+            gray: tint(0x80),
             white: img,
-            black,
             w,
         }
     }
@@ -327,6 +333,20 @@ impl Font {
         italic: bool,
         opacity: u8,
     ) {
+        self.glyph(canvas, c, x, y, italic, opacity, false);
+    }
+
+    /// The glyph of [`Font::draw_char`], in gray when `gray` is set.
+    fn glyph(
+        &self,
+        canvas: &mut Canvas,
+        c: char,
+        x: i32,
+        y: i32,
+        italic: bool,
+        opacity: u8,
+        gray: bool,
+    ) {
         let (sheet, at) = if half(c) {
             let sheet = if italic { &self.han_i } else { &self.han };
             (sheet, self.han_index.get(&c))
@@ -345,7 +365,8 @@ impl Font {
         for (dx, dy) in OUTLINE {
             canvas.draw_part(&sheet.black, part, x + dx, y + dy, false, opacity);
         }
-        canvas.draw_part(&sheet.white, part, x, y, false, opacity);
+        let fill = if gray { &sheet.gray } else { &sheet.white };
+        canvas.draw_part(fill, part, x, y, false, opacity);
     }
 
     /// Draws the message text, only its first `limit` characters if given
@@ -419,9 +440,18 @@ impl Font {
 
     /// Draws a line of text from (x, y) without wrapping.
     pub fn draw_line(&self, canvas: &mut Canvas, text: &str, x: i32, y: i32) {
+        self.line(canvas, text, x, y, false);
+    }
+
+    /// As [`Font::draw_line`], with the text in gray (0x808080).
+    pub fn draw_line_gray(&self, canvas: &mut Canvas, text: &str, x: i32, y: i32) {
+        self.line(canvas, text, x, y, true);
+    }
+
+    fn line(&self, canvas: &mut Canvas, text: &str, x: i32, y: i32, gray: bool) {
         let mut cx = x;
         for c in text.chars() {
-            self.draw_char(canvas, c, cx, y, false, 255);
+            self.glyph(canvas, c, cx, y, false, 255, gray);
             cx += cells(c) * CELL;
         }
     }

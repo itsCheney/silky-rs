@@ -235,6 +235,12 @@ pub struct Runtime {
     pub(crate) last_text: Option<usize>,
     /// Number of options whose bodies ran before the next selection.
     pub(crate) option_count: usize,
+    /// The option number N of each option (the value pushed before it),
+    /// in list order.
+    pub(crate) option_numbers: Vec<i32>,
+    /// Shown status of each option of the selection that is up (同級生
+    /// Remake only; empty otherwise).
+    pub choice_status: Vec<crate::games::doukyuusei::select::Status>,
     /// Labels of the selection that is up.
     pub choices: Vec<String>,
     /// Set by the frontend when the player clicked; read by input polls.
@@ -332,6 +338,8 @@ impl Runtime {
             handled: 0,
             last_text: None,
             option_count: 0,
+            option_numbers: Vec::new(),
+            choice_status: Vec::new(),
             choices: Vec::new(),
             clicked: false,
             character_time: 0,
@@ -407,15 +415,17 @@ impl Runtime {
 
     /// Notes that the option bodies of a list are about to run (see
     /// [`Vm::run_all_options`]); the selection call that follows shows
-    /// that many options.
-    pub fn begin_options(&mut self, count: usize) {
-        self.option_count = count;
+    /// one option per number, the values pushed before the options.
+    pub fn begin_options(&mut self, numbers: &[i32]) {
+        self.option_count = numbers.len();
+        self.option_numbers = numbers.to_vec();
     }
 
     /// Returns the option picked (from 0) to the script; call after
     /// [`Pause::Choice`].
     pub fn answer_choice(&mut self, vm: &mut Vm, index: usize) {
         self.choices.clear();
+        self.choice_status.clear();
         // 同級生 Remake's selection takes its status plate down again.
         self.scene.plate = false;
         vm.push(index as i32 + 1);
@@ -458,6 +468,7 @@ impl Runtime {
         self.pause = None;
         self.option_count = 0;
         self.choices.clear();
+        self.choice_status.clear();
         Ok(())
     }
 
@@ -477,6 +488,7 @@ impl Runtime {
         self.last_text = None;
         self.option_count = 0;
         self.choices.clear();
+        self.choice_status.clear();
         self.character_time = 0;
         self.lip = None;
         self.jolts.clear();
@@ -1221,8 +1233,10 @@ impl Host for Runtime {
                 // picked, from 1.
                 if class == native::SELECT && sub == 2 && args.is_empty() {
                     self.choices = std::mem::take(&mut vm.option_labels);
+                    self.choice_status.clear();
                     if title == Title::Doukyuusei {
                         self.choices = self.doukyuusei_options(vm);
+                        self.choice_status = self.doukyuusei_status(vm);
                         self.scene.plate = true;
                     }
                     self.option_count = 0;

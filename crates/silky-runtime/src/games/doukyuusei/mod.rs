@@ -201,20 +201,34 @@ impl Runtime {
     }
 
     /// Labels of the options before `Select.2`: each option body leaves
-    /// its line id of the script's text table in `h[40 + i]`.
+    /// its line id of the script's text table in `h[40 + N]`, N being the
+    /// option's number.
     pub(crate) fn doukyuusei_options(&mut self, vm: &Vm) -> Vec<String> {
         let script = self.message_script.clone();
         let hero = self.hero_name(vm);
-        let count = self.option_count;
-        (0..count)
-            .map(|i| {
-                let id = vm.var_h(40 + i).int();
+        // The line of option N is h[40 + N].
+        let numbers = self.option_numbers.clone();
+        numbers
+            .iter()
+            .enumerate()
+            .map(|(i, &n)| {
+                let id = vm.var_h((40 + n).max(0) as usize).int();
                 self.doukyuusei_table(&script)
                     .ok()
                     .and_then(|t| t.get(0, id.max(0) as u32))
                     .map(|l| plain_text(&shown_text(l, &hero)))
                     .unwrap_or_else(|| format!("{}", i + 1))
             })
+            .collect()
+    }
+
+    /// Shown status of each option: replay mode is `h[69]`, the mark of
+    /// option N is `b[1900 + N]`.
+    pub(crate) fn doukyuusei_status(&self, vm: &Vm) -> Vec<select::Status> {
+        let mode = vm.var_h(69).int();
+        self.option_numbers
+            .iter()
+            .map(|&n| select::status(mode, vm.var_b((1900 + n).max(0) as usize)))
             .collect()
     }
 

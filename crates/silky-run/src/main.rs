@@ -588,7 +588,8 @@ fn snap(
                 None => {}
             },
             Stop::Options => {
-                rt.begin_options(vm.options().len());
+                let numbers: Vec<i32> = vm.options().iter().map(|(_, v)| v.int()).collect();
+                rt.begin_options(&numbers);
                 vm.run_all_options()?;
             }
             Stop::Ended => {
