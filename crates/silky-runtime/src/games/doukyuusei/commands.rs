@@ -64,6 +64,9 @@ pub const PICKER: i32 = 36;
 pub const POINTER: i32 = 27;
 /// `Game.35(sub)`: scene skip marks.
 pub const SCENE_MARKS: i32 = 35;
+/// `Game.50`: the album (see [`super::album`]); returns -1 to leave, 100
+/// for another page of the extras, else a picture to show.
+pub const ALBUM: i32 = 50;
 
 impl Runtime {
     /// The status plate's values now, in 同級生 Remake.
@@ -145,6 +148,15 @@ impl Runtime {
                     Ok(p) => self.panel = Some(Panel::Picker(p)),
                     Err(e) => return Some(Err(host_error(e.to_string()))),
                 }
+                self.wait_for(crate::host::Pause::Panel)
+            }
+            (ALBUM, _) => {
+                let g = |i: usize| vm.var_g(i).int();
+                match super::album::Album::load(&self.assets, &vm.bytes, g) {
+                    Ok(a) => self.panel = Some(Panel::Album(a)),
+                    Err(e) => return Some(Err(host_error(e.to_string()))),
+                }
+                self.scene.text = None;
                 self.wait_for(crate::host::Pause::Panel)
             }
             (SCREEN, 28 | 29) => {

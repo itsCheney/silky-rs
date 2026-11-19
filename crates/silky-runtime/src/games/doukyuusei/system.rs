@@ -852,7 +852,44 @@ pub fn draw_dialog(
     canvas.fill(0, 0, canvas.width, canvas.height, [0, 0, 0, 127]);
     let saving = matches!(d.action, Action::Save(_));
     let box_y = if saving { 0 } else { 330 };
-    canvas.draw_part(sheet, (0, box_y, 880, 330), 520, 375, false, 255);
+    let unlock = match d.action {
+        Action::Unlock(k) => Some(k),
+        _ => None,
+    };
+    if unlock.is_some() {
+        // Without the "don't show again" label (312 x 54 at (501, 244) of
+        // the box).
+        let (lx, ly, lw, lh) = (501, 244, 312, 54);
+        canvas.draw_part(sheet, (0, box_y, 880, ly), 520, 375, false, 255);
+        let below = ly + lh;
+        canvas.draw_part(
+            sheet,
+            (0, box_y + below, 880, 330 - below),
+            520,
+            375 + below as i32,
+            false,
+            255,
+        );
+        canvas.draw_part(
+            sheet,
+            (0, box_y + ly, lx, lh),
+            520,
+            375 + ly as i32,
+            false,
+            255,
+        );
+        let right = lx + lw;
+        canvas.draw_part(
+            sheet,
+            (right, box_y + ly, 880 - right, lh),
+            520 + right as i32,
+            375 + ly as i32,
+            false,
+            255,
+        );
+    } else {
+        canvas.draw_part(sheet, (0, box_y, 880, 330), 520, 375, false, 255);
+    }
     if saving {
         // The comment field's clear button.
         canvas.draw_part(sheet, (48, 660, 48, 48), 1159, 483, false, 255);
@@ -867,17 +904,23 @@ pub fn draw_dialog(
         Action::DeleteAll => 6,
         Action::Jump(_) => 7,
         Action::Scene(_) => 8,
-        Action::Unlock(_) => 9,
+        Action::Unlock(_) => 10,
     };
-    let question_y = if saving { 411 } else { 443 };
-    canvas.draw_part(
-        sheet,
-        (880, 52 * question, 727, 52),
-        597,
-        question_y,
-        false,
-        255,
-    );
+    if let Some(k) = unlock {
+        // Two lines: all pictures or all scenes of a girl.
+        let sy = if k == crate::Extras::Scenes { 619 } else { 519 };
+        canvas.draw_part(sheet, (880, sy, 727, 100), 597, 395, false, 255);
+    } else {
+        let question_y = if saving { 411 } else { 443 };
+        canvas.draw_part(
+            sheet,
+            (880, 52 * question, 727, 52),
+            597,
+            question_y,
+            false,
+            255,
+        );
+    }
     for a in areas {
         let st = state(a.id);
         match a.id {
@@ -892,6 +935,7 @@ pub fn draw_dialog(
                     255,
                 );
             }
+            dialog_ids::DONT_ASK if unlock.is_some() => {}
             dialog_ids::DONT_ASK => {
                 let row = if d.dont_ask { 3 } else { st.min(2) };
                 canvas.draw_part(

@@ -13,6 +13,7 @@ use silky_format::mes::Profile;
 use silky_vm::{Stop, Vm};
 
 use crate::audio::Bus;
+use crate::games::doukyuusei::Panel as DoukPanel;
 use crate::games::kimaten2::archive::{
     self, Archive, ArchiveAction, ArchiveScreen, Book, CostumeScreen,
 };
@@ -1292,10 +1293,20 @@ impl Session {
             self.end_movie()?;
             return Ok(true);
         }
-        // 同級生 Remake's character picker leaves on a secondary click.
-        if self.screen.is_none() {
-            let cancel = match &self.ui.panel {
-                Some(crate::games::doukyuusei::Panel::Picker(p)) => p.cancel(),
+        // 同級生 Remake's character picker leaves on a secondary click; the
+        // album goes from a girl's pictures back to the girls.
+        if self.screen.is_none() && self.dialog.is_none() {
+            use crate::games::doukyuusei::Panel;
+            let cancel = match &mut self.ui.panel {
+                Some(Panel::Picker(p)) => p.cancel(),
+                Some(Panel::Album(a)) => {
+                    if a.cancel() {
+                        self.ui.hover = None;
+                        self.frame = None;
+                        return Ok(true);
+                    }
+                    None
+                }
                 _ => None,
             };
             if let Some(result) = cancel {
@@ -2044,21 +2055,25 @@ impl Session {
         }
     }
 
-    /// Copies changed global byte variables into the system data.
+    /// Copies changed global byte variables into the system data (the
+    /// layout's ranges one after another).
     fn store_global_bytes(&mut self) {
-        let Some(range) = self.layout.global_bytes() else {
+        let ranges = self.layout.global_bytes();
+        if ranges.is_empty() {
             return;
-        };
-        let end = range.end.min(self.vm.bytes.len());
-        let vm = self.vm.bytes.get(range.start..end).unwrap_or(&[]);
-        let kept = &self.rt.system.global_bytes;
-        let n = vm.len().max(kept.len());
-        let at = |b: &[u8], i: usize| b.get(i).copied().unwrap_or(0);
-        if (0..n).any(|i| at(vm, i) != at(kept, i)) {
-            let mut all: Vec<u8> = (0..n).map(|i| at(vm, i)).collect();
-            while all.last() == Some(&0) {
-                all.pop();
-            }
+        }
+        let len = self.vm.bytes.len();
+        let mut all: Vec<u8> = Vec::new();
+        for r in ranges {
+            // An open range ends with the VM's bytes; a closed one keeps
+            // its length so the next one keeps its place.
+            let end = if r.end == usize::MAX { len } else { r.end };
+            all.extend((r.start..end).map(|i| self.vm.bytes.get(i).copied().unwrap_or(0)));
+        }
+        while all.last() == Some(&0) {
+            all.pop();
+        }
+        if all != self.rt.system.global_bytes {
             self.rt.system.global_bytes = all;
             self.rt.system_changed = true;
         }
@@ -2067,20 +2082,24 @@ impl Session {
     /// Puts the kept global byte variables into the VM (after a boot or a
     /// load, which bring their own copies).
     fn apply_global_bytes(&mut self) {
-        let Some(range) = self.layout.global_bytes() else {
-            return;
-        };
+        let ranges = self.layout.global_bytes();
         let kept = self.rt.system.global_bytes.clone();
-        let end = self
-            .vm
-            .bytes
-            .len()
-            .max(range.start + kept.len())
-            .min(range.end);
-        for i in range.start..end {
-            let v = kept.get(i - range.start).copied().unwrap_or(0);
-            if self.vm.var_b(i) != v {
-                self.vm.set_var_b(i, v);
+        let mut at = 0;
+        for r in ranges {
+            let end = if r.end == usize::MAX {
+                self.vm
+                    .bytes
+                    .len()
+                    .max(r.start + kept.len().saturating_sub(at))
+            } else {
+                r.end
+            };
+            for i in r.start..end {
+                let v = kept.get(at).copied().unwrap_or(0);
+                at += 1;
+                if self.vm.var_b(i) != v {
+                    self.vm.set_var_b(i, v);
+                }
             }
         }
     }
@@ -2244,6 +2263,16 @@ impl Session {
                 self.state = State::Ended;
             }
             Action::Scene(i) => self.leave_extras(i as i32)?,
+            Action::Unlock(_) if matches!(self.ui.panel, Some(DoukPanel::Album(_))) => {
+                if let Some(DoukPanel::Album(a)) = &mut self.ui.panel {
+                    let girl = a.girl.unwrap_or(0);
+                    for &i in a.girl_pictures(girl) {
+                        self.vm.set_var_b(i, 1);
+                    }
+                    a.refresh(&self.vm.bytes);
+                }
+                self.store_global_bytes();
+            }
             Action::Unlock(kind) => {
                 for (i, v) in crate::games::kimaten2::omake::unlock_all(kind) {
                     self.vm.set_var_b(i, v);
@@ -2816,7 +2845,13 @@ impl Session {
                 let Some(p) = &mut self.ui.panel else {
                     return Ok(());
                 };
-                match p.click(id) {
+                let click = p.click(id);
+                if let crate::games::doukyuusei::Panel::Album(a) = p {
+                    for (i, v) in a.take_globals() {
+                        self.vm.set_g(i, v);
+                    }
+                }
+                match click {
                     Click::Result(result) => {
                         self.ui.panel = None;
                         self.base = None;
@@ -2836,6 +2871,7 @@ impl Session {
                     Click::Backlog => {}
                     Click::Save => self.open_save_load(Mode::Save),
                     Click::Load => self.open_save_load(Mode::Load),
+                    Click::Unlock => self.ask(Action::Unlock(crate::Extras::Gallery))?,
                     Click::None => {}
                 }
             }

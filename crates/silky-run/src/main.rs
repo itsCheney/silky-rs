@@ -467,8 +467,8 @@ fn snap(
                 }
                 Some(Pause::Panel) => {
                     use silky_runtime::games::doukyuusei::{room::THING, Click, Panel};
-                    let panel = rt.panel.clone().unwrap();
-                    let (name, pick) = match &panel {
+                    let mut panel = rt.panel.clone().unwrap();
+                    let (name, pick) = match &mut panel {
                         // Each thing in turn but the bed (the last) at
                         // home, then talk (away from home), then out.
                         Panel::Room(r) => {
@@ -495,7 +495,7 @@ fn snap(
                             }
                         }
                         // One hour.
-                        Panel::Hours(_) => ("hours", panel.click(0)),
+                        Panel::Hours(h) => ("hours", Click::Result(h.click(0))),
                         // The first girl that can be picked, else back.
                         Panel::Picker(p) => {
                             use silky_runtime::games::doukyuusei::picker::{BACK, CARDS};
@@ -507,12 +507,17 @@ fn snap(
                             };
                             ("picker", pick)
                         }
+                        // Leave.
+                        Panel::Album(a) => {
+                            use silky_runtime::games::doukyuusei::album::BACK;
+                            ("album", a.click(BACK))
+                        }
                         Panel::Town => unreachable!(),
                     };
                     let Click::Result(pick) = pick else {
                         unreachable!()
                     };
-                    if rooms < 5 || name == "picker" {
+                    if rooms < 5 || name == "picker" || name == "album" {
                         let mut frame = renderer.render_scene(&rt.scene, &mut rt.assets, false)?;
                         let ui = Ui {
                             panel: Some(panel.clone()),

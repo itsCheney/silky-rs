@@ -5,6 +5,7 @@
 //! line of it by its line id; speaker names are in `NAMES_<lang>.MAP`.
 //! See `docs/games/doukyuusei.md`.
 
+pub mod album;
 pub mod calendar;
 pub(crate) mod commands;
 pub mod config;
@@ -37,6 +38,8 @@ pub enum Panel {
     Hours(hours::Hours),
     /// The character picker (`Game.36`).
     Picker(picker::Picker),
+    /// The album (`Game.50`).
+    Album(album::Album),
     /// A walk on the map (`Game.20(30)`); the map itself is
     /// [`Runtime::town`], drawn as the background.
     Town,
@@ -49,15 +52,17 @@ impl Panel {
             Panel::Room(r) => r.hit(x, y),
             Panel::Hours(h) => h.hit(x, y),
             Panel::Picker(p) => p.hit(x, y),
+            Panel::Album(a) => a.hit(x, y),
             Panel::Town => None,
         }
     }
 
-    pub fn click(&self, id: i32) -> Click {
+    pub fn click(&mut self, id: i32) -> Click {
         match self {
             Panel::Room(r) => r.click(id),
             Panel::Hours(h) => Click::Result(h.click(id)),
             Panel::Picker(p) => p.click(id),
+            Panel::Album(a) => a.click(id),
             Panel::Town => Click::None,
         }
     }
@@ -84,6 +89,7 @@ impl Panel {
             Panel::Room(r) => r.draw(canvas, assets, state, hover, font),
             Panel::Hours(h) => h.draw(canvas, assets, language, state),
             Panel::Picker(p) => p.draw(canvas, assets, language, state),
+            Panel::Album(a) => a.draw(canvas, assets, language, state),
             Panel::Town => Ok(()),
         }
     }

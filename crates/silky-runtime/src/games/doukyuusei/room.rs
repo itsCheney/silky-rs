@@ -55,6 +55,8 @@ pub enum Click {
     Backlog,
     Save,
     Load,
+    /// Ask before opening all of a girl's pictures (the album).
+    Unlock,
     /// Nothing happens.
     None,
 }

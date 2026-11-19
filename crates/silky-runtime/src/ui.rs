@@ -1710,22 +1710,25 @@ impl Layout {
     /// Whether some byte variables are kept across games (see
     /// [`Layout::global_bytes`]).
     pub fn keeps_global_bytes(&self) -> bool {
-        self.global_bytes().is_some()
+        !self.global_bytes().is_empty()
     }
 
     /// The byte variables kept across games: from
     /// [`crate::system::GLOBAL_BYTES`] on in きまぐれテンプテーション2 and
-    /// 景の海のアペイリア; in 同級生 Remake the album, memory reel and
-    /// music flags (4000 to 6999; the walking maps keep their state from
-    /// 7088 on).
-    pub fn global_bytes(&self) -> Option<std::ops::Range<usize>> {
+    /// 景の海のアペイリア; in 同級生 Remake the album and ending flags
+    /// (1720 to 1899) and the album, memory reel and music flags (4000 to
+    /// 6999; the walking maps keep their own state from 1700 and 7088 on).
+    pub fn global_bytes(&self) -> &'static [std::ops::Range<usize>] {
         use crate::system::GLOBAL_BYTES;
+        #[allow(clippy::single_range_in_vec_init)]
+        const OPEN: &[std::ops::Range<usize>] = &[GLOBAL_BYTES..usize::MAX];
+        const DOUK: &[std::ops::Range<usize>] = &[1720..1900, 4000..7000];
         if self.kimaten2.is_some() || self.ring.is_some() {
-            Some(GLOBAL_BYTES..usize::MAX)
+            OPEN
         } else if self.douk.is_some() {
-            Some(4000..7000)
+            DOUK
         } else {
-            None
+            &[]
         }
     }
 
