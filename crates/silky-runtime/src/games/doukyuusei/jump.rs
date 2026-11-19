@@ -10,16 +10,20 @@
 //! the place under a pixel (255 none, 100 the back button). Back and the
 //! secondary click return to the walk.
 //!
-//! Only the town (mode 0) is done; the yabuki and school pages and the
-//! faces of the girls on the places are not. See
+//! With the game mode setting on, the girl who will be at a place shows
+//! as a face on it (see [`super::who`]). Only the town (mode 0) is done;
+//! the yabuki and school pages are not. See
 //! `docs/games/doukyuusei.md`.
 
 use std::sync::Arc;
 
+use super::plate::GAME_MODE;
 use super::room::Click;
+use super::who::{face_at, Map};
 use crate::assets::{Assets, Language};
 use crate::render::Canvas;
 use crate::Result;
+use silky_vm::Vm;
 
 /// The byte that tells which map the page is for (0 the town).
 pub const MODE_AT: usize = 7089;
@@ -109,21 +113,74 @@ const TOWN: [Place; PLACES] = [
     p(1159, 3950, 150, 831, 356, 215, B(1698)),
 ];
 
+/// The pin (place number for the schedule) of each town element, -1 none.
+const PIN_OF: [i8; PLACES] = [
+    0, 1, 5, 13, 12, 11, 14, 8, 7, 9, -1, -1, -1, -1, -1, -1, -1, -1, 15, 6, 10, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+];
+/// Where a face goes (top-left) by pin; pin 1 uses [`SLOT_AT`].
+const PIN_AT: [(i32, i32); 16] = [
+    (1473, 59),
+    (159, 19),
+    (159, 19),
+    (48, 57),
+    (159, 10),
+    (1134, 630),
+    (1203, 100),
+    (961, 194),
+    (1347, 21),
+    (1305, 245),
+    (1664, 367),
+    (1755, 557),
+    (500, 648),
+    (1688, 712),
+    (1221, 839),
+    (1476, 660),
+];
+/// The four places of Sakimake Academy share one pin; these are their spots.
+const SLOT_AT: [(i32, i32); 4] = [(159, 19), (159, 19), (48, 57), (159, 10)];
+/// The face sheet: 144-pixel cells, four to a row.
+const FACES: &str = "map_p.akb";
+const FACE: u32 = 144;
+
 #[derive(Debug, Clone)]
 pub struct Jump {
     map: Arc<Vec<u8>>,
     open: [bool; PLACES],
+    /// Faces to draw: (cell, x, y).
+    faces: Vec<(u8, i32, i32)>,
     /// Reiko's house art: 0 or 1.
     reiko: usize,
 }
 
 impl Jump {
-    /// `bytes` are the byte variables; the page is for the town, see
-    /// [`Jump::available`].
-    pub fn load(assets: &Assets, bytes: &[u8]) -> Result<Self> {
+    /// The page is for the town, see [`Jump::available`]; faces show
+    /// with the game mode setting on.
+    pub fn load(assets: &Assets, vm: &Vm) -> Result<Self> {
         let mut map = assets.data(CAREA)?;
         map.resize(W * H, 255);
-        Ok(Self::new(map, bytes))
+        let mut j = Self::new(map, &vm.bytes);
+        if GAME_MODE == 1 {
+            j.faces = j.pins(|place| face_at(vm, Map::Town, place));
+        }
+        Ok(j)
+    }
+
+    /// The faces of the places offered; `who` gives the face at a place.
+    fn pins(&self, who: impl Fn(u8) -> Option<u8>) -> Vec<(u8, i32, i32)> {
+        let mut faces = Vec::new();
+        for (id, &pin) in PIN_OF.iter().enumerate() {
+            if pin < 0 || !self.offered(id) {
+                continue;
+            }
+            let found = if pin == 1 {
+                (0..4).find_map(|k| who(k + 1).map(|f| (f, SLOT_AT[k as usize])))
+            } else {
+                who(pin as u8).map(|f| (f, PIN_AT[pin as usize]))
+            };
+            faces.extend(found.map(|(f, (x, y))| (f, x, y)));
+        }
+        faces
     }
 
     fn new(map: Vec<u8>, bytes: &[u8]) -> Self {
@@ -146,6 +203,7 @@ impl Jump {
         Self {
             map: Arc::new(map),
             open,
+            faces: Vec::new(),
             reiko: reiko.unwrap_or(0),
         }
     }
@@ -213,6 +271,20 @@ impl Jump {
             let (sx, sy, dx, dy, w, h) = self.place(id);
             canvas.draw_part(&plates, (sx, sy + h * row, w, h), dx, dy, false, 255);
         }
+        if !self.faces.is_empty() {
+            let sheet = assets.localized_image(FACES, language)?;
+            for &(f, x, y) in &self.faces {
+                let src = (f as u32 & 3) * FACE;
+                canvas.draw_part(
+                    &sheet,
+                    (src, (f as u32 >> 2) * FACE, FACE, FACE),
+                    x,
+                    y,
+                    false,
+                    255,
+                );
+            }
+        }
         let row = state(BACK).min(2);
         let (sx, w, h) = BACK_PART;
         canvas.draw_part(
@@ -252,6 +324,25 @@ mod tests {
         assert!(j.offered(19) && j.reiko == 0);
         bytes[1702] = 1;
         assert_eq!(jump(&bytes).reiko, 1);
+    }
+
+    #[test]
+    fn pins() {
+        let mut bytes = vec![0u8; 2000];
+        bytes[1701] = 1;
+        let j = jump(&bytes);
+        // Everyone at pin 3 and, for the academy, only on slot 2 (pin 3).
+        let faces = j.pins(|p| (p == 3 || p == 15 || p == 12).then_some(p));
+        // Place 3 is the third slot; the coffee house (pin 13) is empty, the
+        // boutique (15) found.
+        assert!(faces.contains(&(3, 48, 57)));
+        assert!(faces.contains(&(15, 1476, 660)));
+        // Station (pin 5), found by default, has nobody; pin 12 (the
+        // drugstore, id 4) is offered.
+        assert!(faces.contains(&(12, 500, 648)));
+        assert_eq!(faces.len(), 3);
+        // A place not found (Reiko's house) shows nobody.
+        assert!(j.pins(|p| (p == 6).then_some(1)).is_empty());
     }
 
     #[test]

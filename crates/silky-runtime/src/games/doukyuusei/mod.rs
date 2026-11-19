@@ -24,6 +24,8 @@ pub mod select;
 pub mod sound;
 pub mod system;
 pub mod town;
+pub mod who;
+mod who_data;
 pub mod window;
 
 use silky_format::map::MapFile;

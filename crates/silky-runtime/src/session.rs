@@ -3091,7 +3091,7 @@ impl Session {
         if !matches!(self.ui.panel, Some(Panel::Town)) {
             return;
         }
-        if let Ok(j) = Jump::load(&self.rt.assets, &self.vm.bytes) {
+        if let Ok(j) = Jump::load(&self.rt.assets, &self.vm) {
             self.ui.panel = Some(Panel::Jump(j));
             self.ui.side_menu = true;
             self.ui.hover = None;
