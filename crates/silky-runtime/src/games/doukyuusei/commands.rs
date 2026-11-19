@@ -49,8 +49,15 @@ pub const SCREEN: i32 = 10;
 /// string), which is why the call is counted without one. The result goes
 /// to the call that loads the picture.
 pub const LOCALIZE_NAME: i32 = 23;
-/// `Game.39(sub)`: the picture object of one scene (sub 1 takes it away).
+/// `Game.39(sub)`: the train of Misa's scenes (see [`super::train`]): sub
+/// 0 makes the picture object, 1 takes it away, 2 brings it in and 3 sends
+/// it out (the script waits), 4 puts it at its stopping place, 5 draws
+/// `y04bb.akb` into the background.
 pub const OVERLAY: i32 = 39;
+/// `Game.37(n)`: the "comment unlocked" pop-up (see [`super::unlocked`]);
+/// `n` is the number of the comment picture. The script waits; nothing is
+/// returned.
+pub const UNLOCKED: i32 = 37;
 /// The byte that keeps the status plate up when the message window comes
 /// back (`Game.10(11)`).
 const PLATE_KEEP: usize = 4084;
@@ -268,9 +275,54 @@ impl Runtime {
             // nothing in the program, nor do those below 10.
             (SCREEN, 12..=14 | 17..=27) => self.done(),
             (SCREEN, sub) if sub < 10 => self.done(),
-            // The scene's picture object is never made here (sub 0), so
-            // there is nothing for sub 1 to take away.
-            (OVERLAY, 1) => self.done(),
+            (UNLOCKED, n) => {
+                // A number without a picture does nothing.
+                let Some(u) = super::unlocked::Unlocked::new(n) else {
+                    return self.done();
+                };
+                self.panel = Some(Panel::Unlocked(u));
+                self.scene.text = None;
+                self.wait_for(crate::host::Pause::Panel)
+            }
+            (OVERLAY, 0) => {
+                self.scene.train = Some(super::train::Train::new());
+                self.done()
+            }
+            (OVERLAY, 1) => {
+                self.scene.train = None;
+                self.done()
+            }
+            // The moves wait for the train to get there; the frontend
+            // draws it on its way (a live wait). Without the object they
+            // do nothing.
+            (OVERLAY, sub @ (2 | 3)) => {
+                let Some(train) = &mut self.scene.train else {
+                    return self.done();
+                };
+                let mv = if sub == 2 {
+                    train.arrive();
+                    super::train::Move::Arrive
+                } else {
+                    train.leave();
+                    super::train::Move::Leave
+                };
+                self.handled += 1;
+                let flow = self.transition(mv.frames(), None);
+                if let Some(crate::host::Pause::Transition(t)) = &mut self.pause {
+                    t.live = true;
+                }
+                Some(Ok(flow))
+            }
+            (OVERLAY, 4) => {
+                if let Some(train) = &mut self.scene.train {
+                    train.park();
+                }
+                self.done()
+            }
+            (OVERLAY, 5) => {
+                self.scene.background = Some(super::train::BACKGROUND.to_string());
+                self.done()
+            }
             (LOCALIZE_NAME, _) if matches!(c.args.last(), Some(silky_vm::Value::Str(_))) => {
                 let len = c.args.len();
                 let name = c.str(len - 1)?;

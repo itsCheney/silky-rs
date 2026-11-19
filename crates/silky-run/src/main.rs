@@ -226,6 +226,7 @@ fn snap(
     let mut action_menus = 0usize;
     let mut maps = 0usize;
     let mut rooms = 0usize;
+    let mut trains = 0usize;
     let mut towns = 0;
     let mut last_menu: (Vec<u32>, usize) = (Vec::new(), 0);
     // Frame shown when the game first waits after a movie (the movie's
@@ -304,6 +305,23 @@ fn snap(
                         write_png(&path, &frame)?;
                         println!("{}", path.display());
                         after_movie = None;
+                    }
+                    // The train of a live wait: a few frames of its way.
+                    if t.live
+                        && trains < 3
+                        && rt.scene.train.as_ref().is_some_and(|x| x.moved.is_some())
+                    {
+                        trains += 1;
+                        for pct in [0u32, 25, 50, 75] {
+                            let mut scene = rt.scene.clone();
+                            if let Some(train) = &mut scene.train {
+                                train.progress(t.ms * pct / 100, t.ms);
+                            }
+                            let frame = renderer.render_scene(&scene, &mut rt.assets, false)?;
+                            let path = out.join(format!("train{trains}-{pct:02}.png"));
+                            write_png(&path, &frame)?;
+                            println!("{}", path.display());
+                        }
                     }
                     // Second steps of effects end at once too.
                     while rt.follow_up() {
@@ -537,6 +555,11 @@ fn snap(
                             use silky_runtime::games::doukyuusei::notice::CLOSE;
                             ("notice", n.click(CLOSE))
                         }
+                        // Close it.
+                        Panel::Unlocked(u) => {
+                            use silky_runtime::games::doukyuusei::unlocked::BACK;
+                            ("unlocked", u.click(BACK))
+                        }
                         Panel::Town | Panel::Jump(_) => unreachable!(),
                     };
                     let pick = match pick {
@@ -552,6 +575,7 @@ fn snap(
                         || name == "comment"
                         || name == "name"
                         || name == "notice"
+                        || name == "unlocked"
                     {
                         let mut frame = renderer.render_scene(&rt.scene, &mut rt.assets, false)?;
                         let ui = Ui {
@@ -581,7 +605,7 @@ fn snap(
                     rooms += 1;
                     match &panel {
                         Panel::Name(n) => rt.finish_name(&mut vm, &n.text()),
-                        Panel::Notice(_) => rt.panel = None,
+                        Panel::Notice(_) | Panel::Unlocked(_) => rt.panel = None,
                         _ => rt.answer_action(&mut vm, pick),
                     }
                 }

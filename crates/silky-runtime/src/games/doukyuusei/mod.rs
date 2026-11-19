@@ -27,6 +27,8 @@ pub mod select;
 pub mod sound;
 pub mod system;
 pub mod town;
+pub mod train;
+pub mod unlocked;
 pub mod who;
 mod who_data;
 pub mod window;
@@ -60,6 +62,8 @@ pub enum Panel {
     Name(name::Name),
     /// The modal notice (`Game.30`).
     Notice(notice::Notice),
+    /// The "comment unlocked" pop-up (`Game.37`).
+    Unlocked(unlocked::Unlocked),
     /// The map jump page, over the walk.
     Jump(jump::Jump),
     /// A walk on the map (`Game.20(30)`); the map itself is
@@ -80,6 +84,7 @@ impl Panel {
             Panel::Comment(c) => c.hit(x, y),
             Panel::Name(n) => n.hit(x, y),
             Panel::Notice(n) => n.hit(x, y),
+            Panel::Unlocked(u) => u.hit(x, y),
             Panel::Jump(j) => j.hit(x, y),
             Panel::Town => None,
         }
@@ -96,6 +101,7 @@ impl Panel {
             Panel::Comment(c) => c.click(id),
             Panel::Name(n) => n.click(id),
             Panel::Notice(n) => n.click(id),
+            Panel::Unlocked(u) => u.click(id),
             Panel::Jump(j) => j.click(id),
             Panel::Town => Click::None,
         }
@@ -129,6 +135,7 @@ impl Panel {
             Panel::Comment(c) => c.draw(canvas, assets, language, state),
             Panel::Name(n) => n.draw(canvas, assets, language, state, font),
             Panel::Notice(n) => n.draw(canvas, assets, language, state),
+            Panel::Unlocked(u) => u.draw(canvas, assets, language, state),
             Panel::Jump(j) => j.draw(canvas, assets, language, state),
             Panel::Town => Ok(()),
         }

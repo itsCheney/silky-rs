@@ -647,6 +647,11 @@ impl Renderer {
             canvas.draw_part(&sheet, cell.part, cell.x, cell.y, false, 255);
         }
 
+        // 同級生 Remake: the train of Misa's scenes.
+        if let Some(train) = &scene.train {
+            train.draw(&mut canvas, assets)?;
+        }
+
         // 景の海のアペイリア: the conclusions list is drawn into the
         // background it was drawn on.
         if let Some((bg, cells)) = &scene.panels.conclusions {

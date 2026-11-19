@@ -76,6 +76,8 @@ const NOTICE_TEXT_POS: (i32, i32) = (558, 444);
 const CLOSE_AT: (i32, i32, u32, u32) = (849, 560, 222, 73);
 /// The click sound.
 pub const OK_SOUND: &str = "ses_001.wav";
+/// The cancel sound.
+pub const CANCEL_SOUND: &str = "ses_002.wav";
 
 /// Grid rows as shown; `_` is an empty cell.
 const ROWS_EN: [&str; 6] = [

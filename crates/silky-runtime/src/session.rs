@@ -683,6 +683,10 @@ impl Session {
                         break;
                     }
                     Some(Pause::Transition(t)) => {
+                        // A live wait shows the train on its way.
+                        if let (true, Some(train)) = (t.live, &mut self.rt.scene.train) {
+                            train.progress(0, t.ms);
+                        }
                         let from = self.base.take().filter(|_| !t.live);
                         let rule = t.rule.and_then(|n| self.rule(n));
                         let covered = self.rt.scene.cover.is_some();
@@ -997,6 +1001,11 @@ impl Session {
     /// Ends the running transition or wait and runs the scripts on.
     fn finish_busy(&mut self) -> Result<()> {
         let busy = self.busy.take();
+        if let Some(train) = &mut self.rt.scene.train {
+            if train.frame.take().is_some() {
+                self.base = None;
+            }
+        }
         if busy.as_ref().is_some_and(|b| b.ui_fade == Some(true)) {
             self.plate_gone = true;
         }
@@ -1538,6 +1547,14 @@ impl Session {
         }
         if matches!(self.ui.panel, Some(DoukPanel::Notice(_))) {
             let _ = self.rt.play_sound(crate::games::doukyuusei::name::OK_SOUND);
+            self.close_notice()?;
+            return Ok(true);
+        }
+        // The "comment unlocked" pop-up closes with the cancel sound.
+        if matches!(self.ui.panel, Some(DoukPanel::Unlocked(_))) {
+            let _ = self
+                .rt
+                .play_sound(crate::games::doukyuusei::name::CANCEL_SOUND);
             self.close_notice()?;
             return Ok(true);
         }
@@ -3174,6 +3191,7 @@ impl Session {
                         Vec::new()
                     }
                     crate::games::doukyuusei::Panel::Jump(_)
+                    | crate::games::doukyuusei::Panel::Unlocked(_)
                     | crate::games::doukyuusei::Panel::Notice(_) => {
                         if !matches!(click, Click::None) {
                             let _ = self.rt.play_sound(crate::games::doukyuusei::name::OK_SOUND);
@@ -3348,7 +3366,7 @@ impl Session {
         self.frame = None;
     }
 
-    /// The modal notice is done: the script goes on.
+    /// The modal notice or pop-up is done: the script goes on.
     fn close_notice(&mut self) -> Result<()> {
         self.ui.panel = None;
         self.rt.panel = None;
@@ -3663,6 +3681,12 @@ impl Session {
                 let step = left.min(b.ms - b.elapsed.min(b.ms));
                 b.elapsed += step;
                 left -= step;
+                if let Some(train) = &mut self.rt.scene.train {
+                    if train.frame.is_some() {
+                        train.progress(b.elapsed, b.ms);
+                        self.base = None;
+                    }
+                }
                 if b.elapsed < b.ms {
                     break;
                 }

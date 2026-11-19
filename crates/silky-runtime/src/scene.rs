@@ -181,6 +181,10 @@ pub struct Scene {
     /// face laid onto it.
     #[serde(default)]
     pub pictures: BTreeMap<i32, Picture>,
+    /// 同級生 Remake: the train of Misa's scenes (`Game.39`), over the
+    /// background.
+    #[serde(default)]
+    pub train: Option<crate::games::doukyuusei::train::Train>,
     /// Snow falls (ふゆから、くるる。, command 115).
     #[serde(default)]
     pub snow: bool,
