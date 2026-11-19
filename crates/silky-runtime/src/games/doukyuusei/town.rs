@@ -39,6 +39,15 @@ const RAW_CAMERA: usize = 7097;
 const RAW_WALKERS: usize = 7091;
 /// Milliseconds a step takes at each map speed (slow, normal, fast).
 pub const STEP_MS: [u64; 3] = [66, 33, 16];
+
+/// Step time for the map speed setting (0 slow, 1 normal, 2 fast).
+pub fn step_ms(map_speed: u8) -> u64 {
+    match map_speed {
+        0 => STEP_MS[0],
+        2 => STEP_MS[2],
+        _ => STEP_MS[1],
+    }
+}
 /// Columns and rows of the search grids.
 const GRID_W: usize = 255;
 const GRID_H: usize = 192;
@@ -1383,6 +1392,15 @@ impl View {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn step_follows_map_speed() {
+        assert_eq!(step_ms(0), 66);
+        assert_eq!(step_ms(1), 33);
+        assert_eq!(step_ms(2), 16);
+        // Values past 2 count as normal.
+        assert_eq!(step_ms(7), 33);
+    }
 
     fn town() -> Town {
         // A 50 x 40 map, a wall at (10, 10), one 3 x 3 hero.

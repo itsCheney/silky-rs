@@ -929,9 +929,9 @@ impl Session {
     /// Steps of the walk on the map, one per step time; a place reached
     /// ends the walk with its id.
     fn tick_town(&mut self, ms: u64) -> Result<()> {
-        use crate::games::doukyuusei::town::STEP_MS;
+        use crate::games::doukyuusei::town::step_ms;
         self.town_ms += ms;
-        let step = STEP_MS[1];
+        let step = step_ms(self.rt.system.settings.map_speed);
         self.town_input.pointer = self.town_pointer_down.then_some(self.ui.pointer);
         self.town_input.hold = self.vm.var_b(CANCEL_VAR) != 0;
         while self.town_ms >= step {

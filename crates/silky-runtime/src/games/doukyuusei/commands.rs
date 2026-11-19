@@ -343,7 +343,7 @@ impl Runtime {
         c: &Call,
         sub: i32,
     ) -> Option<silky_vm::Result<Flow>> {
-        use super::town::{Town, STEP_MS};
+        use super::town::{step_ms, Town};
         let town = self.town.get_or_insert_with(Town::default);
         let walker = back_int(c, 0).max(0) as usize;
         let failed = |e: crate::Error| Some(Err(host_error(e.to_string())));
@@ -423,11 +423,7 @@ impl Runtime {
             }
             // The frame wait: a step's time since the last tick.
             26 => {
-                let ms = match self.system.settings.map_speed {
-                    0 => STEP_MS[0],
-                    2 => STEP_MS[2],
-                    _ => STEP_MS[1],
-                };
+                let ms = step_ms(self.system.settings.map_speed);
                 return self.wait_for(crate::host::Pause::Transition(crate::host::Transition {
                     ms: ms as u32,
                     rule: None,
