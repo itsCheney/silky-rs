@@ -61,6 +61,8 @@ pub enum Click {
     Track(Option<usize>),
     /// The name entry is done; its name is read from the panel.
     Name,
+    /// The map jump page closes and the walk goes on.
+    Resume,
     /// Nothing happens.
     None,
 }

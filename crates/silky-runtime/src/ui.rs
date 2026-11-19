@@ -178,6 +178,8 @@ pub struct Ui {
     /// The backlog has entries (同級生 Remake's menu leaves its button out
     /// otherwise).
     pub has_log: bool,
+    /// The map jump page is done for the map the walk is on.
+    pub map_jump: bool,
     /// きまぐれテンプテーション2: some notebook entry, some collection
     /// item is open (enables their buttons).
     pub notebook: bool,
@@ -218,15 +220,17 @@ impl Ui {
     /// 同級生 Remake: the status plate and the menu button are up.
     pub fn plate_up(&self) -> bool {
         self.plate.is_some()
+            && !matches!(self.panel, Some(crate::games::doukyuusei::Panel::Jump(_)))
     }
 
     pub fn enabled(&self, b: Button) -> bool {
         match b {
             Button::Title(t) if self.locked_titles.contains(&t) => false,
             Button::Title(title::CONTINUE | title::LOAD) => self.has_saves,
-            // 同級生 Remake's menu: the screens of two of its six buttons
-            // are not done yet (see `games::doukyuusei::menu`).
-            Button::Bar(bar::SCHEDULE | bar::MAP) if self.plate.is_some() => false,
+            // 同級生 Remake's menu: the schedule screen is not done yet, and
+            // the map jump only for the town (see `games::doukyuusei::menu`).
+            Button::Bar(bar::SCHEDULE) if self.plate.is_some() => false,
+            Button::Bar(bar::MAP) if self.plate.is_some() => self.map_jump,
             Button::Bar(bar::BACKLOG) if self.plate.is_some() => self.has_log,
             Button::Bar(bar::LOAD | bar::QUICK_LOAD) => self.has_saves,
             Button::Bar(bar::PREVIOUS_CHOICE) => self.previous_choice,
@@ -1917,8 +1921,7 @@ impl Layout {
                 m.draw(canvas, assets, ui.side_menu, |id| {
                     // The map jump shows only on the walking maps, the
                     // backlog only with a log. The game's own schedule
-                    // screen and the map jump are not done yet, so those
-                    // stay gray.
+                    // screen is not done yet, so it stays gray.
                     if (id == bar::MAP && !walking) || (id == bar::BACKLOG && !ui.has_log) {
                         return HIDDEN;
                     }

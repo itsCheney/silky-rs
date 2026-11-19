@@ -1336,6 +1336,13 @@ impl Session {
             self.frame = None;
             return Ok(true);
         }
+        // The map jump goes back to the walk, the menu as it was.
+        if matches!(self.ui.panel, Some(DoukPanel::Jump(_))) {
+            self.ui.panel = Some(DoukPanel::Town);
+            self.ui.hover = None;
+            self.frame = None;
+            return Ok(true);
+        }
         if std::mem::take(&mut self.ui.side_menu) {
             self.frame = None;
             return Ok(true);
@@ -2945,6 +2952,12 @@ impl Session {
                         }
                         Vec::new()
                     }
+                    crate::games::doukyuusei::Panel::Jump(_) => {
+                        if !matches!(click, Click::None) {
+                            let _ = self.rt.play_sound(crate::games::doukyuusei::name::OK_SOUND);
+                        }
+                        Vec::new()
+                    }
                     _ => Vec::new(),
                 };
                 for (i, v) in set {
@@ -2955,10 +2968,17 @@ impl Session {
                         if matches!(self.ui.panel, Some(DoukPanel::Music(_))) {
                             self.rt.stop_music();
                         }
+                        // A place chosen on the map jump ends the walk.
+                        self.ui.side_menu &= !matches!(self.ui.panel, Some(DoukPanel::Jump(_)));
                         self.ui.panel = None;
                         self.base = None;
                         self.rt.answer_action(&mut self.vm, result);
                         self.run()?;
+                    }
+                    Click::Resume => {
+                        self.ui.panel = Some(DoukPanel::Town);
+                        self.ui.hover = None;
+                        self.base = None;
                     }
                     Click::Name => {
                         if let Some(DoukPanel::Name(n)) = self.ui.panel.take() {
@@ -3053,6 +3073,7 @@ impl Session {
                 bar::SAVE => self.open_save_load(Mode::Save),
                 bar::LOAD => self.open_save_load(Mode::Load),
                 bar::BACKLOG => self.open_backlog(),
+                bar::MAP => self.open_jump(),
                 bar::QUIT => self.ask(Action::Quit)?,
                 id => self
                     .rt
@@ -3062,6 +3083,20 @@ impl Session {
         }
         self.frame = None;
         Ok(())
+    }
+
+    /// 同級生 Remake: the map jump page over the walk.
+    fn open_jump(&mut self) {
+        use crate::games::doukyuusei::{jump::Jump, Panel};
+        if !matches!(self.ui.panel, Some(Panel::Town)) {
+            return;
+        }
+        if let Ok(j) = Jump::load(&self.rt.assets, &self.vm.bytes) {
+            self.ui.panel = Some(Panel::Jump(j));
+            self.ui.side_menu = true;
+            self.ui.hover = None;
+            self.base = None;
+        }
     }
 
     fn hit(&self, x: i32, y: i32) -> Option<Button> {
@@ -3129,6 +3164,11 @@ impl Session {
                 m.playing = None;
                 self.frame = None;
             }
+        }
+        let jump = crate::games::doukyuusei::jump::Jump::available(&self.vm.bytes);
+        if self.ui.map_jump != jump {
+            self.ui.map_jump = jump;
+            self.frame = None;
         }
         if self.ui.has_log == self.log.is_empty() {
             self.ui.has_log = !self.log.is_empty();

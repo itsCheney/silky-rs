@@ -532,7 +532,7 @@ fn snap(
                             use silky_runtime::games::doukyuusei::name::CONFIRM;
                             ("name", n.click(CONFIRM))
                         }
-                        Panel::Town => unreachable!(),
+                        Panel::Town | Panel::Jump(_) => unreachable!(),
                     };
                     let pick = match pick {
                         Click::Result(pick) => pick,

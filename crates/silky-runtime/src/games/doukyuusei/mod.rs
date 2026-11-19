@@ -11,6 +11,7 @@ pub(crate) mod commands;
 pub mod comment;
 pub mod config;
 pub mod hours;
+pub mod jump;
 pub mod log;
 pub mod menu;
 pub mod music;
@@ -52,6 +53,8 @@ pub enum Panel {
     Comment(comment::Comment),
     /// The name entry (`Game.18`).
     Name(name::Name),
+    /// The map jump page, over the walk.
+    Jump(jump::Jump),
     /// A walk on the map (`Game.20(30)`); the map itself is
     /// [`Runtime::town`], drawn as the background.
     Town,
@@ -69,6 +72,7 @@ impl Panel {
             Panel::Music(m) => m.hit(x, y),
             Panel::Comment(c) => c.hit(x, y),
             Panel::Name(n) => n.hit(x, y),
+            Panel::Jump(j) => j.hit(x, y),
             Panel::Town => None,
         }
     }
@@ -83,6 +87,7 @@ impl Panel {
             Panel::Music(m) => m.click(id),
             Panel::Comment(c) => c.click(id),
             Panel::Name(n) => n.click(id),
+            Panel::Jump(j) => j.click(id),
             Panel::Town => Click::None,
         }
     }
@@ -114,6 +119,7 @@ impl Panel {
             Panel::Music(m) => m.draw(canvas, assets, language, state),
             Panel::Comment(c) => c.draw(canvas, assets, language, state),
             Panel::Name(n) => n.draw(canvas, assets, language, state, font),
+            Panel::Jump(j) => j.draw(canvas, assets, language, state),
             Panel::Town => Ok(()),
         }
     }
