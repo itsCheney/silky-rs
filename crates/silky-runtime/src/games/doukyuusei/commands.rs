@@ -473,12 +473,12 @@ impl Runtime {
     }
 
     /// What goes when the flag list's jump starts an event's script: the
-    /// walking map and the screens of the menu, the actions waiting for an
-    /// answer, and the message that was up. The picture, the music and the
-    /// text table stay for the script to change.
+    /// walking map's state and the screens of the menu, the actions waiting
+    /// for an answer, and the message that was up. The picture (the map
+    /// stays on screen until the script covers it), the music and the text
+    /// table stay for the script to change.
     pub fn leave_for_event(&mut self) {
         self.town = None;
-        self.scene.town = None;
         self.panel = None;
         self.map = None;
         self.actions.clear();

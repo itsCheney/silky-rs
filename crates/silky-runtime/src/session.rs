@@ -72,6 +72,14 @@ pub struct Session {
     veil: Option<Veil>,
     /// Scene without the interface, rendered again only when it changes.
     base: Option<Canvas>,
+    /// Whether the screen was covered when the last transition began or
+    /// the last frame was drawn (see `Busy::ui_fade`).
+    was_covered: bool,
+    /// 同級生 Remake: the plate as it was drawn before the flag list's
+    /// jump (the original keeps that picture until the script draws the
+    /// plate again), and whether it has faded out since.
+    plate_hold: Option<crate::games::doukyuusei::plate::Plate>,
+    plate_gone: bool,
     /// The part of `base` below the E-mote pictures, and whether those
     /// moved since `base` was drawn: an E-mote frame redraws only what
     /// lies above them.
@@ -152,7 +160,15 @@ struct Busy {
     frame: bool,
     /// The picture turns and scales meanwhile.
     spin: Option<crate::host::Spin>,
+    /// 同級生 Remake: the status plate and the menu button go with a
+    /// fade out to a colour (`Some(true)`) and come back with the fade
+    /// in (`Some(false)`).
+    ui_fade: Option<bool>,
 }
+
+/// How long the status plate takes to fade out when the flag list's jump
+/// leaves the walking map.
+const PLATE_FADE_MS: u32 = 800;
 
 /// Length of one frame for input polls.
 const FRAME_MS: u32 = 16;
@@ -215,6 +231,9 @@ impl Session {
             state: State::Text,
             veil: None,
             base: None,
+            was_covered: false,
+            plate_hold: None,
+            plate_gone: false,
             under: None,
             emote_moved: false,
             frame: None,
@@ -545,6 +564,8 @@ impl Session {
                 .note_unhandled(format!("event script {}", rec.script));
             return Ok(());
         };
+        self.plate_hold = self.rt.plate(&self.vm);
+        self.plate_gone = false;
         flaglist::start_event(&rec, &mut self.vm);
         self.store_global_bytes();
         self.rt.leave_for_event();
@@ -566,8 +587,34 @@ impl Session {
             ..Ui::default()
         };
         self.state = State::Busy;
-        self.base = None;
+        // The picture that was up stays (the walking map) for the script's
+        // own fade to start from.
+        self.ui.plate = self.plate_hold;
+        self.was_covered = self.rt.scene.cover.is_some();
+        let under = self
+            .renderer
+            .render_under(&self.rt.scene, &mut self.rt.assets)?;
+        self.base = Some(self.renderer.render_over(
+            under,
+            &self.rt.scene,
+            &mut self.rt.assets,
+            false,
+            false,
+        )?);
         self.frame = None;
+        // The status plate fades out before the script runs.
+        if self.plate_hold.is_some() {
+            self.busy = Some(Busy {
+                from: None,
+                rule: None,
+                ms: PLATE_FADE_MS,
+                elapsed: 0,
+                frame: false,
+                spin: None,
+                ui_fade: Some(true),
+            });
+            return Ok(());
+        }
         self.run()
     }
 
@@ -638,6 +685,13 @@ impl Session {
                     Some(Pause::Transition(t)) => {
                         let from = self.base.take().filter(|_| !t.live);
                         let rule = t.rule.and_then(|n| self.rule(n));
+                        let covered = self.rt.scene.cover.is_some();
+                        let ui_fade = (covered != self.was_covered).then_some(covered);
+                        self.was_covered = covered;
+                        if ui_fade == Some(false) {
+                            self.plate_hold = None;
+                            self.plate_gone = false;
+                        }
                         self.busy = Some(Busy {
                             from,
                             rule,
@@ -645,6 +699,7 @@ impl Session {
                             elapsed: 0,
                             frame: false,
                             spin: t.spin,
+                            ui_fade,
                         });
                         self.state = State::Busy;
                         break;
@@ -657,6 +712,7 @@ impl Session {
                             elapsed: 0,
                             frame: true,
                             spin: None,
+                            ui_fade: None,
                         });
                         self.state = State::Busy;
                         break;
@@ -940,7 +996,11 @@ impl Session {
 
     /// Ends the running transition or wait and runs the scripts on.
     fn finish_busy(&mut self) -> Result<()> {
-        if self.busy.take().is_some() && self.state == State::Busy {
+        let busy = self.busy.take();
+        if busy.as_ref().is_some_and(|b| b.ui_fade == Some(true)) {
+            self.plate_gone = true;
+        }
+        if busy.is_some() && self.state == State::Busy {
             // Effects the script waited for end with the wait.
             self.rt.scene.effects.settle();
             self.run()?;
@@ -3387,7 +3447,11 @@ impl Session {
         let before = self.ui.clock;
         self.ui.clock += ms;
         self.ui.tooltips = self.rt.system.settings.tooltips;
-        let plate = self.rt.plate(&self.vm);
+        if self.state != State::Busy && self.rt.scene.cover.is_none() && self.plate_gone {
+            self.plate_hold = None;
+            self.plate_gone = false;
+        }
+        let plate = self.plate_hold.or_else(|| self.rt.plate(&self.vm));
         if plate != self.ui.plate {
             self.ui.plate = plate;
             self.frame = None;
@@ -3915,13 +3979,45 @@ impl Session {
             }
             let text_shown =
                 matches!(self.state, State::Text | State::Choice) && self.rt.scene.text.is_some();
-            self.layout.draw(
-                &mut frame,
-                &mut self.rt.assets,
-                &self.ui,
-                text_shown,
-                self.renderer.text(),
-            )?;
+            // 同級生 Remake: the status plate is part of the covered screen,
+            // so it goes dark and comes back with the fade.
+            let ui_alpha = match (&self.busy, self.ui.plate.is_some()) {
+                (_, false) => 1.0,
+                (
+                    Some(Busy {
+                        ui_fade: Some(out),
+                        elapsed,
+                        ms,
+                        ..
+                    }),
+                    _,
+                ) => {
+                    let t = (*elapsed as f32 / (*ms).max(1) as f32).clamp(0.0, 1.0);
+                    match (*out, self.plate_gone) {
+                        (true, true) => 0.0,
+                        (true, false) => 1.0 - t,
+                        (false, _) => t,
+                    }
+                }
+                (_, true) if self.rt.scene.cover.is_some() || self.plate_gone => 0.0,
+                _ => 1.0,
+            };
+            if self.busy.is_none() {
+                self.was_covered = self.rt.scene.cover.is_some();
+            }
+            if ui_alpha > 0.0 {
+                let bare = (ui_alpha < 1.0).then(|| frame.clone());
+                self.layout.draw(
+                    &mut frame,
+                    &mut self.rt.assets,
+                    &self.ui,
+                    text_shown,
+                    self.renderer.text(),
+                )?;
+                if let Some(bare) = bare {
+                    frame = Canvas::blend_shared(&bare, &frame, ui_alpha, None);
+                }
+            }
             Ok(frame)
         }
     }
