@@ -1526,8 +1526,10 @@ pub fn labels_shown(bytes: &[u8]) -> bool {
 }
 
 /// The map and the pins its labels show, by byte 7089: the town (0), Yabuki
-/// (1) and the school (2 to 5, each pair of floors its own pins: the floor
-/// argument is the one the map jump page passes). None for DEN and others.
+/// (1) and the school (2 to 5, each floor its own pins; the floor argument
+/// is the mode itself, as the overlay's table gives it). The map jump page
+/// passes 3 for the floors above the 1F instead (see `jump::face_map`); the
+/// two are not reconciled yet. None for DEN and others.
 fn label_pins(mode: u8) -> Option<(Map, std::ops::Range<usize>)> {
     Some(match mode {
         0 => (Map::Town, 0..18),
