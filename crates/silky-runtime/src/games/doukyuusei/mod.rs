@@ -12,6 +12,7 @@ pub mod config;
 pub mod hours;
 pub mod log;
 pub mod menu;
+pub mod music;
 pub mod picker;
 pub mod plate;
 pub mod reel;
@@ -43,6 +44,8 @@ pub enum Panel {
     Album(album::Album),
     /// The memory reel (`Game.51`).
     Reel(reel::Reel),
+    /// The music mode (`Game.52`).
+    Music(music::Music),
     /// A walk on the map (`Game.20(30)`); the map itself is
     /// [`Runtime::town`], drawn as the background.
     Town,
@@ -57,6 +60,7 @@ impl Panel {
             Panel::Picker(p) => p.hit(x, y),
             Panel::Album(a) => a.hit(x, y),
             Panel::Reel(r) => r.hit(x, y),
+            Panel::Music(m) => m.hit(x, y),
             Panel::Town => None,
         }
     }
@@ -68,6 +72,7 @@ impl Panel {
             Panel::Picker(p) => p.click(id),
             Panel::Album(a) => a.click(id),
             Panel::Reel(r) => r.click(id),
+            Panel::Music(m) => m.click(id),
             Panel::Town => Click::None,
         }
     }
@@ -96,6 +101,7 @@ impl Panel {
             Panel::Picker(p) => p.draw(canvas, assets, language, state),
             Panel::Album(a) => a.draw(canvas, assets, language, state),
             Panel::Reel(r) => r.draw(canvas, assets, language, state),
+            Panel::Music(m) => m.draw(canvas, assets, language, state),
             Panel::Town => Ok(()),
         }
     }

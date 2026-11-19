@@ -958,6 +958,12 @@ impl Session {
                 return;
             }
         }
+        if let Some(DoukPanel::Music(m)) = &self.ui.panel {
+            if m.dragging {
+                self.drag_music_volume(x);
+                return;
+            }
+        }
         if let Some(Screen::Extras(e)) = &self.screen {
             if e.k2.dragging_volume || e.ap.dragging_volume {
                 self.drag_omake_volume(x);
@@ -1040,6 +1046,15 @@ impl Session {
                 }
             }
         }
+        if let (Some(DoukPanel::Music(m)), Some(Button::Panel(id))) =
+            (&mut self.ui.panel, self.ui.pressed)
+        {
+            if id == crate::games::doukyuusei::music::VOLUME && m.on {
+                m.dragging = true;
+                self.drag_music_volume(x);
+                return;
+            }
+        }
         if let (Some(Screen::Settings(s)), Some(Button::Screen(id))) =
             (&mut self.screen, self.ui.pressed)
         {
@@ -1056,6 +1071,19 @@ impl Session {
                 self.drag_douk_config(id, x);
             }
         }
+    }
+
+    /// The volume slider of 同級生 Remake's music mode follows the pointer.
+    fn drag_music_volume(&mut self, x: i32) {
+        use crate::games::doukyuusei::music::Music;
+        let old = self.rt.system.settings.clone();
+        let v = Music::volume_at(x);
+        self.rt.system.settings.music = v;
+        if let Some(DoukPanel::Music(m)) = &mut self.ui.panel {
+            m.volume = v;
+        }
+        self.settings_changed(old);
+        self.frame = None;
     }
 
     /// A slider of 同級生 Remake's settings follows the pointer.
@@ -1131,6 +1159,11 @@ impl Session {
         }
         let pressed = self.ui.pressed.take();
         self.frame = None;
+        if let Some(DoukPanel::Music(m)) = &mut self.ui.panel {
+            if std::mem::take(&mut m.dragging) {
+                return Ok(());
+            }
+        }
         if let Some(Screen::Settings(s)) = &mut self.screen {
             if s.dragging.take().is_some() {
                 return Ok(());
@@ -1310,6 +1343,16 @@ impl Session {
                 }
                 Some(Panel::Reel(r)) => {
                     let leave = r.cancel();
+                    if leave.is_none() {
+                        self.ui.hover = None;
+                        self.frame = None;
+                        return Ok(true);
+                    }
+                    leave
+                }
+                Some(Panel::Music(m)) => {
+                    let leave = m.cancel();
+                    self.rt.stop_music();
                     if leave.is_none() {
                         self.ui.hover = None;
                         self.frame = None;
@@ -2869,6 +2912,7 @@ impl Session {
                 let set = match p {
                     crate::games::doukyuusei::Panel::Album(a) => a.take_globals(),
                     crate::games::doukyuusei::Panel::Reel(r) => r.take_globals(),
+                    crate::games::doukyuusei::Panel::Music(m) => m.take_globals(),
                     _ => Vec::new(),
                 };
                 for (i, v) in set {
@@ -2876,11 +2920,21 @@ impl Session {
                 }
                 match click {
                     Click::Result(result) => {
+                        if matches!(self.ui.panel, Some(DoukPanel::Music(_))) {
+                            self.rt.stop_music();
+                        }
                         self.ui.panel = None;
                         self.base = None;
                         self.rt.answer_action(&mut self.vm, result);
                         self.run()?;
                     }
+                    Click::Track(Some(t)) => {
+                        // A track missing from the archive stays silent.
+                        let _ = self
+                            .rt
+                            .play_music_once(&crate::games::doukyuusei::music::file(t));
+                    }
+                    Click::Track(None) => self.rt.stop_music(),
                     Click::Look(on) => {
                         p.set_look(on);
                         self.ui.hover = None;
@@ -3021,6 +3075,16 @@ impl Session {
         if plate != self.ui.plate {
             self.ui.plate = plate;
             self.frame = None;
+        }
+        // The music mode's track ended (without audio it plays on).
+        if let Some(DoukPanel::Music(m)) = &mut self.ui.panel {
+            if m.playing.is_some()
+                && self.rt.audio.enabled()
+                && !self.rt.audio.is_playing(Bus::Music, 0)
+            {
+                m.playing = None;
+                self.frame = None;
+            }
         }
         if self.ui.has_log == self.log.is_empty() {
             self.ui.has_log = !self.log.is_empty();

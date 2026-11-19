@@ -544,6 +544,12 @@ impl Runtime {
         self.play(Bus::Music, Kind::Music, 0, file)
     }
 
+    /// Plays a track once (the music mode).
+    pub fn play_music_once(&mut self, file: &str) -> crate::Result<()> {
+        self.audio.stop_bus(Bus::Music);
+        self.play_with(Bus::Music, Kind::Music, 0, file, false)
+    }
+
     pub fn stop_music(&mut self) {
         self.audio.stop_bus(Bus::Music);
     }
@@ -814,6 +820,17 @@ impl Runtime {
 
     /// Starts a sound, decoded on another thread. Music loops.
     pub(crate) fn play(&mut self, bus: Bus, kind: Kind, ch: i32, file: &str) -> crate::Result<()> {
+        self.play_with(bus, kind, ch, file, bus == Bus::Music)
+    }
+
+    fn play_with(
+        &mut self,
+        bus: Bus,
+        kind: Kind,
+        ch: i32,
+        file: &str,
+        looping: bool,
+    ) -> crate::Result<()> {
         if !self.audio.enabled() {
             return Ok(());
         }
@@ -848,14 +865,13 @@ impl Runtime {
             }
             _ => 1.0,
         };
-        self.audio
-            .play_later(bus, ch, bus == Bus::Music, gain, move || {
-                Ok(Arc::new(if key.ends_with(".ogg") {
-                    Pcm::from_ogg(&data)?
-                } else {
-                    Pcm::from_wav(&data)?
-                }))
-            });
+        self.audio.play_later(bus, ch, looping, gain, move || {
+            Ok(Arc::new(if key.ends_with(".ogg") {
+                Pcm::from_ogg(&data)?
+            } else {
+                Pcm::from_wav(&data)?
+            }))
+        });
         Ok(())
     }
 

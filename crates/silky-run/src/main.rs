@@ -517,12 +517,22 @@ fn snap(
                             use silky_runtime::games::doukyuusei::reel::BACK;
                             ("reel", r.click(BACK))
                         }
+                        // Leave.
+                        Panel::Music(m) => {
+                            use silky_runtime::games::doukyuusei::music::BACK;
+                            ("music", m.click(BACK))
+                        }
                         Panel::Town => unreachable!(),
                     };
                     let Click::Result(pick) = pick else {
                         unreachable!()
                     };
-                    if rooms < 5 || name == "picker" || name == "album" || name == "reel" {
+                    if rooms < 5
+                        || name == "picker"
+                        || name == "album"
+                        || name == "reel"
+                        || name == "music"
+                    {
                         let mut frame = renderer.render_scene(&rt.scene, &mut rt.assets, false)?;
                         let ui = Ui {
                             panel: Some(panel.clone()),

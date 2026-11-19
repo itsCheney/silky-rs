@@ -57,6 +57,8 @@ pub enum Click {
     Load,
     /// Ask before opening all of a girl's pictures (the album).
     Unlock,
+    /// Play a track of the music mode, or stop the music (`None`).
+    Track(Option<usize>),
     /// Nothing happens.
     None,
 }
