@@ -41,6 +41,12 @@ pub const EXTRAS: std::ops::RangeInclusive<i32> = 50..=53;
 /// yet.
 pub const SCREEN: i32 = 10;
 
+/// `Game.18()`: the name entry (see [`super::name`]); the name is kept in
+/// the raw area, nothing is returned.
+pub const NAME: i32 = 18;
+/// `Game.5`: puts the name into the speaker plate.
+pub const NAME_PLATE: i32 = 5;
+
 /// `Game.13`: picture objects over the background, by id (the library
 /// only uses id 0). Sub 0 `(frames, alpha, picture, id)` puts a picture
 /// the size of the screen up (a standing character) at `alpha` percent;
@@ -94,7 +100,7 @@ impl Runtime {
                 let id = c.int(0);
                 let script = vm.script_name().unwrap_or("").to_ascii_lowercase();
                 self.message_script = script.clone();
-                let hero = self.hero_name();
+                let hero = self.hero_name(vm);
                 let line = match self.doukyuusei_table(&script) {
                     Ok(t) => t.get(0, id as u32).map(|l| shown_text(l, &hero)),
                     Err(e) => return Some(Err(host_error(e.to_string()))),
@@ -150,6 +156,17 @@ impl Runtime {
                 }
                 self.scene.text = None;
                 self.wait_for(crate::host::Pause::Panel)
+            }
+            (NAME, _) => {
+                self.panel = Some(Panel::Name(super::name::Name::new(self.config.language)));
+                // The page shows the background the script put up.
+                self.scene.cover = None;
+                self.scene.text = None;
+                self.wait_for(crate::host::Pause::Panel)
+            }
+            (NAME_PLATE, _) => {
+                self.scene.speaker_name = Some(self.hero_name(vm));
+                self.done()
             }
             (TOWN, sub) => self.doukyuusei_town(vm, c, sub),
             (PICKER, sub) => {
@@ -284,7 +301,7 @@ impl Runtime {
             // (35: 0 marks, 1 clears); neither changes what is shown here.
             (POINTER | SCENE_MARKS, _) => self.done(),
             (HERO_SPEAKS, _) => {
-                self.scene.speaker_name = Some(self.hero_name());
+                self.scene.speaker_name = Some(self.hero_name(vm));
                 self.done()
             }
             (TEXT, 2) => {

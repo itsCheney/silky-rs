@@ -527,10 +527,17 @@ fn snap(
                             use silky_runtime::games::doukyuusei::comment::BACK;
                             ("comment", c.click(BACK))
                         }
+                        // Confirm the default name.
+                        Panel::Name(n) => {
+                            use silky_runtime::games::doukyuusei::name::CONFIRM;
+                            ("name", n.click(CONFIRM))
+                        }
                         Panel::Town => unreachable!(),
                     };
-                    let Click::Result(pick) = pick else {
-                        unreachable!()
+                    let pick = match pick {
+                        Click::Result(pick) => pick,
+                        Click::Name => 0,
+                        _ => unreachable!(),
                     };
                     if rooms < 5
                         || name == "picker"
@@ -538,6 +545,7 @@ fn snap(
                         || name == "reel"
                         || name == "music"
                         || name == "comment"
+                        || name == "name"
                     {
                         let mut frame = renderer.render_scene(&rt.scene, &mut rt.assets, false)?;
                         let ui = Ui {
@@ -565,7 +573,10 @@ fn snap(
                     }
                     println!("{name} -> {pick}");
                     rooms += 1;
-                    rt.answer_action(&mut vm, pick);
+                    match &panel {
+                        Panel::Name(n) => rt.finish_name(&mut vm, &n.text()),
+                        _ => rt.answer_action(&mut vm, pick),
+                    }
                 }
                 // Headless: leave extras screens, movies end at once.
                 Some(Pause::Extras(_)) => rt.answer_extras(&mut vm, -1),

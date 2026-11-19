@@ -221,7 +221,6 @@ pub struct Runtime {
     pub config: Config,
     pub(crate) text_table: Option<(String, MapFile)>,
     /// The hero's name entered on the name screen (同級生 Remake).
-    pub hero_name: Option<String>,
     /// Set when a callback yields.
     pub pause: Option<Pause>,
     /// The `.ax` file of the `Anime` class (see [`crate::anime`]).
@@ -326,7 +325,6 @@ impl Runtime {
             scene: Scene::default(),
             config,
             text_table: None,
-            hero_name: None,
             pause: None,
             ax: None,
             unhandled: BTreeMap::new(),
@@ -555,10 +553,10 @@ impl Runtime {
     }
 
     /// Re-reads the current message in the configured language.
-    pub fn set_language(&mut self, language: Language) {
+    pub fn set_language(&mut self, vm: &Vm, language: Language) {
         self.config.language = language;
         if self.assets.game().title == silky_format::game::Title::Doukyuusei {
-            self.doukyuusei_relanguage();
+            self.doukyuusei_relanguage(vm);
             return;
         }
         let section = language.map_section();
@@ -610,6 +608,13 @@ impl Runtime {
     /// [`Pause::Title`], before running the interpreter again.
     pub fn answer_title(&mut self, vm: &mut Vm, result: i32) {
         vm.push(result);
+    }
+
+    /// The name entry is done: keeps the name in the raw area and goes
+    /// on without a result.
+    pub fn finish_name(&mut self, vm: &mut Vm, name: &str) {
+        self.panel = None;
+        Self::store_hero_name(vm, name);
     }
 
     /// Answers the action menu or the map with a button's result.

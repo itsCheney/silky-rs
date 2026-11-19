@@ -2008,6 +2008,7 @@ impl Layout {
                     // The room's quick load is gray without a save.
                     let on = match p {
                         Panel::Room(_) => id != QUICK_LOAD as i32 || ui.has_saves,
+                        Panel::Name(n) => n.enabled(id),
                         Panel::Picker(k) => match id {
                             picker::BACKLOG => ui.has_log,
                             picker::LOAD | picker::QUICK_LOAD => ui.has_saves,

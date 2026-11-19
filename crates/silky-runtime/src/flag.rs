@@ -8,7 +8,11 @@
 //! - 0 `(g, raw, words, bytes)`: sizes of the areas.
 //! - 2 `(file)`: writes all variables to the file.
 //! - 3 `(count, start, file)`: reads bytes `start..start + count` from it.
+//! - 5 `(count, start, file)`: reads raw bytes `start..start + count` from
+//!   it (the extras take the hero's name, raw 18500..18600, from here).
 //! - 6 `(count, start, file)`: the same for bank G.
+//! - 9 `(count, start, file)`: writes raw bytes `start..start + count` to
+//!   the file (the new game keeps the hero's name this way).
 //! - 11 `(file)`: keeps the bytes from 1000 on in the file, each the larger
 //!   of the file's and the game's value (this game's own version of the
 //!   call; the engine's keeps all bytes).
@@ -100,6 +104,21 @@ pub fn call(
             copy(&mut vm.bytes, &file.bytes, size(1), size(0));
             false
         }
+        (5, 3) => {
+            let file = files.get(&n(2)).unwrap_or(&empty);
+            copy(&mut vm.raw, &file.raw, size(1), size(0));
+            false
+        }
+        (9, 3) => {
+            let file = files.entry(n(2)).or_default();
+            let end = (size(1) + size(0)).min(vm.raw.len());
+            if file.raw.len() < end {
+                file.raw.resize(end, 0);
+            }
+            copy(&mut file.raw, &vm.raw, size(1), size(0));
+            *file = std::mem::take(file).trimmed();
+            true
+        }
         (6, 3) => {
             let file = files.get(&n(2)).unwrap_or(&empty);
             copy(&mut vm.g, &file.g, size(1), size(0));
@@ -171,5 +190,21 @@ mod tests {
         call(&mut files, &mut vm, 14, &int(&[0, 1000, 0]));
         assert_eq!((vm.bytes[5], vm.bytes[3001]), (0, 1));
         assert_eq!(vm.bytes.len(), 4096);
+    }
+
+    /// The hero's name goes to the system file and comes back.
+    #[test]
+    fn name_kept() {
+        let mut files = BTreeMap::new();
+        let mut vm = Vm::new(Profile::default());
+        call(&mut files, &mut vm, 0, &int(&[100, 25000, 300, 4096]));
+        vm.raw[18500..18508].copy_from_slice(b"Takurou\0");
+        assert_eq!(
+            call(&mut files, &mut vm, 9, &int(&[100, 18500, 0])),
+            Some(true)
+        );
+        vm.raw.fill(0);
+        call(&mut files, &mut vm, 5, &int(&[100, 18500, 0]));
+        assert_eq!(&vm.raw[18500..18508], b"Takurou\0");
     }
 }

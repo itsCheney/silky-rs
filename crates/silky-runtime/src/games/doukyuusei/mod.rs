@@ -14,6 +14,7 @@ pub mod hours;
 pub mod log;
 pub mod menu;
 pub mod music;
+pub mod name;
 pub mod picker;
 pub mod plate;
 pub mod reel;
@@ -49,6 +50,8 @@ pub enum Panel {
     Music(music::Music),
     /// The comments page (`Game.53`).
     Comment(comment::Comment),
+    /// The name entry (`Game.18`).
+    Name(name::Name),
     /// A walk on the map (`Game.20(30)`); the map itself is
     /// [`Runtime::town`], drawn as the background.
     Town,
@@ -65,6 +68,7 @@ impl Panel {
             Panel::Reel(r) => r.hit(x, y),
             Panel::Music(m) => m.hit(x, y),
             Panel::Comment(c) => c.hit(x, y),
+            Panel::Name(n) => n.hit(x, y),
             Panel::Town => None,
         }
     }
@@ -78,6 +82,7 @@ impl Panel {
             Panel::Reel(r) => r.click(id),
             Panel::Music(m) => m.click(id),
             Panel::Comment(c) => c.click(id),
+            Panel::Name(n) => n.click(id),
             Panel::Town => Click::None,
         }
     }
@@ -108,6 +113,7 @@ impl Panel {
             Panel::Reel(r) => r.draw(canvas, assets, language, state),
             Panel::Music(m) => m.draw(canvas, assets, language, state),
             Panel::Comment(c) => c.draw(canvas, assets, language, state),
+            Panel::Name(n) => n.draw(canvas, assets, language, state, font),
             Panel::Town => Ok(()),
         }
     }
@@ -152,10 +158,26 @@ pub fn table_name(script: &str, language: Language) -> String {
 }
 
 impl Runtime {
-    pub(crate) fn hero_name(&self) -> String {
-        self.hero_name
-            .clone()
-            .unwrap_or_else(|| default_hero_name(self.config.language).to_string())
+    /// The hero's name: the raw area's name field, or the default one
+    /// when nothing was entered.
+    pub(crate) fn hero_name(&self, vm: &Vm) -> String {
+        let field = vm.raw.get(name::NAME_AT..).unwrap_or(&[]);
+        let field = &field[..field.len().min(name::NAME_BYTES)];
+        let end = field.iter().position(|&b| b == 0).unwrap_or(field.len());
+        match String::from_utf8_lossy(&field[..end]).into_owned() {
+            s if s.is_empty() => default_hero_name(self.config.language).to_string(),
+            s => s,
+        }
+    }
+
+    /// Keeps the name entered in the raw area.
+    pub(crate) fn store_hero_name(vm: &mut Vm, name: &str) {
+        if vm.raw.len() < name::NAME_AT + name::NAME_BYTES {
+            vm.raw.resize(name::NAME_AT + name::NAME_BYTES, 0);
+        }
+        let bytes = &name.as_bytes()[..name.len().min(name::NAME_BYTES - 1)];
+        vm.raw[name::NAME_AT..name::NAME_AT + bytes.len()].copy_from_slice(bytes);
+        vm.raw[name::NAME_AT + bytes.len()] = 0;
     }
 
     /// The table of `script` in the configured language, kept loaded.
@@ -172,7 +194,7 @@ impl Runtime {
     /// its line id of the script's text table in `h[40 + i]`.
     pub(crate) fn doukyuusei_options(&mut self, vm: &Vm) -> Vec<String> {
         let script = self.message_script.clone();
-        let hero = self.hero_name();
+        let hero = self.hero_name(vm);
         let count = self.option_count;
         (0..count)
             .map(|i| {
@@ -188,12 +210,12 @@ impl Runtime {
 
     /// After a language change: the message shown, again in the new
     /// language.
-    pub(crate) fn doukyuusei_relanguage(&mut self) {
+    pub(crate) fn doukyuusei_relanguage(&mut self, vm: &Vm) {
         let (Some(id), true) = (self.last_text, self.scene.text.is_some()) else {
             return;
         };
         let script = self.message_script.clone();
-        let hero = self.hero_name();
+        let hero = self.hero_name(vm);
         if let Ok(t) = self.doukyuusei_table(&script) {
             if let Some(line) = t.get(0, id as u32) {
                 let text = shown_text(line, &hero);

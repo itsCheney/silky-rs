@@ -59,6 +59,8 @@ pub enum Click {
     Unlock,
     /// Play a track of the music mode, or stop the music (`None`).
     Track(Option<usize>),
+    /// The name entry is done; its name is read from the panel.
+    Name,
     /// Nothing happens.
     None,
 }

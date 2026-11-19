@@ -22,7 +22,7 @@ use silky_runtime::text::TextRenderer;
 use silky_runtime::{Config, Language, Session, State};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition};
-use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, Ime, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowId};
@@ -156,6 +156,7 @@ fn main() -> Result<()> {
         wheel: 0.0,
         held: 0,
         fast: false,
+        ime: false,
         error: None,
     };
     event_loop.run_app(&mut app)?;
@@ -251,6 +252,8 @@ struct App {
     /// Arrow keys held (同級生 Remake's walking map) and Shift or Ctrl.
     held: u8,
     fast: bool,
+    /// The input method is on (the name entry).
+    ime: bool,
     error: Option<anyhow::Error>,
 }
 
@@ -320,6 +323,11 @@ impl App {
             event_loop.exit();
         }
         if let Some(v) = &self.view {
+            let wants = self.session.wants_text();
+            if wants != self.ime {
+                self.ime = wants;
+                v.window.set_ime_allowed(wants);
+            }
             v.window.request_redraw();
         }
     }
@@ -431,6 +439,10 @@ impl ApplicationHandler for App {
                     self.after_input(event_loop, r);
                 }
             }
+            WindowEvent::Ime(Ime::Commit(text)) => {
+                self.session.text_input(&text);
+                self.after_input(event_loop, Ok(()));
+            }
             WindowEvent::ModifiersChanged(m) => {
                 self.fast = m.state().shift_key() || m.state().control_key();
                 self.session.set_held_keys(self.held, self.fast);
@@ -468,7 +480,12 @@ impl ApplicationHandler for App {
                             }
                         })
                     }
-                    _ => Ok(()),
+                    _ => {
+                        if let Some(t) = &event.text {
+                            self.session.text_input(t);
+                        }
+                        Ok(())
+                    }
                 };
                 self.after_input(event_loop, r);
             }

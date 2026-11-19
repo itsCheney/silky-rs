@@ -318,7 +318,7 @@ impl Session {
             return;
         };
         self.layout = layout;
-        self.rt.set_language(language);
+        self.rt.set_language(&self.vm, language);
         self.screens = Screens::load(&self.rt.assets, language);
         self.menus = Menus::load(&self.rt.assets, language);
         self.renderer.set_language(language);
@@ -937,6 +937,24 @@ impl Session {
         Ok(())
     }
 
+    /// Whether the screen takes typed text (the name entry).
+    pub fn wants_text(&self) -> bool {
+        matches!(&self.ui.panel, Some(DoukPanel::Name(n)) if n.typing())
+    }
+
+    /// Typed or committed text (an input method's result); Backspace
+    /// comes as `\u{8}`.
+    pub fn text_input(&mut self, text: &str) {
+        if self.screen.is_some() || self.dialog.is_some() {
+            return;
+        }
+        if let Some(DoukPanel::Name(n)) = &mut self.ui.panel {
+            if n.type_text(text) {
+                self.frame = None;
+            }
+        }
+    }
+
     /// Pointer moved to (x, y) in screen pixels.
     pub fn pointer_move(&mut self, x: i32, y: i32) {
         self.ui.pointer = (x, y);
@@ -1351,6 +1369,12 @@ impl Session {
                     leave
                 }
                 Some(Panel::Comment(c)) => c.cancel(),
+                // The name entry has no way out; it erases a letter.
+                Some(Panel::Name(n)) => {
+                    n.cancel();
+                    self.frame = None;
+                    return Ok(true);
+                }
                 Some(Panel::Music(m)) => {
                     let leave = m.cancel();
                     self.rt.stop_music();
@@ -2915,6 +2939,12 @@ impl Session {
                     crate::games::doukyuusei::Panel::Reel(r) => r.take_globals(),
                     crate::games::doukyuusei::Panel::Music(m) => m.take_globals(),
                     crate::games::doukyuusei::Panel::Comment(c) => c.take_globals(),
+                    crate::games::doukyuusei::Panel::Name(n) => {
+                        if n.take_sound() {
+                            let _ = self.rt.play_sound(crate::games::doukyuusei::name::OK_SOUND);
+                        }
+                        Vec::new()
+                    }
                     _ => Vec::new(),
                 };
                 for (i, v) in set {
@@ -2928,6 +2958,13 @@ impl Session {
                         self.ui.panel = None;
                         self.base = None;
                         self.rt.answer_action(&mut self.vm, result);
+                        self.run()?;
+                    }
+                    Click::Name => {
+                        if let Some(DoukPanel::Name(n)) = self.ui.panel.take() {
+                            self.rt.finish_name(&mut self.vm, &n.text());
+                        }
+                        self.base = None;
                         self.run()?;
                     }
                     Click::Track(Some(t)) => {
@@ -3077,6 +3114,11 @@ impl Session {
         if plate != self.ui.plate {
             self.ui.plate = plate;
             self.frame = None;
+        }
+        if let Some(DoukPanel::Name(n)) = &mut self.ui.panel {
+            if n.tick(ms) {
+                self.frame = None;
+            }
         }
         // The music mode's track ended (without audio it plays on).
         if let Some(DoukPanel::Music(m)) = &mut self.ui.panel {
