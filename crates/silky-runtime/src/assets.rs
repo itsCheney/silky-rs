@@ -215,9 +215,14 @@ impl HelpLines {
 }
 
 pub fn localized_name(name: &str, lang: Language) -> String {
+    localized_name_with(name, lang.suffix())
+}
+
+/// `x.akb` with a language suffix: `x_<suffix>.akb`.
+pub fn localized_name_with(name: &str, suffix: &str) -> String {
     match name.rsplit_once('.') {
-        Some((stem, ext)) => format!("{stem}_{}.{ext}", lang.suffix()),
-        None => format!("{name}_{}", lang.suffix()),
+        Some((stem, ext)) => format!("{stem}_{suffix}.{ext}"),
+        None => format!("{name}_{suffix}"),
     }
 }
 

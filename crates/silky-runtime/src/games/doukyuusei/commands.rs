@@ -43,6 +43,17 @@ pub const EXTRAS: std::ops::RangeInclusive<i32> = 50..=53;
 /// draws it again (see [`super::plate`]); the other subs are not read
 /// yet.
 pub const SCREEN: i32 = 10;
+/// `Game.23(name)`: the file name a script asks for in the language of
+/// the game (`x.akb` -> `x_en.akb`, `_ch`, `_tw`), the name itself when
+/// that picture does not exist. Takes no sub command (its one value is a
+/// string), which is why the call is counted without one. The result goes
+/// to the call that loads the picture.
+pub const LOCALIZE_NAME: i32 = 23;
+/// `Game.39(sub)`: the picture object of one scene (sub 1 takes it away).
+pub const OVERLAY: i32 = 39;
+/// The byte that keeps the status plate up when the message window comes
+/// back (`Game.10(11)`).
+const PLATE_KEEP: usize = 4084;
 
 /// `Game.18()`: the name entry (see [`super::name`]); the name is kept in
 /// the raw area, nothing is returned.
@@ -231,7 +242,37 @@ impl Runtime {
                 self.scene.speaker_icon = None;
                 self.done()
             }
+            // The message window comes back; the status plate goes down
+            // unless byte 4084 keeps it. The window is shown here whenever
+            // a line is up.
+            (SCREEN, 11) => {
+                if vm.bytes.get(PLATE_KEEP).copied().unwrap_or(0) == 0 {
+                    self.scene.plate = false;
+                }
+                self.done()
+            }
+            // 14 puts the window's layers away, which here is the same as
+            // no line being up. Subs 12, 13 and 17 to 27 (18 included) do
+            // nothing in the program, nor do those below 10.
+            (SCREEN, 12..=14 | 17..=27) => self.done(),
             (SCREEN, sub) if sub < 10 => self.done(),
+            // The scene's picture object is never made here (sub 0), so
+            // there is nothing for sub 1 to take away.
+            (OVERLAY, 1) => self.done(),
+            (LOCALIZE_NAME, _) if matches!(c.args.last(), Some(silky_vm::Value::Str(_))) => {
+                let len = c.args.len();
+                let name = c.str(len - 1)?;
+                for v in &c.args[..len - 1] {
+                    vm.push(v.clone());
+                }
+                let local = crate::assets::localized_name_with(
+                    &name,
+                    super::picture_suffix(self.config.language),
+                );
+                let found = self.assets.exists(silky_format::game::Kind::Layer, &local);
+                vm.push(if found { local } else { name }.as_str());
+                self.done()
+            }
             (AREA, 0) => {
                 self.scene.room_area = back_str(c, 0);
                 self.done()

@@ -92,6 +92,7 @@ The game is an adventure in a town: the hero spends the days of a summer break g
   - A new install starts music at 55 %, effects at 70 % and "click to stop voices" off, as under Wine.
 - Headless, `silky-run snap` plays the opening, looks around the hero's room, sleeps an hour, then walks the town to one place after another (the shortest way, without walking through other places), looking at and talking to everything inside; it runs through more than two hundred visits over several days.
 
+- Small `Game` commands, read from the executable: `Game.23(name)` has no sub command (its one value is a string, so the call counts as sub -1) and returns the picture name in the language of the game, `x.akb` to `x_en.akb`, `x_ch.akb` or `x_tw.akb`, or the name itself when that file does not exist; the script passes it on to the picture call. `Game.10(11)` brings the message window back and takes the status plate down unless byte 4084 is set (the window itself is shown here whenever a line is up). `Game.39(1)` takes away the scene picture object that `Game.39(0)` makes (not done, see below), so it has nothing to do here.
 ## Not done yet
 
 - The flag list's jump to an event: the timing of the transition into the event (see the feature bullet). Also not done or guessed there: events when several bytes are set together (checked for single bytes only), the order of Kurumi's extra conditional event among the others, the plate's gray state (never seen under Wine), the balloon tail of the last column, the pointer rows of the star and the thumb dragging. the settings screen's fade in, and its classic mode setting, which is kept but changes nothing yet ("confirm to jump to events" decides whether the flag list asks); the menu's slide-out animation; save comments. While the dialog is up, the original keeps the button that opened it pressed and its hint shown; here they go back to normal.
@@ -100,7 +101,8 @@ The game is an adventure in a town: the hero spends the days of a summer break g
 - The other place screens and the other screens.
 - Chinese text: placement and line breaks match the original under Wine (40 pixels a character, 37 to a line). A full-width character missing from `font_zen` (for example 拓 of the hero's default name) is drawn with the TrueType face the frontend passes (`--font`), 34 pixels tall and a pixel wider in the strokes, white with the same 8-direction black outline, in a 40 x 40 cell; a name with such a character (speaker plate, backlog) is drawn whole that way, as the executable does with its GDI font. Without a face the character is skipped. Not done: the exact face (the executable asks for SimHei, `lfHeight` 40; Wine substitutes one), the half-size and scaled lines, and a missing half-width character.
 - The character picker's sounds (`ses_003.wav`, `ses_004.wav` for the quick buttons and a system sound for a card).
-- Calls that change nothing here: `Select.0(-1)` (the engine readies the layers of its selection bars), `Game.20(24)` with a `.pal` file (not a sub command of this build), `Game.27` (the game's own mouse pointer on and off) and `Game.35` (marks for the "skip scenes" setting).
+- Calls that change nothing here: `Game.10` subs 12, 13, 14 and 17 to 27 (14 puts the message window's layers away, which here is the same as no line being up; the others do nothing in the program), `Game.39(1)` (see above), `Select.0(-1)` (the engine readies the layers of its selection bars), `Game.20(24)` with a `.pal` file (not a sub command of this build), `Game.27` (the game's own mouse pointer on and off) and `Game.35` (marks for the "skip scenes" setting).
+- Not done, read from the executable: `Game.37(n)` (a comment picture of `comment0n.akb` with a darkened screen and a thumbnail of `comment_p.akb` put up in the layers 91 and 92; the scripts SECRET, GENBA and BABA call it with 1, 2 and 4); `Game.30(n)` (the modal notice dialog `dialog2_p.akb` or `dialog3_p.akb` with its `.area`, called in the hero's room before byte 8013 is set); `Game.31()` (no values: a screen of `title_n_bg.akb` with `hana_0000.akb` that the main script runs once); `Game.39` subs 0, 2 to 5 (the scene picture object `y04btr.akb` and its fades, in Misa's scenes).
 - The other `Game` commands; the engine classes are taken from [engine-2026](../builds/engine-2026.md) unchecked.
 
 ## Where things are in the executable
@@ -167,6 +169,11 @@ Addresses in the program as it runs (the Steam wrapper unpacks it at its own ima
 | `Anime` class calls (`CFuncAnime`), frame step, update | 0x454b00, 0x427180, 0x4270f0 |
 | `Anime` cell drawn over the background (kind 3) | 0x426a00 |
 | Speaker icon shown, taken away (`Game.10` 15, 16) | 0x4e2d11, 0x4e2e41 |
+| `Game.23` file name in the game's language, `Game.10` 11 and 14 (message window back, put away) | 0x4e2020 (case 23), 0x4e2c7d with 0x4b5540, 0x4e2c89 |
+| `Game.10` sub table (subs 10 to 30) | 0x4e2f18 with 0x4e2f3c |
+| `Game.39` scene picture object: sub table, make and take away | 0x4e6d08, 0x4e68ae, 0x4e691f |
+| `Game.37` comment picture overlay: made, shown | 0x48ca70 (class vtable 0x59497c) |
+| `Game.31` petal intro screen, `Game.30` notice dialog | 0x4e5c70, 0x4ba070 |
 | `Game.34` face, `Game.13` pictures, a picture laid in | 0x4e26f5, 0x4e3ae0, 0x48a510 |
 | `Game.13` object made, faded out | 0x48a340, 0x4899b0 |
 | `Game.27` mouse pointer, `Game.35` scene marks, `Game.36` character picker | 0x4ba9c0, 0x4e5df0, 0x48b610 |
