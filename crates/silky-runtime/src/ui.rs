@@ -237,8 +237,8 @@ impl Ui {
             Button::Title(t) if self.locked_titles.contains(&t) => false,
             Button::Title(title::CONTINUE | title::LOAD) => self.has_saves,
             // 同級生 Remake's menu: the flag list from the unlocked story
-            // on, the map jump only for the town (see
-            // `games::doukyuusei::menu`).
+            // on, the map jump only where byte 7089 names a page (see
+            // `games::doukyuusei::menu` and `jump::Jump::available`).
             Button::Bar(bar::SCHEDULE) if self.plate.is_some() => self.flag_list,
             Button::Bar(bar::MAP) if self.plate.is_some() => self.map_jump,
             Button::Bar(bar::BACKLOG) if self.plate.is_some() => self.has_log,

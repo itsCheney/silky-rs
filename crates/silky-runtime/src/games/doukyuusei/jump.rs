@@ -1,18 +1,19 @@
 //! The map jump page of 同級生 Remake: opened by the menu's map button on
 //! the walking maps; picking a place ends the walk with `0xff00` and the
-//! place's number, and SUB1.MES then walks the hero there.
+//! place's number, and the caller's sub script then walks the hero there.
 //!
-//! Read from the executable. The page is the town map picture
-//! (`sakima_bg`) with one part per place from `sakima_p`; a place is
-//! offered when the story has found it (a byte variable, or always).
-//! Hovering a place draws its lit part and its name bubble from
-//! `sakimaplate_p`, pressing it the pressed row. `SAKIMA_SUB.CAREA` gives
-//! the place under a pixel (255 none, 100 the back button). Back and the
-//! secondary click return to the walk.
+//! Read from the executable. Byte 7089 ([`MODE_AT`]) picks the picture: the
+//! town (0, `sakima_*`), Yabuki (1, `yabuki_*`) or the school (2 to 5,
+//! `school_*`, one picture of all four floors). DEN (6) has no page. Each
+//! picture has a background, a sheet of parts per place, a sheet of name
+//! bubbles and a click map (`*.CAREA`, a byte per pixel: the place, 255 none,
+//! 100 back). A place is offered when the story has found it (a byte
+//! variable, or always), and the school hides four stairs on the 2F.
+//! Hovering a place draws its lit part and its name bubble, pressing it the
+//! pressed row. Back and the secondary click return to the walk.
 //!
-//! With the game mode setting on, the girl who will be at a place shows
-//! as a face on it (see [`super::who`]). Only the town (mode 0) is done;
-//! the yabuki and school pages are not. See
+//! With the game mode setting on, the girl who will be at a place shows as
+//! a face on it (see [`super::who`]). The tables and their sources are in
 //! `docs/games/doukyuusei.md`.
 
 use std::sync::Arc;
@@ -22,34 +23,35 @@ use super::room::Click;
 use super::who::{face_at, Map};
 use crate::assets::{Assets, Language};
 use crate::render::Canvas;
-use crate::Result;
+use crate::{Error, Result};
 use silky_vm::Vm;
 
-/// The byte that tells which map the page is for (0 the town).
+/// The byte that tells which map the page is for.
 pub const MODE_AT: usize = 7089;
 /// Id of the back button.
 pub const BACK: i32 = 100;
 /// High byte of the result of a place chosen.
 pub const RESULT: i32 = 0xff00;
 
-const CAREA: &str = "SAKIMA_SUB.CAREA";
 const W: usize = 1920;
 const H: usize = 1080;
-const PLACES: usize = 37;
-/// Back button: source, size and place.
-const BACK_PART: (u32, u32, u32) = (2377, 136, 136);
+/// Back button: source size, and where it goes.
+const BACK_SIZE: u32 = 136;
 const BACK_AT: (i32, i32) = (1776, 937);
 
 /// Where a place's byte flag is, or always offered.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum Flag {
     Always,
     Byte(usize),
     Never,
+    /// Offered unless the page is the school's 2F (mode 3).
+    Hidden3,
 }
 
 /// A place: its part on the sheet (x, y), where it goes, its size, and
 /// whether it is offered.
+#[derive(Debug)]
 struct Place {
     src: (u32, u32),
     at: (i32, i32),
@@ -68,12 +70,12 @@ const fn p(sx: u32, sy: u32, dx: i32, dy: i32, w: u32, h: u32, flag: Flag) -> Pl
 
 use Flag::{Always as A, Byte as B, Never as N};
 
-/// Id 19 is Reiko's house, whose art depends on a variant.
+/// Id 19 is Reiko's house, whose art depends on a variant (town only).
 const REIKO: usize = 19;
 const REIKO_X: [u32; 2] = [1002, 1327];
 
 /// The town's places by id (the destination number is id + 1).
-const TOWN: [Place; PLACES] = [
+const TOWN_PLACES: &[Place] = &[
     p(984, 0, 1457, 27, 349, 164, A),
     p(1973, 0, 43, 15, 404, 209, A),
     p(320, 3950, 938, 573, 515, 283, A),
@@ -113,13 +115,60 @@ const TOWN: [Place; PLACES] = [
     p(1159, 3950, 150, 831, 356, 215, B(1698)),
 ];
 
+/// The yabuki's places by id.
+const YABUKI_PLACES: &[Place] = &[
+    p(351, 1240, 248, 608, 1065, 255, A),
+    p(739, 0, 894, 22, 624, 147, A),
+    p(1747, 1240, 670, 832, 577, 201, A),
+    p(2324, 1240, 670, 832, 576, 201, A),
+    p(0, 0, 43, 22, 739, 147, A),
+    p(0, 1240, 413, 321, 351, 305, B(1715)),
+    p(1416, 1240, 569, 788, 331, 257, B(1716)),
+    p(2148, 0, 1133, 398, 354, 276, B(1717)),
+    p(1363, 0, 1129, 47, 388, 279, B(1718)),
+    p(1751, 0, 1187, 226, 397, 306, B(1719)),
+];
+
+/// The school's places by id, the four floors on one picture.
+const SCHOOL_PLACES: &[Place] = &[
+    p(1851, 0, 1202, 864, 320, 167, A),
+    p(2171, 0, 1178, 620, 320, 158, Flag::Hidden3),
+    p(1115, 0, 1511, 757, 395, 190, A),
+    p(1510, 0, 967, 757, 341, 190, A),
+    p(715, 0, 968, 521, 400, 222, A),
+    p(0, 0, 1511, 521, 395, 222, A),
+    p(395, 0, 1296, 521, 320, 222, A),
+    p(1830, 900, 1259, 224, 320, 158, A),
+    p(2150, 900, 1179, 113, 320, 158, A),
+    p(1507, 900, 968, 248, 323, 190, A),
+    p(1115, 900, 1511, 248, 392, 190, A),
+    p(715, 900, 968, 13, 400, 222, A),
+    p(0, 900, 1511, 13, 395, 222, A),
+    p(395, 900, 1296, 13, 320, 222, A),
+    p(2491, 1800, 299, 224, 320, 158, Flag::Hidden3),
+    p(2171, 1800, 218, 113, 320, 158, Flag::Hidden3),
+    p(1519, 1800, 132, 248, 320, 190, A),
+    p(1839, 1800, 17, 248, 332, 309, A),
+    p(1115, 1800, 550, 248, 404, 190, A),
+    p(720, 1800, 15, 13, 395, 222, A),
+    p(0, 1800, 552, 13, 400, 222, A),
+    p(400, 1800, 340, 13, 320, 222, A),
+    p(2276, 3040, 299, 732, 320, 158, Flag::Hidden3),
+    p(1956, 3040, 218, 620, 320, 158, A),
+    p(722, 3040, 14, 521, 395, 222, A),
+    p(0, 3040, 552, 521, 402, 222, A),
+    p(1521, 3040, 17, 757, 435, 190, A),
+    p(1117, 3040, 550, 757, 404, 190, A),
+    p(402, 3040, 339, 521, 320, 222, A),
+];
+
 /// The pin (place number for the schedule) of each town element, -1 none.
-const PIN_OF: [i8; PLACES] = [
+const TOWN_PIN_OF: &[i8] = &[
     0, 1, 5, 13, 12, 11, 14, 8, 7, 9, -1, -1, -1, -1, -1, -1, -1, -1, 15, 6, 10, -1, -1, -1, -1,
     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 ];
-/// Where a face goes (top-left) by pin; pin 1 uses [`SLOT_AT`].
-const PIN_AT: [(i32, i32); 16] = [
+/// Where a face goes (top-left) by pin; the town's pin 1 uses [`SLOT_AT`].
+const TOWN_PIN_AT: &[(i32, i32)] = &[
     (1473, 59),
     (159, 19),
     (159, 19),
@@ -139,78 +188,185 @@ const PIN_AT: [(i32, i32); 16] = [
 ];
 /// The four places of Sakimake Academy share one pin; these are their spots.
 const SLOT_AT: [(i32, i32); 4] = [(159, 19), (159, 19), (48, 57), (159, 10)];
-/// The face sheet: 144-pixel cells, four to a row.
-const FACES: &str = "map_p.akb";
-const FACE: u32 = 144;
+
+/// Yabuki: the pin of each place, and where each pin's face goes.
+const YABUKI_PIN_OF: &[i8] = &[0, 1, 6, -1, 2, 5, 7, -1, 3, 4];
+const YABUKI_PIN_AT: &[(i32, i32)] = &[
+    (939, 621),
+    (960, 16),
+    (464, 23),
+    (1221, 56),
+    (1260, 253),
+    (328, 378),
+    (991, 876),
+    (593, 840),
+];
+
+/// School: the pin of each place, and where each pin's face goes.
+const SCHOOL_PIN_OF: &[i8] = &[
+    -1, -1, 0, 1, -1, -1, -1, 2, -1, 3, -1, -1, -1, -1, -1, -1, -1, 4, -1, -1, -1, -1, -1, 5, -1,
+    6, -1, -1, -1,
+];
+const SCHOOL_PIN_AT: &[(i32, i32)] = &[
+    (1654, 768),
+    (964, 698),
+    (1370, 122),
+    (935, 207),
+    (134, 206),
+    (304, 616),
+    (735, 520),
+];
+
+/// What differs between the pictures of the page.
+#[derive(Debug)]
+struct Spec {
+    /// The click map.
+    carea: &'static str,
+    /// The file stem: `{stem}_bg.akb`, `{stem}_p.akb`, `{stem}plate_p.akb`.
+    stem: &'static str,
+    places: &'static [Place],
+    pin_of: &'static [i8],
+    pin_at: &'static [(i32, i32)],
+    /// Source x of the back button's sheet cells.
+    back_x: u32,
+    /// Pin 1 is the academy's four slots (town only).
+    academy_pin: bool,
+}
+
+static TOWN: Spec = Spec {
+    carea: "SAKIMA_SUB.CAREA",
+    stem: "sakima",
+    places: TOWN_PLACES,
+    pin_of: TOWN_PIN_OF,
+    pin_at: TOWN_PIN_AT,
+    back_x: 2377,
+    academy_pin: true,
+};
+
+static YABUKI: Spec = Spec {
+    carea: "YABUKI_SUB.CAREA",
+    stem: "yabuki",
+    places: YABUKI_PLACES,
+    pin_of: YABUKI_PIN_OF,
+    pin_at: YABUKI_PIN_AT,
+    back_x: 2502,
+    academy_pin: false,
+};
+
+static SCHOOL: Spec = Spec {
+    carea: "SCHOOL_SUB.CAREA",
+    stem: "school",
+    places: SCHOOL_PLACES,
+    pin_of: SCHOOL_PIN_OF,
+    pin_at: SCHOOL_PIN_AT,
+    back_x: 2491,
+    academy_pin: false,
+};
+
+/// The picture for a byte 7089 value, or none (DEN and other values).
+fn spec(mode: u8) -> Option<&'static Spec> {
+    match mode {
+        0 => Some(&TOWN),
+        1 => Some(&YABUKI),
+        2..=5 => Some(&SCHOOL),
+        _ => None,
+    }
+}
+
+/// The map the faces are read for. The school's script passes 2 on the
+/// 1F and 3 on the other floors (the executable does so, see `who.rs`).
+fn face_map(mode: u8) -> Map {
+    match mode {
+        0 => Map::Town,
+        1 => Map::Yabuki,
+        _ => Map::School(if mode == 2 { 2 } else { 3 }),
+    }
+}
+
+fn mode_of(bytes: &[u8]) -> u8 {
+    bytes.get(MODE_AT).copied().unwrap_or(0)
+}
 
 #[derive(Debug, Clone)]
 pub struct Jump {
+    spec: &'static Spec,
     map: Arc<Vec<u8>>,
-    open: [bool; PLACES],
+    open: Vec<bool>,
     /// Faces to draw: (cell, x, y).
     faces: Vec<(u8, i32, i32)>,
-    /// Reiko's house art: 0 or 1.
-    reiko: usize,
+    /// Reiko's house art (town only): 0 or 1, none if not found.
+    reiko: Option<usize>,
 }
 
 impl Jump {
-    /// The page is for the town, see [`Jump::available`]; faces show
-    /// with the game mode setting on.
+    /// The page for the picture byte 7089 names; faces show with the game
+    /// mode setting on.
     pub fn load(assets: &Assets, vm: &Vm) -> Result<Self> {
-        let mut map = assets.data(CAREA)?;
+        let mode = mode_of(&vm.bytes);
+        let Some(spec) = spec(mode) else {
+            return Err(Error::Invalid(format!("no map jump page for mode {mode}")));
+        };
+        let mut map = assets.data(spec.carea)?;
         map.resize(W * H, 255);
-        let mut j = Self::new(map, &vm.bytes);
+        let mut j = Self::new(spec, map, &vm.bytes, mode);
         if GAME_MODE == 1 {
-            j.faces = j.pins(|place| face_at(vm, Map::Town, place));
+            let who_map = face_map(mode);
+            j.faces = j.pins(|place| face_at(vm, who_map, place));
         }
         Ok(j)
     }
 
-    /// The faces of the places offered; `who` gives the face at a place.
+    /// The faces of the places offered; `who` gives the face at a pin.
     fn pins(&self, who: impl Fn(u8) -> Option<u8>) -> Vec<(u8, i32, i32)> {
         let mut faces = Vec::new();
-        for (id, &pin) in PIN_OF.iter().enumerate() {
+        for (id, &pin) in self.spec.pin_of.iter().enumerate() {
             if pin < 0 || !self.offered(id) {
                 continue;
             }
-            let found = if pin == 1 {
-                (0..4).find_map(|k| who(k + 1).map(|f| (f, SLOT_AT[k as usize])))
+            let found = if self.spec.academy_pin && pin == 1 {
+                (0..4).find_map(|k: u8| who(k + 1).map(|f| (f, SLOT_AT[k as usize])))
             } else {
-                who(pin as u8).map(|f| (f, PIN_AT[pin as usize]))
+                who(pin as u8).map(|f| (f, self.spec.pin_at[pin as usize]))
             };
             faces.extend(found.map(|(f, (x, y))| (f, x, y)));
         }
         faces
     }
 
-    fn new(map: Vec<u8>, bytes: &[u8]) -> Self {
+    fn new(spec: &'static Spec, map: Vec<u8>, bytes: &[u8], mode: u8) -> Self {
         let byte = |i: usize| bytes.get(i).copied().unwrap_or(0);
-        let mut open = [false; PLACES];
-        for (o, place) in open.iter_mut().zip(TOWN.iter()) {
-            *o = match place.flag {
+        let mut open: Vec<bool> = spec
+            .places
+            .iter()
+            .map(|place| match place.flag {
                 Flag::Always => true,
                 Flag::Byte(i) => byte(i) != 0,
                 Flag::Never => false,
-            };
-        }
+                Flag::Hidden3 => mode != 3,
+            })
+            .collect();
         // Reiko's house: the first art once found, the second later.
-        let reiko = match (byte(1702), byte(1692)) {
-            (1, _) => Some(1),
-            (0, 1) => Some(0),
+        let reiko = match (mode, byte(1702), byte(1692)) {
+            (0, 1, _) => Some(1),
+            (0, 0, 1) => Some(0),
             _ => None,
         };
-        open[REIKO] = reiko.is_some();
+        if mode == 0 {
+            open[REIKO] = reiko.is_some();
+        }
         Self {
+            spec,
             map: Arc::new(map),
             open,
             faces: Vec::new(),
-            reiko: reiko.unwrap_or(0),
+            reiko,
         }
     }
 
-    /// Whether the page is done for the map the script is on.
+    /// Whether the page is done for the map the script is on: the
+    /// pictures of byte 7089 0 to 5; DEN (6) has none.
     pub fn available(bytes: &[u8]) -> bool {
-        bytes.get(MODE_AT).copied().unwrap_or(0) == 0
+        spec(mode_of(bytes)).is_some()
     }
 
     /// Whether place `id` is offered.
@@ -224,23 +380,22 @@ impl Jump {
             return None;
         }
         let i = self.map[y as usize * W + x as usize] as i32;
-        (i == BACK || (i < PLACES as i32 && self.offered(i as usize))).then_some(i)
+        (i == BACK || self.offered(i as usize)).then_some(i)
     }
 
     pub fn click(&mut self, id: i32) -> Click {
         match id {
             BACK => Click::Resume,
-            0..=36 if self.offered(id as usize) => Click::Result(RESULT | (id + 1)),
+            _ if id >= 0 && self.offered(id as usize) => Click::Result(RESULT | (id + 1)),
             _ => Click::None,
         }
     }
 
     fn place(&self, id: usize) -> (u32, u32, i32, i32, u32, u32) {
-        let t = &TOWN[id];
-        let sx = if id == REIKO {
-            REIKO_X[self.reiko]
-        } else {
-            t.src.0
+        let t = &self.spec.places[id];
+        let sx = match self.reiko {
+            Some(art) if id == REIKO => REIKO_X[art],
+            _ => t.src.0,
         };
         (sx, t.src.1, t.at.0, t.at.1, t.size.0, t.size.1)
     }
@@ -253,12 +408,13 @@ impl Jump {
         language: Language,
         state: impl Fn(i32) -> u32,
     ) -> Result<()> {
-        let bg = assets.localized_image("sakima_bg.akb", language)?;
-        let parts = assets.localized_image("sakima_p.akb", language)?;
-        let plates = assets.localized_image("sakimaplate_p.akb", language)?;
+        let stem = self.spec.stem;
+        let bg = assets.localized_image(&format!("{stem}_bg.akb"), language)?;
+        let parts = assets.localized_image(&format!("{stem}_p.akb"), language)?;
+        let plates = assets.localized_image(&format!("{stem}plate_p.akb"), language)?;
         canvas.draw_part(&bg, (0, 0, W as u32, H as u32), 0, 0, false, 255);
         let mut label = None;
-        for id in (0..PLACES).filter(|&i| self.offered(i)) {
+        for id in (0..self.spec.places.len()).filter(|&i| self.offered(i)) {
             let row = state(id as i32).min(2);
             let (sx, sy, dx, dy, w, h) = self.place(id);
             canvas.draw_part(&parts, (sx, sy + h * row, w, h), dx, dy, false, 255);
@@ -286,10 +442,9 @@ impl Jump {
             }
         }
         let row = state(BACK).min(2);
-        let (sx, w, h) = BACK_PART;
         canvas.draw_part(
             &parts,
-            (sx, h * row, w, h),
+            (self.spec.back_x, BACK_SIZE * row, BACK_SIZE, BACK_SIZE),
             BACK_AT.0,
             BACK_AT.1,
             false,
@@ -299,38 +454,119 @@ impl Jump {
     }
 }
 
+/// The face cell sheet: 144-pixel cells, four to a row.
+const FACES: &str = "map_p.akb";
+const FACE: u32 = 144;
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn jump(bytes: &[u8]) -> Jump {
+    fn jump(bytes: &[u8], mode: u8) -> Jump {
         let mut map = vec![255u8; W * H];
         map[0] = 2;
         map[1] = 21;
         map[2] = 100;
-        Jump::new(map, bytes)
+        Jump::new(spec(mode).unwrap(), map, bytes, mode)
+    }
+
+    fn with_mode(mode: u8) -> Vec<u8> {
+        let mut bytes = vec![0u8; 8000];
+        bytes[MODE_AT] = mode;
+        bytes
     }
 
     #[test]
     fn offered_places() {
         let mut bytes = vec![0u8; 2000];
-        let j = jump(&bytes);
+        let j = jump(&bytes, 0);
         assert!(j.offered(0) && j.offered(25) && j.offered(26));
         assert!(!j.offered(18) && !j.offered(19) && !j.offered(33));
         bytes[1701] = 1;
-        assert!(jump(&bytes).offered(18));
+        assert!(jump(&bytes, 0).offered(18));
         bytes[1692] = 1;
-        let j = jump(&bytes);
-        assert!(j.offered(19) && j.reiko == 0);
+        let j = jump(&bytes, 0);
+        assert!(j.offered(19) && j.reiko == Some(0));
         bytes[1702] = 1;
-        assert_eq!(jump(&bytes).reiko, 1);
+        assert_eq!(jump(&bytes, 0).reiko, Some(1));
+    }
+
+    #[test]
+    fn offered_by_mode() {
+        let none = vec![0u8; 2000];
+        // Yabuki: five places always, the rest by their byte.
+        let y = jump(&none, 1);
+        assert_eq!((0..10).filter(|&i| y.offered(i)).count(), 5);
+        let mut bytes = none.clone();
+        bytes[1715] = 1;
+        bytes[1719] = 1;
+        let y = jump(&bytes, 1);
+        assert!(y.offered(5) && !y.offered(6) && y.offered(9));
+        // The school: all 29 on the 1F, 2F-only hides the four stairs.
+        for mode in [2, 4, 5] {
+            let j = jump(&none, mode);
+            assert!((0..29).all(|i| j.offered(i)), "mode {mode}");
+        }
+        let j = jump(&none, 3);
+        let hidden: Vec<usize> = (0..29).filter(|&i| !j.offered(i)).collect();
+        assert_eq!(hidden, vec![1, 14, 15, 22]);
+        // Reiko's house is the school's class 3-A: not a town art there.
+        assert!(jump(&none, 4).offered(REIKO) && jump(&none, 4).reiko.is_none());
+    }
+
+    #[test]
+    fn availability() {
+        for mode in 0..=5 {
+            assert!(Jump::available(&with_mode(mode)), "mode {mode}");
+        }
+        assert!(!Jump::available(&with_mode(6)));
+        assert!(!Jump::available(&with_mode(7)));
+    }
+
+    #[test]
+    fn results() {
+        let none = vec![0u8; 2000];
+        let mut y = jump(&none, 1);
+        assert!(matches!(y.click(0), Click::Result(0xff01)));
+        assert!(matches!(y.click(4), Click::Result(0xff05)));
+        // Cat's Eye is not found yet.
+        assert!(matches!(y.click(5), Click::None));
+        assert!(matches!(y.click(BACK), Click::Resume));
+        let mut s = jump(&none, 4);
+        assert!(matches!(s.click(28), Click::Result(0xff1d)));
+        assert!(matches!(s.click(-1), Click::None));
+        assert!(matches!(jump(&none, 3).click(1), Click::None));
+        assert!(matches!(jump(&none, 3).click(2), Click::Result(0xff03)));
+    }
+
+    #[test]
+    fn hits() {
+        let none = vec![0u8; 2000];
+        // The map is the same for every picture: pixel 0 is id 2, pixel 1
+        // id 21, pixel 2 the back button.
+        let y = jump(&none, 1);
+        assert_eq!(y.hit(0, 0), Some(2));
+        assert_eq!(y.hit(1, 0), None);
+        assert_eq!(y.hit(2, 0), Some(BACK));
+        assert_eq!(y.hit(3, 0), None);
+    }
+
+    #[test]
+    fn table_rows() {
+        let none = vec![0u8; 2000];
+        assert_eq!(jump(&none, 4).place(17), (1839, 1800, 17, 248, 332, 309));
+        assert_eq!(jump(&none, 1).place(9), (1751, 0, 1187, 226, 397, 306));
+        assert_eq!(jump(&none, 2).place(0), (1851, 0, 1202, 864, 320, 167));
+        assert_eq!(jump(&none, 1).spec.back_x, 2502);
+        assert_eq!(jump(&none, 5).spec.back_x, 2491);
+        assert_eq!(jump(&none, 0).spec.back_x, 2377);
     }
 
     #[test]
     fn pins() {
         let mut bytes = vec![0u8; 2000];
         bytes[1701] = 1;
-        let j = jump(&bytes);
+        let j = jump(&bytes, 0);
         // Everyone at pin 3 and, for the academy, only on slot 2 (pin 3).
         let faces = j.pins(|p| (p == 3 || p == 15 || p == 12).then_some(p));
         // Place 3 is the third slot; the coffee house (pin 13) is empty, the
@@ -346,16 +582,35 @@ mod tests {
     }
 
     #[test]
-    fn clicks() {
-        let mut j = jump(&[]);
-        assert_eq!(j.hit(0, 0), Some(2));
-        // Not found yet: no hover, no click.
-        assert_eq!(j.hit(1, 0), None);
-        assert_eq!(j.hit(2, 0), Some(BACK));
-        assert_eq!(j.hit(3, 0), None);
-        assert!(matches!(j.click(2), Click::Result(0xff03)));
-        assert!(matches!(j.click(21), Click::None));
-        assert!(matches!(j.click(BACK), Click::Resume));
-        assert!(Jump::available(&[0u8; 8000]));
+    fn yabuki_pins() {
+        let mut bytes = vec![0u8; 2000];
+        bytes[1715] = 1;
+        let j = jump(&bytes, 1);
+        // Places 0, 1, 2, 4 and 5 (Cat's Eye) have faces; 6 to 9 are not found.
+        let faces = j.pins(|p| Some(p));
+        assert_eq!(faces.len(), 5);
+        assert!(faces.contains(&(0, 939, 621)));
+        assert!(faces.contains(&(6, 991, 876)));
+        assert!(faces.contains(&(5, 328, 378)));
+    }
+
+    #[test]
+    fn school_pins() {
+        let j = jump(&vec![0u8; 2000], 4);
+        let faces = j.pins(|p| Some(p));
+        // Pins 0..=6 of the seven places (2, 3, 7, 9, 17, 23 and 25).
+        assert_eq!(faces.len(), 7);
+        assert!(faces.contains(&(0, 1654, 768)));
+        assert!(faces.contains(&(6, 735, 520)));
+    }
+
+    #[test]
+    fn face_maps() {
+        assert_eq!(face_map(0), Map::Town);
+        assert_eq!(face_map(1), Map::Yabuki);
+        assert_eq!(face_map(2), Map::School(2));
+        assert_eq!(face_map(3), Map::School(3));
+        assert_eq!(face_map(4), Map::School(3));
+        assert_eq!(face_map(5), Map::School(3));
     }
 }

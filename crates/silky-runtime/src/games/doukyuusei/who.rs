@@ -132,7 +132,8 @@ pub fn advance(time: i32, date: i32, minutes: i32) -> (i32, i32) {
 pub enum Map {
     Town,
     Yabuki,
-    /// A floor, 2 to 5.
+    /// The school, with the floor argument the page passes: 2 on the 1F,
+    /// 3 on the other floors (see [`super::jump`]).
     School(u8),
 }
 
