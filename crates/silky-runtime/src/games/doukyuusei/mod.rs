@@ -10,6 +10,8 @@ pub mod calendar;
 pub(crate) mod commands;
 pub mod comment;
 pub mod config;
+mod flag_data;
+pub mod flaglist;
 pub mod hours;
 pub mod jump;
 pub mod log;

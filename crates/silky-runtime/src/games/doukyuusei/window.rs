@@ -192,7 +192,7 @@ fn halve(img: &Image) -> Image {
 
 /// A part of an image resized to `w` x `h`, each pixel the area-weighted
 /// average of the pixels it covers (straight alpha).
-fn resized(img: &Image, part: (u32, u32, u32, u32), w: u32, h: u32) -> Image {
+pub(super) fn resized(img: &Image, part: (u32, u32, u32, u32), w: u32, h: u32) -> Image {
     let (px, py, pw, ph) = part;
     let mut rgba = vec![0u8; (w * h * 4) as usize];
     // Weights in 1/(w*h) source pixels: output pixel (x, y) covers source

@@ -10,9 +10,9 @@
 //! is open. The program slides them out from the menu button and fades
 //! them in over twelve frames; here they show at once. Save and load open
 //! the system menu's save screen ([`super::system`]), backlog the game's
-//! backlog ([`super::log`]) and the map button the map jump
-//! ([`super::jump`]); the schedule is not done yet, so its button is drawn
-//! gray and does nothing.
+//! backlog ([`super::log`]), the schedule button the flag list
+//! ([`super::flaglist`], gray until the story unlocks it) and the map button
+//! the map jump ([`super::jump`]).
 
 use std::sync::Arc;
 

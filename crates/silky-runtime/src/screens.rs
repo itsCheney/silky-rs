@@ -76,6 +76,8 @@ pub mod question {
     pub const DELETE_ALL: usize = 6;
     pub const JUMP: usize = 7;
     pub const SCENE_SELECT: usize = 8;
+    /// 同級生 Remake's flag list: jump to an event.
+    pub const FLAG_JUMP: usize = 9;
     /// きまぐれテンプテーション2: unlock all CG, scenes, music (two lines
     /// each under a "!注意!" line).
     pub const UNLOCK: usize = 10;
@@ -469,6 +471,9 @@ pub enum Action {
     Jump(usize),
     Title,
     Quit,
+    /// 同級生 Remake's flag list: jump to the event of a cell. Not done:
+    /// asking changes nothing.
+    FlagJump,
     /// Replay a scene of the scene mode.
     Scene(usize),
     /// きまぐれテンプテーション2: mark everything of an extras screen seen.
@@ -486,6 +491,7 @@ impl Action {
             Action::Jump(_) => question::JUMP,
             Action::Title => question::TITLE,
             Action::Quit => question::QUIT,
+            Action::FlagJump => question::FLAG_JUMP,
             Action::Scene(_) => question::SCENE_SELECT,
             Action::Unlock(k) => question::UNLOCK + *k as usize,
         }
@@ -514,6 +520,8 @@ pub enum Screen {
     /// 同級生 Remake's save and load screen.
     DoukSave(crate::games::doukyuusei::system::SaveScreen),
     DoukConfig(crate::games::doukyuusei::config::ConfigScreen),
+    /// 同級生 Remake's flag list and calendar.
+    DoukFlag(crate::games::doukyuusei::flaglist::FlagScreen),
 }
 
 /// Layouts of the screens, loaded once per game.

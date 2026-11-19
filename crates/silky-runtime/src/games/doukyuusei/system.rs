@@ -393,6 +393,15 @@ impl System {
         })
     }
 
+    /// A line of `SYSTEM_<lang>.MAP`, empty when missing.
+    pub(super) fn line(&self, n: u32) -> String {
+        self.system
+            .as_ref()
+            .and_then(|m| m.get(0, n))
+            .unwrap_or_default()
+            .to_string()
+    }
+
     pub(super) fn font(&self, assets: &mut Assets) -> Option<&Font> {
         self.font.get_or_init(|| Font::load(assets).ok()).as_ref()
     }
@@ -904,6 +913,7 @@ pub fn draw_dialog(
         Action::DeleteAll => 6,
         Action::Jump(_) => 7,
         Action::Scene(_) => 8,
+        Action::FlagJump => 9,
         Action::Unlock(_) => 10,
     };
     if let Some(k) = unlock {

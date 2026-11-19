@@ -998,6 +998,13 @@ impl Session {
                 return;
             }
         }
+        if let Some(Screen::DoukFlag(s)) = &mut self.screen {
+            if s.dragging {
+                s.drag(y);
+                self.frame = None;
+                return;
+            }
+        }
         if let Some(Screen::Extras(e)) = &self.screen {
             if e.k2.dragging_volume || e.ap.dragging_volume {
                 self.drag_omake_volume(x);
@@ -1119,6 +1126,15 @@ impl Session {
                 self.drag_settings(id, x, y);
             }
         }
+        if let (Some(Screen::DoukFlag(s)), Some(Button::Screen(id))) =
+            (&mut self.screen, self.ui.pressed)
+        {
+            use crate::games::doukyuusei::flaglist::{ids, Page};
+            if id == ids::TRACK && s.page == Page::Calendar && !s.notice {
+                s.dragging = true;
+                s.drag(y);
+            }
+        }
         if let (Some(Screen::DoukConfig(s)), Some(Button::Screen(id))) =
             (&mut self.screen, self.ui.pressed)
         {
@@ -1225,6 +1241,11 @@ impl Session {
         }
         if let Some(Screen::Settings(s)) = &mut self.screen {
             if s.dragging.take().is_some() {
+                return Ok(());
+            }
+        }
+        if let Some(Screen::DoukFlag(s)) = &mut self.screen {
+            if std::mem::take(&mut s.dragging) {
                 return Ok(());
             }
         }
@@ -1374,6 +1395,15 @@ impl Session {
             return Ok(true);
         }
         if self.dialog.take().is_some() {
+            self.frame = None;
+            return Ok(true);
+        }
+        if let Some(Screen::DoukFlag(s)) = &mut self.screen {
+            use crate::games::doukyuusei::flaglist::Click as FlagClick;
+            if s.cancel() == FlagClick::Leave {
+                self.close_screen();
+            }
+            self.ui.hover = None;
             self.frame = None;
             return Ok(true);
         }
@@ -1604,6 +1634,9 @@ impl Session {
                 Archive::wheel(s, up, max);
             }
             Some(Screen::Costume(_) | Screen::DoukSave(_) | Screen::DoukConfig(_)) => return Ok(()),
+            Some(Screen::DoukFlag(s)) => {
+                s.wheel(up);
+            }
             Some(Screen::Extras(e)) if self.menus.is_apeiria() => {
                 use crate::games::apeiria::omake;
                 match (&mut e.ap.view, e.kind) {
@@ -2305,7 +2338,12 @@ impl Session {
     /// Asks before doing something, unless the player said not to ask.
     fn ask(&mut self, action: Action) -> Result<()> {
         let always = matches!(action, Action::Unlock(_));
-        if !always && !self.rt.system.settings.confirm[action.question()] {
+        // The jump to an event has its own setting.
+        let confirm = match action {
+            Action::FlagJump => self.rt.system.settings.confirm_event,
+            _ => always || self.rt.system.settings.confirm[action.question()],
+        };
+        if !confirm {
             return self.carry_out(action);
         }
         let fresh = match (&action, &self.saves) {
@@ -2327,7 +2365,12 @@ impl Session {
         match id {
             dialog_ids::YES => {
                 if let Some(d) = self.dialog.take() {
-                    if d.dont_ask && d.action.question() < self.rt.system.settings.confirm.len() {
+                    if d.dont_ask && d.action == Action::FlagJump {
+                        self.rt.system.settings.confirm_event = false;
+                        self.rt.system_changed = true;
+                    } else if d.dont_ask
+                        && d.action.question() < self.rt.system.settings.confirm.len()
+                    {
                         self.rt.system.settings.confirm[d.action.question()] = false;
                         self.rt.system_changed = true;
                     }
@@ -2383,6 +2426,9 @@ impl Session {
                     self.restore(state)?;
                 }
             }
+            // The jump to an event is not done: the question is asked and
+            // nothing happens.
+            Action::FlagJump => {}
             Action::Title => self.to_title()?,
             Action::Quit => {
                 self.flush_system();
@@ -2427,6 +2473,7 @@ impl Session {
             Some(Screen::Archive(_) | Screen::Costume(_)) => return self.press_archive(id, x, y),
             Some(Screen::DoukSave(_)) => return self.press_douk_save(id),
             Some(Screen::DoukConfig(_)) => return self.press_douk_config(id, x),
+            Some(Screen::DoukFlag(_)) => return self.press_douk_flag(id),
             _ => {}
         }
         let mut ask = None;
@@ -2555,7 +2602,8 @@ impl Session {
                 Screen::Archive(_)
                 | Screen::Costume(_)
                 | Screen::DoukSave(_)
-                | Screen::DoukConfig(_),
+                | Screen::DoukConfig(_)
+                | Screen::DoukFlag(_),
             ) => {}
         }
         if close {
@@ -3115,6 +3163,7 @@ impl Session {
                 bar::LOAD => self.open_save_load(Mode::Load),
                 bar::BACKLOG => self.open_backlog(),
                 bar::MAP => self.open_jump(),
+                bar::SCHEDULE => self.open_flag(),
                 bar::QUIT => self.ask(Action::Quit)?,
                 id => self
                     .rt
@@ -3123,6 +3172,80 @@ impl Session {
             Button::Screen(_) | Button::Dialog(_) => {}
         }
         self.frame = None;
+        Ok(())
+    }
+
+    /// 同級生 Remake: the flag list over the room or the walk.
+    fn open_flag(&mut self) {
+        use crate::games::doukyuusei::flaglist::{self, Env, FlagScreen};
+        if self.douk_system.is_none() || !self.ui.flag_list {
+            return;
+        }
+        let (can_save, has_log) = self.douk_can();
+        let g = |i| self.vm.var_g(i).int();
+        let env = Env {
+            bytes: &self.vm.bytes,
+            words: &self.vm.words,
+            date: g(crate::games::doukyuusei::plate::DATE),
+            cash: g(crate::games::doukyuusei::plate::MONEY),
+        };
+        // The notice comes once, the first time.
+        let notice = self.vm.var_b(flaglist::NOTICE_SEEN) == 0;
+        let s = FlagScreen::new(&env, can_save, has_log, notice);
+        if notice {
+            self.vm.set_var_b(flaglist::NOTICE_SEEN, 1);
+        }
+        self.screen = Some(Screen::DoukFlag(s));
+        self.ui.auto = false;
+        self.ui.skip = false;
+        self.ui.hover = None;
+        self.frame = None;
+    }
+
+    /// A click on 同級生 Remake's flag list.
+    fn press_douk_flag(&mut self, id: i32) -> Result<()> {
+        use crate::games::doukyuusei::flaglist::Click as FlagClick;
+        use crate::games::doukyuusei::system::side;
+        let Some(Screen::DoukFlag(s)) = &mut self.screen else {
+            return Ok(());
+        };
+        let click = s.click(id);
+        if click != FlagClick::None {
+            let _ = self.rt.play_sound(crate::games::doukyuusei::name::OK_SOUND);
+        }
+        self.frame = None;
+        match click {
+            FlagClick::Side(k) => match k {
+                side::SETTINGS | side::SOUND => {
+                    use crate::games::doukyuusei::config::Page;
+                    let page = if k == side::SOUND {
+                        Page::Sound
+                    } else {
+                        Page::System1
+                    };
+                    self.close_screen();
+                    self.open_douk_settings(page);
+                }
+                side::SAVE | side::LOAD => {
+                    self.close_screen();
+                    self.open_save_load(if k == side::LOAD {
+                        Mode::Load
+                    } else {
+                        Mode::Save
+                    });
+                }
+                side::LOG => {
+                    self.close_screen();
+                    self.open_backlog();
+                }
+                side::TITLE => self.ask(Action::Title)?,
+                side::QUIT => self.ask(Action::Quit)?,
+                _ => {}
+            },
+            FlagClick::Leave => self.close_screen(),
+            FlagClick::Jump => self.ask(Action::FlagJump)?,
+            FlagClick::Changed | FlagClick::None => {}
+        }
         Ok(())
     }
 
@@ -3170,6 +3293,9 @@ impl Session {
                 return System::config_enabled(s, st, id, can_save, has_log)
                     .then_some(Button::Screen(id));
             }
+            Some(Screen::DoukFlag(s)) => {
+                return s.hit(self.douk_system.as_ref()?, x, y).map(Button::Screen)
+            }
             None => {}
         }
         if matches!(self.state, State::Busy | State::Movie | State::Extras) {
@@ -3205,6 +3331,14 @@ impl Session {
                 m.playing = None;
                 self.frame = None;
             }
+        }
+        let flag = crate::games::doukyuusei::flaglist::available(
+            &self.vm.bytes,
+            self.vm.var_g(crate::games::doukyuusei::plate::DATE).int(),
+        );
+        if self.ui.flag_list != flag {
+            self.ui.flag_list = flag;
+            self.frame = None;
         }
         let jump = crate::games::doukyuusei::jump::Jump::available(&self.vm.bytes);
         if self.ui.map_jump != jump {
@@ -3565,6 +3699,23 @@ impl Session {
                                     &mut c,
                                     assets,
                                     s,
+                                    |id| ui.state(Button::Screen(id), true, false) as u32,
+                                    hover,
+                                )?;
+                            }
+                        }
+                        Screen::DoukFlag(s) => {
+                            if let Some(sys) = &self.douk_system {
+                                let ui = &self.ui;
+                                let hover = match ui.hover {
+                                    Some(Button::Screen(id)) => Some(id),
+                                    _ => None,
+                                };
+                                s.draw(
+                                    sys,
+                                    &mut c,
+                                    assets,
+                                    self.rt.config.language,
                                     |id| ui.state(Button::Screen(id), true, false) as u32,
                                     hover,
                                 )?;

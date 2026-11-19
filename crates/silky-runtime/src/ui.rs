@@ -180,6 +180,8 @@ pub struct Ui {
     pub has_log: bool,
     /// The map jump page is done for the map the walk is on.
     pub map_jump: bool,
+    /// The flag list's button is usable (see `games::doukyuusei::flaglist`).
+    pub flag_list: bool,
     /// きまぐれテンプテーション2: some notebook entry, some collection
     /// item is open (enables their buttons).
     pub notebook: bool,
@@ -227,9 +229,10 @@ impl Ui {
         match b {
             Button::Title(t) if self.locked_titles.contains(&t) => false,
             Button::Title(title::CONTINUE | title::LOAD) => self.has_saves,
-            // 同級生 Remake's menu: the schedule screen is not done yet, and
-            // the map jump only for the town (see `games::doukyuusei::menu`).
-            Button::Bar(bar::SCHEDULE) if self.plate.is_some() => false,
+            // 同級生 Remake's menu: the flag list from the unlocked story
+            // on, the map jump only for the town (see
+            // `games::doukyuusei::menu`).
+            Button::Bar(bar::SCHEDULE) if self.plate.is_some() => self.flag_list,
             Button::Bar(bar::MAP) if self.plate.is_some() => self.map_jump,
             Button::Bar(bar::BACKLOG) if self.plate.is_some() => self.has_log,
             Button::Bar(bar::LOAD | bar::QUICK_LOAD) => self.has_saves,
@@ -1920,8 +1923,7 @@ impl Layout {
                 let walking = matches!(ui.panel, Some(Panel::Town));
                 m.draw(canvas, assets, ui.side_menu, |id| {
                     // The map jump shows only on the walking maps, the
-                    // backlog only with a log. The game's own schedule
-                    // screen is not done yet, so it stays gray.
+                    // backlog only with a log.
                     if (id == bar::MAP && !walking) || (id == bar::BACKLOG && !ui.has_log) {
                         return HIDDEN;
                     }
