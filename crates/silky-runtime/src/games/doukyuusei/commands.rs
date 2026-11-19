@@ -29,6 +29,9 @@ pub const HOURS: i32 = 29;
 /// `Game.20(..., sub)`: the walking maps (see [`super::town`]). The
 /// program takes its values from the last one back.
 pub const TOWN: i32 = 20;
+/// The value variable (g18) the scripts read the results of `Game.20` subs
+/// 13 and 17 from; they write it themselves.
+const RESULT: usize = 18;
 /// `Game.25()`: writes the calendar into the raw area (see
 /// [`super::calendar`]).
 pub const CALENDAR: i32 = 25;
@@ -340,7 +343,7 @@ impl Runtime {
         c: &Call,
         sub: i32,
     ) -> Option<silky_vm::Result<Flow>> {
-        use super::town::Town;
+        use super::town::{Town, STEP_MS};
         let town = self.town.get_or_insert_with(Town::default);
         let walker = back_int(c, 0).max(0) as usize;
         let failed = |e: crate::Error| Some(Err(host_error(e.to_string())));
@@ -373,6 +376,13 @@ impl Runtime {
                 town.step_walker(walker, back_int(c, 1));
                 self.refresh_town();
             }
+            // Walk to a target (15), end the walk (16), still walking (17).
+            15 => {
+                let (x, y) = (back_int(c, 1) as u16, back_int(c, 2) as u16);
+                town.walk_to(walker, x, y, |i| vm.var_b(i as usize) != 0);
+            }
+            16 => town.end_walk(),
+            17 => vm.set_g(RESULT, if town.walking() { 0xffff } else { 0 }),
             20 => town.follow(walker, back_int(c, 1)),
             22 => town.set_facing(walker, back_int(c, 1)),
             25 => {
@@ -397,12 +407,35 @@ impl Runtime {
             }
             // A place the hero stands in, as after a step.
             13 => {
-                let id = self.town.as_mut().unwrap().find_place();
-                vm.push(id as i32);
+                let t = self.town.as_mut().unwrap();
+                let id = t.reached.take().unwrap_or_else(|| t.find_place());
+                vm.set_g(RESULT, id as i32);
             }
-            // One step of the walkers (8, 9); a walk to a target (17)
-            // that is not read yet; something of the program's own (33).
-            8 | 9 | 17 | 33 => vm.push(0),
+            // One step of every walker; the place reached waits for sub 13.
+            9 => {
+                town.reached = Some(
+                    town.tick(&super::town::Input::default(), &mut vm.raw)
+                        .unwrap_or(0xffff),
+                );
+                self.refresh_town();
+                vm.push(0);
+            }
+            // The frame wait: a step's time since the last tick.
+            26 => {
+                let ms = match self.system.settings.map_speed {
+                    0 => STEP_MS[0],
+                    2 => STEP_MS[2],
+                    _ => STEP_MS[1],
+                };
+                return self.wait_for(crate::host::Pause::Transition(crate::host::Transition {
+                    ms: ms as u32,
+                    rule: None,
+                    spin: None,
+                    live: true,
+                }));
+            }
+            // Something of the program's own.
+            8 | 33 => vm.push(0),
             30 => {
                 self.scene.town = Some(self.town.as_ref().unwrap().view());
                 self.scene.background = None;

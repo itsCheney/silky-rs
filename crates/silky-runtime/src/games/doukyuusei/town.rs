@@ -39,6 +39,15 @@ const RAW_CAMERA: usize = 7097;
 const RAW_WALKERS: usize = 7091;
 /// Milliseconds a step takes at each map speed (slow, normal, fast).
 pub const STEP_MS: [u64; 3] = [66, 33, 16];
+/// Columns and rows of the search grids.
+const GRID_W: usize = 255;
+const GRID_H: usize = 192;
+/// Search grid values: a wall, a free tile and the start.
+const WALL: u16 = 0xffff;
+const FREE: u16 = 0xfffe;
+const START: u16 = 0xfffd;
+/// The walker command that follows the trail of a walk.
+const FOLLOW: u8 = 13;
 
 /// Walker flags.
 pub mod flags {
@@ -179,6 +188,43 @@ pub struct Town {
     /// A diagonal step is being taken (no sliding along walls).
     diagonal: bool,
     fast: bool,
+    /// The trail of the automatic walk: the directions to take from each
+    /// tile ([`dir`] bits), `GRID_W` tiles a row.
+    mask: Vec<u16>,
+    /// Tiles in the trail.
+    steps: u16,
+    /// An automatic walk is going.
+    walking: bool,
+    /// The walker's flags, command and count before the walk, and its index.
+    walk_save: (u8, u8, u8, usize),
+    /// The place the last script tick reached (0xffff for none), for the
+    /// next [`Town::find_place`] call of the script.
+    pub reached: Option<u16>,
+}
+
+/// The search grid: tiles outside the map read as 0.
+struct Search {
+    g: Vec<u16>,
+}
+
+impl Search {
+    fn at(&self, x: i32, y: i32) -> u16 {
+        if (0..GRID_W as i32).contains(&x) && (0..GRID_H as i32).contains(&y) {
+            self.g[y as usize * GRID_W + x as usize]
+        } else {
+            0
+        }
+    }
+
+    fn set(&mut self, x: i32, y: i32, v: u16) {
+        if (0..GRID_W as i32).contains(&x) && (0..GRID_H as i32).contains(&y) {
+            self.g[y as usize * GRID_W + x as usize] = v;
+        }
+    }
+
+    fn open(&self, x: i32, y: i32) -> bool {
+        self.at(x, y) != WALL
+    }
 }
 
 fn u16_at(d: &[u8], at: usize) -> Result<u16> {
@@ -538,9 +584,21 @@ impl Town {
                 0
             }
             14 => self.player(i, input),
-            // 7 (wandering) and 10..=12 are not in the program; 13 and 15
-            // walk to a target (`Game.20` sub 15), not read yet.
+            // 7 (wandering) and 10..=12 are not in the program.
             7 => 0xffff,
+            FOLLOW => self.follow_trail(i),
+            // Up to the trail's length in one tick.
+            15 => {
+                self.walkers[i].command = FOLLOW;
+                let mut r = 0;
+                for _ in 0..self.steps {
+                    r = self.follow_trail(i);
+                    if r != 0 {
+                        break;
+                    }
+                }
+                r
+            }
             _ => 0,
         };
         let low = r & 0xff;
@@ -621,6 +679,346 @@ impl Town {
             d |= dir::RIGHT;
         }
         d
+    }
+
+    /// `Game.20(15, walker, x, y)`: walks to a target (the feet tile of the
+    /// walker is (x, y + 1) when it is there). Searches the way and, when
+    /// there is one, sets the walker to follow it; `bias` reads the
+    /// script's byte variables that change the search order.
+    pub fn walk_to(&mut self, i: usize, tx: u16, ty: u16, bias: impl Fn(u16) -> bool) -> bool {
+        let Some(w) = self.walkers.get(i).copied() else {
+            return false;
+        };
+        let mut s = Search {
+            g: vec![0; GRID_W * GRID_H],
+        };
+        for y in 0..self.grid.h {
+            for x in 0..self.grid.w {
+                let v = if self.grid.wall(x, y) { WALL } else { FREE };
+                s.set(x, y, v);
+            }
+        }
+        self.mask = vec![0; GRID_W * GRID_H];
+        self.steps = 0;
+        if !self.search(
+            &mut s,
+            (w.x as i32, w.y as i32 + 1),
+            (tx as i32, ty as i32),
+            bias,
+        ) {
+            return false;
+        }
+        self.walk_save = (w.flags, w.command, w.count, i);
+        let w = &mut self.walkers[i];
+        w.command = FOLLOW;
+        w.count = 0xff;
+        w.flags = (w.flags & flags::CAMERA) | 0x41;
+        self.walking = true;
+        true
+    }
+
+    /// `Game.20(17)`: an automatic walk is going.
+    pub fn walking(&self) -> bool {
+        self.walking
+    }
+
+    /// `Game.20(16)`: ends the walk; the walker goes on with its program.
+    pub fn end_walk(&mut self) {
+        if !self.walking {
+            return;
+        }
+        let (f, command, count, i) = self.walk_save;
+        if let Some(w) = self.walkers.get_mut(i) {
+            w.flags = f;
+            w.command = command;
+            w.count = count;
+        }
+        self.walking = false;
+        if self.place_mode != 0 {
+            self.place_armed = true;
+        }
+    }
+
+    /// The search: from the target towards the start (`start` is the
+    /// walker's feet tile), greedy by the side the start lies on and
+    /// backing out of dead ends; then the trail from the start.
+    fn search(
+        &mut self,
+        s: &mut Search,
+        start: (i32, i32),
+        target: (i32, i32),
+        bias: impl Fn(u16) -> bool,
+    ) -> bool {
+        let (sx, sy1) = start;
+        let (mut cx, mut cy) = target;
+        s.set(sx, sy1, START);
+        s.set(cx, cy, 0);
+        let mut n: u16 = 0;
+        let mut bits: u8 = 0xff;
+        // Footprint tests of a step from the cursor: the new tile holds `v`
+        // and the walker's 3 x 2 tiles there are open.
+        let up = |s: &Search, cx: i32, cy: i32, v: u16| {
+            s.at(cx, cy - 1) == v && s.open(cx + 1, cy - 1) && s.open(cx + 2, cy - 1)
+        };
+        let down = |s: &Search, cx: i32, cy: i32, v: u16| {
+            s.at(cx, cy + 1) == v
+                && s.open(cx, cy + 2)
+                && s.open(cx + 1, cy + 2)
+                && s.open(cx + 2, cy + 2)
+        };
+        let left =
+            |s: &Search, cx: i32, cy: i32, v: u16| s.at(cx - 1, cy) == v && s.open(cx - 1, cy + 1);
+        let right = |s: &Search, cx: i32, cy: i32, v: u16| {
+            s.at(cx + 1, cy) == v && s.open(cx + 3, cy) && s.open(cx + 3, cy + 1)
+        };
+        loop {
+            let mut bb;
+            if bits == 0xff {
+                bb = (cx <= sx) as u8 | (((cy <= sy1) as u8) << 1);
+            } else {
+                bb = bits;
+                if cx != sx {
+                    bb &= 6;
+                    if cx < sx {
+                        bb |= 1;
+                    }
+                }
+                if cy != sy1 {
+                    bb &= 5;
+                    if cy < sy1 {
+                        bb |= 2;
+                    }
+                }
+            }
+            // The vertical distance counts from the walker's own row, one
+            // more than from its feet.
+            let dy = (cy - sy1 + 2).abs();
+            let dx = (cx - sx).abs();
+            bits = if dx < dy { bb } else { bb | 4 };
+            s.set(cx, cy, n);
+            if up(s, cx, cy, START)
+                || down(s, cx, cy, START)
+                || left(s, cx, cy, START)
+                || right(s, cx, cy, START)
+            {
+                return self.trail(s, start);
+            }
+            let mut order = bits;
+            if order == 0 && bias(1691) {
+                order = 1;
+            }
+            if order == 2 && bias(4068) {
+                order = 3;
+            }
+            // U, D, L, R tries per order.
+            const U: u8 = 0;
+            const D: u8 = 1;
+            const L: u8 = 2;
+            const R: u8 = 3;
+            let tries: [u8; 4] = match order {
+                0 => [U, L, R, D],
+                1 => [U, R, L, D],
+                2 => [D, L, R, U],
+                3 => [D, R, L, U],
+                4 => [L, U, D, R],
+                5 => [R, U, D, L],
+                6 if bias(1694) => [D, L, U, R],
+                6 => [L, D, U, R],
+                7 if bias(1693) => [D, R, U, L],
+                _ => [R, D, U, L],
+            };
+            let mut moved = false;
+            for t in tries {
+                let (ok, dx, dy) = match t {
+                    U => (up(s, cx, cy, FREE), 0, -1),
+                    D => (down(s, cx, cy, FREE), 0, 1),
+                    L => (left(s, cx, cy, FREE), -1, 0),
+                    _ => (right(s, cx, cy, FREE), 1, 0),
+                };
+                if ok {
+                    cx += dx;
+                    cy += dy;
+                    moved = true;
+                    break;
+                }
+            }
+            if !moved {
+                // A dead end becomes a wall; back to the tile before.
+                s.set(cx, cy, WALL);
+                let v = n.wrapping_sub(1);
+                if s.at(cx, cy - 1) == v {
+                    cy -= 1;
+                }
+                if s.at(cx - 1, cy) == v {
+                    cx -= 1;
+                }
+                if s.at(cx + 1, cy) == v {
+                    cx += 1;
+                }
+                if s.at(cx, cy + 1) == v {
+                    cy += 1;
+                }
+                n = n.wrapping_sub(2);
+            }
+            n = n.wrapping_add(1);
+            if n == 0xffff {
+                return false;
+            }
+        }
+    }
+
+    /// The trail from the start to the target: each step goes towards the
+    /// lowest stamp on any straight line from the tile.
+    fn trail(&mut self, s: &mut Search, start: (i32, i32)) -> bool {
+        let (w, h) = (self.grid.w, self.grid.h);
+        for y in 0..h {
+            for x in 0..w {
+                if !self.grid.wall(x, y) && s.at(x, y) == WALL {
+                    s.set(x, y, FREE);
+                }
+            }
+        }
+        let (mut px, mut py) = start;
+        let mut cur = s.at(px, py);
+        self.steps = 0;
+        while cur != 0 {
+            let mut mn = cur;
+            let mut d = 0u16;
+            let mut take = |s: &Search, code: u16, x: i32, y: i32| {
+                let v = s.at(x, y);
+                if v < mn {
+                    d = code;
+                }
+                mn = mn.min(v);
+            };
+            // Up.
+            let (mut x, mut y) = (px, py - 1);
+            while s.open(x, y) && s.open(x + 1, y) && s.open(x + 2, y) && y >= 0 {
+                take(s, 1, x, y);
+                y -= 1;
+            }
+            // Left.
+            y = py;
+            x = px - 1;
+            while s.open(x, y) && s.open(x, y + 1) && s.open(x + 1, y + 1) && x >= 0 {
+                take(s, 2, x, y);
+                x -= 1;
+            }
+            // Right.
+            x = px + 1;
+            while s.open(x, y)
+                && s.open(x + 1, y)
+                && s.open(x + 2, y)
+                && s.open(x, y + 1)
+                && s.open(x + 1, y + 1)
+                && s.open(x + 2, y + 1)
+                && x < w
+            {
+                take(s, 4, x, y);
+                x += 1;
+            }
+            // Down.
+            x = px;
+            y = py + 1;
+            while s.open(x, y)
+                && s.open(x + 1, y)
+                && s.open(x + 2, y)
+                && s.open(x, y + 1)
+                && s.open(x + 1, y + 1)
+                && s.open(x + 2, y + 1)
+                && y < h
+            {
+                take(s, 8, x, y);
+                y += 1;
+            }
+            // Diagonals: up-left, up-right, down-left, down-right.
+            for (code, dx, dy) in [(3u16, -1, -1), (5, 1, -1), (10, -1, 1), (12, 1, 1)] {
+                let (mut x, mut y) = (px + dx, py + dy);
+                loop {
+                    let top = s.open(x, y) && s.open(x + 1, y) && s.open(x + 2, y);
+                    let ok = if code == 3 || code == 10 {
+                        top && s.open(x, y + 1) && s.open(x + 1, y + 1)
+                    } else {
+                        top && s.open(x, y + 1) && s.open(x + 1, y + 1) && s.open(x + 2, y + 1)
+                    };
+                    let inside = (if dy < 0 { y >= 0 } else { y < h })
+                        && (if dx < 0 { x >= 0 } else { x < w });
+                    if !ok || !inside {
+                        break;
+                    }
+                    take(s, code, x, y);
+                    x += dx;
+                    y += dy;
+                }
+            }
+            if d == 0 {
+                return false;
+            }
+            if let Some(m) = self.mask.get_mut(py as usize * GRID_W + px as usize) {
+                *m |= d;
+            }
+            if d & 1 != 0 {
+                py -= 1;
+            }
+            if d & 2 != 0 {
+                px -= 1;
+            }
+            if d & 4 != 0 {
+                px += 1;
+            }
+            if d & 8 != 0 {
+                py += 1;
+            }
+            self.steps += 1;
+            cur = s.at(px, py);
+        }
+        true
+    }
+
+    /// One step of the automatic walk: by the trail at the walker's feet.
+    /// 0 for a step, 0xff at the end (the walk is ended then).
+    fn follow_trail(&mut self, i: usize) -> u16 {
+        let w = self.walkers[i];
+        let m = self
+            .mask
+            .get((w.y as usize + 1) * GRID_W + w.x as usize)
+            .map_or(0, |&m| m as u8);
+        if m == 0 {
+            self.end_walk();
+            return 0xff;
+        }
+        let vertical = |t: &mut Self| {
+            if m & dir::UP != 0 {
+                t.up(i, true)
+            } else {
+                t.down(i, true)
+            }
+        };
+        let horizontal = |t: &mut Self| {
+            if m & dir::LEFT != 0 {
+                t.left(i, true)
+            } else {
+                t.right(i, true)
+            }
+        };
+        let r = match m {
+            dir::UP | dir::DOWN => vertical(self),
+            dir::LEFT | dir::RIGHT => horizontal(self),
+            3 | 5 | 10 | 12 => {
+                self.diagonal = true;
+                vertical(self);
+                let r = horizontal(self);
+                self.diagonal = false;
+                r
+            }
+            _ => 0,
+        };
+        if r != 0 {
+            self.end_walk();
+            return 0xff;
+        }
+        self.push_trail(i);
+        0
     }
 
     fn follows(&self, i: usize) -> bool {
@@ -1034,5 +1432,69 @@ mod tests {
         };
         t.tick(&on, &mut raw);
         assert_eq!((t.walkers[0].x, t.walkers[0].y), (10, 10));
+    }
+
+    #[test]
+    fn walks_to_a_target() {
+        let mut t = town();
+        let mut raw = Vec::new();
+        t.place(0, 0, 1, &mut raw);
+        t.walkers[0].flags = 0x71;
+        t.walkers[0].x = 5;
+        t.walkers[0].y = 12;
+        let command = t.walkers[0].command;
+        assert!(t.walk_to(0, 30, 20, |_| false));
+        assert!(t.walking());
+        // Walls are off during the walk.
+        assert_eq!(t.walkers[0].flags, 0x61);
+        let mut n = 0;
+        while t.walking() && n < 500 {
+            t.tick(&Input::default(), &mut raw);
+            n += 1;
+        }
+        assert!(!t.walking());
+        assert_eq!((t.walkers[0].x, t.walkers[0].y), (30, 19));
+        assert_eq!(t.walkers[0].flags, 0x71);
+        assert_eq!(t.walkers[0].command, command);
+    }
+
+    /// Compares the search with a reference dump (lines of start x and y,
+    /// target x and y, the two biases, steps and a hash of the trail) on
+    /// a real map: `WALK_MPX` and `WALK_DUMP` name the files; skipped
+    /// without them.
+    #[test]
+    fn search_matches_the_reference() {
+        let (Ok(mpx), Ok(dump)) = (std::env::var("WALK_MPX"), std::env::var("WALK_DUMP")) else {
+            return;
+        };
+        let mut t = town();
+        t.load_grid(&std::fs::read(mpx).unwrap()).unwrap();
+        let mut lines = 0;
+        for l in std::fs::read_to_string(dump).unwrap().lines() {
+            let v: Vec<&str> = l.split(' ').collect();
+            let n = |k: usize| v[k].parse::<u16>().unwrap();
+            t.walkers[0].flags = 0x71;
+            t.walkers[0].x = n(0);
+            t.walkers[0].y = n(1);
+            let (b1694, b1693) = (n(4) != 0, n(5) != 0);
+            let found = t.walk_to(0, n(2), n(3), |i| {
+                (i == 1694 && b1694) || (i == 1693 && b1693)
+            });
+            assert!(found, "{l}");
+            let mut h: u64 = 0xcbf29ce484222325;
+            for (at, &m) in t.mask.iter().enumerate().filter(|(_, &m)| m != 0) {
+                for b in [at / GRID_W, at % GRID_W, m as usize] {
+                    h = (h ^ b as u64).wrapping_mul(0x100000001b3);
+                }
+            }
+            assert_eq!(
+                format!("{} {h:016x}", t.steps),
+                format!("{} {}", v[6], v[7]),
+                "{l}"
+            );
+            t.end_walk();
+            lines += 1;
+        }
+        assert!(lines > 0);
     }
 }

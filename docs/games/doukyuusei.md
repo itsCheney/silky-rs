@@ -43,6 +43,7 @@ The game is an adventure in a town: the hero spends the days of a summer break g
   - Programs: 0 restarts, 1 and 8 face, 2 to 5 step up, down, left, right, 6 follows the trail, 9 waits, 14 takes the player's input.
   - Sub 12 (`mode`, `name.eve`) loads the places: 12-byte records of id, left, top, right, bottom and the facings they take (up 1, down 2, left 4, right 8), up to 0xffff. A walker of size w × h at (x, y) is in a place when x ≤ right, x + w > left, y + 1 ≤ bottom, y + h > top and its facing is allowed. Sub 13 returns the place the hero is in.
   - Sub 30 lets the player walk and returns the place reached. Arrow keys step a tile, Shift or Ctrl two; holding the mouse walks towards the pointer in eight directions. The hero is stopped by walls along the rows y + 1 to y + h − 1 and slides along them as the program does. A step takes 33 ms (`/Config/MapSpeed`: 66, 33 or 16).
+  - Sub 15 `(walker, x, y)` walks a walker to a target (the map jump uses it for the hero): it searches from the target towards the walker, greedily by the side the walker lies on and backing out of dead ends (the walker is taken as 3 × 2 tiles), then takes the lowest stamp seen along any straight line from each tile, which gives a trail of directions per tile; it is not the shortest way. Four script bytes (1691, 1693, 1694, 4068) change the order of the tries. When a trail is found the walker's command becomes "follow the trail" with its wall flag cleared; each tick (sub 9) it takes the step the trail gives under its feet, a diagonal as a vertical and a horizontal step. Sub 17 says whether the walk goes on (written to g18 like sub 13's result, 0xffff or 0); sub 16 ends it and gives the walker back its flags, command and count, so it goes on with its program. Sub 26 waits one step time (66, 33 or 16 ms by the map speed) between ticks. Checked against a port of the search on all 1260 pairs of destinations of the town map.
   - The view is 40 × 23 tiles with the program's scroll margins (20 and 12). Sub 27 and 28 load the map picture and its overlay; the picture is drawn from the camera, then the walkers sorted by y (144 × 144 frames: column [864, 0, 0, 864][facing] + (frame mod 6) × 144, row facing / 2 × 144; sheet slot 0 (sub 25) is the hero, slot 1 the others), then the overlay.
   - Under Wine the first map frame matches within a level or two per pixel away from the edges, and a step up into the home door enters the house as in the original.
 - The status plate (the program's `CStatusPlate`, `cal_p_<lang>.akb`), up over the room, the walking maps and the selections: the calendar leaf (gray, red on Sunday, blue on Saturday) at (6, 0) with the day and weekday, the clock at (241, 13) (`HH:MM` on a 12-hour dial, am or pm), the money at (541, 13) (with a comma from 1,000 yen) and the game mode diamond at (841, 9). The values are the scripts' globals 4 (weekday, 0 for Sunday), 7 (month × 100 + day), 12 (money in hundreds of yen) and 19 (hours × 100 + minutes). The room and selections put it up and take it down when they end; the walking maps put it up and leave it, so it stays over the place reached; `Game.10` puts it up (28), takes it down (29) and draws it again (30). Matches the original under Wine.
@@ -84,7 +85,7 @@ The game is an adventure in a town: the hero spends the days of a summer break g
 ## Not done yet
 
 - The schedule and the map jump; the settings screen's fade in, and its classic mode, map speed and "confirm to jump to events" settings, which are kept but change nothing yet; the menu's slide-out animation; save comments. While the dialog is up, the original keeps the button that opened it pressed and its hint shown; here they go back to normal.
-- The walking maps: walking to a target (`Game.20(15)`, the program's path search), the place labels of game mode 1 (sub 32) and saving while on a map.
+- The walking maps: the place labels of game mode 1 (sub 32) and saving while on a map.
 - More than four options (the original pages them with arrows), and options grayed once taken.
 - The other place screens and the other screens.
 - Chinese text: the layout of full-width characters is assumed (two cells each, a character a word); it is not checked under Wine yet.
@@ -120,6 +121,8 @@ Addresses in the program as it runs (the Steam wrapper unpacks it at its own ima
 | Walking maps: walker programs, hero steps, wall slides | 0x495c20, 0x496250, 0x4973f0 |
 | Walking maps: input, way to the pointer, places reached | 0x496eb0, 0x4978f0, 0x4960a0 |
 | Walking maps: drawn, path search | 0x497e20, 0x4983e0 |
+| Walking maps: trail from the search, steps along it, end of a walk, frame wait | 0x498c50, 0x496c10, 0x4961f0, 0x499630 |
+| Walking maps: the tick (sub 9) | 0x495d90 |
 | Status plate (`CStatusPlate`): made, drawn, time text | 0x4d8410, 0x4d8a90, 0x4d9120 |
 | Status plate shown, hidden (`Game.10` subs) | 0x4d8610, 0x4d87e0, 0x4e2bb0 |
 | Menu button: made, opened, closed, hit, drawn | 0x4c7f40, 0x4c85a0, 0x4c8790, 0x4c8980, 0x4c89d0 |
