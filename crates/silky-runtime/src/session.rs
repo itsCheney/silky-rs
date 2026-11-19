@@ -528,6 +528,49 @@ impl Session {
         self.run()
     }
 
+    /// 同級生 Remake: the flag list's jump to an event. The story state is
+    /// set for the event, what is up (the list, the walk, the menu, the
+    /// message) goes, and the event's script starts from its beginning with
+    /// the variables kept, as when the title menu is left for a script.
+    fn jump_to_event(&mut self) -> Result<()> {
+        use crate::games::doukyuusei::flaglist;
+        let Some(Screen::DoukFlag(s)) = &self.screen else {
+            return Ok(());
+        };
+        let Some(rec) = s.target().cloned() else {
+            return Ok(());
+        };
+        let Ok(script) = self.rt.assets.script(rec.script) else {
+            self.rt
+                .note_unhandled(format!("event script {}", rec.script));
+            return Ok(());
+        };
+        flaglist::start_event(&rec, &mut self.vm);
+        self.store_global_bytes();
+        self.rt.leave_for_event();
+        self.vm.restart_at(rec.script, script);
+        self.busy = None;
+        self.screen = None;
+        self.thumb = None;
+        self.dialog = None;
+        self.voice_queue.clear();
+        self.movie = None;
+        self.jolts.clear();
+        self.vo_steps.clear();
+        self.skip_to_choice = false;
+        self.town_ms = 0;
+        self.town_input = Default::default();
+        self.town_pointer_down = false;
+        self.ui = Ui {
+            has_saves: self.ui.has_saves,
+            ..Ui::default()
+        };
+        self.state = State::Busy;
+        self.base = None;
+        self.frame = None;
+        self.run()
+    }
+
     /// Runs the scripts until they wait for the player.
     fn run(&mut self) -> Result<()> {
         // 景の海のアペイリア makes a voice line's picture change at once
@@ -2448,9 +2491,7 @@ impl Session {
                     self.restore(state)?;
                 }
             }
-            // The jump to an event is not done: the question is asked and
-            // nothing happens.
-            Action::FlagJump => {}
+            Action::FlagJump => self.jump_to_event()?,
             Action::Title => self.to_title()?,
             Action::Quit => {
                 self.flush_system();

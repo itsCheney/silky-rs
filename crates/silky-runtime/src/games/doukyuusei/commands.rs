@@ -472,6 +472,27 @@ impl Runtime {
         self.done()
     }
 
+    /// What goes when the flag list's jump starts an event's script: the
+    /// walking map and the screens of the menu, the actions waiting for an
+    /// answer, and the message that was up. The picture, the music and the
+    /// text table stay for the script to change.
+    pub fn leave_for_event(&mut self) {
+        self.town = None;
+        self.scene.town = None;
+        self.panel = None;
+        self.map = None;
+        self.actions.clear();
+        self.pause = None;
+        self.scene.text = None;
+        self.last_text = None;
+        self.option_count = 0;
+        self.choices.clear();
+        self.choice_status.clear();
+        self.lip = None;
+        self.jolts.clear();
+        self.clicked = false;
+    }
+
     /// The map drawn again after its walkers moved, when it is shown.
     pub(crate) fn refresh_town(&mut self, bytes: &[u8]) {
         use super::town::labels_shown;

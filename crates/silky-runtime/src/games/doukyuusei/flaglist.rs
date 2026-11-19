@@ -16,18 +16,22 @@
 //! story state when the list opens: a base list, flags that mark an event
 //! done (its day and time are then words the story kept), and flags that
 //! move or lock later ones. Flags set together are applied one after the
-//! other, which matches the rules where they act alone only. The jump to
-//! an event is not done.
+//! other, which matches the rules where they act alone only. A girl's
+//! conditional extra event is added by hand (see [`records`]). The jump to
+//! an event ([`start_event`]) sets the story state the event expects; the
+//! session then drops what is up and starts the event's script.
 
 use std::sync::Arc;
 
 use silky_format::akb::Image;
 
 use super::flag_data::GIRLS;
+use super::plate::{DATE, MONEY, TIME};
 use super::system::{ids as sys_ids, side, System};
 use crate::assets::{Assets, Language};
 use crate::render::Canvas;
 use crate::Result;
+use silky_vm::Vm;
 
 const SHEET: &str = "flag_p.akb";
 const LIST_BG: &str = "flag_l_bg.akb";
@@ -180,6 +184,27 @@ pub struct Env<'a> {
 /// The text line that says the cash is not enough.
 const NO_CASH: u16 = 306;
 
+/// The girl who has a conditional extra event, the byte that adds it and
+/// the byte that marks it done (its day and time are words 330 and 331).
+const EXTRA_GIRL: usize = 4;
+const EXTRA_BYTE: u16 = 235;
+const EXTRA_DONE: u16 = 480;
+const EXTRA_DATE_WORD: u16 = 330;
+const EXTRA_TIME_WORD: u16 = 331;
+/// The extra event is never before this day.
+const EXTRA_EARLIEST: i32 = 817;
+
+/// Weekday and the flag word, among the global variables.
+const WEEKDAY: usize = 4;
+const FLAG_WORD: usize = 55;
+/// What the jump sets: the stage and the sub place of the event, the byte
+/// that says the stage is the first (the trip to another town), and the
+/// byte that says a jump was made.
+const STAGE_AT: usize = 8004;
+const SUB_AT: usize = 8005;
+const STAGE_ONE_AT: usize = 4069;
+const JUMPED_AT: usize = 8001;
+
 /// The records of `girl` (0 to 13) for the story state `env`.
 pub fn records(girl: usize, env: &Env) -> Vec<Record> {
     let rules = &GIRLS[girl];
@@ -226,6 +251,14 @@ pub fn records(girl: usize, env: &Env) -> Vec<Record> {
             done[d.event as usize] = true;
         }
     }
+    if girl == EXTRA_GIRL && byte(EXTRA_BYTE) == 1 {
+        let is_done = byte(EXTRA_DONE) == 1;
+        let rec = extra_event(&out, is_done, word(EXTRA_DATE_WORD), word(EXTRA_TIME_WORD));
+        // Placed by its day, after the ones on the same day.
+        let at = out.iter().position(|r| r.d0 > rec.d0).unwrap_or(out.len());
+        out.insert(at, rec);
+        done.insert(at, is_done);
+    }
     for (r, &is_done) in out.iter_mut().zip(&done) {
         if is_done {
             continue;
@@ -241,6 +274,58 @@ pub fn records(girl: usize, env: &Env) -> Vec<Record> {
         r.jump = true;
     }
     out
+}
+
+/// The extra event of one girl: done, it keeps the day and time it
+/// happened; else it starts on the day her first event does, but not before
+/// day 17, and ends on day 30.
+fn extra_event(first: &[Record], done: bool, date: i32, time: i32) -> Record {
+    let mut r = Record {
+        script: "butick.mes",
+        place: 282,
+        reason: 0,
+        d0: EXTRA_EARLIEST,
+        d1: 830,
+        t0: 1000,
+        t1: 1855,
+        stage: 0,
+        sub: 0,
+        cost: 0,
+        f0: 8002,
+        state: 0,
+        jump: false,
+    };
+    if done {
+        r.state = 1;
+        r.d0 = date;
+        r.t0 = time;
+        r.d1 = -1;
+        r.t1 = -1;
+    } else if let Some(f) = first.first() {
+        r.d0 = f.d0.max(EXTRA_EARLIEST);
+    }
+    r
+}
+
+/// The jump to `rec`: the story goes to the day and time the event starts
+/// (not now), the trip is paid, and the event's stage and place are set,
+/// then the caller starts the event's script.
+pub fn start_event(rec: &Record, vm: &mut Vm) {
+    vm.set_g(DATE, rec.d0);
+    vm.set_g(WEEKDAY, (rec.d0 % 100 - 10) % 7);
+    vm.set_g(TIME, rec.t0);
+    let cash = vm.var_g(MONEY).int();
+    vm.set_g(MONEY, cash - rec.cost);
+    vm.set_var_b(STAGE_AT, rec.stage as u8);
+    vm.set_var_b(SUB_AT, rec.sub as u8);
+    // The flag word gets bit 0x80, as the original's jump does.
+    let word = vm.var_g(FLAG_WORD).int();
+    vm.set_g(FLAG_WORD, word | 0x80);
+    vm.set_var_b(STAGE_ONE_AT, (rec.stage == 1) as u8);
+    if rec.f0 != -1 {
+        vm.set_var_b(rec.f0 as usize, 1);
+    }
+    vm.set_var_b(JUMPED_AT, 1);
 }
 
 /// The record shown in the cell of `day`: one that starts that day, done
@@ -301,6 +386,8 @@ pub struct FlagScreen {
     /// The scroll thumb is held.
     pub dragging: bool,
     records: Vec<Vec<Record>>,
+    /// The event a click asked to jump to.
+    target: Option<Record>,
     date: i32,
     /// For the side buttons: the game can be saved, the log has entries.
     pub can_save: bool,
@@ -360,6 +447,7 @@ impl FlagScreen {
             notice,
             dragging: false,
             records: (0..GIRLS_COUNT).map(|g| records(g, env)).collect(),
+            target: None,
             date: env.date,
             can_save,
             log,
@@ -386,6 +474,11 @@ impl FlagScreen {
             .find(|r| r.jump)
             .map_or(self.today(), |r| r.d0 % 100);
         self.week = ((day - FIRST_DAY).max(0) as usize / 7).min(WEEKS - 1);
+    }
+
+    /// The event the last click asked to jump to.
+    pub fn target(&self) -> Option<&Record> {
+        self.target.as_ref()
     }
 
     /// The record in a cell of the calendar (row 0 to 3, column 0 to 6).
@@ -528,7 +621,10 @@ impl FlagScreen {
                     Click::Changed
                 }
                 _ => match Self::cell_of(id).and_then(|(r, c)| self.cell(r, c)) {
-                    Some(r) if r.jump => Click::Jump,
+                    Some(r) if r.jump => {
+                        self.target = Some(r.clone());
+                        Click::Jump
+                    }
                     _ => Click::None,
                 },
             },
@@ -1079,5 +1175,86 @@ mod tests {
         assert_eq!(s.click(0), Click::None);
         assert_eq!(s.cancel(), Click::Changed);
         assert_eq!(s.cancel(), Click::Leave);
+    }
+
+    #[test]
+    fn jump_sets_the_story_state() {
+        let mut bytes = vec![0u8; 9000];
+        bytes[UNLOCKED] = 1;
+        let w = vec![0u16; 10];
+        let mut s = FlagScreen::new(&env(&bytes, &w, 810), true, true, false);
+        // Girl 1's first event on day 10 is the one to jump to.
+        s.open_calendar(1);
+        assert_eq!(s.click(256), Click::Jump);
+        let rec = s.target().cloned().unwrap();
+        assert_eq!(rec.script, GIRLS[1].events[0].script);
+        let mut vm = Vm::new(silky_format::mes::Profile::default());
+        vm.set_g(MONEY, 10);
+        start_event(&rec, &mut vm);
+        assert_eq!(vm.var_g(DATE).int(), rec.d0);
+        assert_eq!(vm.var_g(TIME).int(), rec.t0);
+        assert_eq!(vm.var_g(WEEKDAY).int(), (rec.d0 % 100 - 10) % 7);
+        assert_eq!(vm.var_g(MONEY).int(), 10);
+        assert_eq!(vm.var_b(JUMPED_AT), 1);
+        assert_eq!(vm.var_b(STAGE_ONE_AT), 0);
+
+        // A trip: stage 1 costs cash, sets the stage byte and its own flag.
+        let trip = records(0, &env(&bytes, &w, 810))[6].clone();
+        assert_eq!(
+            (trip.script, trip.stage, trip.cost, trip.f0),
+            ("yabuki.mes", 1, 3, 8002)
+        );
+        start_event(&trip, &mut vm);
+        assert_eq!(vm.var_g(DATE).int(), 824);
+        assert_eq!(vm.var_g(WEEKDAY).int(), (24 - 10) % 7);
+        assert_eq!(vm.var_g(MONEY).int(), 7);
+        assert_eq!(vm.var_b(STAGE_AT), 1);
+        assert_eq!(vm.var_b(SUB_AT), 2);
+        assert_eq!(vm.var_b(STAGE_ONE_AT), 1);
+        assert_eq!(vm.var_b(8002), 1);
+        assert_eq!(vm.var_g(FLAG_WORD).int() & 0x80, 0x80);
+    }
+
+    #[test]
+    fn extra_event_follows_its_byte() {
+        let mut bytes = vec![0u8; 9000];
+        bytes[UNLOCKED] = 1;
+        let mut w = vec![0u16; 700];
+        let none = records(EXTRA_GIRL, &env(&bytes, &w, 810));
+        assert_eq!(none.len(), 10);
+        assert!(none.iter().all(|r| r.script != "butick.mes"));
+        // The byte adds it: day 17 at the earliest, ends on day 30.
+        bytes[EXTRA_BYTE as usize] = 1;
+        let r = records(EXTRA_GIRL, &env(&bytes, &w, 810));
+        assert_eq!(r.len(), 11);
+        let e = r.iter().find(|r| r.script == "butick.mes").unwrap();
+        assert_eq!(
+            (e.d0, e.d1, e.t0, e.t1, e.place, e.state, e.f0),
+            (817, 830, 1000, 1855, 282, 0, 8002)
+        );
+        // After the first event is done late, it follows that day.
+        bytes[250] = 1;
+        w[574] = 820;
+        let r = records(EXTRA_GIRL, &env(&bytes, &w, 810));
+        assert_eq!(r.iter().find(|r| r.script == "butick.mes").unwrap().d0, 820);
+        // Done: the day and time it happened.
+        bytes[EXTRA_DONE as usize] = 1;
+        w[330] = 822;
+        w[331] = 1130;
+        let r = records(EXTRA_GIRL, &env(&bytes, &w, 810));
+        let e = r.iter().find(|r| r.script == "butick.mes").unwrap();
+        assert_eq!((e.state, e.d0, e.t0, e.d1, e.t1), (1, 822, 1130, -1, -1));
+        // Its window ends: out of reach.
+        bytes[EXTRA_DONE as usize] = 0;
+        bytes[250] = 0;
+        let mut e2 = env(&bytes, &w, 831);
+        e2.cash = 500;
+        let r = records(EXTRA_GIRL, &e2);
+        assert_eq!(
+            r.iter().find(|r| r.script == "butick.mes").unwrap().state,
+            2
+        );
+        // No other girl has it.
+        assert_eq!(records(0, &env(&bytes, &w, 810)).len(), 10);
     }
 }
