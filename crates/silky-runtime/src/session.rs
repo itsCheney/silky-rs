@@ -2071,7 +2071,12 @@ impl Session {
             return;
         };
         let kept = self.rt.system.global_bytes.clone();
-        let end = self.vm.bytes.len().max(range.start + kept.len()).min(range.end);
+        let end = self
+            .vm
+            .bytes
+            .len()
+            .max(range.start + kept.len())
+            .min(range.end);
         for i in range.start..end {
             let v = kept.get(i - range.start).copied().unwrap_or(0);
             if self.vm.var_b(i) != v {
