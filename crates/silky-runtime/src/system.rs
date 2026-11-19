@@ -273,8 +273,10 @@ pub struct SystemData {
     pub music: BTreeSet<String>,
     /// Lines read, as `table:index`.
     pub read: BTreeSet<String>,
-    /// Byte variables from [`GLOBAL_BYTES`] on, which きまぐれテンプテーション2
-    /// keeps across games (notebook and collection copies, clear flags).
+    /// Byte variables kept across games, from the start of
+    /// [`crate::ui::Layout::global_bytes`] (きまぐれテンプテーション2:
+    /// notebook and collection copies, clear flags; 同級生 Remake: album,
+    /// memory reel and music flags).
     pub global_bytes: Vec<u8>,
     /// Flag files by number (ふゆから、くるる。, see [`crate::flag`]).
     pub flags: BTreeMap<i32, FlagFile>,

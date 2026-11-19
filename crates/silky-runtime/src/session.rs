@@ -24,7 +24,7 @@ use crate::screens::{
     dialog_ids, log_ids, save_ids, Action, Backlog, Dialog, Item, LogEntry, Mode, SaveLoad, Screen,
     Screens, LOG_ROWS, SAVE_ROWS,
 };
-use crate::system::{RightClick, Settings, SystemData, GLOBAL_BYTES};
+use crate::system::{RightClick, Settings, SystemData};
 use crate::text::TextRenderer;
 use crate::ui::{bar, title, Button, Layout, Ui};
 use crate::{Assets, Config, Error, Extras, Language, Pause, Result, Runtime, SaveState};
@@ -2046,7 +2046,11 @@ impl Session {
 
     /// Copies changed global byte variables into the system data.
     fn store_global_bytes(&mut self) {
-        let vm = self.vm.bytes.get(GLOBAL_BYTES..).unwrap_or(&[]);
+        let Some(range) = self.layout.global_bytes() else {
+            return;
+        };
+        let end = range.end.min(self.vm.bytes.len());
+        let vm = self.vm.bytes.get(range.start..end).unwrap_or(&[]);
         let kept = &self.rt.system.global_bytes;
         let n = vm.len().max(kept.len());
         let at = |b: &[u8], i: usize| b.get(i).copied().unwrap_or(0);
@@ -2063,13 +2067,13 @@ impl Session {
     /// Puts the kept global byte variables into the VM (after a boot or a
     /// load, which bring their own copies).
     fn apply_global_bytes(&mut self) {
-        if !self.layout.keeps_global_bytes() {
+        let Some(range) = self.layout.global_bytes() else {
             return;
-        }
+        };
         let kept = self.rt.system.global_bytes.clone();
-        let end = self.vm.bytes.len().max(GLOBAL_BYTES + kept.len());
-        for i in GLOBAL_BYTES..end {
-            let v = kept.get(i - GLOBAL_BYTES).copied().unwrap_or(0);
+        let end = self.vm.bytes.len().max(range.start + kept.len()).min(range.end);
+        for i in range.start..end {
+            let v = kept.get(i - range.start).copied().unwrap_or(0);
             if self.vm.var_b(i) != v {
                 self.vm.set_var_b(i, v);
             }

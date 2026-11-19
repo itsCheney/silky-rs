@@ -1707,10 +1707,26 @@ impl Layout {
         self.kimaten2.is_some()
     }
 
-    /// Whether the byte variables from [`crate::system::GLOBAL_BYTES`] are
-    /// kept across games (きまぐれテンプテーション2, 景の海のアペイリア).
+    /// Whether some byte variables are kept across games (see
+    /// [`Layout::global_bytes`]).
     pub fn keeps_global_bytes(&self) -> bool {
-        self.kimaten2.is_some() || self.ring.is_some()
+        self.global_bytes().is_some()
+    }
+
+    /// The byte variables kept across games: from
+    /// [`crate::system::GLOBAL_BYTES`] on in きまぐれテンプテーション2 and
+    /// 景の海のアペイリア; in 同級生 Remake the album, memory reel and
+    /// music flags (4000 to 6999; the walking maps keep their state from
+    /// 7088 on).
+    pub fn global_bytes(&self) -> Option<std::ops::Range<usize>> {
+        use crate::system::GLOBAL_BYTES;
+        if self.kimaten2.is_some() || self.ring.is_some() {
+            Some(GLOBAL_BYTES..usize::MAX)
+        } else if self.douk.is_some() {
+            Some(4000..7000)
+        } else {
+            None
+        }
     }
 
     pub fn load(assets: &Assets, language: Language) -> Result<Self> {

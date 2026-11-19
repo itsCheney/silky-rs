@@ -6,7 +6,7 @@
 //! 14 cards (ids 0..13, five to a row from (18, 80), 337 x 313 apart),
 //! the side buttons (256..259: settings, backlog, save, load; 260, 261:
 //! quick save and load) and the back button (512, only for sub 0). The
-//! cards come from `chara_list.akb`: 316 x 305 cells, seven to a row,
+//! cards come from `chara_list_<lang>.akb`: 316 x 305 cells, seven to a row,
 //! a row per state (normal, hover, pressed, gray) and the second seven
 //! 1220 lower. The buttons come from `chara_menu.akb`. Byte variable `i`
 //! (`b[i]`) is 1 when card `i` can be picked. The call returns the card
@@ -18,7 +18,7 @@ use std::sync::Arc;
 use silky_format::area::{self, Area};
 
 use super::room::Click;
-use crate::assets::Assets;
+use crate::assets::{Assets, Language};
 use crate::render::Canvas;
 use crate::Result;
 
@@ -103,10 +103,11 @@ impl Picker {
         &self,
         canvas: &mut Canvas,
         assets: &mut Assets,
+        language: Language,
         state: impl Fn(i32) -> u32,
     ) -> Result<()> {
         canvas.fill(0, 0, 1920, 1080, DIM);
-        let list = assets.image(LIST)?;
+        let list = assets.localized_image(LIST, language)?;
         let menu = assets.image(MENU)?;
         for a in self.areas.iter() {
             let s = state(a.id).min(3);

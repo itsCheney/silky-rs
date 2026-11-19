@@ -83,7 +83,7 @@ impl Panel {
         match self {
             Panel::Room(r) => r.draw(canvas, assets, state, hover, font),
             Panel::Hours(h) => h.draw(canvas, assets, language, state),
-            Panel::Picker(p) => p.draw(canvas, assets, state),
+            Panel::Picker(p) => p.draw(canvas, assets, language, state),
             Panel::Town => Ok(()),
         }
     }
