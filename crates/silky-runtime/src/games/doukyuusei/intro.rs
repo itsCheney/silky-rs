@@ -4,8 +4,9 @@
 //! wiped in as the petal fades. The script waits for all of it.
 //!
 //! Read from the executable. There are two objects, the petal
-//! (`hana_0000.akb`, 128 x 128) and the colour picture, both on layer 0 and
-//! the picture made after the petal, so it lies over it. The first wait
+//! (`hana_0000.akb`, 128 x 128) and the colour picture, both on layer 0, and
+//! the petal is drawn over the picture, as it is under Wine (the layer
+//! order in the executable was not enough to say which). The first wait
 //! runs a timeline of 320 frames whose steps (frame 1 to 319) move,
 //! turn and scale the petal: it starts turned 60 degrees at 1.5 times
 //! its size, and a table of steps ([`intro_data::STEPS`]) gives its turn
@@ -26,8 +27,10 @@
 //! little short of full until the end; this does the same. Then the
 //! picture is drawn into the background for good.
 //!
-//! A pass of a wait is one frame, here a sixtieth of a second as for the
-//! other waits; the original's pace was not measured under Wine. Each
+//! A pass of a wait is one tick of the original's timer, which fires
+//! every 16 ms at best (here a sixtieth of a second, as for the other
+//! waits) and no faster than the screen can be drawn, so a slow machine
+//! is slow without catching up. Each
 //! wait ends one pass after its last step. A click does not end the wait
 //! (the original's wait takes no click). See `docs/games/doukyuusei.md`.
 
@@ -290,6 +293,25 @@ impl Intro {
     /// Draws the petal and the colour picture over what is there.
     pub fn draw(&self, canvas: &mut Canvas, assets: &mut Assets) -> Result<()> {
         let (petal, wipe) = stage(self.frame);
+        // The petal is over the picture.
+        if wipe != Wipe::Hidden {
+            let img = assets.image(&self.background)?;
+            let x = (canvas.width as i32 - img.width as i32) / 2;
+            let y = (canvas.height as i32 - img.height as i32) / 2;
+            let all = (0, 0, img.width, img.height);
+            match (wipe, self.rule.as_deref()) {
+                (Wipe::Step(n), Some(rule)) if rule.len() >= (img.width * img.height) as usize => {
+                    let img = Arc::new(wiped(&img, rule, n));
+                    canvas.draw_part(&img, all, x, y, false, 255);
+                }
+                // Without the mask, an even fade.
+                (Wipe::Step(n), _) => {
+                    let opacity = (n * 255 / (FADE - 1)).min(255) as u8;
+                    canvas.draw_part(&img, all, x, y, false, opacity);
+                }
+                _ => canvas.draw_part(&img, all, x, y, false, 255),
+            }
+        }
         if let Some(p) = petal.filter(|p| p.alpha > 0) {
             let img = assets.image(PETAL)?;
             let part = (0, 0, PETAL_SIZE, PETAL_SIZE);
@@ -300,25 +322,6 @@ impl Intro {
                 [255, 255, 255, p.alpha],
                 false,
             );
-        }
-        if wipe == Wipe::Hidden {
-            return Ok(());
-        }
-        let img = assets.image(&self.background)?;
-        let x = (canvas.width as i32 - img.width as i32) / 2;
-        let y = (canvas.height as i32 - img.height as i32) / 2;
-        let all = (0, 0, img.width, img.height);
-        match (wipe, self.rule.as_deref()) {
-            (Wipe::Step(n), Some(rule)) if rule.len() >= (img.width * img.height) as usize => {
-                let img = Arc::new(wiped(&img, rule, n));
-                canvas.draw_part(&img, all, x, y, false, 255);
-            }
-            // Without the mask, an even fade.
-            (Wipe::Step(n), _) => {
-                let opacity = (n * 255 / (FADE - 1)).min(255) as u8;
-                canvas.draw_part(&img, all, x, y, false, opacity);
-            }
-            _ => canvas.draw_part(&img, all, x, y, false, 255),
         }
         Ok(())
     }
