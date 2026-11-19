@@ -343,7 +343,7 @@ impl Runtime {
         c: &Call,
         sub: i32,
     ) -> Option<silky_vm::Result<Flow>> {
-        use super::town::{step_ms, Town};
+        use super::town::{labels_shown, step_ms, Town};
         let town = self.town.get_or_insert_with(Town::default);
         let walker = back_int(c, 0).max(0) as usize;
         let failed = |e: crate::Error| Some(Err(host_error(e.to_string())));
@@ -374,7 +374,7 @@ impl Runtime {
             7 => town.set_flags(walker, back_int(c, 1)),
             14 => {
                 town.step_walker(walker, back_int(c, 1));
-                self.refresh_town();
+                self.refresh_town(&vm.bytes);
             }
             // Walk to a target (15), end the walk (16), still walking (17).
             15 => {
@@ -394,7 +394,8 @@ impl Runtime {
             27 | 28 => {
                 let name = back_str(c, 0);
                 if sub == 27 {
-                    town.picture = name;
+                    town.load_picture(name, vm);
+                    self.refresh_town(&vm.bytes);
                 } else {
                     town.over = name;
                 }
@@ -402,7 +403,7 @@ impl Runtime {
             31 => town.restore(walker, &mut vm.raw),
             // Draw the map into the background.
             2 | 3 | 6 | 10 | 11 => {
-                self.scene.town = Some(self.town.as_ref().unwrap().view());
+                self.scene.town = Some(self.town.as_ref().unwrap().view(labels_shown(&vm.bytes)));
                 self.scene.background = None;
             }
             // A place the hero stands in, as after a step.
@@ -418,7 +419,7 @@ impl Runtime {
                     ..Default::default()
                 };
                 town.reached = Some(town.tick(&input, &mut vm.raw).unwrap_or(0xffff));
-                self.refresh_town();
+                self.refresh_town(&vm.bytes);
                 vm.push(0);
             }
             // The frame wait: a step's time since the last tick.
@@ -434,17 +435,21 @@ impl Runtime {
             // Something of the program's own.
             8 | 33 => vm.push(0),
             30 => {
-                self.scene.town = Some(self.town.as_ref().unwrap().view());
+                self.scene.town = Some(self.town.as_ref().unwrap().view(labels_shown(&vm.bytes)));
                 self.scene.background = None;
                 self.scene.text = None;
                 self.panel = Some(super::Panel::Town);
                 self.scene.plate = true;
                 return self.wait_for(crate::host::Pause::Panel);
             }
-            // The place names drawn over the map (only in a mode of the
-            // settings not offered) and the program's own tile drawing;
-            // 24 (a `.pal` file) is not one of this build's sub commands.
-            24 | 29 | 32 => {}
+            // The program's own tile drawing; 24 (a `.pal` file) is not one
+            // of this build's sub commands.
+            24 | 29 => {}
+            // The place labels of game mode 1, filled again for the story now.
+            32 => {
+                town.refill_labels(vm);
+                self.refresh_town(&vm.bytes);
+            }
             34 => {
                 self.town = None;
                 self.scene.town = None;
@@ -455,9 +460,10 @@ impl Runtime {
     }
 
     /// The map drawn again after its walkers moved, when it is shown.
-    pub(crate) fn refresh_town(&mut self) {
+    pub(crate) fn refresh_town(&mut self, bytes: &[u8]) {
+        use super::town::labels_shown;
         if let (Some(_), Some(t)) = (&self.scene.town, &self.town) {
-            self.scene.town = Some(t.view());
+            self.scene.town = Some(t.view(labels_shown(bytes)));
         }
     }
 
@@ -477,7 +483,7 @@ impl Runtime {
     pub fn town_tick(&mut self, vm: &mut Vm, input: &super::town::Input) -> Option<i32> {
         let t = self.town.as_mut()?;
         let found = t.tick(input, &mut vm.raw);
-        self.refresh_town();
+        self.refresh_town(&vm.bytes);
         found.map(i32::from)
     }
 }

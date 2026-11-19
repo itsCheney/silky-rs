@@ -580,7 +580,7 @@ impl Renderer {
     pub fn render_under(&mut self, scene: &Scene, assets: &mut Assets) -> Result<Canvas> {
         let mut canvas = self.canvas();
         if let (None, Some(town)) = (&scene.background, &scene.town) {
-            town.draw(&mut canvas, assets)?;
+            town.draw(&mut canvas, assets, self.language)?;
         }
         if let Some(bg) = &scene.background {
             let img = assets.image(bg)?;

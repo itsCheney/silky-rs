@@ -455,8 +455,8 @@ impl Jump {
 }
 
 /// The face cell sheet: 144-pixel cells, four to a row.
-const FACES: &str = "map_p.akb";
-const FACE: u32 = 144;
+pub(super) const FACES: &str = "map_p.akb";
+pub(super) const FACE: u32 = 144;
 
 #[cfg(test)]
 mod tests {

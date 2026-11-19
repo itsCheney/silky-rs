@@ -22,7 +22,12 @@
 //! from its top and bottom. A walk ends when the hero stands in a place,
 //! facing one of its directions; the call returns the place's id.
 
-use crate::assets::Assets;
+use silky_vm::Vm;
+
+use super::jump::{FACE, FACES, MODE_AT};
+use super::plate::GAME_MODE;
+use super::who::{face_at, Map};
+use crate::assets::{Assets, Language};
 use crate::render::Canvas;
 use crate::{Error, Result};
 
@@ -60,6 +65,58 @@ const FOLLOW: u8 = 13;
 /// Byte variable: while it is set, a click, Escape or Delete cancels the
 /// automatic walk.
 pub const CANCEL_VAR: usize = 4067;
+/// Byte variable: while it is set the place labels are hidden (a scripted
+/// scene on the first day).
+const LABELS_HIDDEN_AT: usize = 7088;
+
+/// The place labels: the balloon (its first cell, orange), the "!!" mark
+/// and the offsets of the face and the mark from the balloon, in `map_p`.
+const BALLOON: (u32, u32, u32, u32) = (0, 576, 167, 223);
+const MARK: (u32, u32, u32, u32) = (501, 576, 73, 102);
+const FACE_AT: (i32, i32) = (11, 11);
+const MARK_AT: (i32, i32) = (119, -40);
+
+/// Balloon positions in map pixels, by pin of each mode (see
+/// [`label_pins`]). The town's pins 1 to 4 are the academy's four slots.
+const TOWN_LABEL_AT: [(i32, i32); 18] = [
+    (4464, 336),
+    (1440, 480),
+    (1440, 672),
+    (1152, 576),
+    (1392, 240),
+    (3984, 3408),
+    (3984, 672),
+    (3168, 720),
+    (4464, 48),
+    (3984, 1488),
+    (4896, 2016),
+    (4896, 3024),
+    (2352, 3408),
+    (4896, 3456),
+    (3936, 4416),
+    (4560, 3456),
+    (912, 1392),
+    (1876, 268),
+];
+const YABUKI_LABEL_AT: [(i32, i32); 8] = [
+    (1488, 3456),
+    (1824, 192),
+    (480, 96),
+    (2064, 960),
+    (1968, 1440),
+    (768, 2784),
+    (1550, 4416),
+    (960, 4464),
+];
+const SCHOOL_LABEL_AT: [(i32, i32); 7] = [
+    (1872, 768),
+    (240, 768),
+    (1056, 336),
+    (240, 768),
+    (576, 768),
+    (960, 336),
+    (2206, 52),
+];
 
 /// Walker flags.
 pub mod flags {
@@ -179,6 +236,15 @@ struct Camera {
     y: i32,
 }
 
+/// A place label: the face of the girl at a place, drawn with its balloon
+/// at (x, y) in map pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Label {
+    pub face: u8,
+    pub x: i32,
+    pub y: i32,
+}
+
 /// A walking map and its walkers.
 #[derive(Debug, Clone, Default)]
 pub struct Town {
@@ -213,6 +279,9 @@ pub struct Town {
     cancel_pending: bool,
     /// The walker's flags, command and count before the walk, and its index.
     walk_save: (u8, u8, u8, usize),
+    /// The place labels, None when the picture has no label layer (the
+    /// train's map). Filled by `Game.20` subs 27 and 32.
+    labels: Option<Vec<Label>>,
     /// The place the last script tick reached (0xffff for none), for the
     /// next [`Town::find_place`] call of the script.
     pub reached: Option<u16>,
@@ -332,6 +401,37 @@ impl Town {
         self.place_armed = mode != 0;
         self.last_place = 0xffff;
         Ok(())
+    }
+
+    /// `Game.20(27)`: the picture is loaded. A named picture other than the
+    /// train's gets a label layer; a bare redraw keeps the layer it has.
+    /// The layer is filled at once.
+    pub fn load_picture(&mut self, name: Option<String>, vm: &Vm) {
+        if let Some(n) = &name {
+            self.labels = (!n.to_ascii_lowercase().starts_with("train")).then(Vec::new);
+        }
+        self.picture = name;
+        self.refill_labels(vm);
+    }
+
+    /// `Game.20(32)`: the labels are filled again for the mode the script
+    /// set (byte 7089) and the story now. Nothing without a label layer.
+    pub fn refill_labels(&mut self, vm: &Vm) {
+        if self.labels.is_none() {
+            return;
+        }
+        let mode = vm.bytes.get(MODE_AT).copied().unwrap_or(0);
+        let mut out = Vec::new();
+        if let Some((map, pins)) = label_pins(mode) {
+            for pin in pins {
+                let (Some(face), Some((x, y))) = (face_at(vm, map, pin as u8), label_at(map, pin))
+                else {
+                    continue;
+                };
+                out.push(Label { face, x, y });
+            }
+        }
+        self.labels = Some(out);
     }
 
     fn clamp_camera(&mut self) {
@@ -1312,8 +1412,9 @@ impl Town {
     }
 
     /// What to draw: the map at the camera, the walkers shown (by their
-    /// rows, top first) and the picture over them.
-    pub fn view(&self) -> View {
+    /// rows, top first), the picture over them and, when `show_labels`
+    /// is set, the place labels over all of it.
+    pub fn view(&self, show_labels: bool) -> View {
         let mut walkers: Vec<(usize, Walker)> = self
             .walkers
             .iter()
@@ -1340,13 +1441,49 @@ impl Town {
                 })
             })
             .collect();
+        let labels = match (&self.labels, show_labels) {
+            (Some(l), true) => l.clone(),
+            _ => Vec::new(),
+        };
         View {
             picture: self.picture.clone(),
             over: self.over.clone(),
             camera: (self.camera.x * TILE, self.camera.y * TILE),
             sprites,
+            labels,
         }
     }
+}
+
+/// Whether the place labels show: the game mode setting is on and no
+/// scripted scene hides them (see [`LABELS_HIDDEN_AT`]).
+pub fn labels_shown(bytes: &[u8]) -> bool {
+    GAME_MODE == 1 && bytes.get(LABELS_HIDDEN_AT).copied().unwrap_or(0) == 0
+}
+
+/// The map and the pins its labels show, by byte 7089: the town (0), Yabuki
+/// (1) and the school (2 to 5, each pair of floors its own pins: the floor
+/// argument is the one the map jump page passes). None for DEN and others.
+fn label_pins(mode: u8) -> Option<(Map, std::ops::Range<usize>)> {
+    Some(match mode {
+        0 => (Map::Town, 0..18),
+        1 => (Map::Yabuki, 0..8),
+        2 => (Map::School(2), 0..2),
+        3 => (Map::School(3), 2..4),
+        4 => (Map::School(4), 4..5),
+        5 => (Map::School(5), 5..7),
+        _ => return None,
+    })
+}
+
+/// The balloon position of a pin on a map.
+fn label_at(map: Map, pin: usize) -> Option<(i32, i32)> {
+    let table: &[(i32, i32)] = match map {
+        Map::Town => &TOWN_LABEL_AT,
+        Map::Yabuki => &YABUKI_LABEL_AT,
+        Map::School(_) => &SCHOOL_LABEL_AT,
+    };
+    table.get(pin).copied()
 }
 
 /// A walker as drawn.
@@ -1367,10 +1504,13 @@ pub struct View {
     /// Top left of the screen on the map picture, in pixels.
     pub camera: (i32, i32),
     pub sprites: Vec<Sprite>,
+    /// The place labels, over the foreground (none when hidden).
+    #[serde(default)]
+    pub labels: Vec<Label>,
 }
 
 impl View {
-    pub fn draw(&self, canvas: &mut Canvas, assets: &mut Assets) -> Result<()> {
+    pub fn draw(&self, canvas: &mut Canvas, assets: &mut Assets, language: Language) -> Result<()> {
         let (cx, cy) = (self.camera.0.max(0) as u32, self.camera.1.max(0) as u32);
         let area = (cx, cy, 1920, (VIEW.1 * TILE) as u32);
         if let Some(p) = &self.picture {
@@ -1384,6 +1524,37 @@ impl View {
         if let Some(p) = &self.over {
             let img = assets.image(p)?;
             canvas.draw_part(&img, area, 0, 0, false, 255);
+        }
+        if !self.labels.is_empty() {
+            let sheet = assets.localized_image(FACES, language)?;
+            let (w, h) = (VIEW.0 * TILE, VIEW.1 * TILE);
+            // A part of the sheet at (x, y), cut to the view.
+            let mut part = |p: (u32, u32, u32, u32), x: i32, y: i32| {
+                let (sx, sy, pw, ph) = p;
+                let (x0, y0) = (x.max(0), y.max(0));
+                let (x1, y1) = ((x + pw as i32).min(w), (y + ph as i32).min(h));
+                if x0 < x1 && y0 < y1 {
+                    let cut = (
+                        sx + (x0 - x) as u32,
+                        sy + (y0 - y) as u32,
+                        (x1 - x0) as u32,
+                        (y1 - y0) as u32,
+                    );
+                    canvas.draw_part(&sheet, cut, x0, y0, false, 255);
+                }
+            };
+            let (cx, cy) = self.camera;
+            for l in &self.labels {
+                let (x, y) = (l.x - cx, l.y - cy);
+                let f = l.face as u32;
+                part(BALLOON, x, y);
+                part(
+                    ((f & 3) * FACE, (f >> 2) * FACE, FACE, FACE),
+                    x + FACE_AT.0,
+                    y + FACE_AT.1,
+                );
+                part(MARK, x + MARK_AT.0, y + MARK_AT.1);
+            }
         }
         Ok(())
     }
@@ -1562,5 +1733,89 @@ mod tests {
             lines += 1;
         }
         assert!(lines > 0);
+    }
+
+    #[test]
+    fn labels_are_gated_by_the_setting_and_the_scene() {
+        let mut bytes = vec![0u8; 7089];
+        assert!(labels_shown(&bytes));
+        bytes[LABELS_HIDDEN_AT] = 1;
+        assert!(!labels_shown(&bytes));
+        assert!(labels_shown(&[]));
+    }
+
+    #[test]
+    fn label_pins_by_mode() {
+        let count = |mode| label_pins(mode).map(|(_, r)| r.len());
+        assert_eq!(count(0), Some(18));
+        assert_eq!(count(1), Some(8));
+        assert_eq!(count(2), Some(2));
+        assert_eq!(count(3), Some(2));
+        assert_eq!(count(4), Some(1));
+        assert_eq!(count(5), Some(2));
+        assert_eq!(count(6), None);
+        for mode in 0..6 {
+            let (map, pins) = label_pins(mode).unwrap();
+            assert!(
+                pins.clone().all(|p| label_at(map, p).is_some()),
+                "mode {mode}"
+            );
+        }
+    }
+
+    #[test]
+    fn layer_follows_the_picture() {
+        let vm = Vm::new(silky_format::mes::Profile::default());
+        let mut t = Town::default();
+        t.load_picture(Some("train_bg".into()), &vm);
+        assert!(t.labels.is_none());
+        t.load_picture(Some("Sakima".into()), &vm);
+        assert!(t.labels.is_some());
+        // A bare redraw keeps the layer.
+        t.load_picture(None, &vm);
+        assert!(t.labels.is_some());
+    }
+
+    #[test]
+    fn labels_fill_for_the_mode() {
+        let mut vm = Vm::new(silky_format::mes::Profile::default());
+        let mut t = Town::default();
+        // No layer: nothing to fill.
+        t.refill_labels(&vm);
+        assert!(t.labels.is_none());
+        t.labels = Some(Vec::new());
+        // Each mode gives the faces the who rules answer at its pins.
+        let expect = |map: Map, pins: std::ops::Range<usize>, vm: &Vm| -> Vec<Label> {
+            pins.filter_map(|p| {
+                let (x, y) = label_at(map, p)?;
+                let face = face_at(vm, map, p as u8)?;
+                Some(Label { face, x, y })
+            })
+            .collect()
+        };
+        for mode in [0u8, 1, 2, 3, 4, 5, 6] {
+            vm.bytes = vec![0; MODE_AT + 1];
+            vm.bytes[MODE_AT] = mode;
+            t.refill_labels(&vm);
+            let want = match label_pins(mode) {
+                Some((map, pins)) => expect(map, pins, &vm),
+                None => Vec::new(),
+            };
+            assert_eq!(t.labels.as_deref(), Some(want.as_slice()), "mode {mode}");
+        }
+    }
+
+    #[test]
+    fn view_carries_labels_only_when_shown() {
+        let mut t = Town::default();
+        t.labels = Some(vec![Label {
+            face: 0,
+            x: 100,
+            y: 200,
+        }]);
+        assert_eq!(t.view(true).labels.len(), 1);
+        assert!(t.view(false).labels.is_empty());
+        t.labels = None;
+        assert!(t.view(true).labels.is_empty());
     }
 }
