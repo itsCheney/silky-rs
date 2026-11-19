@@ -58,6 +58,9 @@ const PLATE_KEEP: usize = 4084;
 /// `Game.18()`: the name entry (see [`super::name`]); the name is kept in
 /// the raw area, nothing is returned.
 pub const NAME: i32 = 18;
+/// `Game.30(kind)`: the modal notice (see [`super::notice`]); nothing is
+/// returned.
+pub const NOTICE: i32 = 30;
 /// `Game.5`: puts the name into the speaker plate.
 pub const NAME_PLATE: i32 = 5;
 
@@ -175,6 +178,15 @@ impl Runtime {
                 self.panel = Some(Panel::Name(super::name::Name::new(self.config.language)));
                 // The page shows the background the script put up.
                 self.scene.cover = None;
+                self.scene.text = None;
+                self.wait_for(crate::host::Pause::Panel)
+            }
+            (NOTICE, kind) => {
+                // A kind without a picture does nothing.
+                let Some(n) = super::notice::Notice::new(kind) else {
+                    return self.done();
+                };
+                self.panel = Some(Panel::Notice(n));
                 self.scene.text = None;
                 self.wait_for(crate::host::Pause::Panel)
             }

@@ -18,6 +18,7 @@ pub mod log;
 pub mod menu;
 pub mod music;
 pub mod name;
+pub mod notice;
 pub mod picker;
 pub mod plate;
 pub mod reel;
@@ -57,6 +58,8 @@ pub enum Panel {
     Comment(comment::Comment),
     /// The name entry (`Game.18`).
     Name(name::Name),
+    /// The modal notice (`Game.30`).
+    Notice(notice::Notice),
     /// The map jump page, over the walk.
     Jump(jump::Jump),
     /// A walk on the map (`Game.20(30)`); the map itself is
@@ -76,6 +79,7 @@ impl Panel {
             Panel::Music(m) => m.hit(x, y),
             Panel::Comment(c) => c.hit(x, y),
             Panel::Name(n) => n.hit(x, y),
+            Panel::Notice(n) => n.hit(x, y),
             Panel::Jump(j) => j.hit(x, y),
             Panel::Town => None,
         }
@@ -91,6 +95,7 @@ impl Panel {
             Panel::Music(m) => m.click(id),
             Panel::Comment(c) => c.click(id),
             Panel::Name(n) => n.click(id),
+            Panel::Notice(n) => n.click(id),
             Panel::Jump(j) => j.click(id),
             Panel::Town => Click::None,
         }
@@ -123,6 +128,7 @@ impl Panel {
             Panel::Music(m) => m.draw(canvas, assets, language, state),
             Panel::Comment(c) => c.draw(canvas, assets, language, state),
             Panel::Name(n) => n.draw(canvas, assets, language, state, font),
+            Panel::Notice(n) => n.draw(canvas, assets, language, state),
             Panel::Jump(j) => j.draw(canvas, assets, language, state),
             Panel::Town => Ok(()),
         }

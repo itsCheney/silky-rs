@@ -63,6 +63,8 @@ pub enum Click {
     Name,
     /// The map jump page closes and the walk goes on.
     Resume,
+    /// A modal notice closes; the script goes on with no value.
+    Close,
     /// Nothing happens.
     None,
 }

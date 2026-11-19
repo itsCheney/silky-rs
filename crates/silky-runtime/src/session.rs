@@ -1489,6 +1489,10 @@ impl Session {
     /// Secondary click: closes a dialog or screen, else does what the
     /// settings say (hide the message window by default).
     pub fn secondary_click(&mut self) -> Result<()> {
+        // The notice of 同級生 Remake only closes with its button or Escape.
+        if matches!(self.ui.panel, Some(DoukPanel::Notice(_))) {
+            return Ok(());
+        }
         if self.back()? || self.state != State::Text {
             return Ok(());
         }
@@ -1530,6 +1534,11 @@ impl Session {
             }
             self.ui.hover = None;
             self.frame = None;
+            return Ok(true);
+        }
+        if matches!(self.ui.panel, Some(DoukPanel::Notice(_))) {
+            let _ = self.rt.play_sound(crate::games::doukyuusei::name::OK_SOUND);
+            self.close_notice()?;
             return Ok(true);
         }
         // The map jump goes back to the walk, the menu as it was.
@@ -3164,7 +3173,8 @@ impl Session {
                         }
                         Vec::new()
                     }
-                    crate::games::doukyuusei::Panel::Jump(_) => {
+                    crate::games::doukyuusei::Panel::Jump(_)
+                    | crate::games::doukyuusei::Panel::Notice(_) => {
                         if !matches!(click, Click::None) {
                             let _ = self.rt.play_sound(crate::games::doukyuusei::name::OK_SOUND);
                         }
@@ -3192,6 +3202,7 @@ impl Session {
                         self.ui.hover = None;
                         self.base = None;
                     }
+                    Click::Close => self.close_notice()?,
                     Click::Name => {
                         if let Some(DoukPanel::Name(n)) = self.ui.panel.take() {
                             self.rt.finish_name(&mut self.vm, &n.text());
@@ -3335,6 +3346,16 @@ impl Session {
         self.ui.skip = false;
         self.ui.hover = None;
         self.frame = None;
+    }
+
+    /// The modal notice is done: the script goes on.
+    fn close_notice(&mut self) -> Result<()> {
+        self.ui.panel = None;
+        self.rt.panel = None;
+        self.ui.hover = None;
+        self.frame = None;
+        self.base = None;
+        self.run()
     }
 
     /// A click on 同級生 Remake's flag list.

@@ -532,11 +532,16 @@ fn snap(
                             use silky_runtime::games::doukyuusei::name::CONFIRM;
                             ("name", n.click(CONFIRM))
                         }
+                        // Close it.
+                        Panel::Notice(n) => {
+                            use silky_runtime::games::doukyuusei::notice::CLOSE;
+                            ("notice", n.click(CLOSE))
+                        }
                         Panel::Town | Panel::Jump(_) => unreachable!(),
                     };
                     let pick = match pick {
                         Click::Result(pick) => pick,
-                        Click::Name => 0,
+                        Click::Name | Click::Close => 0,
                         _ => unreachable!(),
                     };
                     if rooms < 5
@@ -546,6 +551,7 @@ fn snap(
                         || name == "music"
                         || name == "comment"
                         || name == "name"
+                        || name == "notice"
                     {
                         let mut frame = renderer.render_scene(&rt.scene, &mut rt.assets, false)?;
                         let ui = Ui {
@@ -575,6 +581,7 @@ fn snap(
                     rooms += 1;
                     match &panel {
                         Panel::Name(n) => rt.finish_name(&mut vm, &n.text()),
+                        Panel::Notice(_) => rt.panel = None,
                         _ => rt.answer_action(&mut vm, pick),
                     }
                 }
