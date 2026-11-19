@@ -245,9 +245,33 @@ pub struct Label {
     pub y: i32,
 }
 
+/// What the scripts set up on a map, as the original's save store keeps
+/// it: enough to build the screen again after a load. Files are kept by
+/// name, never their data.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TownLog {
+    /// `Game.20` sub 0: the grid file.
+    pub grid: Option<String>,
+    /// Sub 4: the walkers file.
+    pub ccd: Option<String>,
+    /// Sub 12: the places file and its mode.
+    pub places: Option<(String, i32)>,
+    /// Sub 27 and 28: the picture and its overlay.
+    pub picture: Option<String>,
+    pub over: Option<String>,
+    /// Sub 25: the walker sheets.
+    pub sheets: [Option<String>; 2],
+    /// Sub 7: the last flags the script gave walkers 0 to 2.
+    pub flags: [Option<u8>; 3],
+    /// Sub 1 for walker 0 and 1: placed at least once.
+    pub placed: [bool; 2],
+}
+
 /// A walking map and its walkers.
 #[derive(Debug, Clone, Default)]
 pub struct Town {
+    /// The setup the scripts did, kept for saves.
+    pub log: TownLog,
     grid: Grid,
     camera: Camera,
     ccd: Vec<u8>,
@@ -330,6 +354,46 @@ fn get_raw(raw: &[u8], at: usize) -> u8 {
 }
 
 impl Town {
+    /// The map of a save: the setup of `log` done again in the original's
+    /// order. The walkers come fresh from the walkers file with only the
+    /// script's flags; the hero and the first other walker that were placed
+    /// stand where the byte variables of `vm` keep them.
+    pub fn replay(log: &TownLog, assets: &mut Assets, vm: &mut Vm) -> Result<Town> {
+        Self::replay_with(log, vm, &mut |name| assets.data(name))
+    }
+
+    fn replay_with(
+        log: &TownLog,
+        vm: &mut Vm,
+        data: &mut dyn FnMut(&str) -> Result<Vec<u8>>,
+    ) -> Result<Town> {
+        let mut t = Town {
+            sheets: log.sheets.clone(),
+            ..Town::default()
+        };
+        t.load_picture(log.picture.clone(), vm);
+        t.over = log.over.clone();
+        if let Some(name) = &log.grid {
+            t.load_grid(&data(name)?)?;
+        }
+        if let Some(name) = &log.ccd {
+            t.load_walkers(data(name)?)?;
+        }
+        if let Some((name, mode)) = &log.places {
+            t.load_places(&data(name)?, *mode)?;
+        }
+        for (i, f) in log.flags.iter().enumerate() {
+            if let Some(f) = f {
+                t.set_flags(i, i32::from(*f));
+            }
+        }
+        for i in (0..2).filter(|&i| log.placed[i]) {
+            t.restore(i, &mut vm.raw);
+        }
+        t.log = log.clone();
+        Ok(t)
+    }
+
     /// `Game.20(name, 0)`: the grid; the camera goes to the top left.
     pub fn load_grid(&mut self, data: &[u8]) -> Result<()> {
         self.grid = Grid::parse(data)?;
@@ -1601,6 +1665,67 @@ mod tests {
         }
         t.load_places(&eve, 3).unwrap();
         t
+    }
+
+    /// The files of the test map, as the log names them.
+    fn files() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+        let (w, h) = (50u16, 40u16);
+        let mut mpx = Vec::new();
+        mpx.extend_from_slice(&w.to_le_bytes());
+        mpx.extend_from_slice(&h.to_le_bytes());
+        for _ in 0..w * h {
+            mpx.extend_from_slice(&[0, 0, 0, 0, 0]);
+        }
+        let mut ccd = vec![8, 0, 23, 0, 27, 0, 0, 0];
+        ccd.extend_from_slice(&[0x71, 0, 3, 3, 20, 0, 20, 0, 0x10, 0, 0, 0, 0, 0]);
+        ccd.push(0xff);
+        ccd.extend_from_slice(&[25, 0, 0xe0, 0x00, 0, 0, 5, 5]);
+        let mut eve = Vec::new();
+        for v in [7u16, 5, 5, 7, 5, 1, 0xffff] {
+            eve.extend_from_slice(&v.to_le_bytes());
+        }
+        (mpx, ccd, eve)
+    }
+
+    #[test]
+    fn replay_puts_the_map_back() {
+        let (mpx, ccd, eve) = files();
+        let log = TownLog {
+            grid: Some("a.mpx".into()),
+            ccd: Some("a.ccd".into()),
+            places: Some(("a.eve".into(), 3)),
+            picture: Some("pic.akb".into()),
+            over: Some("over.akb".into()),
+            sheets: [Some("char_1.akb".into()), None],
+            flags: [Some(123), None, None],
+            placed: [true, false],
+        };
+        let json = serde_json::to_string(&log).unwrap();
+        assert_eq!(serde_json::from_str::<TownLog>(&json).unwrap(), log);
+
+        let mut vm = Vm::new(silky_format::mes::Profile::default());
+        vm.raw.resize(8192, 0);
+        vm.raw[7091..7099].copy_from_slice(&[30, 12, 11, 0, 0, 0, 5, 3]);
+        let mut read = |name: &str| match name {
+            "a.mpx" => Ok(mpx.clone()),
+            "a.ccd" => Ok(ccd.clone()),
+            "a.eve" => Ok(eve.clone()),
+            _ => Err(Error::Missing(name.into())),
+        };
+        let t = Town::replay_with(&log, &mut vm, &mut read).unwrap();
+        let hero = t.walkers[0];
+        assert_eq!((hero.x, hero.y, hero.dir, hero.flags), (30, 12, 11, 123));
+        assert_eq!((t.camera.x, t.camera.y), (5, 3));
+        assert_eq!(t.log, log);
+        let view = t.view(false);
+        assert_eq!(view.picture.as_deref(), Some("pic.akb"));
+        assert_eq!(view.over.as_deref(), Some("over.akb"));
+        assert_eq!(view.camera, (5 * TILE, 3 * TILE));
+        assert!(!view.sprites.is_empty());
+        assert_eq!(t.places().len(), 1);
+        // A file that is gone fails the load.
+        let mut none = |name: &str| Err::<Vec<u8>, _>(Error::Missing(name.into()));
+        assert!(Town::replay_with(&log, &mut vm, &mut none).is_err());
     }
 
     #[test]

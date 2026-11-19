@@ -82,6 +82,12 @@ pub struct SaveState {
     /// Name of the `.map` table in use.
     pub text_table: Option<String>,
     pub last_text: Option<usize>,
+    /// 同級生 Remake: what built the walking map that was up.
+    #[serde(default)]
+    pub town: Option<crate::games::doukyuusei::town::TownLog>,
+    /// 同級生 Remake: saved while the walk input waited.
+    #[serde(default)]
+    pub at_panel: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -439,6 +445,18 @@ impl Runtime {
             scene: self.scene.clone(),
             text_table: self.text_table.as_ref().map(|t| t.0.clone()),
             last_text: self.last_text,
+            town: self
+                .town
+                .as_ref()
+                .filter(|_| self.scene.town.is_some())
+                .map(|t| {
+                    let mut log = t.log.clone();
+                    log.picture = t.picture.clone();
+                    log.over = t.over.clone();
+                    log.sheets = t.sheets.clone();
+                    log
+                }),
+            at_panel: matches!(self.panel, Some(crate::games::doukyuusei::Panel::Town)),
         }
     }
 
@@ -461,6 +479,26 @@ impl Runtime {
         };
         self.scene = state.scene;
         self.last_text = state.last_text;
+        // The map is built again from what the scripts set up, as the
+        // original's load does; the view is drawn from the byte variables
+        // as they are now.
+        self.town = match &state.town {
+            Some(log) => Some(crate::games::doukyuusei::town::Town::replay(
+                log,
+                &mut self.assets,
+                vm,
+            )?),
+            None => None,
+        };
+        self.refresh_town(&vm.bytes);
+        self.panel = state
+            .at_panel
+            .then_some(crate::games::doukyuusei::Panel::Town);
+        if state.at_panel {
+            // What the replay writes into the flag word of a map load.
+            let g = vm.var_g(55).int();
+            vm.set_g(55, (g & !0x400 & !0x4000) | 0x4 | 0x8);
+        }
         self.stop_sound();
         for (ch, file) in self.scene.music.clone() {
             self.play(Bus::Music, Kind::Music, ch, &file)?;
@@ -484,6 +522,8 @@ impl Runtime {
         self.stop_sound();
         self.scene = Scene::default();
         self.text_table = None;
+        self.town = None;
+        self.panel = None;
         self.pause = None;
         self.last_text = None;
         self.option_count = 0;

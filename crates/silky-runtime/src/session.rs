@@ -342,6 +342,14 @@ impl Session {
         // before it (loading it shows that message, then the menu again).
         let state = match self.state {
             State::Text => self.rt.save_state(&self.vm),
+            // The walking map: the VM waits in the panel call, which is
+            // the state the original's load jumps back to.
+            State::Choice
+                if self.douk_system.is_some()
+                    && matches!(self.rt.panel, Some(crate::games::doukyuusei::Panel::Town)) =>
+            {
+                self.rt.save_state(&self.vm)
+            }
             State::Choice => match self.log.last() {
                 Some(e) => e.state.clone(),
                 None => return Ok(()),
@@ -412,6 +420,7 @@ impl Session {
     /// Puts back a game state and shows its message.
     fn restore(&mut self, state: SaveState) -> Result<()> {
         let kept = state.clone();
+        let kept_at_panel = state.at_panel;
         self.rt.load_state(&mut self.vm, state)?;
         self.apply_global_bytes();
         if self.log.is_empty() {
@@ -447,6 +456,15 @@ impl Session {
         self.base = None;
         self.frame = None;
         self.update_previous_choice();
+        if kept_at_panel {
+            // Back on the walking map: the walk input waits again.
+            self.ui.panel = self.rt.panel.clone();
+            self.ui.waiting = false;
+            self.state = State::Choice;
+            self.town_ms = 0;
+            self.town_input = Default::default();
+            self.town_pointer_down = false;
+        }
         Ok(())
     }
 

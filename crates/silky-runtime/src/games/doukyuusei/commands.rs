@@ -365,13 +365,26 @@ impl Runtime {
                 if let Err(e) = r {
                     return failed(e);
                 }
+                match sub {
+                    0 => town.log.grid = Some(name),
+                    4 => town.log.ccd = Some(name),
+                    _ => town.log.places = Some((name, back_int(c, 1))),
+                }
             }
             1 => {
                 let (start, w, facing) = (back_int(c, 0), back_int(c, 1), back_int(c, 2));
                 town.place(start, w.max(0) as usize, facing, &mut vm.raw);
+                if let Some(p) = town.log.placed.get_mut(w.max(0) as usize) {
+                    *p = true;
+                }
             }
             5 => town.set_program(walker, back_int(c, 1)),
-            7 => town.set_flags(walker, back_int(c, 1)),
+            7 => {
+                town.set_flags(walker, back_int(c, 1));
+                if let Some(f) = town.log.flags.get_mut(walker) {
+                    *f = Some(back_int(c, 1) as u8);
+                }
+            }
             14 => {
                 town.step_walker(walker, back_int(c, 1));
                 self.refresh_town(&vm.bytes);
