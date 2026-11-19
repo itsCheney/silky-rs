@@ -187,6 +187,9 @@ pub struct Renderer {
 impl Renderer {
     /// `text` is `None` to leave out message text (no font available).
     pub fn new(text: Option<TextRenderer>, language: Language) -> Self {
+        if let Some(tr) = &text {
+            crate::games::doukyuusei::window::set_fallback(tr.faces());
+        }
         let mut r = Self {
             text,
             language,

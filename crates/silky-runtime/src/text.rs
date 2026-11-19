@@ -54,6 +54,11 @@ impl TextRenderer {
         })
     }
 
+    /// The faces, in fallback order.
+    pub fn faces(&self) -> &[Font] {
+        &self.fonts
+    }
+
     pub fn set_wide_advance(&mut self, k: Option<f32>) {
         self.wide_advance.set(k);
     }

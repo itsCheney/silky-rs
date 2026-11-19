@@ -136,7 +136,7 @@ impl System {
             canvas.draw_part(&sheet, RULE, RULE_POS.0, RULE_POS.1 + dy, false, 255);
             if let Some(font) = font {
                 if let Some(name) = &e.speaker_name {
-                    font.draw_line(canvas, name, NAME_POS.0, NAME_POS.1 + dy);
+                    font.draw_name(canvas, name, NAME_POS.0, NAME_POS.1 + dy);
                 }
                 for (_, p) in window::layout(&e.text) {
                     if p.y >= TEXT_LINES * window::LINE {

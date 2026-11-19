@@ -5,7 +5,7 @@
 //! `docs/games/doukyuusei.md`).
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use silky_format::akb::Image;
 
@@ -280,7 +280,28 @@ pub struct Font {
     zen_small: Sheet,
     han_index: HashMap<char, u32>,
     zen_index: HashMap<char, u32>,
+    /// Cells of characters drawn with the fallback face (black, white and
+    /// gray copies), by character.
+    extra: Mutex<HashMap<char, Option<Arc<[Image; 3]>>>>,
 }
+
+/// The TrueType faces the frontend gave, for characters missing from
+/// `font_zen.map`.
+static FALLBACK: OnceLock<Vec<fontdue::Font>> = OnceLock::new();
+
+/// Sets the faces used for characters the bitmap font lacks (the first
+/// call wins). Without it such characters are skipped.
+pub fn set_fallback(fonts: &[fontdue::Font]) {
+    if !fonts.is_empty() {
+        let _ = FALLBACK.set(fonts.to_vec());
+    }
+}
+
+/// Pixel size of the fallback face in a 40 pixel cell: the executable's
+/// GDI font is 40 pixels high with its leading, about this tall in the em.
+const FALLBACK_SIZE: f32 = 34.0;
+/// Baseline of the fallback face below the top of the cell.
+const FALLBACK_BASE: i32 = 31;
 
 const GLYPH_H: u32 = 40;
 /// Where the black copies of a glyph go.
@@ -324,7 +345,75 @@ impl Font {
             zen: Sheet::new(zen, 40),
             han_index: index(&assets.data("font_han.map")?),
             zen_index: index(&assets.data("font_zen.map")?),
+            extra: Default::default(),
         })
+    }
+
+    /// Whether the bitmap font has no glyph for a full-width character
+    /// that the fallback face can draw.
+    fn lacks(&self, c: char) -> bool {
+        !half(c) && !self.zen_index.contains_key(&c) && self.extra_cell(c).is_some()
+    }
+
+    /// The 40 x 40 cell of `c` in the fallback face (black, white, gray).
+    fn extra_cell(&self, c: char) -> Option<Arc<[Image; 3]>> {
+        let faces = FALLBACK.get()?;
+        let mut cache = self.extra.lock().ok()?;
+        cache
+            .entry(c)
+            .or_insert_with(|| {
+                let face = faces.iter().find(|f| f.lookup_glyph_index(c) != 0)?;
+                let (m, mask) = face.rasterize(c, FALLBACK_SIZE);
+                let n = GLYPH_H as i32;
+                let mut cells = [0u8, 0xff, 0x80].map(|v| Image {
+                    width: n as u32,
+                    height: n as u32,
+                    rgba: [v, v, v, 0].repeat((n * n) as usize),
+                });
+                let left = (n - m.width as i32) / 2 - 2;
+                let top = FALLBACK_BASE - m.height as i32 - m.ymin;
+                for gy in 0..m.height as i32 {
+                    for gx in 0..m.width as i32 {
+                        let (x, y) = (left + gx, top + gy);
+                        if (0..n).contains(&x) && (0..n).contains(&y) {
+                            // Strokes a pixel wider, as the heavier GDI face
+                            // under the executable.
+                            let a = mask[(gy * m.width as i32 + gx) as usize];
+                            for cell in cells.iter_mut() {
+                                for x in [x, x + 1].into_iter().filter(|x| *x < n) {
+                                    let at = ((y * n + x) * 4 + 3) as usize;
+                                    cell.rgba[at] = cell.rgba[at].max(a);
+                                }
+                            }
+                        }
+                    }
+                }
+                Some(Arc::new(cells))
+            })
+            .clone()
+    }
+
+    /// Draws a full-width character with the fallback face, outlined as
+    /// the bitmap glyphs are.
+    fn fallback_glyph(
+        &self,
+        canvas: &mut Canvas,
+        c: char,
+        x: i32,
+        y: i32,
+        opacity: u8,
+        gray: bool,
+    ) {
+        let Some(cells) = self.extra_cell(c) else {
+            return;
+        };
+        let part = (0, 0, GLYPH_H, GLYPH_H);
+        let black = Arc::new(cells[0].clone());
+        for (dx, dy) in OUTLINE {
+            canvas.draw_part(&black, part, x + dx, y + dy, false, opacity);
+        }
+        let fill = Arc::new(cells[if gray { 2 } else { 1 }].clone());
+        canvas.draw_part(&fill, part, x, y, false, opacity);
     }
 
     /// Draws a character with its cell's top left at (x, y): a 1-pixel
@@ -361,6 +450,9 @@ impl Font {
             (&self.zen, self.zen_index.get(&c))
         };
         let Some(&i) = at else {
+            if !half(c) {
+                self.fallback_glyph(canvas, c, x, y, opacity, gray);
+            }
             return;
         };
         let part = (
@@ -445,6 +537,24 @@ impl Font {
         }
     }
 
+    /// Draws a name from (x, y). One with a full-width character the
+    /// bitmap font lacks is drawn whole with the fallback face, as the
+    /// executable draws such names with a GDI font.
+    pub fn draw_name(&self, canvas: &mut Canvas, text: &str, x: i32, y: i32) {
+        if !text.chars().any(|c| self.lacks(c)) {
+            return self.draw_line(canvas, text, x, y);
+        }
+        let mut cx = x;
+        for c in text.chars() {
+            if half(c) {
+                self.glyph(canvas, c, cx, y, false, 255, false);
+            } else {
+                self.fallback_glyph(canvas, c, cx, y, 255, false);
+            }
+            cx += cells(c) * CELL;
+        }
+    }
+
     /// Draws a line of text from (x, y) without wrapping.
     pub fn draw_line(&self, canvas: &mut Canvas, text: &str, x: i32, y: i32) {
         self.line(canvas, text, x, y, false);
@@ -492,7 +602,7 @@ pub fn draw_window(
     if let Some(name) = speaker {
         let (x, y) = NAME_PART_POS;
         canvas.draw_part(&parts, NAME_PART, x, y, false, 255);
-        font.draw_line(canvas, name, NAME_TEXT.0, NAME_TEXT.1);
+        font.draw_name(canvas, name, NAME_TEXT.0, NAME_TEXT.1);
     }
     Ok(())
 }
@@ -512,6 +622,42 @@ mod tests {
             out.last_mut().unwrap().push(p.ch);
         }
         out.into_iter().map(|l| l.trim_end().to_string()).collect()
+    }
+
+    #[test]
+    fn missing_glyph_uses_the_fallback_face() {
+        let path = "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc";
+        let Ok(data) = std::fs::read(path) else {
+            return;
+        };
+        let face =
+            fontdue::Font::from_bytes(data.as_slice(), fontdue::FontSettings::default()).unwrap();
+        set_fallback(&[face]);
+        let sheet = || {
+            Sheet::new(
+                Arc::new(Image {
+                    width: 20,
+                    height: 40,
+                    rgba: vec![0; 3200],
+                }),
+                20,
+            )
+        };
+        let font = Font {
+            han: sheet(),
+            han_i: sheet(),
+            zen: sheet(),
+            han_small: sheet(),
+            zen_small: sheet(),
+            han_index: HashMap::new(),
+            zen_index: HashMap::new(),
+            extra: Default::default(),
+        };
+        assert!(font.lacks('拓'));
+        assert!(!font.lacks('a'));
+        let cell = font.extra_cell('拓').unwrap();
+        assert!(cell[1].rgba.chunks_exact(4).any(|p| p[3] > 200));
+        assert!(cell[0].rgba.chunks_exact(4).all(|p| p[0] == 0));
     }
 
     #[test]

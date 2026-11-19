@@ -97,7 +97,7 @@ The game is an adventure in a town: the hero spends the days of a summer break g
 - The walking maps: Wine shots of a map save and load. The place labels are drawn (see the walking maps bullet) but not checked under Wine: their z-order against the walkers, whether the menu or the status plate hides them, and the first-day scene that sets byte 7088 (only the byte is known).
 - Selections: the keyboard focus (the arrow keys move it in the original; the mouse only here), the auto mode's timeout click, and the replay marks `b[1900 + N]`: nothing known writes them, so the gray and the badges are checked by unit tests only. Where the original keeps the marks is not known.
 - The other place screens and the other screens.
-- Chinese text: characters missing from `font_zen` (for example 拓 of the hero's default name) are not drawn; the original draws them with another font. Placement and line breaks match the original under Wine (40 pixels a character, 37 to a line).
+- Chinese text: placement and line breaks match the original under Wine (40 pixels a character, 37 to a line). A full-width character missing from `font_zen` (for example 拓 of the hero's default name) is drawn with the TrueType face the frontend passes (`--font`), 34 pixels tall and a pixel wider in the strokes, white with the same 8-direction black outline, in a 40 x 40 cell; a name with such a character (speaker plate, backlog) is drawn whole that way, as the executable does with its GDI font. Without a face the character is skipped. Not done: the exact face (the executable asks for SimHei, `lfHeight` 40; Wine substitutes one), the half-size and scaled lines, and a missing half-width character.
 - The character picker's sounds (`ses_003.wav`, `ses_004.wav` for the quick buttons and a system sound for a card).
 - Calls that change nothing here: `Select.0(-1)` (the engine readies the layers of its selection bars), `Game.20(24)` with a `.pal` file (not a sub command of this build), `Game.27` (the game's own mouse pointer on and off) and `Game.35` (marks for the "skip scenes" setting).
 - The other `Game` commands; the engine classes are taken from [engine-2026](../builds/engine-2026.md) unchecked.
@@ -130,6 +130,7 @@ Addresses in the program as it runs (the Steam wrapper unpacks it at its own ima
 | Input loop shared by the selection classes | 0x44b340 |
 | `Game.25` calendar written | 0x4e4ca0 |
 | Bitmap fonts loaded | 0x4a4340 |
+| Name with full-width characters drawn per character with a GDI font (`SimHei`, 3 weights from `lfHeight` 40): font class made, face chosen, text drawn | 0x448b30 and 0x449d50, 0x449210, 0x448c30 (in 0x4a6a00) |
 | One glyph drawn with its outline | 0x4a44e0 |
 | Message text laid out (words, `\n`, `\i`) | 0x4a6a00 |
 | Line breaks before closing punctuation | 0x4a7150 |
