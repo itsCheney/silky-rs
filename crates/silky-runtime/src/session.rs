@@ -1294,18 +1294,28 @@ impl Session {
             return Ok(true);
         }
         // 同級生 Remake's character picker leaves on a secondary click; the
-        // album goes from a girl's pictures back to the girls.
+        // album goes from a girl's pictures back to the girls, else leaves.
         if self.screen.is_none() && self.dialog.is_none() {
             use crate::games::doukyuusei::Panel;
             let cancel = match &mut self.ui.panel {
                 Some(Panel::Picker(p)) => p.cancel(),
                 Some(Panel::Album(a)) => {
-                    if a.cancel() {
+                    let leave = a.cancel();
+                    if leave.is_none() {
                         self.ui.hover = None;
                         self.frame = None;
                         return Ok(true);
                     }
-                    None
+                    leave
+                }
+                Some(Panel::Reel(r)) => {
+                    let leave = r.cancel();
+                    if leave.is_none() {
+                        self.ui.hover = None;
+                        self.frame = None;
+                        return Ok(true);
+                    }
+                    leave
                 }
                 _ => None,
             };
@@ -2263,6 +2273,16 @@ impl Session {
                 self.state = State::Ended;
             }
             Action::Scene(i) => self.leave_extras(i as i32)?,
+            Action::Unlock(_) if matches!(self.ui.panel, Some(DoukPanel::Reel(_))) => {
+                if let Some(DoukPanel::Reel(r)) = &mut self.ui.panel {
+                    let girl = r.girl.unwrap_or(0);
+                    for &i in r.girl_scenes(girl) {
+                        self.vm.set_var_b(i, 1);
+                    }
+                    r.refresh(&self.vm.bytes);
+                }
+                self.store_global_bytes();
+            }
             Action::Unlock(_) if matches!(self.ui.panel, Some(DoukPanel::Album(_))) => {
                 if let Some(DoukPanel::Album(a)) = &mut self.ui.panel {
                     let girl = a.girl.unwrap_or(0);
@@ -2846,10 +2866,13 @@ impl Session {
                     return Ok(());
                 };
                 let click = p.click(id);
-                if let crate::games::doukyuusei::Panel::Album(a) = p {
-                    for (i, v) in a.take_globals() {
-                        self.vm.set_g(i, v);
-                    }
+                let set = match p {
+                    crate::games::doukyuusei::Panel::Album(a) => a.take_globals(),
+                    crate::games::doukyuusei::Panel::Reel(r) => r.take_globals(),
+                    _ => Vec::new(),
+                };
+                for (i, v) in set {
+                    self.vm.set_g(i, v);
                 }
                 match click {
                     Click::Result(result) => {
@@ -2871,7 +2894,13 @@ impl Session {
                     Click::Backlog => {}
                     Click::Save => self.open_save_load(Mode::Save),
                     Click::Load => self.open_save_load(Mode::Load),
-                    Click::Unlock => self.ask(Action::Unlock(crate::Extras::Gallery))?,
+                    Click::Unlock => {
+                        let kind = match &self.ui.panel {
+                            Some(DoukPanel::Reel(_)) => crate::Extras::Scenes,
+                            _ => crate::Extras::Gallery,
+                        };
+                        self.ask(Action::Unlock(kind))?
+                    }
                     Click::None => {}
                 }
             }

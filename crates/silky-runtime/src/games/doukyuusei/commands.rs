@@ -67,6 +67,9 @@ pub const SCENE_MARKS: i32 = 35;
 /// `Game.50`: the album (see [`super::album`]); returns -1 to leave, 100
 /// for another page of the extras, else a picture to show.
 pub const ALBUM: i32 = 50;
+/// `Game.51`: the memory reel (see [`super::reel`]); returns -1 to leave,
+/// 100 for another page of the extras, 0 to show a scene.
+pub const REEL: i32 = 51;
 
 impl Runtime {
     /// The status plate's values now, in 同級生 Remake.
@@ -154,6 +157,15 @@ impl Runtime {
                 let g = |i: usize| vm.var_g(i).int();
                 match super::album::Album::load(&self.assets, &vm.bytes, g) {
                     Ok(a) => self.panel = Some(Panel::Album(a)),
+                    Err(e) => return Some(Err(host_error(e.to_string()))),
+                }
+                self.scene.text = None;
+                self.wait_for(crate::host::Pause::Panel)
+            }
+            (REEL, _) => {
+                let g = |i: usize| vm.var_g(i).int();
+                match super::reel::Reel::load(&self.assets, &vm.bytes, g) {
+                    Ok(r) => self.panel = Some(Panel::Reel(r)),
                     Err(e) => return Some(Err(host_error(e.to_string()))),
                 }
                 self.scene.text = None;

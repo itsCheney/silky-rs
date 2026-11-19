@@ -142,6 +142,74 @@ pub const CLEAR: [usize; 14] = [
     1779, 1788, 1806, 1796, 1813, 1742, 1751, 1823, 1766, 1731, 1758, 1838, 1829, 1726,
 ];
 
+/// Whether the update archive's pictures are installed (the first girl's
+/// `_r18` sheet exists).
+pub fn r18(assets: &Assets) -> bool {
+    assets.exists(
+        silky_format::game::Kind::Layer,
+        &format!("cg_{}_r18.akb", SHEETS[0]),
+    )
+}
+
+/// Which endings are seen, from the byte variables of [`CLEAR`].
+pub fn endings(bytes: &[u8]) -> [bool; 14] {
+    CLEAR.map(|i| bytes.get(i).copied().unwrap_or(0) != 0)
+}
+
+/// Whether the ending of `girl` is seen; for the 15th girl, any of them.
+pub fn cleared(flags: &[bool; 14], girl: usize) -> bool {
+    match flags.get(girl) {
+        Some(&c) => c,
+        None => flags.iter().any(|&c| c),
+    }
+}
+
+/// The percentage in the header, right to left from x 1798, then the sign.
+pub fn draw_percent(canvas: &mut Canvas, parts: &Arc<silky_format::akb::Image>, value: u32) {
+    let mut v = value;
+    let mut x = 1798;
+    loop {
+        canvas.draw_part(parts, (568 + v % 10 * 35, 977, 35, 49), x, 8, false, 255);
+        x -= 44;
+        v /= 10;
+        if v == 0 {
+            break;
+        }
+    }
+    canvas.draw_part(parts, (918, 977, 45, 49), 1843, 8, false, 255);
+}
+
+/// The grid of girls: the first `count` cards of `chara_list_<lang>.akb`,
+/// five to a row, the 15th from (2212, 0). `state` gives the row (0
+/// normal, 1 hover, 2 pressed) of an id.
+pub fn draw_cards(
+    canvas: &mut Canvas,
+    assets: &mut Assets,
+    language: Language,
+    count: usize,
+    state: &impl Fn(i32) -> u32,
+) -> Result<()> {
+    let list = assets.localized_image("chara_list.akb", language)?;
+    for i in 0..count as u32 {
+        let s = state(i as i32).min(2);
+        let (sx, sy) = if i == 14 {
+            (2212, 0)
+        } else {
+            (i % 7 * CARD.0, i / 7 * 1220)
+        };
+        let (x, y) = ((i % 5 * 337 + 240) as i32, (i / 5 * 313 + 98) as i32);
+        canvas.draw_part(
+            &list,
+            (sx, sy + s * CARD.1, CARD.0, CARD.1),
+            x,
+            y,
+            false,
+            255,
+        );
+    }
+    Ok(())
+}
+
 const CARD: (u32, u32) = (316, 305);
 const THUMB: (u32, u32) = (490, 275);
 /// Picture frame: size and its place in `omake_p` (normal, hover,
@@ -171,10 +239,7 @@ impl Album {
     /// `g` reads a global; `returning` (global 16 is 1) opens on the girl
     /// and page of globals 10 and 17.
     pub fn load(assets: &Assets, bytes: &[u8], g: impl Fn(usize) -> i32) -> Result<Self> {
-        let r18 = assets.exists(
-            silky_format::game::Kind::Layer,
-            &format!("cg_{}_r18.akb", SHEETS[0]),
-        );
+        let r18 = r18(assets);
         let grid = area::parse(&assets.data("cgmode.area")?)?;
         let view = area::parse(&assets.data("cgview.area")?)?;
         let mut a = Self {
@@ -213,7 +278,7 @@ impl Album {
             .iter()
             .map(|l| l.iter().map(|&i| b(i) == 1).collect())
             .collect();
-        self.clear = CLEAR.map(|i| b(i) != 0);
+        self.clear = endings(bytes);
     }
 
     fn pictures(&self) -> &'static [&'static [usize]; GIRLS] {
@@ -243,10 +308,7 @@ impl Album {
     }
 
     fn cleared(&self, girl: usize) -> bool {
-        match self.clear.get(girl) {
-            Some(&c) => c,
-            None => self.clear.iter().any(|&c| c),
-        }
+        cleared(&self.clear, girl)
     }
 
     fn all_open(&self, girl: usize) -> bool {
@@ -324,10 +386,13 @@ impl Album {
         }
     }
 
-    /// The secondary click: back to the grid, or nothing (the script's
-    /// back button leaves).
-    pub fn cancel(&mut self) -> bool {
-        self.girl.take().is_some()
+    /// The secondary click: from a girl's pictures back to the grid
+    /// (`None`), from the grid it leaves like back.
+    pub fn cancel(&mut self) -> Option<i32> {
+        match self.girl.take() {
+            Some(_) => None,
+            None => Some(LEAVE),
+        }
     }
 
     /// How much of the album is open, in percent as the header shows it.
@@ -353,7 +418,7 @@ impl Album {
     ) -> Result<()> {
         let parts = assets.localized_image("omake_p.akb", language)?;
         canvas.draw_part(&parts, (0, 0, 1920, 68), 0, 0, false, 255);
-        self.draw_percent(canvas, &parts);
+        draw_percent(canvas, &parts, self.percent());
         let side = |canvas: &mut Canvas| {
             for i in 0..4u32 {
                 let s = if i == 0 {
@@ -381,24 +446,7 @@ impl Album {
             canvas.draw_part(&parts, (948, s * 123 + 272, 218, 123), 10, 953, false, 255);
         };
         let Some(girl) = self.girl else {
-            let list = assets.localized_image("chara_list.akb", language)?;
-            for i in 0..GIRLS as u32 {
-                let s = state(i as i32).min(2);
-                let (sx, sy) = if i == 14 {
-                    (2212, 0)
-                } else {
-                    (i % 7 * CARD.0, i / 7 * 1220)
-                };
-                let (x, y) = ((i % 5 * 337 + 240) as i32, (i / 5 * 313 + 98) as i32);
-                canvas.draw_part(
-                    &list,
-                    (sx, sy + s * CARD.1, CARD.0, CARD.1),
-                    x,
-                    y,
-                    false,
-                    255,
-                );
-            }
+            draw_cards(canvas, assets, language, GIRLS, &state)?;
             side(canvas);
             return Ok(());
         };
@@ -469,21 +517,6 @@ impl Album {
         }
         Ok(())
     }
-
-    /// The percentage, right to left from x 1798, then the sign.
-    fn draw_percent(&self, canvas: &mut Canvas, parts: &Arc<silky_format::akb::Image>) {
-        let mut v = self.percent();
-        let mut x = 1798;
-        loop {
-            canvas.draw_part(parts, (568 + v % 10 * 35, 977, 35, 49), x, 8, false, 255);
-            x -= 44;
-            v /= 10;
-            if v == 0 {
-                break;
-            }
-        }
-        canvas.draw_part(parts, (918, 977, 45, 49), 1843, 8, false, 255);
-    }
 }
 
 #[cfg(test)]
@@ -547,7 +580,7 @@ mod tests {
         assert!(matches!(a.click(UNLOCK), Click::Unlock));
         assert!(matches!(a.click(TAB | 2), Click::Result(TO_PAGE)));
         assert!(a.take_globals().contains(&(globals::PAGE_OF_EXTRAS, 2)));
-        assert!(a.cancel());
-        assert!(!a.cancel());
+        assert_eq!(a.cancel(), None);
+        assert_eq!(a.cancel(), Some(LEAVE));
     }
 }
