@@ -3188,6 +3188,12 @@ impl Session {
                 };
                 let click = p.click(id);
                 let set = match p {
+                    crate::games::doukyuusei::Panel::Picker(k) => {
+                        if let Some(file) = k.sound(id) {
+                            let _ = self.rt.play_sound(file);
+                        }
+                        Vec::new()
+                    }
                     crate::games::doukyuusei::Panel::Album(a) => a.take_globals(),
                     crate::games::doukyuusei::Panel::Reel(r) => r.take_globals(),
                     crate::games::doukyuusei::Panel::Music(m) => m.take_globals(),
@@ -3350,7 +3356,7 @@ impl Session {
     /// 同級生 Remake: the flag list over the room or the walk.
     fn open_flag(&mut self) {
         use crate::games::doukyuusei::flaglist::{self, Env, FlagScreen};
-        if self.douk_system.is_none() || !self.ui.flag_list {
+        if self.douk_system.is_none() || !self.ui.flag_list || self.ui.classic {
             return;
         }
         let (can_save, has_log) = self.douk_can();
@@ -3437,7 +3443,7 @@ impl Session {
         if !matches!(self.ui.panel, Some(Panel::Town)) {
             return;
         }
-        if let Ok(j) = Jump::load(&self.rt.assets, &self.vm) {
+        if let Ok(j) = Jump::load(&self.rt.assets, &self.vm, self.rt.easy_mode()) {
             self.ui.panel = Some(Panel::Jump(j));
             self.ui.side_menu = true;
             self.ui.hover = None;
@@ -3497,6 +3503,18 @@ impl Session {
         if self.state != State::Busy && self.rt.scene.cover.is_none() && self.plate_gone {
             self.plate_hold = None;
             self.plate_gone = false;
+        }
+        // 同級生 Remake: the game mode is read as it is now; a change from
+        // the settings shows on the map's labels and the jump page's faces
+        // (the plate and the flag list button follow from [`Ui`]).
+        let classic = !self.rt.easy_mode();
+        if self.ui.classic != classic {
+            self.ui.classic = classic;
+            self.rt.refresh_town(&self.vm.bytes);
+            if let Some(DoukPanel::Jump(j)) = &mut self.ui.panel {
+                j.set_easy(!classic);
+            }
+            self.frame = None;
         }
         let plate = self.plate_hold.or_else(|| self.rt.plate(&self.vm));
         if plate != self.ui.plate {

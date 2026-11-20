@@ -25,7 +25,6 @@
 use silky_vm::Vm;
 
 use super::jump::{FACE, FACES, MODE_AT};
-use super::plate::GAME_MODE;
 use super::who::{face_at, Map};
 use crate::assets::{Assets, Language};
 use crate::render::Canvas;
@@ -1519,10 +1518,10 @@ impl Town {
     }
 }
 
-/// Whether the place labels show: the game mode setting is on and no
-/// scripted scene hides them (see [`LABELS_HIDDEN_AT`]).
-pub fn labels_shown(bytes: &[u8]) -> bool {
-    GAME_MODE == 1 && bytes.get(LABELS_HIDDEN_AT).copied().unwrap_or(0) == 0
+/// Whether the place labels show: the easy mode is set and no scripted
+/// scene hides them (see [`LABELS_HIDDEN_AT`]).
+pub fn labels_shown(bytes: &[u8], easy: bool) -> bool {
+    easy && bytes.get(LABELS_HIDDEN_AT).copied().unwrap_or(0) == 0
 }
 
 /// The map and the pins its labels show, by byte 7089: the town (0), Yabuki
@@ -1865,10 +1864,12 @@ mod tests {
     #[test]
     fn labels_are_gated_by_the_setting_and_the_scene() {
         let mut bytes = vec![0u8; 7089];
-        assert!(labels_shown(&bytes));
+        assert!(labels_shown(&bytes, true));
+        assert!(!labels_shown(&bytes, false));
         bytes[LABELS_HIDDEN_AT] = 1;
-        assert!(!labels_shown(&bytes));
-        assert!(labels_shown(&[]));
+        assert!(!labels_shown(&bytes, true));
+        assert!(labels_shown(&[], true));
+        assert!(!labels_shown(&[], false));
     }
 
     #[test]

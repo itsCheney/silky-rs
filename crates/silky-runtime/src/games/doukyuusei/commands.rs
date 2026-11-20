@@ -111,10 +111,16 @@ pub const MUSIC: i32 = 52;
 pub const COMMENT: i32 = 53;
 
 impl Runtime {
+    /// 同級生 Remake: the easy mode is set (the settings' game mode; see
+    /// [`super::plate::game_mode`]).
+    pub fn easy_mode(&self) -> bool {
+        !self.system.settings.classic_mode
+    }
+
     /// The status plate's values now, in 同級生 Remake.
     pub fn plate(&self, vm: &Vm) -> Option<super::plate::Plate> {
         (self.assets.game().title == silky_format::game::Title::Doukyuusei && self.scene.plate)
-            .then(|| super::plate::Plate::read(vm, super::plate::GAME_MODE))
+            .then(|| super::plate::Plate::read(vm, super::plate::game_mode(!self.easy_mode())))
     }
 
     /// The intro is over: its colour picture is drawn over the whole
@@ -559,7 +565,12 @@ impl Runtime {
             31 => town.restore(walker, &mut vm.raw),
             // Draw the map into the background.
             2 | 3 | 6 | 10 | 11 => {
-                self.scene.town = Some(self.town.as_ref().unwrap().view(labels_shown(&vm.bytes)));
+                self.scene.town = Some(
+                    self.town
+                        .as_ref()
+                        .unwrap()
+                        .view(labels_shown(&vm.bytes, self.easy_mode())),
+                );
                 self.scene.background = None;
             }
             // A place the hero stands in, as after a step.
@@ -591,7 +602,12 @@ impl Runtime {
             // Something of the program's own.
             8 | 33 => vm.push(0),
             30 => {
-                self.scene.town = Some(self.town.as_ref().unwrap().view(labels_shown(&vm.bytes)));
+                self.scene.town = Some(
+                    self.town
+                        .as_ref()
+                        .unwrap()
+                        .view(labels_shown(&vm.bytes, self.easy_mode())),
+                );
                 self.scene.background = None;
                 self.scene.text = None;
                 self.panel = Some(super::Panel::Town);
@@ -640,7 +656,7 @@ impl Runtime {
     pub(crate) fn refresh_town(&mut self, bytes: &[u8]) {
         use super::town::labels_shown;
         if let (Some(_), Some(t)) = (&self.scene.town, &self.town) {
-            self.scene.town = Some(t.view(labels_shown(bytes)));
+            self.scene.town = Some(t.view(labels_shown(bytes, self.easy_mode())));
         }
     }
 

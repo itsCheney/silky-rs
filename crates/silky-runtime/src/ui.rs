@@ -130,6 +130,9 @@ pub mod bar {
 /// Interface state kept by the frontend.
 #[derive(Debug, Clone, Default)]
 pub struct Ui {
+    /// 同級生 Remake: the classic game mode is set (the easy mode adds the
+    /// badges on the selection bars and the flag list button).
+    pub classic: bool,
     /// The title menu is up; `true` shows the extras page.
     pub title: Option<bool>,
     pub hover: Option<Button>,
@@ -1829,6 +1832,7 @@ impl Layout {
             let walking = matches!(ui.panel, Some(crate::games::doukyuusei::Panel::Town));
             match m.hit(ui.side_menu, x, y) {
                 Some(bar::MAP) if !walking => {}
+                Some(bar::SCHEDULE) if ui.classic => {}
                 Some(id) => return Some(Button::Bar(id)),
                 None => {}
             }
@@ -1936,7 +1940,11 @@ impl Layout {
                 m.draw(canvas, assets, ui.side_menu, |id| {
                     // The map jump shows only on the walking maps, the
                     // backlog only with a log.
-                    if (id == bar::MAP && !walking) || (id == bar::BACKLOG && !ui.has_log) {
+                    // The flag list button is hidden in the classic mode.
+                    if (id == bar::MAP && !walking)
+                        || (id == bar::BACKLOG && !ui.has_log)
+                        || (id == bar::SCHEDULE && ui.classic)
+                    {
                         return HIDDEN;
                     }
                     let b = Button::Bar(id);
@@ -1946,7 +1954,9 @@ impl Layout {
         }
         if let (false, Some(d)) = (ui.choices.is_empty(), &self.douk) {
             use crate::games::doukyuusei::select::{Bars, Hit, NEXT, PREV};
-            let bars = Bars::on_page(&ui.choices, ui.choice_page).with_status(&ui.choice_status);
+            let bars = Bars::on_page(&ui.choices, ui.choice_page)
+                .with_status(&ui.choice_status)
+                .with_easy(!ui.classic);
             let font = d.font(assets);
             bars.draw(canvas, assets, font, &ui.choices, |h| {
                 let b = match h {

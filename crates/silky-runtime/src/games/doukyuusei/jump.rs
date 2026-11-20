@@ -18,7 +18,6 @@
 
 use std::sync::Arc;
 
-use super::plate::GAME_MODE;
 use super::room::Click;
 use super::who::{face_at, Map};
 use crate::assets::{Assets, Language};
@@ -292,16 +291,18 @@ pub struct Jump {
     spec: &'static Spec,
     map: Arc<Vec<u8>>,
     open: Vec<bool>,
-    /// Faces to draw: (cell, x, y).
+    /// Faces of the places offered: (cell, x, y).
     faces: Vec<(u8, i32, i32)>,
+    /// The easy mode is set: the faces show.
+    easy: bool,
     /// Reiko's house art (town only): 0 or 1, none if not found.
     reiko: Option<usize>,
 }
 
 impl Jump {
-    /// The page for the picture byte 7089 names; faces show with the game
-    /// mode setting on.
-    pub fn load(assets: &Assets, vm: &Vm) -> Result<Self> {
+    /// The page for the picture byte 7089 names; faces show in the easy
+    /// mode (`easy`).
+    pub fn load(assets: &Assets, vm: &Vm, easy: bool) -> Result<Self> {
         let mode = mode_of(&vm.bytes);
         let Some(spec) = spec(mode) else {
             return Err(Error::Invalid(format!("no map jump page for mode {mode}")));
@@ -309,11 +310,23 @@ impl Jump {
         let mut map = assets.data(spec.carea)?;
         map.resize(W * H, 255);
         let mut j = Self::new(spec, map, &vm.bytes, mode);
-        if GAME_MODE == 1 {
-            let who_map = face_map(mode);
-            j.faces = j.pins(|place| face_at(vm, who_map, place));
-        }
+        let who_map = face_map(mode);
+        j.faces = j.pins(|place| face_at(vm, who_map, place));
+        j.easy = easy;
         Ok(j)
+    }
+
+    /// The game mode changed while the page is up (from its settings
+    /// button); returns whether the page needs drawing again.
+    pub fn set_easy(&mut self, easy: bool) -> bool {
+        let changed = self.easy != easy && !self.faces.is_empty();
+        self.easy = easy;
+        changed
+    }
+
+    /// Whether the faces show.
+    pub fn faces_shown(&self) -> bool {
+        self.easy && !self.faces.is_empty()
     }
 
     /// The faces of the places offered; `who` gives the face at a pin.
@@ -359,6 +372,7 @@ impl Jump {
             map: Arc::new(map),
             open,
             faces: Vec::new(),
+            easy: false,
             reiko,
         }
     }
@@ -427,7 +441,7 @@ impl Jump {
             let (sx, sy, dx, dy, w, h) = self.place(id);
             canvas.draw_part(&plates, (sx, sy + h * row, w, h), dx, dy, false, 255);
         }
-        if !self.faces.is_empty() {
+        if self.easy && !self.faces.is_empty() {
             let sheet = assets.localized_image(FACES, language)?;
             for &(f, x, y) in &self.faces {
                 let src = (f as u32 & 3) * FACE;
@@ -602,6 +616,24 @@ mod tests {
         assert_eq!(faces.len(), 7);
         assert!(faces.contains(&(0, 1654, 768)));
         assert!(faces.contains(&(6, 735, 520)));
+    }
+
+    #[test]
+    fn faces_follow_the_game_mode() {
+        let mut j = jump(&vec![0u8; 2000], 4);
+        j.faces = j.pins(|p| Some(p));
+        assert!(!j.faces.is_empty());
+        // The page of a classic game shows none, and takes them on when the
+        // mode is changed from its settings button.
+        assert!(!j.faces_shown());
+        assert!(j.set_easy(true));
+        assert!(j.faces_shown());
+        assert!(!j.set_easy(true));
+        assert!(j.set_easy(false));
+        assert!(!j.faces_shown());
+        // Without faces to show nothing needs drawing again.
+        let mut empty = jump(&vec![0u8; 2000], 4);
+        assert!(!empty.set_easy(true));
     }
 
     #[test]

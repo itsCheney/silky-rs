@@ -14,7 +14,6 @@ use crate::assets::Assets;
 use crate::render::Canvas;
 use crate::Result;
 
-use super::plate::GAME_MODE;
 use super::window::{text_cells, Font, CELL};
 
 const SHEET: &str = "sel_p.akb";
@@ -141,6 +140,18 @@ pub struct Bars {
     slices: i32,
     /// Status of each option of the list (open when empty).
     status: Vec<Status>,
+    /// The easy mode is set: the badges show.
+    easy: bool,
+}
+
+/// The sheet row of the badge a mark draws in the easy mode: 2 the hearts
+/// up, 3 the hearts down; other marks draw none.
+fn badge_row(mark: u8) -> Option<u32> {
+    match mark {
+        2 => Some(BADGE_UP),
+        3 => Some(BADGE_DOWN),
+        _ => None,
+    }
 }
 
 impl Bars {
@@ -171,12 +182,19 @@ impl Bars {
             top,
             slices,
             status: Vec::new(),
+            easy: true,
         }
     }
 
     /// Sets the status of each option (see [`status`]).
     pub fn with_status(mut self, status: &[Status]) -> Self {
         self.status = status.to_vec();
+        self
+    }
+
+    /// Sets the game mode: the badges show in the easy mode (the default).
+    pub fn with_easy(mut self, easy: bool) -> Self {
+        self.easy = easy;
         self
     }
 
@@ -230,14 +248,9 @@ impl Bars {
             part(END, NEXT_TO_END, self.width - (END + NEXT_TO_END) as i32);
             part(RIGHT_END, END, self.width - END as i32);
             let s = self.status.get(i).copied().unwrap_or(OPEN);
-            // Badges show in game mode 1 only, as the executable does.
-            if GAME_MODE == 1 {
-                let badge = match s.mark {
-                    2 => Some(BADGE_UP),
-                    3 => Some(BADGE_DOWN),
-                    _ => None,
-                };
-                if let Some(by) = badge {
+            // Badges show in the easy mode only.
+            if self.easy {
+                if let Some(by) = badge_row(s.mark) {
                     let bx = x + self.width - BADGE_IN;
                     canvas.draw_part(&sheet, (BADGE_X, by, BADGE_W, BADGE_H), bx, y, false, 255);
                 }
@@ -268,6 +281,21 @@ impl Bars {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bars_start_easy() {
+        let l = labels(2);
+        assert!(Bars::new(&l).easy);
+        assert!(!Bars::new(&l).with_easy(false).easy);
+    }
+
+    #[test]
+    fn badges_by_mark() {
+        assert_eq!(badge_row(0), None);
+        assert_eq!(badge_row(1), None);
+        assert_eq!(badge_row(2), Some(BADGE_UP));
+        assert_eq!(badge_row(3), Some(BADGE_DOWN));
+    }
 
     fn labels(n: usize) -> Vec<String> {
         (0..n).map(|i| format!("Option {i}")).collect()

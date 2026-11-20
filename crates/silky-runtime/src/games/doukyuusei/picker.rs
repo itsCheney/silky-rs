@@ -42,6 +42,11 @@ const QUICK: (u32, u32, u32) = (91, 54, 656);
 /// Back button: left, width, height.
 const BACK_CELL: (u32, u32, u32) = (951, 295, 134);
 const DIM: [u8; 4] = [0, 0, 0, 0x7f];
+/// The click sound of a card, back and the side buttons. The executable
+/// plays its system sound 4 for them (`ses_001.wav`, as the notice's).
+pub const CLICK_SOUND: &str = "ses_001.wav";
+pub const QUICK_SAVE_SOUND: &str = "ses_003.wav";
+pub const QUICK_LOAD_SOUND: &str = "ses_004.wav";
 
 #[derive(Debug, Clone)]
 pub struct Picker {
@@ -89,6 +94,17 @@ impl Picker {
             QUICK_SAVE => Click::QuickSave,
             QUICK_LOAD => Click::QuickLoad,
             _ => Click::None,
+        }
+    }
+
+    /// The sound a click on `id` plays, if any: none for a click that does
+    /// nothing (a gray card, back on sub 1).
+    pub fn sound(&self, id: i32) -> Option<&'static str> {
+        match id {
+            QUICK_SAVE => Some(QUICK_SAVE_SOUND),
+            QUICK_LOAD => Some(QUICK_LOAD_SOUND),
+            _ if matches!(self.click(id), Click::None) => None,
+            _ => Some(CLICK_SOUND),
         }
     }
 
@@ -158,5 +174,25 @@ mod tests {
         let p = Picker { sub: 1, ..p };
         assert!(matches!(p.click(BACK), Click::None));
         assert_eq!(p.cancel(), None);
+    }
+
+    #[test]
+    fn sounds() {
+        let mut cards = [false; CARDS];
+        cards[3] = true;
+        let p = Picker {
+            sub: 0,
+            cards,
+            areas: Arc::new(Vec::new()),
+        };
+        assert_eq!(p.sound(3), Some(CLICK_SOUND));
+        assert_eq!(p.sound(2), None);
+        assert_eq!(p.sound(BACK), Some(CLICK_SOUND));
+        assert_eq!(p.sound(SAVE), Some(CLICK_SOUND));
+        assert_eq!(p.sound(QUICK_SAVE), Some("ses_003.wav"));
+        assert_eq!(p.sound(QUICK_LOAD), Some("ses_004.wav"));
+        assert_eq!(p.sound(99), None);
+        let p = Picker { sub: 1, ..p };
+        assert_eq!(p.sound(BACK), None);
     }
 }

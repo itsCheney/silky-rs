@@ -32,9 +32,23 @@ use crate::Result;
 
 const SHEET: &str = "cal_p.akb";
 
-/// The game mode setting (`/Config/GameMode`), 1 as the original starts
-/// under Wine; it also turns on the walking maps' place labels.
-pub const GAME_MODE: i32 = 1;
+/// The game mode setting (`/Config/GameMode`) as the program keeps it: 0 is
+/// the classic mode, 1 the easy mode (the default, and what a reset of the
+/// settings gives). It is read each time something is drawn, so a change in
+/// the settings shows at once, in a game already begun too.
+///
+/// What the easy mode adds: the E diamond on the status plate (C in the
+/// classic mode), the arrows on the selection bars that raise or lower a
+/// girl's regard, the faces on the map jump page, the place labels on the
+/// walking maps, and the flag list button of the menu, which the classic
+/// mode hides.
+pub const fn game_mode(classic: bool) -> i32 {
+    if classic {
+        0
+    } else {
+        1
+    }
+}
 
 /// Globals the plate shows.
 pub(crate) const WEEKDAY: usize = 4;
@@ -65,7 +79,7 @@ pub struct Plate {
     pub time: i32,
     /// In hundreds of yen.
     pub money: i32,
-    /// The game mode setting: 1 shows E, others C.
+    /// The game mode setting (see [`game_mode`]): 1 shows E, others C.
     pub mode: i32,
 }
 
@@ -185,6 +199,13 @@ fn money_digits(yen: u64) -> Vec<(i32, u32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn game_mode_values() {
+        // Easy is 1 (the E diamond), classic 0 (the C diamond).
+        assert_eq!(game_mode(false), 1);
+        assert_eq!(game_mode(true), 0);
+    }
 
     #[test]
     fn money() {

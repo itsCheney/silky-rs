@@ -567,3 +567,43 @@ impl System {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use silky_format::game::Title;
+
+    #[test]
+    fn game_mode_buttons_set_the_mode() {
+        let mut st = Settings::for_title(Title::Doukyuusei);
+        // A new install is in the easy mode.
+        assert!(!st.classic_mode);
+        assert_eq!(super::super::plate::game_mode(st.classic_mode), 1);
+        assert!(apply(&mut st, ids::MODE, 0.0));
+        assert!(st.classic_mode);
+        assert_eq!(super::super::plate::game_mode(st.classic_mode), 0);
+        assert!(apply(&mut st, 1, 0.0));
+        assert!(!st.classic_mode);
+    }
+
+    #[test]
+    fn reset_goes_back_to_the_easy_mode() {
+        let defaults = Settings::for_title(Title::Doukyuusei);
+        let mut st = defaults.clone();
+        apply(&mut st, ids::MODE, 0.0);
+        reset(&mut st, &defaults);
+        assert!(!st.classic_mode);
+    }
+
+    #[test]
+    fn game_mode_is_kept_with_the_system_data() {
+        let mut st = Settings::for_title(Title::Doukyuusei);
+        apply(&mut st, ids::MODE, 0.0);
+        let json = serde_json::to_vec(&st).unwrap();
+        let back: Settings = serde_json::from_slice(&json).unwrap();
+        assert!(back.classic_mode);
+        // Data written before the setting existed reads as easy.
+        let old: Settings = serde_json::from_str("{}").unwrap();
+        assert!(!old.classic_mode);
+    }
+}
