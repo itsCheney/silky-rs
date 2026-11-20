@@ -146,7 +146,8 @@ impl Runtime {
                 let script = vm.script_name().unwrap_or("").to_ascii_lowercase();
                 self.message_script = script.clone();
                 let hero = self.hero_name(vm);
-                let line = match self.doukyuusei_table(&script) {
+                let stem = self.table_stem(&script);
+                let line = match self.doukyuusei_table(&stem) {
                     Ok(t) => t.get(0, id as u32).map(|l| shown_text(l, &hero)),
                     Err(e) => return Some(Err(host_error(e.to_string()))),
                 };
@@ -457,8 +458,14 @@ impl Runtime {
                 self.done()
             }
             (TEXT, 2) => {
-                let script = vm.script_name().unwrap_or("").to_ascii_lowercase();
-                if let Err(e) = self.doukyuusei_table(&script) {
+                // The script names its table itself; a variant of a script
+                // names the plain one's.
+                let name = match back_str(c, 0) {
+                    Some(n) => n.to_ascii_lowercase(),
+                    None => vm.script_name().unwrap_or("").to_ascii_lowercase(),
+                };
+                self.table_stem = Some(name.clone());
+                if let Err(e) = self.doukyuusei_table(&name) {
                     return Some(Err(host_error(e.to_string())));
                 }
                 self.done()

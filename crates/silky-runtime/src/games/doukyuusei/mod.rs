@@ -182,7 +182,26 @@ pub fn table_name(script: &str, language: Language) -> String {
     format!("{stem}_{}.map", language.suffix())
 }
 
+/// The name a table file was loaded under: `misa_z_en.map` -> `misa_z`.
+pub fn table_stem_of(file: &str) -> Option<String> {
+    ["_en.map", "_cn.map", "_tw.map"]
+        .iter()
+        .find_map(|suffix| file.strip_suffix(suffix))
+        .map(str::to_string)
+}
+
 impl Runtime {
+    /// The name of the table lines are read from: the one the script gave
+    /// (`Game.24`, sub 2), whatever script runs now; the running script's
+    /// own name before any. The update archive's variants of a script
+    /// (`misa_z_r18.mes`) name the table of the plain one (`misa_z`), which
+    /// has the lines of both.
+    pub(crate) fn table_stem(&self, script: &str) -> String {
+        self.table_stem
+            .clone()
+            .unwrap_or_else(|| script.to_string())
+    }
+
     /// The hero's name: the raw area's name field, or the default one
     /// when nothing was entered.
     pub(crate) fn hero_name(&self, vm: &Vm) -> String {
@@ -219,7 +238,7 @@ impl Runtime {
     /// its line id of the script's text table in `h[40 + N]`, N being the
     /// option's number.
     pub(crate) fn doukyuusei_options(&mut self, vm: &Vm) -> Vec<String> {
-        let script = self.message_script.clone();
+        let script = self.table_stem(&self.message_script);
         let hero = self.hero_name(vm);
         // The line of option N is h[40 + N].
         let numbers = self.option_numbers.clone();
@@ -253,7 +272,7 @@ impl Runtime {
         let (Some(id), true) = (self.last_text, self.scene.text.is_some()) else {
             return;
         };
-        let script = self.message_script.clone();
+        let script = self.table_stem(&self.message_script);
         let hero = self.hero_name(vm);
         if let Ok(t) = self.doukyuusei_table(&script) {
             if let Some(line) = t.get(0, id as u32) {
@@ -281,5 +300,16 @@ mod tests {
             table_name("CAFE.MES", Language::SimplifiedChinese),
             "CAFE_cn.map"
         );
+    }
+
+    #[test]
+    fn table_stems() {
+        // A variant script names the plain script's table; the stem is
+        // what the file name had before its language part.
+        let file = table_name("misa_z", Language::English);
+        assert_eq!(file, "misa_z_en.map");
+        assert_eq!(table_stem_of(&file).as_deref(), Some("misa_z"));
+        assert_eq!(table_stem_of("names_cn.map").as_deref(), Some("names"));
+        assert_eq!(table_stem_of("misa_z.map"), None);
     }
 }

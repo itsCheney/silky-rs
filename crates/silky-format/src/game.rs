@@ -130,6 +130,7 @@ pub struct Game {
     pub title: Title,
     /// The engine build of the folder's program.
     pub engine: Engine,
+    update: bool,
 }
 
 impl Game {
@@ -165,7 +166,9 @@ impl Game {
         }
         let (title, exe) = Title::detect(&root);
         let engine = Engine::of(exe.as_deref());
+        let update = find_file(&root, "update.arc").is_some();
         Ok(Self {
+            update,
             title,
             engine,
             root,
@@ -176,6 +179,13 @@ impl Game {
     /// The archives of one kind.
     pub fn set(&self, kind: Kind) -> &ArchiveSet {
         &self.sets.iter().find(|(k, _)| *k == kind).unwrap().1
+    }
+
+    /// Whether `update.arc` is in the folder (and so read as the newest
+    /// archive). 同級生 Remake takes the update archive's variants of its
+    /// pictures from this, not from the file list.
+    pub fn has_update_archive(&self) -> bool {
+        self.update
     }
 
     /// A file from the archives of `kind`.

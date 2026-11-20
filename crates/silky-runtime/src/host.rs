@@ -226,6 +226,9 @@ pub struct Runtime {
     pub scene: Scene,
     pub config: Config,
     pub(crate) text_table: Option<(String, MapFile)>,
+    /// 同級生 Remake: the name a script gave its text table (`Game.24`, sub
+    /// 2), without language and extension; kept until the next one.
+    pub(crate) table_stem: Option<String>,
     /// The hero's name entered on the name screen (同級生 Remake).
     /// Set when a callback yields.
     pub pause: Option<Pause>,
@@ -340,6 +343,7 @@ impl Runtime {
             scene: Scene::default(),
             config,
             text_table: None,
+            table_stem: None,
             pause: None,
             ax: None,
             unhandled: BTreeMap::new(),
@@ -477,6 +481,10 @@ impl Runtime {
                 .map_err(|e| silky_vm::Error::Host(e.to_string()))
         })
         .map_err(|e| crate::Error::Invalid(e.to_string()))?;
+        self.table_stem = state
+            .text_table
+            .as_deref()
+            .and_then(crate::games::doukyuusei::table_stem_of);
         self.text_table = match state.text_table {
             Some(name) => {
                 let map = MapFile::parse(&self.assets.data(&name)?)?;
@@ -529,6 +537,7 @@ impl Runtime {
         self.stop_sound();
         self.scene = Scene::default();
         self.text_table = None;
+        self.table_stem = None;
         self.town = None;
         self.panel = None;
         self.pause = None;

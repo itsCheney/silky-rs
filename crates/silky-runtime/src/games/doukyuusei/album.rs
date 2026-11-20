@@ -142,13 +142,12 @@ pub const CLEAR: [usize; 14] = [
     1779, 1788, 1806, 1796, 1813, 1742, 1751, 1823, 1766, 1731, 1758, 1838, 1829, 1726,
 ];
 
-/// Whether the update archive's pictures are installed (the first girl's
-/// `_r18` sheet exists).
+/// Whether the update archive's variants are in use: the program turns
+/// them on when it opens the update archive, and off when it does not. The
+/// scripts of the extras come from the same archive, so the choice between
+/// a script and its variant is theirs.
 pub fn r18(assets: &Assets) -> bool {
-    assets.exists(
-        silky_format::game::Kind::Layer,
-        &format!("cg_{}_r18.akb", SHEETS[0]),
-    )
+    assets.game().has_update_archive()
 }
 
 /// Which endings are seen, from the byte variables of [`CLEAR`].
