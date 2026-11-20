@@ -3978,7 +3978,8 @@ impl Session {
                 && self.state != State::Title
                 && self.ui.actions.is_empty()
                 && self.ui.map.is_none()
-                && self.ui.panel.is_none()
+                // The "comment unlocked" pop-up goes over the window.
+                && matches!(self.ui.panel, None | Some(DoukPanel::Unlocked(_)))
                 // 同級生 Remake puts its selections up without it.
                 && !(!self.ui.choices.is_empty()
                     && self.rt.assets.game().title == silky_format::game::Title::Doukyuusei);

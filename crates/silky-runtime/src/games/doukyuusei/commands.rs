@@ -324,8 +324,8 @@ impl Runtime {
                 let Some(u) = super::unlocked::Unlocked::new(n) else {
                     return self.done();
                 };
+                // The message window stays up under the pop-up.
                 self.panel = Some(Panel::Unlocked(u));
-                self.scene.text = None;
                 self.wait_for(crate::host::Pause::Panel)
             }
             (OVERLAY, 0) => {
