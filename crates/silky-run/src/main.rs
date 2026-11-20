@@ -494,7 +494,11 @@ fn snap(
                         write_png(&path, &frame)?;
                         println!("{}", path.display());
                     }
-                    println!("town -> {id}");
+                    println!(
+                        "town -> {id} (day {:?} time {:?})",
+                        vm.var_g(7),
+                        vm.var_g(19)
+                    );
                     towns += 1;
                     rt.answer_action(&mut vm, id);
                 }
