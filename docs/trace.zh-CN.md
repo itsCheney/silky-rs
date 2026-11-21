@@ -70,8 +70,11 @@ divergence 1 at compared call 1 / 1:
 ```sh
 wine python.exe tools/trace/probe.py --exe fuyukuru.exe --cwd <游戏目录> \
     --spec fuyukuru-2026.json --out original.json --seconds 120 --game Fuyukuru
-silky-run diff original.json run.json --ignore tick,script,pc,result
+silky-run diff original.json run.json --ignore tick,script,pc,result \
+    --skip message,smessage,options,choose
 ```
+
+探针只看得到 `native` 调用，所以比较时去掉消息和选项。
 
 一个断点就能覆盖所有引擎调用：引擎的 `native` 处理函数刚弹出类号的位置，此时语句的值仍在脚本的值栈上。spec 给出这个地址（链接地址，默认 `image_base` 为 0x400000）、类号所在的位置、各类号的名字，以及值栈的布局：
 
@@ -83,10 +86,13 @@ silky-run diff original.json run.json --ignore tick,script,pc,result
 | `stack.vector` | 栈对象，一个 vector，前两个字是起点和终点 |
 | `stack.size`、`kind`、`int`、`str` | 每个值的大小，及其种类、数字和字符串（MSVC `std::string`）的偏移 |
 | `stack.kinds` | 哪些种类值是数字，哪些是字符串：`{"0": "int", "1": "str"}` |
+| `breakpoints[].only` | `{"read": 表达式, "is": [...]}`：只保留读到的值是其中之一的命中，例如脚本自身循环的返回地址，因为引擎会自己执行一些调用 |
 | `breakpoints[].sub`、`args`、`by_sub`、`script`、`pc` | 不用 `stack` 时，为每个值写表达式，参数 `type` 为 `int`、`str` 或 `wstr` |
 
 表达式由寄存器、数字、`+`、`-` 和表示该地址处 32 位值的 `[...]` 组成。`--arm-after` 让启动过程全速运行，之后再下断点；`--tick` 指定每次调用时读取的帧计数器地址。探针在调用执行前停下，因此不写 `result`。各版本的地址和布局见 [builds/](builds/README.zh-CN.md) 中对应的页面。
 
 `diff` 会把紧接着重复出现的、最多 8 个调用组成的块只算一次（`--no-squash` 保留原样）：脚本用循环等待声音和渐变，循环次数取决于等待的时间，每次运行以及在 Wine 下都不相同。脚本还会随机选择一些音效，因此即使是原版的两次运行，某些调用的字符串也可能不同。
 
-在《ふゆから、くるる。》（2026 年版）上，探针和 `silky-run snap` 从启动到标题菜单的每个调用都一致，只有两处例外：标志画面的等待循环（无界面运行不播放声音，运行时会立即离开），以及随机选择的音效。
+没有取走语句全部值的处理函数会把剩下的值留在栈上，压在之后语句的值下面，直到脚本返回。探针读取整个栈，所以原版之后的调用前面会带着这些值。
+
+在《ふゆから、くるる。》（2026 年版）上，探针和 `silky-run snap` 从启动到剧情开头几行的每个调用都一致，例外只有：标志画面的等待循环（无界面运行不播放声音，运行时会立即离开）、随机选择的音效，以及标题菜单按钮对鼠标的反应。在《同級生》（2022 年版）上，两者从启动到标题菜单一致，只是有一个调用在栈上留下了一个值（见版本页面）。

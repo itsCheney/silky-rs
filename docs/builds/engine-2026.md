@@ -12,7 +12,7 @@ This is the base profile: the engine classes in `crates/silky-runtime/src/host.r
 
 ## Trace probe
 
-Addresses in the program as linked (image base 0x400000), for `tools/trace/probe.py` ([trace.md](../trace.md)). Checked under Wine from the start to the title menu.
+Addresses in the program as linked (image base 0x400000), for `tools/trace/probe.py` ([trace.md](../trace.md)). Checked under Wine from the start to the first lines of the story.
 
 | What | Where |
 | --- | --- |
@@ -21,6 +21,7 @@ Addresses in the program as linked (image base 0x400000), for `tools/trace/probe
 | Breakpoint: class popped, statement still on the stack | 0x42f941 (`esi` = class, `[ebp-0x58]` = the script object, its value stack a vector) |
 | Value pop: copies the top value, 0x4c bytes; kind at +0 (0 number, 1 string), number at +4, `std::string` at +0xc | 0x44cb20 |
 | Class 25 (`Xml`) and some others are handled inside the switch, not by their `CFunc` object | 0x42ffd9 |
+| Return address of the script's own loop, read at `[[ebp]+4]` at the breakpoint. When a new line starts the engine runs the previous line's `Voice.5` and `Game.23` again from elsewhere (return address 0x4a9b80), which the script did not ask for | 0x4a93c0 |
 
 The spec for this build:
 
@@ -33,7 +34,8 @@ The spec for this build:
       "1": "Select", "2": "MesWnd", "3": "Shake", "10": "Font", "11": "Value", "12": "Mouse",
       "13": "Anime", "14": "Flag", "15": "Music", "16": "Effect", "17": "HEffect", "18": "Voice",
       "19": "Sprite", "20": "Screen", "21": "Script", "22": "BackLog", "23": "Movie", "24": "OneMes",
-      "25": "Xml", "26": "Ui", "27": "Save", "28": "Wait", "29": "Game"}}}
+      "25": "Xml", "26": "Ui", "27": "Save", "28": "Wait", "29": "Game"}},
+     "only": {"read": "[[ebp]+4]", "is": ["0x4a93c0"]}}
   ]
 }
 ```

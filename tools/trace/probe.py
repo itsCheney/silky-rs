@@ -283,6 +283,12 @@ class Breakpoint:
         self.by_sub = {int(k): [self.arg(a, encoding) for a in v] for k, v in spec.get("by_sub", {}).items()}
         self.script = self.arg(spec["script"], encoding) if spec.get("script") else None
         self.pc = parse_expr(spec["pc"]) if spec.get("pc") else None
+        # The engine can also run calls itself, not from the script: record
+        # only the hits where `read` gives one of `is`, such as the return
+        # address of the script's own loop.
+        self.only = None
+        if spec.get("only"):
+            self.only = (parse_expr(spec["only"]["read"]), {int(str(v), 0) for v in spec["only"]["is"]})
         self.result = None  # results are not read at the call's entry
         self.original = None
         self.address = None
@@ -305,6 +311,8 @@ class Breakpoint:
                 return proc.wstr(v)
             raise ValueError(f"unknown type {kind}")
 
+        if self.only is not None and evaluate(self.only[0], regs, proc.u32) not in self.only[1]:
+            return None
         call = {}
         name = self.call
         if self.call_by is not None:
@@ -381,9 +389,10 @@ def run(opts, spec):
                     regs = {r: reg(ctx, r) for r in REGS}
                     try:
                         call = b.record(proc, regs)
-                        if opts.tick is not None:
-                            call = {"tick": proc.u32(opts.tick - image_base + proc.base), **call}
-                        calls.append(call)
+                        if call is not None:
+                            if opts.tick is not None:
+                                call = {"tick": proc.u32(opts.tick - image_base + proc.base), **call}
+                            calls.append(call)
                     except (OSError, ValueError) as e:
                         errors.append(f"{b.call} at {addr:#x}: {e}")
                     # Run the original instruction once, then put the

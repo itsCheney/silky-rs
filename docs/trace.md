@@ -70,8 +70,11 @@ A file of another `format` or `version` is refused.
 ```sh
 wine python.exe tools/trace/probe.py --exe fuyukuru.exe --cwd <game folder> \
     --spec fuyukuru-2026.json --out original.json --seconds 120 --game Fuyukuru
-silky-run diff original.json run.json --ignore tick,script,pc,result
+silky-run diff original.json run.json --ignore tick,script,pc,result \
+    --skip message,smessage,options,choose
 ```
+
+The probe sees only `native` calls, so messages and options are left out of the comparison.
 
 One breakpoint is enough for every engine call: the place in the engine's `native` handler right after it pops the class number, where the statement's values are still on the script's value stack. The spec gives that address (as linked, `image_base` 0x400000 by default), where the class number is, the names of the class numbers, and the layout of the value stack:
 
@@ -83,10 +86,13 @@ One breakpoint is enough for every engine call: the place in the engine's `nativ
 | `stack.vector` | The stack object, a vector whose first two words are its begin and end |
 | `stack.size`, `kind`, `int`, `str` | Size of one value, and offsets of its kind, its number and its string (an MSVC `std::string`) |
 | `stack.kinds` | Which kind values are numbers and which strings: `{"0": "int", "1": "str"}` |
+| `breakpoints[].only` | `{"read": expr, "is": [...]}`: keep only the hits where the value read is one of these, such as the return address of the script's own loop, since the engine runs some calls itself |
 | `breakpoints[].sub`, `args`, `by_sub`, `script`, `pc` | Instead of `stack`: expressions for each value, with an argument `type` of `int`, `str` or `wstr` |
 
 An expression is registers, numbers, `+` and `-`, and `[...]` for the 32-bit value at an address. `--arm-after` lets the start-up run at full speed before the breakpoints go in; `--tick` names a frame counter to read at each call. The probe stops before the call runs, so it writes no `result`. The addresses and layout for each build are in its page under [builds/](builds/README.md).
 
 `diff` counts a block of up to 8 calls repeated right after itself once (`--no-squash` keeps them): the scripts wait for sounds and fades in loops that run as often as the wait takes, which differs between runs and under Wine. The scripts also pick some sounds at random, so a call's string can differ between two runs of the original too.
 
-On ふゆから、くるる。 (2026 build), the probe and `silky-run snap` agree on every call from the start to the title menu except the logo's wait loop, which the runtime leaves at once because headless runs play no sound, and the random sound.
+A handler that does not take all of a statement's values leaves the rest on the stack, under the next statements' values, until the script returns. The probe reads the whole stack, so the original's calls then carry those values in front.
+
+On ふゆから、くるる。 (2026 build), the probe and `silky-run snap` agree on every call from the start to the first lines of the story, except the logo's wait loop, which the runtime leaves at once because headless runs play no sound, the random sound, and the title menu's buttons reacting to the mouse. On 同級生 (2022 build) they agree from the start to the title menu, apart from a value one call leaves on the stack (see the build page).
