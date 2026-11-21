@@ -41,6 +41,7 @@ cargo run --release -p silky-player -- <游戏目录> --lang zh-hans
 - [加入新游戏](docs/adding-a-game.zh-CN.md)。
 - [运行](docs/running.zh-CN.md)：桌面播放器、字体、存档，以及 GPU 或软件渲染。
 - [命令行](docs/cli.zh-CN.md)：`silky-tool` 和 `silky-run`。
+- [调用记录](docs/trace.zh-CN.md)：一次运行的引擎调用，与原版程序或另一次运行对拍。
 - [第三方参考](THIRD_PARTY.md)。
 
 ## 结构
@@ -51,7 +52,8 @@ cargo run --release -p silky-player -- <游戏目录> --lang zh-hans
 | `silky-vm` | 字节码解释器。引擎函数交给宿主处理。 |
 | `silky-runtime` | 基于场景模型的引擎函数、渲染器和引擎画面；各游戏自己的部分在 `games/` 中。不含平台相关代码。`Session` 接收输入并给出画面。 |
 | `silky-tool` | 查看游戏目录的命令行工具。 |
-| `silky-run` | 无界面运行器：记录引擎调用，或把画面保存为 PNG。 |
+| `silky-run` | 无界面运行器：记录引擎调用，或把画面保存为 PNG；写出并比较调用记录。 |
+| `silky-trace` | 引擎调用记录文件及两份记录的比较。运行时不依赖它。 |
 | `silky-player` | 桌面播放器（winit、wgpu）。 |
 
 提交前运行 `cargo test --workspace`。

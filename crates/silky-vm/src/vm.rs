@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use silky_format::mes::{self, Operand, Profile, Script};
 
+use crate::trace::{call_name, Arg, Call, Recorder};
 use crate::value::Value;
 
 /// Variable index of the current message number (set by `message`).
@@ -213,6 +214,8 @@ pub struct Vm {
     /// Strings the option bodies left (Japanese builds put each label
     /// there, as `option @x; push.cs "label"; ret`), in option order.
     pub option_labels: Vec<String>,
+    /// Calls recorded for a trace, while one is on.
+    trace: Option<Recorder>,
 }
 
 impl Vm {
@@ -239,7 +242,62 @@ impl Vm {
             ruby: None,
             join: false,
             option_labels: Vec::new(),
+            trace: None,
         }
+    }
+
+    // ---- trace ----------------------------------------------------------
+
+    /// Starts recording calls (see [`crate::trace`]), dropping any recorded
+    /// so far.
+    pub fn trace_start(&mut self) {
+        self.trace = Some(Recorder::default());
+    }
+
+    /// Whether calls are being recorded.
+    pub fn tracing(&self) -> bool {
+        self.trace.is_some()
+    }
+
+    /// Takes the calls recorded so far; recording goes on.
+    pub fn trace_take(&mut self) -> Vec<Call> {
+        self.trace
+            .as_mut()
+            .map(|t| std::mem::take(&mut t.calls))
+            .unwrap_or_default()
+    }
+
+    /// Takes over the trace of `old`, for a host that replaces its
+    /// interpreter (a restart) and keeps recording.
+    pub fn trace_continue(&mut self, old: &mut Vm) {
+        self.trace = old.trace.take();
+    }
+
+    /// Frame count written with the calls from now on.
+    pub fn set_trace_tick(&mut self, tick: u64) {
+        if let Some(t) = &mut self.trace {
+            t.tick = Some(tick);
+        }
+    }
+
+    /// Records a call while a trace is on; returns its index.
+    fn record(
+        &mut self,
+        script: Option<&str>,
+        pc: u32,
+        call: String,
+        args: Vec<Arg>,
+    ) -> Option<usize> {
+        let t = self.trace.as_mut()?;
+        t.calls.push(Call {
+            tick: t.tick,
+            script: script.map(str::to_string),
+            pc: script.map(|_| pc),
+            call,
+            args,
+            result: None,
+        });
+        Some(t.calls.len() - 1)
     }
 
     // ---- scripts and control flow -------------------------------------
@@ -420,6 +478,15 @@ impl Vm {
             return Err(Error::NoOption(index));
         };
         let cur = self.current.clone().ok_or(Error::NoScript)?;
+        if self.trace.is_some() {
+            let pc = self.pc;
+            self.record(
+                Some(&cur.name),
+                pc,
+                "choose".into(),
+                vec![Arg::Int(index as i32)],
+            );
+        }
         self.contexts.push(Context {
             script: cur,
             pc: self.pc,
@@ -533,6 +600,7 @@ impl Vm {
 
     fn step(&mut self, host: &mut dyn Host) -> Result<Option<Stop>> {
         let cur = self.current.clone().ok_or(Error::NoScript)?;
+        let at = self.pc;
         let (ins, next) = mes::decode_at(&cur.script.code, self.pc, self.profile)?;
         let op = ins.opcode;
         self.steps += 1;
@@ -624,7 +692,32 @@ impl Vm {
             }
             0x18 => {
                 let class = self.pop_int()?;
-                if host.native(self, class)? == Flow::Yield {
+                let traced = if self.trace.is_some() {
+                    let base = self.statement_base.min(self.stack.len());
+                    let mut args: Vec<Arg> = self.stack[base..].iter().map(Arg::from).collect();
+                    let sub = match args.last() {
+                        Some(Arg::Int(sub)) => Some(*sub),
+                        _ => None,
+                    };
+                    if sub.is_some() {
+                        args.pop();
+                    }
+                    self.record(Some(&cur.name), at, call_name(class, sub), args)
+                        .map(|i| (i, base))
+                } else {
+                    None
+                };
+                let flow = host.native(self, class)?;
+                // A value left where the statement was is the call's result.
+                if let Some((i, base)) = traced {
+                    if self.stack.len() == base + 1 {
+                        let result = Arg::from(&self.stack[base]);
+                        if let Some(t) = &mut self.trace {
+                            t.calls[i].result = Some(result);
+                        }
+                    }
+                }
+                if flow == Flow::Yield {
                     return Ok(Some(Stop::Yield));
                 }
             }
@@ -632,6 +725,8 @@ impl Vm {
                 let Operand::Message(n) = ins.operand else {
                     unreachable!()
                 };
+                let name = if op == 0x19 { "message" } else { "smessage" };
+                self.record(Some(&cur.name), at, name.into(), vec![Arg::Int(n as i32)]);
                 let flow = if op == 0x19 {
                     self.set_g(VAR_MESSAGE, n as i32);
                     host.message(self, n)?
@@ -648,6 +743,10 @@ impl Vm {
                 self.options.push((next, v));
                 self.pc = target(&ins);
                 if !self.option_follows(&cur) {
+                    if self.trace.is_some() {
+                        let values = self.options.iter().map(|o| Arg::from(&o.1)).collect();
+                        self.record(Some(&cur.name), at, "options".into(), values);
+                    }
                     return Ok(Some(Stop::Options));
                 }
             }
@@ -1037,6 +1136,82 @@ mod tests {
         code[o2u + 1..o2u + 5].copy_from_slice(&end.to_be_bytes());
 
         (code, end)
+    }
+
+    #[test]
+    fn trace_records_calls_messages_and_options() {
+        use crate::trace::{Arg, Call};
+        // Game.24("x") returns 7; line 1; Sprite.1(3, "BG")
+        let s = Asm::default()
+            .push_s("x")
+            .push(24)
+            .push(29)
+            .op(0x18)
+            .push(1)
+            .op(0xff)
+            .push(3)
+            .push_s("BG")
+            .push(1)
+            .push(19)
+            .op(0x18)
+            .op(0x00)
+            .script();
+        struct H;
+        impl Host for H {
+            fn native(&mut self, vm: &mut Vm, class: i32) -> Result<Flow> {
+                vm.pop_statement();
+                if class == 29 {
+                    vm.push(7);
+                }
+                Ok(Flow::Continue)
+            }
+        }
+        let mut vm = Vm::new(Profile::default());
+        vm.jump_script("T.MES", s);
+        vm.trace_start();
+        vm.set_trace_tick(4);
+        assert_eq!(vm.run(&mut H, 100).unwrap(), Stop::Ended);
+        let calls = vm.trace_take();
+        assert_eq!(
+            calls[0],
+            Call {
+                tick: Some(4),
+                script: Some("T.MES".into()),
+                pc: Some(13),
+                call: "Game.24".into(),
+                args: vec![Arg::Str("x".into())],
+                result: Some(Arg::Int(7)),
+            }
+        );
+        assert_eq!(calls[1].call, "Sprite.1");
+        assert_eq!(calls[1].args, [Arg::Int(3), Arg::Str("BG".into())]);
+        assert_eq!(calls[1].result, None);
+        assert_eq!(calls.len(), 2);
+
+        // message 5, the options, the host's choice, then Shake.
+        let (code, _) = option_code();
+        let mut vm = Vm::new(Profile::default());
+        vm.jump_script("O.MES", Asm(code).script());
+        vm.trace_start();
+        let mut log = Log::default();
+        assert_eq!(vm.run(&mut log, 100).unwrap(), Stop::Yield);
+        assert_eq!(vm.run(&mut log, 100).unwrap(), Stop::Options);
+        vm.choose(1).unwrap();
+        vm.run(&mut log, 100).unwrap();
+        let names: Vec<_> = vm
+            .trace_take()
+            .into_iter()
+            .map(|c| (c.call, c.args))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                ("message".to_string(), vec![Arg::Int(5)]),
+                ("options".to_string(), vec![Arg::Int(0), Arg::Int(1)]),
+                ("choose".to_string(), vec![Arg::Int(1)]),
+                ("Shake".to_string(), vec![]),
+            ]
+        );
     }
 
     #[test]

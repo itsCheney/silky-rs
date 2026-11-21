@@ -2284,6 +2284,7 @@ dependencies = [
  "pollster",
  "silky-format",
  "silky-runtime",
+ "silky-trace",
  "softbuffer",
  "wgpu",
  "winit",
@@ -2298,6 +2299,7 @@ dependencies = [
  "png",
  "silky-format",
  "silky-runtime",
+ "silky-trace",
  "silky-vm",
 ]
 
@@ -2329,6 +2331,16 @@ dependencies = [
  "clap",
  "png",
  "silky-format",
+]
+
+[[package]]
+name = "silky-trace"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "silky-vm",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

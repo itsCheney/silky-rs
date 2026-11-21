@@ -41,6 +41,7 @@ Click, Enter or Space goes on, right click hides the message window, the mouse w
 - [Adding a game](docs/adding-a-game.md).
 - [Running](docs/running.md): the desktop player, fonts, saves and the GPU or software renderer.
 - [Command line](docs/cli.md): `silky-tool` and `silky-run`.
+- [Traces](docs/trace.md): engine calls of a run, compared with the original program or another run.
 - [Third-party references](THIRD_PARTY.md).
 
 ## Layout
@@ -51,7 +52,8 @@ Click, Enter or Space goes on, right click hides the message window, the mouse w
 | `silky-vm` | Byte code interpreter. Engine functions are handed to a host. |
 | `silky-runtime` | Engine functions on a scene model, the renderer and the engine screens; each game's own part in `games/`. No platform code. `Session` takes input and gives frames. |
 | `silky-tool` | Command line tool to inspect a game folder. |
-| `silky-run` | Headless runner: logs engine calls, or saves frames as PNG. |
+| `silky-run` | Headless runner: logs engine calls, or saves frames as PNG; writes and compares traces. |
+| `silky-trace` | Trace files of engine calls and the diff of two traces. Nothing in the runtime depends on it. |
 | `silky-player` | Desktop player (winit, wgpu). |
 
 Before committing, run `cargo test --workspace`.

@@ -10,8 +10,11 @@
 //! See [`silky_format::mes`] for the instruction set.
 
 pub mod native;
+pub mod trace;
 mod value;
 mod vm;
 
 pub use value::Value;
-pub use vm::{split_ruby, Error, Flow, Function, Host, Result, Snapshot, Stop, Vm, RUBY_END, RUBY_START};
+pub use vm::{
+    split_ruby, Error, Flow, Function, Host, Result, Snapshot, Stop, Vm, RUBY_END, RUBY_START,
+};

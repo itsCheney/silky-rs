@@ -21,7 +21,7 @@ silky-player <游戏目录> --lang zh-hans     # 简体中文（或 1）
 silky-player <游戏目录> --font msyh.ttc --font arial.ttf
 ```
 
-存档保存在 Windows 的 `%APPDATA%\silky-rs\<游戏目录名>`（macOS 为 `~/Library/Application Support/silky-rs/...`，其他系统为 `~/.local/share/silky-rs/...`），可用 `--saves <目录>` 指定其他位置。不指定 `--font` 时，播放器会先在 Windows 字体目录中查找游戏设置里使用的字体（Arial、微软雅黑、微软正黑体），再查找 macOS 和 Linux 上的常见字体。单击、回车或空格继续；右键隐藏对话框（可在设置中更改）；Esc 关闭画面或结束视频。在景の海のアペイリア的鉴赏画面中，方向键在按钮间移动指针，回车点击，与原版相同。播放器通过 wgpu（Metal、Vulkan、D3D12）在 GPU 上合成画面：运行时记录每帧要绘制的内容，由 `silky_runtime::compose` 按窗口尺寸绘制，图片、字形和 E-mote 模型都保留在 GPU 上。加 `--software`（或机器没有可用的 GPU）时改为软件绘制。
+存档保存在 Windows 的 `%APPDATA%\silky-rs\<游戏目录名>`（macOS 为 `~/Library/Application Support/silky-rs/...`，其他系统为 `~/.local/share/silky-rs/...`），可用 `--saves <目录>` 指定其他位置。不指定 `--font` 时，播放器会先在 Windows 字体目录中查找游戏设置里使用的字体（Arial、微软雅黑、微软正黑体），再查找 macOS 和 Linux 上的常见字体。单击、回车或空格继续；右键隐藏对话框（可在设置中更改）；Esc 关闭画面或结束视频。在景の海のアペイリア的鉴赏画面中，方向键在按钮间移动指针，回车点击，与原版相同。播放器通过 wgpu（Metal、Vulkan、D3D12）在 GPU 上合成画面：运行时记录每帧要绘制的内容，由 `silky_runtime::compose` 按窗口尺寸绘制，图片、字形和 E-mote 模型都保留在 GPU 上。加 `--software`（或机器没有可用的 GPU）时改为软件绘制。`--trace <文件>` 在关闭窗口时把这次会话的引擎调用写入记录文件（见 [trace.zh-CN.md](trace.zh-CN.md)）。
 
 ## 嵌入
 

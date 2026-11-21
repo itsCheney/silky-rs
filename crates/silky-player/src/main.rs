@@ -50,6 +50,11 @@ struct Cli {
     /// Draw and scale everything in software, without the GPU.
     #[arg(long)]
     software: bool,
+    /// Write the engine calls of the run to this trace file when the
+    /// window closes (see docs/trace.md). Each call carries the session
+    /// clock in milliseconds.
+    #[arg(long)]
+    trace: Option<PathBuf>,
 }
 
 /// `%APPDATA%\silky-rs\<game>` on Windows, `~/Library/Application
@@ -141,7 +146,14 @@ fn main() -> Result<()> {
             .unwrap_or_else(Mixer::disabled),
         ..Config::default()
     };
+    let title = game.title;
     let mut session = Session::new(game, config, text, &cli.start)?;
+    if cli.trace.is_some() {
+        // From the first call: start again with recording on.
+        session.vm.trace_start();
+        session.vm.set_trace_tick(0);
+        session.restart()?;
+    }
     match cli.saves.clone().or_else(|| default_save_dir(&cli.game)) {
         Some(dir) => session.set_saves(Saves::new(dir)),
         None => eprintln!("no folder for save files: saving is off (pass --saves)"),
@@ -160,6 +172,13 @@ fn main() -> Result<()> {
         error: None,
     };
     event_loop.run_app(&mut app)?;
+    if let Some(path) = &cli.trace {
+        let mut t = silky_trace::Trace::runtime("silky-player");
+        t.game = Some(format!("{title:?}"));
+        t.calls = app.session.vm.trace_take();
+        t.write(path)
+            .with_context(|| format!("writing {}", path.display()))?;
+    }
     match app.error {
         Some(e) => Err(e),
         None => Ok(()),

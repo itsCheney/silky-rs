@@ -55,6 +55,9 @@ enum Command {
         /// return 0.
         #[arg(long = "result", value_parser = parse_result)]
         results: Vec<((i32, i32), Vec<i32>)>,
+        /// Also write the calls to this trace file (see docs/trace.md).
+        #[arg(long)]
+        out: Option<PathBuf>,
     },
     /// Run the game headless with the runtime and save frames as PNG: the
     /// title screen and the chosen message lines.
@@ -103,6 +106,44 @@ enum Command {
         /// them against `cpu`), `gpu` by that compositor (feature `gpu`).
         #[arg(long, default_value = "cpu")]
         renderer: String,
+        /// Write the engine calls of the run to this trace file (see
+        /// docs/trace.md).
+        #[arg(long)]
+        trace: Option<PathBuf>,
+    },
+    /// Compare two trace files and show where they part. Exits with 1 when
+    /// they differ.
+    Diff {
+        /// The trace taken as right (the original program, or a run known
+        /// to be good).
+        expected: PathBuf,
+        /// The trace checked against it.
+        actual: PathBuf,
+        /// Fields left out, comma separated: tick, script, pc, args,
+        /// result. Against the original program, usually `tick,pc`.
+        #[arg(long, default_value = "")]
+        ignore: String,
+        /// Compare only these calls: classes (Sprite), calls (Game.24) or
+        /// kinds (message), comma separated.
+        #[arg(long, value_delimiter = ',')]
+        only: Vec<String>,
+        /// Leave these calls out (same patterns as --only).
+        #[arg(long, value_delimiter = ',')]
+        skip: Vec<String>,
+        /// Start each trace at its first call that matches, as `message`,
+        /// `message:120` or `Script.0:FK001.MES` (call:first argument).
+        #[arg(long)]
+        from: Option<String>,
+        /// Calls shown before each divergence.
+        #[arg(long, default_value_t = 3)]
+        context: usize,
+        /// Divergences to show before stopping.
+        #[arg(long, default_value_t = 1)]
+        max: usize,
+        /// How many calls of each trace to align at a divergence to find
+        /// where they agree again.
+        #[arg(long, default_value_t = 200)]
+        window: usize,
     },
 }
 
@@ -117,6 +158,7 @@ fn main() -> Result<()> {
             text_only,
             push_le,
             results,
+            out,
         } => {
             let game = Game::open(&game)
                 .with_context(|| format!("cannot open game folder {}", game.display()))?;
@@ -130,6 +172,7 @@ fn main() -> Result<()> {
                 max_calls,
                 text_only,
                 results: results.into_iter().collect(),
+                out,
             };
             trace(game, profile, &start, options)
         }
@@ -144,6 +187,7 @@ fn main() -> Result<()> {
             actions,
             height,
             renderer,
+            trace,
         } => {
             let game = Game::open(&game)
                 .with_context(|| format!("cannot open game folder {}", game.display()))?;
@@ -154,9 +198,91 @@ fn main() -> Result<()> {
                 actions,
                 renderer,
             };
-            snap(game, &out, &lines, language, &font, &picks, height)
+            let mut vm = Vm::new(Profile::default());
+            if trace.is_some() {
+                vm.trace_start();
+            }
+            let title = game.title;
+            let result = snap(&mut vm, game, &out, &lines, language, &font, &picks, height);
+            // The trace is written even when the run stops on an error: the
+            // calls up to it are what shows the cause.
+            if let Some(path) = trace {
+                write_trace(&mut vm, "silky-run snap", title, &path)?;
+            }
+            result
+        }
+        Command::Diff {
+            expected,
+            actual,
+            ignore,
+            only,
+            skip,
+            from,
+            context,
+            max,
+            window,
+        } => {
+            let read = |p: &PathBuf| {
+                silky_trace::Trace::read(p).with_context(|| format!("reading {}", p.display()))
+            };
+            let (e, a) = (read(&expected)?, read(&actual)?);
+            let projection = silky_trace::Projection {
+                ignore: silky_trace::Fields::parse(&ignore).map_err(anyhow::Error::msg)?,
+                only,
+                skip,
+                from,
+            };
+            let walk = silky_trace::Walk {
+                context,
+                max: max.max(1),
+                window,
+            };
+            let report = silky_trace::diff(&e.calls, &a.calls, &projection, walk);
+            print!("{report}");
+            if !report.same() {
+                std::process::exit(1);
+            }
+            Ok(())
         }
     }
+}
+
+/// Writes the calls `vm` recorded to a trace file. The command line goes
+/// into its notes, without the game folder (a path of this computer).
+fn write_trace(
+    vm: &mut Vm,
+    tool: &str,
+    title: silky_format::game::Title,
+    path: &std::path::Path,
+) -> Result<()> {
+    let mut t = silky_trace::Trace::runtime(tool);
+    t.game = Some(format!("{title:?}"));
+    let args: Vec<String> = std::env::args().skip(2).collect();
+    // The first argument after the subcommand that is not an option is
+    // the game folder.
+    let mut skip_next = false;
+    let mut folder_done = false;
+    let mut kept = Vec::new();
+    for a in args {
+        if skip_next {
+            skip_next = false;
+            kept.push(a);
+        } else if a.starts_with("--") {
+            skip_next = !a.contains('=') && !matches!(a.as_str(), "--text-only" | "--push-le");
+            kept.push(a);
+        } else if !folder_done {
+            folder_done = true;
+            kept.push("<game>".into());
+        } else {
+            kept.push(a);
+        }
+    }
+    t.notes.push(kept.join(" "));
+    t.calls = vm.trace_take();
+    t.write(path)
+        .with_context(|| format!("writing {}", path.display()))?;
+    println!("trace: {} calls in {}", t.calls.len(), path.display());
+    Ok(())
 }
 
 /// What `snap` answers at selections and action menus.
@@ -167,7 +293,9 @@ struct Picks {
     renderer: String,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn snap(
+    vm: &mut Vm,
     game: Game,
     out: &std::path::Path,
     lines: &[u64],
@@ -217,8 +345,7 @@ fn snap(
     let assets = Assets::new(game);
     let layout = Layout::load(&assets, language)?;
     let mut rt = Runtime::new(assets, config);
-    let mut vm = Vm::new(Profile::default());
-    rt.boot(&mut vm, "start.mes")?;
+    rt.boot(vm, "start.mes")?;
     let last = lines.iter().copied().max().unwrap_or(0);
     let mut line_no = 0u64;
     let mut title_saved = false;
@@ -261,7 +388,7 @@ fn snap(
                             .unwrap_or(1),
                         c => c,
                     };
-                    rt.answer_title(&mut vm, choice);
+                    rt.answer_title(vm, choice);
                 }
                 Some(Pause::Text { index }) => {
                     rt.jolts.clear();
@@ -363,7 +490,7 @@ fn snap(
                     selections += 1;
                     println!("select [{}] -> {}", rt.choices.join(" | "), choose);
                     let pick = choose.min(rt.choices.len().saturating_sub(1));
-                    rt.answer_choice(&mut vm, pick);
+                    rt.answer_choice(vm, pick);
                 }
                 Some(Pause::Actions) => {
                     if action_menus < 5 {
@@ -398,7 +525,7 @@ fn snap(
                         .map_or(-1, |a| a.result);
                     println!("actions {:?} -> {pick}", last_menu.0);
                     action_menus += 1;
-                    rt.answer_action(&mut vm, pick);
+                    rt.answer_action(vm, pick);
                 }
                 Some(Pause::Map) => {
                     use silky_runtime::games::kimaten2::map::{Click, BACK};
@@ -441,7 +568,7 @@ fn snap(
                     }
                     println!("map {} -> {pick}", if m.second { 2 } else { 1 });
                     maps += 1;
-                    rt.answer_action(&mut vm, pick);
+                    rt.answer_action(vm, pick);
                 }
                 Some(Pause::Panel)
                     if matches!(
@@ -476,7 +603,7 @@ fn snap(
                             keys: key,
                             ..Default::default()
                         };
-                        if let Some(id) = rt.town_tick(&mut vm, &input) {
+                        if let Some(id) = rt.town_tick(vm, &input) {
                             found = Some(id);
                             break;
                         }
@@ -500,7 +627,7 @@ fn snap(
                         vm.var_g(19)
                     );
                     towns += 1;
-                    rt.answer_action(&mut vm, id);
+                    rt.answer_action(vm, id);
                 }
                 Some(Pause::Panel) => {
                     use silky_runtime::games::doukyuusei::{room::THING, Click, Panel};
@@ -623,17 +750,17 @@ fn snap(
                     println!("{name} -> {pick}");
                     rooms += 1;
                     match &panel {
-                        Panel::Name(n) => rt.finish_name(&mut vm, &n.text()),
+                        Panel::Name(n) => rt.finish_name(vm, &n.text()),
                         Panel::Notice(_) | Panel::Unlocked(_) => rt.panel = None,
-                        _ => rt.answer_action(&mut vm, pick),
+                        _ => rt.answer_action(vm, pick),
                     }
                 }
                 // Headless: leave extras screens, movies end at once.
-                Some(Pause::Extras(_)) => rt.answer_extras(&mut vm, -1),
+                Some(Pause::Extras(_)) => rt.answer_extras(vm, -1),
                 Some(Pause::Movie) => {
                     println!("movie {}", rt.movie.as_deref().unwrap_or("?"));
                     after_movie = rt.movie.clone();
-                    rt.answer_movie(&mut vm, true)
+                    rt.answer_movie(vm, true)
                 }
                 None => {}
             },
@@ -723,11 +850,17 @@ struct TraceOptions {
     text_only: bool,
     /// Values still to return, by call; the last one stays.
     results: HashMap<(i32, i32), Vec<i32>>,
+    /// Trace file to write.
+    out: Option<PathBuf>,
 }
 
 fn trace(game: Game, profile: Profile, start: &str, options: TraceOptions) -> Result<()> {
     let max_calls = options.max_calls;
     let mut vm = Vm::new(profile);
+    if options.out.is_some() {
+        vm.trace_start();
+    }
+    let title = game.title;
     vm.jump_script(start, load_script(&game, start)?);
     let mut host = TraceHost {
         game,
@@ -735,31 +868,36 @@ fn trace(game: Game, profile: Profile, start: &str, options: TraceOptions) -> Re
         calls: 0,
         options,
     };
-    loop {
-        let stop = vm.run(&mut host, 1_000_000)?;
-        match stop {
-            Stop::Yield => {}
-            Stop::Options => {
-                // The option bodies register labels; the selection itself
-                // is Game.20, answered with --choose.
-                println!("options: {}", vm.options().len());
-                vm.run_all_options()?;
+    let result = (|| -> Result<()> {
+        loop {
+            let stop = vm.run(&mut host, 1_000_000)?;
+            match stop {
+                Stop::Yield => {}
+                Stop::Options => {
+                    // The option bodies register labels; the selection
+                    // itself is Game.20, answered with --choose.
+                    println!("options: {}", vm.options().len());
+                    vm.run_all_options()?;
+                }
+                Stop::Ended => {
+                    println!("end of script after {} instructions", vm.steps);
+                    return Ok(());
+                }
+                Stop::Budget => {}
             }
-            Stop::Ended => {
-                println!("end of script after {} instructions", vm.steps);
-                break;
+            if host.calls >= max_calls {
+                println!(
+                    "stopped after {} engine calls ({} instructions)",
+                    host.calls, vm.steps
+                );
+                return Ok(());
             }
-            Stop::Budget => {}
         }
-        if host.calls >= max_calls {
-            println!(
-                "stopped after {} engine calls ({} instructions)",
-                host.calls, vm.steps
-            );
-            break;
-        }
+    })();
+    if let Some(path) = host.options.out.take() {
+        write_trace(&mut vm, "silky-run trace", title, &path)?;
     }
-    Ok(())
+    result
 }
 
 struct TraceHost {

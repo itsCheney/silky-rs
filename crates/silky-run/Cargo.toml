@@ -21,4 +21,5 @@ silky-vm.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 silky-runtime.workspace = true
+silky-trace.workspace = true
 png.workspace = true

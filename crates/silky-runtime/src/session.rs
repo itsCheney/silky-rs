@@ -505,7 +505,9 @@ impl Session {
 
     /// Starts the game again from its first script.
     pub fn restart(&mut self) -> Result<()> {
-        self.vm = Vm::new(Profile::default());
+        let mut vm = Vm::new(Profile::default());
+        vm.trace_continue(&mut self.vm);
+        self.vm = vm;
         self.rt.reset();
         self.rt.boot(&mut self.vm, &self.start)?;
         self.apply_global_bytes();
@@ -3499,6 +3501,8 @@ impl Session {
     pub fn tick(&mut self, ms: u64) -> Result<bool> {
         let before = self.ui.clock;
         self.ui.clock += ms;
+        // Calls recorded for a trace carry the session clock.
+        self.vm.set_trace_tick(self.ui.clock);
         self.ui.tooltips = self.rt.system.settings.tooltips;
         if self.state != State::Busy && self.rt.scene.cover.is_none() && self.plate_gone {
             self.plate_hold = None;
