@@ -21,7 +21,7 @@ silky-run diff expected.json actual.json
 silky-run diff original.json run.json --ignore tick,pc,result --skip MesWnd,Wait --from message:120 --max 5
 ```
 
-The first file is taken as right. Both go through the same filter: `--only` and `--skip` take classes (`Sprite`), calls (`Game.24`) or kinds (`message`); `--from` starts each trace at its first call that matches, with an optional first argument (`message:120`, `Script.0:FK002.MES`); `--ignore` leaves fields out of the comparison. Calls are matched by order. At a difference, the next calls of both sides (`--window`, 200 by default) are aligned to find where they agree again, so a missing call and a changed call show as separate divergences:
+The first file is taken as right. Both go through the same filter: `--only` and `--skip` take classes (`Sprite`), calls (`Game.24`) or kinds (`message`); `--from` starts each trace at its first call that matches, with an optional first argument (`message:120`, `Script.0:FK002.MES`); `--ignore` leaves fields out of the comparison; `--show` sets how many calls of each side a divergence lists. Calls are matched by order. At a difference, the next calls of both sides (`--window`, 200 by default) are aligned to find where they agree again, so a missing call and a changed call show as separate divergences:
 
 ```text
 compared 5 expected and 4 actual calls; the first 1 agree
@@ -68,27 +68,25 @@ A file of another `format` or `version` is refused.
 `tools/trace/probe.py` runs the game's program under the Win32 debug API (on Windows, or under Wine with a 32-bit Windows Python), stops at the addresses a spec names, reads the call from registers and memory, and writes the same file with `producer.kind` `original`. The only write into the program is the breakpoint byte, put back after each hit.
 
 ```sh
-wine python.exe tools/trace/probe.py --exe doukyuusei.exe --cwd <game folder> \
-    --spec douk.json --out original.json --seconds 300 --arm-after 30 --game Doukyuusei
+wine python.exe tools/trace/probe.py --exe fuyukuru.exe --cwd <game folder> \
+    --spec fuyukuru-2026.json --out original.json --seconds 120 --game Fuyukuru
+silky-run diff original.json run.json --ignore tick,script,pc,result
 ```
 
-The spec is kept outside the repository. Each breakpoint names its address in the program as linked (`image_base`, 0x400000 by default), the call, and expressions for the sub-command, the arguments and optionally the script and pc. An expression is registers, numbers, `+` and `-`, and `[...]` for the 32-bit value at an address; an argument's `type` is `int`, `str` (a NUL-ended string in `encoding`, CP932 by default) or `wstr` (UTF-16):
+One breakpoint is enough for every engine call: the place in the engine's `native` handler right after it pops the class number, where the statement's values are still on the script's value stack. The spec gives that address (as linked, `image_base` 0x400000 by default), where the class number is, the names of the class numbers, and the layout of the value stack:
 
-```json
-{
-  "name": "doukyuusei 1.0.4.0",
-  "breakpoints": [
-    {
-      "at": "0x...",
-      "call": "Game",
-      "sub": "[esp+4]",
-      "args": [],
-      "by_sub": {"24": [{"read": "[[esp+8]+0x10]", "type": "int"}]}
-    }
-  ]
-}
-```
+| Field | Meaning |
+| --- | --- |
+| `breakpoints[].at` | Address to stop at |
+| `breakpoints[].call` | The call's name, or `{"read": expr, "names": {"1": "Select", ...}}` to name it by a value read there |
+| `breakpoints[].stack` | `true`: the arguments are the values on the stack, the last one being the sub-command |
+| `stack.vector` | The stack object, a vector whose first two words are its begin and end |
+| `stack.size`, `kind`, `int`, `str` | Size of one value, and offsets of its kind, its number and its string (an MSVC `std::string`) |
+| `stack.kinds` | Which kind values are numbers and which strings: `{"0": "int", "1": "str"}` |
+| `breakpoints[].sub`, `args`, `by_sub`, `script`, `pc` | Instead of `stack`: expressions for each value, with an argument `type` of `int`, `str` or `wstr` |
 
-The addresses come from the build's address table in the game's page (for example the `Game` command dispatch in [games/doukyuusei.md](games/doukyuusei.md)), and the argument expressions from that handler's code. `--arm-after` lets the start-up run at full speed before the breakpoints go in; `--tick` names a frame counter to read at each call. The probe reads at the call's entry, so it writes no `result`.
+An expression is registers, numbers, `+` and `-`, and `[...]` for the 32-bit value at an address. `--arm-after` lets the start-up run at full speed before the breakpoints go in; `--tick` names a frame counter to read at each call. The probe stops before the call runs, so it writes no `result`. The addresses and layout for each build are in its page under [builds/](builds/README.md).
 
-The probe has not yet been run against a game: the first spec for each build still has to be written from its program.
+`diff` counts a block of up to 8 calls repeated right after itself once (`--no-squash` keeps them): the scripts wait for sounds and fades in loops that run as often as the wait takes, which differs between runs and under Wine. The scripts also pick some sounds at random, so a call's string can differ between two runs of the original too.
+
+On ふゆから、くるる。 (2026 build), the probe and `silky-run snap` agree on every call from the start to the title menu except the logo's wait loop, which the runtime leaves at once because headless runs play no sound, and the random sound.

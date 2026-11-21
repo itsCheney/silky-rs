@@ -216,10 +216,68 @@ def set_reg(ctx, name, value):
     ctypes.c_uint32.from_buffer(ctx, REGS[name]).value = value & 0xFFFFFFFF
 
 
-class Breakpoint:
+def msvc_string(proc, addr, encoding):
+    """An MSVC `std::string` at `addr`: the text inline in its first 16
+    bytes while the capacity (at +0x14) is 15 or less, else pointed to;
+    the length at +0x10."""
+    size = proc.u32(addr + 0x10)
+    cap = proc.u32(addr + 0x14)
+    data = addr if cap <= 15 else proc.u32(addr)
+    return proc.read(data, min(size, 1 << 16)).decode(encoding, "replace") if size else ""
+
+
+class Stack:
+    """The script's value stack when it is a vector of fixed-size
+    elements: `vector` is an expression for the vector object (its first
+    two words are the begin and end pointers). Each element holds its kind
+    at `kind`, a number at `int` and a string (an MSVC std::string) at
+    `str`; `kinds` names the kind values: {"0": "int", "1": "str"}."""
+
     def __init__(self, spec, encoding):
+        self.vector = parse_expr(spec["vector"])
+        self.size = int(spec["size"])
+        self.kind = int(spec.get("kind", 0))
+        self.int = int(spec.get("int", 4))
+        self.str = int(spec["str"])
+        self.kinds = {int(k): v for k, v in spec["kinds"].items()}
+        self.encoding = spec.get("encoding", encoding)
+        self.limit = int(spec.get("limit", 64))
+
+    def read(self, proc, regs):
+        vec = evaluate(self.vector, regs, proc.u32)
+        begin, end = proc.u32(vec), proc.u32(vec + 4)
+        n = (end - begin) // self.size
+        if n < 0 or n > 100000:
+            raise ValueError(f"stack of {n} values")
+        values = []
+        for i in range(max(0, n - self.limit), n):
+            e = begin + i * self.size
+            kind = self.kinds.get(proc.u32(e + self.kind))
+            if kind == "str":
+                values.append(msvc_string(proc, e + self.str, self.encoding))
+            elif kind == "int":
+                values.append(signed(proc.u32(e + self.int)))
+            else:
+                values.append(f"?kind {proc.u32(e + self.kind)}")
+        return values
+
+
+class Breakpoint:
+    def __init__(self, spec, encoding, stack=None):
         self.at = int(str(spec["at"]), 0)
-        self.call = spec["call"]
+        # A handler shared by several classes names its call by a value it
+        # can read, such as the vtable of `this`:
+        # {"read": "[ecx]", "names": {"0x5175d0": "Voice", ...}}.
+        self.call_by = None
+        if isinstance(spec["call"], dict):
+            self.call_by = (
+                parse_expr(spec["call"]["read"]),
+                {int(k, 0): v for k, v in spec["call"]["names"].items()},
+            )
+        # Arguments from the script's value stack: everything on it, the
+        # last value (pushed last) being the sub-command.
+        self.stack = stack if spec.get("stack") else None
+        self.call = spec["call"] if isinstance(spec["call"], str) else "?"
         self.sub = parse_expr(spec["sub"]) if spec.get("sub") else None
         self.args = [self.arg(a, encoding) for a in spec.get("args", [])]
         self.by_sub = {int(k): [self.arg(a, encoding) for a in v] for k, v in spec.get("by_sub", {}).items()}
@@ -249,6 +307,9 @@ class Breakpoint:
 
         call = {}
         name = self.call
+        if self.call_by is not None:
+            v = evaluate(self.call_by[0], regs, proc.u32)
+            name = self.call_by[1].get(v, f"?{v:#x}")
         args = self.args
         if self.sub is not None:
             sub = signed(evaluate(self.sub, regs, proc.u32))
@@ -258,6 +319,14 @@ class Breakpoint:
             call["script"] = value(self.script)
         if self.pc is not None:
             call["pc"] = evaluate(self.pc, regs, proc.u32)
+        if self.stack is not None:
+            values = self.stack.read(proc, regs)
+            if values and isinstance(values[-1], int):
+                name = f"{name}.{values.pop()}"
+            call["call"] = name
+            if values:
+                call["args"] = values
+            return call
         call["call"] = name
         values = [value(a) for a in args]
         if values:
@@ -268,7 +337,8 @@ class Breakpoint:
 def run(opts, spec):
     encoding = spec.get("encoding", "cp932")
     image_base = int(str(spec.get("image_base", "0x400000")), 0)
-    bps = [Breakpoint(b, encoding) for b in spec["breakpoints"]]
+    stack = Stack(spec["stack"], encoding) if spec.get("stack") else None
+    bps = [Breakpoint(b, encoding, stack) for b in spec["breakpoints"]]
     si = STARTUPINFO(cb=ctypes.sizeof(STARTUPINFO))
     pi = PROCESS_INFORMATION()
     if not k32.CreateProcessW(opts.exe, None, None, None, False, DEBUG_ONLY_THIS_PROCESS,

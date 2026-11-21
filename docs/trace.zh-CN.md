@@ -21,7 +21,7 @@ silky-run diff expected.json actual.json
 silky-run diff original.json run.json --ignore tick,pc,result --skip MesWnd,Wait --from message:120 --max 5
 ```
 
-第一个文件视为正确的一方。两份记录经过同样的筛选：`--only` 和 `--skip` 接受类（`Sprite`）、调用（`Game.24`）或种类（`message`）；`--from` 让每份记录从第一个匹配的调用开始，可带第一个参数（`message:120`、`Script.0:FK002.MES`）；`--ignore` 把字段排除在比较之外。调用按顺序对应。遇到不同之处时，会把双方之后的调用（`--window`，默认 200）对齐，找出重新一致的位置，因此缺少的调用和改变的调用会作为不同的分歧分别列出：
+第一个文件视为正确的一方。两份记录经过同样的筛选：`--only` 和 `--skip` 接受类（`Sprite`）、调用（`Game.24`）或种类（`message`）；`--from` 让每份记录从第一个匹配的调用开始，可带第一个参数（`message:120`、`Script.0:FK002.MES`）；`--ignore` 把字段排除在比较之外；`--show` 设置每处分歧列出各方多少个调用。调用按顺序对应。遇到不同之处时，会把双方之后的调用（`--window`，默认 200）对齐，找出重新一致的位置，因此缺少的调用和改变的调用会作为不同的分歧分别列出：
 
 ```text
 compared 5 expected and 4 actual calls; the first 1 agree
@@ -68,27 +68,25 @@ divergence 1 at compared call 1 / 1:
 `tools/trace/probe.py` 通过 Win32 调试 API 运行游戏程序（在 Windows 上，或在 Wine 中使用 32 位 Windows 版 Python），在 spec 指定的地址停下，从寄存器和内存读出调用，写出同样格式、`producer.kind` 为 `original` 的文件。对程序唯一的写入是断点字节，每次命中后立即恢复。
 
 ```sh
-wine python.exe tools/trace/probe.py --exe doukyuusei.exe --cwd <游戏目录> \
-    --spec douk.json --out original.json --seconds 300 --arm-after 30 --game Doukyuusei
+wine python.exe tools/trace/probe.py --exe fuyukuru.exe --cwd <游戏目录> \
+    --spec fuyukuru-2026.json --out original.json --seconds 120 --game Fuyukuru
+silky-run diff original.json run.json --ignore tick,script,pc,result
 ```
 
-spec 放在仓库之外。每个断点给出它在程序中的链接地址（`image_base`，默认 0x400000）、调用名，以及子命令、参数和（可选的）脚本与 pc 的表达式。表达式由寄存器、数字、`+`、`-` 和表示该地址处 32 位值的 `[...]` 组成；参数的 `type` 为 `int`、`str`（按 `encoding` 解码、以 NUL 结尾的字符串，默认 CP932）或 `wstr`（UTF-16）：
+一个断点就能覆盖所有引擎调用：引擎的 `native` 处理函数刚弹出类号的位置，此时语句的值仍在脚本的值栈上。spec 给出这个地址（链接地址，默认 `image_base` 为 0x400000）、类号所在的位置、各类号的名字，以及值栈的布局：
 
-```json
-{
-  "name": "doukyuusei 1.0.4.0",
-  "breakpoints": [
-    {
-      "at": "0x...",
-      "call": "Game",
-      "sub": "[esp+4]",
-      "args": [],
-      "by_sub": {"24": [{"read": "[[esp+8]+0x10]", "type": "int"}]}
-    }
-  ]
-}
-```
+| 字段 | 含义 |
+| --- | --- |
+| `breakpoints[].at` | 停下的地址 |
+| `breakpoints[].call` | 调用名，或 `{"read": 表达式, "names": {"1": "Select", ...}}`，按在该处读到的值命名 |
+| `breakpoints[].stack` | `true`：参数就是栈上的值，最后一个是子命令 |
+| `stack.vector` | 栈对象，一个 vector，前两个字是起点和终点 |
+| `stack.size`、`kind`、`int`、`str` | 每个值的大小，及其种类、数字和字符串（MSVC `std::string`）的偏移 |
+| `stack.kinds` | 哪些种类值是数字，哪些是字符串：`{"0": "int", "1": "str"}` |
+| `breakpoints[].sub`、`args`、`by_sub`、`script`、`pc` | 不用 `stack` 时，为每个值写表达式，参数 `type` 为 `int`、`str` 或 `wstr` |
 
-地址来自游戏页面中该版本的地址表（例如 [games/doukyuusei.zh-CN.md](games/doukyuusei.zh-CN.md) 中的 `Game` 命令分派），参数表达式来自对应处理函数的代码。`--arm-after` 让启动过程全速运行，之后再下断点；`--tick` 指定每次调用时读取的帧计数器地址。探针在调用入口读取，因此不写 `result`。
+表达式由寄存器、数字、`+`、`-` 和表示该地址处 32 位值的 `[...]` 组成。`--arm-after` 让启动过程全速运行，之后再下断点；`--tick` 指定每次调用时读取的帧计数器地址。探针在调用执行前停下，因此不写 `result`。各版本的地址和布局见 [builds/](builds/README.zh-CN.md) 中对应的页面。
 
-探针还没有在游戏上实际运行过：每个版本的第一份 spec 仍需根据其程序编写。
+`diff` 会把紧接着重复出现的、最多 8 个调用组成的块只算一次（`--no-squash` 保留原样）：脚本用循环等待声音和渐变，循环次数取决于等待的时间，每次运行以及在 Wine 下都不相同。脚本还会随机选择一些音效，因此即使是原版的两次运行，某些调用的字符串也可能不同。
+
+在《ふゆから、くるる。》（2026 年版）上，探针和 `silky-run snap` 从启动到标题菜单的每个调用都一致，只有两处例外：标志画面的等待循环（无界面运行不播放声音，运行时会立即离开），以及随机选择的音效。

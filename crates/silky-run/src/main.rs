@@ -144,6 +144,13 @@ enum Command {
         /// where they agree again.
         #[arg(long, default_value_t = 200)]
         window: usize,
+        /// Calls shown of each side of a divergence.
+        #[arg(long, default_value_t = 12)]
+        show: usize,
+        /// Keep loops that repeat (waiting for a sound or a fade) as they
+        /// ran, instead of counting each repeated block once.
+        #[arg(long)]
+        no_squash: bool,
     },
 }
 
@@ -221,6 +228,8 @@ fn main() -> Result<()> {
             context,
             max,
             window,
+            show,
+            no_squash,
         } => {
             let read = |p: &PathBuf| {
                 silky_trace::Trace::read(p).with_context(|| format!("reading {}", p.display()))
@@ -231,11 +240,13 @@ fn main() -> Result<()> {
                 only,
                 skip,
                 from,
+                squash: !no_squash,
             };
             let walk = silky_trace::Walk {
                 context,
                 max: max.max(1),
                 window,
+                show,
             };
             let report = silky_trace::diff(&e.calls, &a.calls, &projection, walk);
             print!("{report}");
@@ -277,6 +288,17 @@ fn write_trace(
             kept.push(a);
         }
     }
+    // Other paths (--out, --trace, fonts) by their file name only.
+    let kept: Vec<String> = kept
+        .into_iter()
+        .map(|a| {
+            let path = std::path::Path::new(&a);
+            match (path.is_absolute(), path.file_name()) {
+                (true, Some(name)) => name.to_string_lossy().into_owned(),
+                _ => a,
+            }
+        })
+        .collect();
     t.notes.push(kept.join(" "));
     t.calls = vm.trace_take();
     t.write(path)

@@ -45,6 +45,9 @@ impl Fields {
     }
 }
 
+/// Longest block of calls that [`Projection::squash`] collapses.
+pub const SQUASH: usize = 8;
+
 /// Which calls take part and how they are compared.
 #[derive(Debug, Clone, Default)]
 pub struct Projection {
@@ -57,6 +60,11 @@ pub struct Projection {
     /// Start each side at its first call that matches: `message`, or with
     /// the first argument, `message:120` or `Script.0:FK001.MES`.
     pub from: Option<String>,
+    /// Collapse a block of up to [`SQUASH`] calls repeated right after
+    /// itself into one, on each side: a loop that waits (for a sound, a
+    /// fade, input) runs as many times as the time it takes, which differs
+    /// between runs and under Wine.
+    pub squash: bool,
 }
 
 fn matches(name: &str, pattern: &str) -> bool {
@@ -114,13 +122,29 @@ impl Projection {
                 .unwrap_or(calls.len()),
             None => 0,
         };
-        calls
+        let kept = calls
             .iter()
             .enumerate()
             .skip(start)
             .filter(|(_, c)| self.keeps(c))
-            .map(|(i, c)| (i, self.key(c)))
-            .collect()
+            .map(|(i, c)| (i, self.key(c)));
+        if !self.squash {
+            return kept.collect();
+        }
+        let mut out: Vec<(usize, Call)> = Vec::new();
+        for item in kept {
+            out.push(item);
+            // When the list now ends with a block repeated twice, drop the
+            // second copy.
+            for p in 1..=SQUASH {
+                let n = out.len();
+                if n >= 2 * p && (0..p).all(|k| out[n - 2 * p + k].1 == out[n - p + k].1) {
+                    out.truncate(n - p);
+                    break;
+                }
+            }
+        }
+        out
     }
 }
 
@@ -152,6 +176,8 @@ pub struct Report {
     pub divergences: Vec<Divergence>,
     /// Whether the search stopped at `max` divergences with more to go.
     pub stopped: bool,
+    /// Calls shown of each side of a divergence ([`Walk::show`]).
+    pub show: usize,
 }
 
 impl Report {
@@ -165,6 +191,8 @@ impl Report {
 pub struct Walk {
     /// Calls shown before a divergence.
     pub context: usize,
+    /// Calls shown of each side of a divergence; the rest are counted.
+    pub show: usize,
     /// Divergences reported before stopping.
     pub max: usize,
     /// Calls on each side aligned at a divergence to find where the two
@@ -176,6 +204,7 @@ impl Default for Walk {
     fn default() -> Self {
         Self {
             context: 3,
+            show: 12,
             max: 1,
             window: 200,
         }
@@ -258,6 +287,7 @@ pub fn diff(expected: &[Call], actual: &[Call], projection: &Projection, walk: W
         same_prefix: same_prefix.unwrap_or(e.len().min(a.len())),
         divergences,
         stopped,
+        show: walk.show,
     }
 }
 
@@ -286,11 +316,13 @@ impl fmt::Display for Report {
             for c in &d.before {
                 line(f, " ", c)?;
             }
-            for c in &d.expected {
-                line(f, "-", c)?;
-            }
-            for c in &d.actual {
-                line(f, "+", c)?;
+            for (mark, calls) in [("-", &d.expected), ("+", &d.actual)] {
+                for c in calls.iter().take(self.show) {
+                    line(f, mark, c)?;
+                }
+                if calls.len() > self.show {
+                    writeln!(f, "  {mark} ... {} more", calls.len() - self.show)?;
+                }
             }
             if d.rejoined {
                 writeln!(
@@ -401,6 +433,46 @@ mod tests {
         assert!(r.divergences[0].actual.is_empty());
         assert_eq!(r.divergences[1].expected, [(3, c("G.20", 4))]);
         assert_eq!(r.divergences[1].actual, [(2, c("G.20", 6))]);
+    }
+
+    #[test]
+    fn waiting_loops_are_squashed() {
+        // A wait loop of two calls runs 3 times on one side, once on the
+        // other; a single call repeats 4 times.
+        let e = [
+            c("S.1", 1),
+            c("E.7", 0),
+            c("U.1", 2),
+            c("E.7", 0),
+            c("U.1", 2),
+            c("E.7", 0),
+            c("U.1", 2),
+            c("W.0", 3),
+            c("W.0", 3),
+            c("W.0", 3),
+            c("W.0", 3),
+            c("M.0", 4),
+        ];
+        let a = [
+            c("S.1", 1),
+            c("E.7", 0),
+            c("U.1", 2),
+            c("W.0", 3),
+            c("M.0", 4),
+        ];
+        let squash = Projection {
+            squash: true,
+            ..Projection::default()
+        };
+        assert!(diff(&e, &a, &squash, Walk::default()).same());
+        let r = diff(&e, &a, &Projection::default(), Walk::default());
+        assert!(!r.same());
+        let walk = Walk {
+            show: 2,
+            ..Walk::default()
+        };
+        let text = diff(&e, &a, &Projection::default(), walk).to_string();
+        assert!(text.contains("  - ... 2 more\n"), "{text}");
     }
 
     #[test]
