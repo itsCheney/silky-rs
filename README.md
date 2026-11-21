@@ -1,5 +1,5 @@
 > [!WARNING]
-> Work in progress. Two games run; other Silky Engine games are untested.
+> Work in progress. Four games run; other Silky Engine games are untested.
 
 # silky-rs
 
@@ -13,6 +13,8 @@ A cross-platform reimplementation of the Silky's engine (the "Silky Engine" used
 | --- | --- | --- |
 | ふゆから、くるる。 (2026 international build 1.0.1.0) | All scripts and images decode; every route plays to its ending in English and both Chinese; title, message window, selections, saves, backlog, settings, extras, movies and the effects read from the executable | English text metrics and selection placement not compared with the game; a few effect timings are approximate |
 | きまぐれテンプテーション2 (2024 Japanese build, patch 1.02) | Story text, interface, action menu and map, costume, notebook and collection, extras, E-mote models, H mode | Pin of the button bar; parts of H mode; investigations need the right answers at selections when run headless |
+| 景の海のアペイリア (Japanese build with the official update) | All scripts decode and the story runs to its end; title, message window, selections, ruby, the in-game screens (αMAIL, DNA PC, battle gauges), attack and spell effects, CG, scene and music modes | Fades, slides and particles of the pictures over the scene appear at once; most effects checked in the runtime only, not against the game |
+| 同級生 Remake (Steam, English and Chinese) | Title, the hero's room, the hours dial, the walking maps with map jump and place labels, conversations and selections, the flag list, name entry, character picker, save and load, backlog, settings, the extras (album, memory reel, music, comments) | Other place screens; keyboard focus in selections; some screens not yet compared with the game; a few Chinese text cases |
 | Other Silky Engine games | Not tested; they run on the shared engine and the common commands | Each game adds its own engine commands, which are reported until added (see [docs/adding-a-game.md](docs/adding-a-game.md)) |
 
 Desktop: Windows first; macOS and Linux build and pass the tests in CI. The core crates also build for iOS. Details per game are in [docs/games.md](docs/games.md), shared engine features in [docs/features.md](docs/features.md).
