@@ -415,6 +415,7 @@ fn snap(
     let mut line_no = 0u64;
     let mut title_saved = false;
     let mut selections = 0usize;
+    let mut mail_selects = 0usize;
     let mut action_menus = 0usize;
     let mut maps = 0usize;
     let mut rooms = 0usize;
@@ -565,10 +566,24 @@ fn snap(
                 // Headless: H mode is left at once with its finish button.
                 Some(Pause::HMode) => println!("H mode (finished at once)"),
                 Some(Pause::Choice) => {
-                    let choose = path.get(selections).copied().unwrap_or(choose);
+                    // On the mail forward screen (景の海のアペイリア) the
+                    // default is the first mail not forwarded yet (bytes
+                    // 1050 on), which the story scripts take to go on.
+                    let wanted = rt.scene.mail_select.as_ref().and_then(|m| {
+                        m.rows
+                            .iter()
+                            .position(|&k| m.shown && vm.var_b(1050 + k) == 0)
+                    });
+                    let choose = path.get(selections).copied().or(wanted).unwrap_or(choose);
                     selections += 1;
                     println!("select [{}] -> {}", rt.choices.join(" | "), choose);
-                    if rt.scene.mail_select.as_ref().is_some_and(|m| m.shown) {
+                    let mail = rt.scene.mail_select.as_ref().is_some_and(|m| m.shown);
+                    mail_selects = if mail { mail_selects + 1 } else { 0 };
+                    if mail_selects > 30 {
+                        println!("the mail forward screen keeps coming back; stopped");
+                        break;
+                    }
+                    if mail && mail_selects <= 3 {
                         let scene = settled(&rt.scene, picks.settle);
                         let frame = renderer.render(&scene, &mut rt.assets)?;
                         let path = out.join(format!("mailselect{selections}.png"));
