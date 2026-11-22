@@ -142,6 +142,10 @@ const PANEL_SIZE: (u32, u32) = (958, 518);
 /// The list: a 375 x 468 window of `mail01_p.akb` from (0, 142).
 const LIST: (i32, i32) = (PANEL.0 + 299, PANEL.1 + 50);
 const LIST_SHEET: (u32, u32, u32, u32) = (0, 142, 375, 468);
+/// The list's body is seen down to row 447 of its window; its last 42
+/// rows fade out linearly (measured against Wine), so the white list
+/// ends in the glass instead of in an edge.
+const LIST_FADE: (u32, u32) = (405, 447);
 /// Tray name, 120 x 24, from (0, 662) (inbox) or (0, 686) (sent).
 const TRAY: (i32, i32) = (113, 48);
 /// Newest mail row: 346 x 70 cells, 13 a column, in 692-pixel columns
@@ -208,7 +212,20 @@ impl Mail {
             return Ok(());
         }
         let at = |p: (i32, i32)| (LIST.0 + p.0, LIST.1 + p.1);
-        part(canvas, sq, &list, LIST_SHEET, LIST);
+        let (fade_from, fade_to) = LIST_FADE;
+        let (sx, sy, sw, _) = LIST_SHEET;
+        part(canvas, sq, &list, (sx, sy, sw, fade_from), LIST);
+        for row in fade_from..fade_to {
+            let a = list_fade_alpha(row);
+            part_a(
+                canvas,
+                sq,
+                &list,
+                (sx, sy + row, sw, 1),
+                (LIST.0, LIST.1 + row as i32),
+                a,
+            );
+        }
         let tray_row = if self.tray == 0 { 662 } else { 686 };
         part(canvas, sq, &list, (0, tray_row, 120, 24), at(TRAY));
         if self.newest > 0 {
@@ -282,6 +299,39 @@ fn draw_body(canvas: &mut Canvas, tr: &TextRenderer, body: &str, page: i32) {
     }
 }
 
+/// Opacity of row `row` of the list's window (255 down to the fade's
+/// start, 0 at its end).
+fn list_fade_alpha(row: u32) -> u8 {
+    let (from, to) = LIST_FADE;
+    if row <= from {
+        255
+    } else if row >= to {
+        0
+    } else {
+        (255 * (to - row) / (to - from)) as u8
+    }
+}
+
+/// [`part`] at opacity `alpha`.
+fn part_a(
+    canvas: &mut Canvas,
+    squash: Squash,
+    img: &Arc<Image>,
+    part: (u32, u32, u32, u32),
+    at: (i32, i32),
+    alpha: u8,
+) {
+    match squash {
+        None => canvas.draw_part(img, part, at.0, at.1, false, alpha),
+        Some((mid, k)) => {
+            let (x, w, h) = (at.0 as f32, part.2 as f32, part.3 as f32);
+            let y = mid + (at.1 as f32 - mid) * k;
+            let corners = [[x, y], [x + w, y], [x, y + h * k]];
+            canvas.draw_sprite(Some(img), part, corners, [255, 255, 255, alpha], false);
+        }
+    }
+}
+
 /// Draws `part` of `img` at `at`; `squash` (middle, factor) scales it
 /// vertically about a line while the panel closes.
 fn part(
@@ -303,3 +353,17 @@ fn part(
 }
 
 type Squash = Option<(f32, f32)>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn list_fades_out_at_its_bottom() {
+        assert_eq!(list_fade_alpha(0), 255);
+        assert_eq!(list_fade_alpha(LIST_FADE.0), 255);
+        assert_eq!(list_fade_alpha(LIST_FADE.1), 0);
+        let mid = list_fade_alpha((LIST_FADE.0 + LIST_FADE.1) / 2);
+        assert!((120..=135).contains(&mid));
+    }
+}
