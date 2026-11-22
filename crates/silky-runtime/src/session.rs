@@ -1751,6 +1751,9 @@ impl Session {
     pub fn arrow(&mut self, key: crate::games::apeiria::keys::Arrow) -> Result<Option<(i32, i32)>> {
         use crate::games::apeiria::keys::{self, Move};
         use crate::games::apeiria::omake;
+        if let Some(r) = self.douk_arrow(key) {
+            return Ok(r);
+        }
         if !self.menus.is_apeiria() || self.dialog.is_some() || self.veil.is_some() {
             return Ok(None);
         }
@@ -1784,6 +1787,28 @@ impl Session {
             Move::Stay => {}
         }
         Ok(None)
+    }
+
+    /// Arrow keys on a 同級生 Remake selection: `Some` when one is up (the
+    /// pointer moves to the target, if there is one).
+    fn douk_arrow(
+        &mut self,
+        key: crate::games::apeiria::keys::Arrow,
+    ) -> Option<Option<(i32, i32)>> {
+        use crate::games::doukyuusei::keys;
+        if self.dialog.is_some()
+            || self.screen.is_some()
+            || self.veil.is_some()
+            || self.hmode.is_some()
+        {
+            return None;
+        }
+        let state = self.layout.douk_key_state(&self.ui)?;
+        let to = keys::arrow(&state, key).and_then(|t| self.layout.douk_key_point(&self.ui, t));
+        if let Some((x, y)) = to {
+            self.pointer_move(x, y);
+        }
+        Some(to)
     }
 
     pub fn wheel(&mut self, up: bool) -> Result<()> {
@@ -3115,6 +3140,17 @@ impl Session {
         // 景の海のアペイリア's extras: Enter clicks where the arrow keys
         // put the pointer.
         if self.menus.is_apeiria() && matches!(self.screen, Some(Screen::Extras(_))) {
+            let (x, y) = self.ui.pointer;
+            self.pointer_down(x, y)?;
+            return self.pointer_up(x, y);
+        }
+        // A selection of 同級生 Remake: Enter clicks where the arrow keys
+        // put the pointer.
+        if !self.ui.choices.is_empty()
+            && self.dialog.is_none()
+            && self.screen.is_none()
+            && self.layout.douk_key_state(&self.ui).is_some()
+        {
             let (x, y) = self.ui.pointer;
             self.pointer_down(x, y)?;
             return self.pointer_up(x, y);

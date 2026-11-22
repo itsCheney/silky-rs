@@ -922,6 +922,16 @@ impl Ring {
     }
 }
 
+/// Whether a button of 同級生 Remake's menu is left out: the map jump
+/// shows only on the walking maps, the backlog only with a log, and the
+/// flag list button is hidden in the classic mode.
+fn douk_menu_hidden(ui: &Ui, id: i32) -> bool {
+    let walking = matches!(ui.panel, Some(crate::games::doukyuusei::Panel::Town));
+    (id == bar::MAP && !walking)
+        || (id == bar::BACKLOG && !ui.has_log)
+        || (id == bar::SCHEDULE && ui.classic)
+}
+
 /// Message window buttons of 同級生 Remake: `mes_o.area` ids 0..=4 (skip,
 /// skip all, auto, quick save, quick load) in screen pixels, 5 and 6
 /// (voice, close) relative to the window top; cells of `message_p.akb`,
@@ -1823,6 +1833,106 @@ impl Layout {
         }
     }
 
+    /// What the arrow keys of a 同級生 Remake selection work from; none
+    /// when the game has no such selection up.
+    pub fn douk_key_state(&self, ui: &Ui) -> Option<crate::games::doukyuusei::keys::State> {
+        use crate::games::doukyuusei::keys::{Hover, State};
+        use crate::games::doukyuusei::menu::BUTTONS;
+        use crate::games::doukyuusei::select::{self, NEXT, PREV};
+        self.douk.as_ref()?;
+        if ui.choices.is_empty() {
+            return None;
+        }
+        let count = ui.choices.len();
+        let page = ui.choice_page.min(select::last_page(count));
+        let range = select::page_range(count, page);
+        let (mut focus, mut hover) = (-1, Hover::None);
+        match ui.hover {
+            Some(Button::Choice(i)) if range.contains(&i) => focus = (i - range.start) as i32,
+            Some(Button::ChoicePage(PREV)) => focus = 4,
+            Some(Button::ChoicePage(NEXT)) => focus = 5,
+            Some(Button::Bar(id)) => {
+                if let Some(k) = Self::douk_bottom_id(id) {
+                    hover = Hover::Bottom(k);
+                } else if let Some(k) = BUTTONS.iter().position(|&b| b == id) {
+                    hover = Hover::Menu(k as i32);
+                }
+            }
+            _ => {}
+        }
+        let mut hidden = [false; 7];
+        for (h, &id) in hidden.iter_mut().zip(BUTTONS.iter()) {
+            *h = douk_menu_hidden(ui, id);
+        }
+        Some(State {
+            focus,
+            hover,
+            bars: range.len() as i32,
+            page,
+            last_page: select::last_page(count),
+            menu_open: ui.side_menu,
+            hidden,
+        })
+    }
+
+    /// `mes_o.area` id of a message window button of 同級生 Remake.
+    fn douk_bottom_id(id: i32) -> Option<i32> {
+        Some(match id {
+            bar::SKIP => 0,
+            bar::SKIP_ALL => 1,
+            bar::AUTO => 2,
+            bar::QUICK_SAVE => 3,
+            bar::QUICK_LOAD => 4,
+            bar::VOICE => 5,
+            bar::HIDE => 6,
+            _ => return None,
+        })
+    }
+
+    /// Where the pointer goes for a key target of a 同級生 Remake
+    /// selection, if the element is there: the bars and arrows that are
+    /// shown, the bottom buttons drawn during a selection (not voice and
+    /// close, which go with the window) and the menu buttons that show.
+    pub fn douk_key_point(
+        &self,
+        ui: &Ui,
+        t: crate::games::doukyuusei::keys::Target,
+    ) -> Option<(i32, i32)> {
+        use crate::games::doukyuusei::keys::{Target, MENU_POINTS};
+        use crate::games::doukyuusei::menu::BUTTONS;
+        use crate::games::doukyuusei::select::{self, Bars, Hit};
+        let d = self.douk.as_ref()?;
+        let count = ui.choices.len();
+        let bars = Bars::on_page(&ui.choices, ui.choice_page);
+        match t {
+            Target::Bar(i) => {
+                let i = bars.range.start + usize::try_from(i).ok()?;
+                bars.range.contains(&i).then(|| bars.centre(Hit::Bar(i)))
+            }
+            Target::Prev => select::prev_shown(count, bars.page).then(|| bars.centre(Hit::Prev)),
+            Target::Next => select::next_shown(count, bars.page).then(|| bars.centre(Hit::Next)),
+            Target::Bottom(k) => {
+                let id = d
+                    .buttons
+                    .iter()
+                    .map(|b| b.0)
+                    .find(|&id| Self::douk_bottom_id(id) == Some(k))?;
+                if matches!(id, bar::VOICE | bar::HIDE) {
+                    return None;
+                }
+                let a = d.buttons.iter().find(|b| b.0 == id)?.1;
+                Some(((a.left + a.right) / 2, (a.top + a.bottom) / 2))
+            }
+            Target::Menu(k) => {
+                let k = usize::try_from(k).ok()?;
+                d.menu.as_ref()?;
+                let id = *BUTTONS.get(k)?;
+                let shown = ui.plate_up() && (k == 0 || ui.side_menu) && !douk_menu_hidden(ui, id);
+                shown.then(|| MENU_POINTS[k])
+            }
+        }
+    }
+
     /// Button under a point (screen pixels).
     pub fn hit(&self, ui: &Ui, text_shown: bool, x: i32, y: i32) -> Option<Button> {
         if let (Some(m), true) = (
@@ -1935,16 +2045,9 @@ impl Layout {
         if let (Some(plate), Some(d), true) = (&ui.plate, &self.douk, ui.plate_up()) {
             plate.draw(canvas, assets, self.language)?;
             if let Some(m) = &d.menu {
-                use crate::games::doukyuusei::{menu::HIDDEN, Panel};
-                let walking = matches!(ui.panel, Some(Panel::Town));
+                use crate::games::doukyuusei::menu::HIDDEN;
                 m.draw(canvas, assets, ui.side_menu, |id| {
-                    // The map jump shows only on the walking maps, the
-                    // backlog only with a log.
-                    // The flag list button is hidden in the classic mode.
-                    if (id == bar::MAP && !walking)
-                        || (id == bar::BACKLOG && !ui.has_log)
-                        || (id == bar::SCHEDULE && ui.classic)
-                    {
+                    if douk_menu_hidden(ui, id) {
                         return HIDDEN;
                     }
                     let b = Button::Bar(id);

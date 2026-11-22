@@ -207,6 +207,15 @@ impl Bars {
         self.bar_top(self.range.end.saturating_sub(1)) + BAR_H + ARROW_GAP
     }
 
+    /// The middle of a bar or arrow.
+    pub fn centre(&self, h: Hit) -> (i32, i32) {
+        match h {
+            Hit::Bar(i) => (self.left + self.width / 2, self.bar_top(i) + BAR_H / 2),
+            Hit::Prev => (ARROW_X + ARROW_W / 2, PAGED_TOP + ARROW_H / 2),
+            Hit::Next => (ARROW_X + ARROW_W / 2, self.next_top() + ARROW_H / 2),
+        }
+    }
+
     pub fn hit(&self, x: i32, y: i32) -> Option<Hit> {
         let inside =
             |x0: i32, y0: i32, w: i32, h: i32| x >= x0 && x < x0 + w && y >= y0 && y < y0 + h;
