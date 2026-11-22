@@ -295,6 +295,10 @@ pub struct Runtime {
     pub map: Option<crate::games::kimaten2::map::Map>,
     /// The screen of 同級生 Remake that is up.
     pub panel: Option<crate::games::doukyuusei::Panel>,
+    /// The colour covering the screen when 同級生 Remake's name entry
+    /// opened: the page shows the background, and the cover comes back
+    /// when it is done.
+    pub cover_under_name: Option<u32>,
     /// 同級生 Remake: the walking map loaded (`Game.20`).
     pub town: Option<crate::games::doukyuusei::town::Town>,
     /// Sprite animations (class 19, subs 16 to 28).
@@ -376,6 +380,7 @@ impl Runtime {
             actions: Vec::new(),
             map: None,
             panel: None,
+            cover_under_name: None,
             town: None,
             sprites: Default::default(),
             then: None,
@@ -688,6 +693,9 @@ impl Runtime {
     /// on without a result.
     pub fn finish_name(&mut self, vm: &mut Vm, name: &str) {
         self.panel = None;
+        if let Some(c) = self.cover_under_name.take() {
+            self.scene.cover = Some(c);
+        }
         Self::store_hero_name(vm, name);
     }
 

@@ -205,8 +205,10 @@ impl Runtime {
             }
             (NAME, _) => {
                 self.panel = Some(Panel::Name(super::name::Name::new(self.config.language)));
-                // The page shows the background the script put up.
-                self.scene.cover = None;
+                // The page shows the background the script put up; the
+                // screen stays covered under it, as the scripts find
+                // afterwards.
+                self.cover_under_name = self.scene.cover.take();
                 self.scene.text = None;
                 self.wait_for(crate::host::Pause::Panel)
             }
