@@ -18,6 +18,39 @@ The engine of `apeiria.exe` 1.0.3.0 (景の海のアペイリア), linked 2017-1
 | `Save.3`, `Save.8` | Return a value | Return nothing |
 | `HEffect` (class 17) | Plays sounds like `Effect` (scripts) | Not done |
 
+## Trace probe
+
+Addresses in the program as linked (image base 0x400000), for `tools/trace/probe.py` ([trace.md](../trace.md)). Checked under Wine in the first chapters.
+
+| What | Where |
+| --- | --- |
+| Script opcode switch (opcode 0x18 goes to the `native` handler, 0x19 to `message`) | 0x4b2a95 (byte table 0x4b2e34, jump table 0x4b2d74) |
+| `native` handler; pops the class, then a switch on class − 1 | 0x49e0a0 |
+| Breakpoint: class popped, statement still on the stack | 0x49e103 (`eax` = class, `esi` = the script object, its value stack a vector at its start) |
+| Value pop: copies the top value, 0x20 bytes; kind at +0 (0 number, 1 string), number at +4, `std::string` at +8 | 0x4b2e90 |
+| `message` handler (a breakpoint here marks each message) | 0x4b2c00 |
+
+The spec for this build:
+
+```json
+{
+  "name": "apeiria 1.0.3.0 (2017)",
+  "stack": {"vector": "esi", "size": 32, "kind": 0, "int": 4, "str": 8, "kinds": {"0": "int", "1": "str"}},
+  "breakpoints": [
+    {"at": "0x49e103", "stack": true, "call": {"read": "eax", "names": {
+      "1": "Select", "2": "MesWnd", "3": "Shake", "10": "Font", "11": "Value", "12": "Mouse",
+      "13": "Anime", "14": "Flag", "15": "Music", "16": "Effect", "17": "HEffect", "18": "Voice",
+      "19": "Sprite", "20": "Screen", "21": "Script", "22": "BackLog", "23": "Movie", "24": "OneMes",
+      "25": "Xml", "26": "Ui", "27": "Save", "28": "Wait", "29": "Game"}}},
+    {"at": "0x4b2c00", "call": "message"}
+  ]
+}
+```
+
+Breakpoints at the start and end of a routine time it: with `--clock`, the hologram's show (0x467eb0, ending at 0x4681ab) was timed this way ([apeiria.md](../games/apeiria.md)).
+
+The program reads `apeiria_inst.xml` from `AppData\Roaming\SilkysPlus\apeiria` and stops at once if `InstallPath` there is not set; its saves and settings go to the `Save` folder next to it. With every bit of `onemes.dat` there set, holding Ctrl skips the story to the place to trace.
+
 ## Games
 
 - [景の海のアペイリア](../games/apeiria.md)

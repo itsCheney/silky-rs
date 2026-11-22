@@ -357,6 +357,9 @@ def run(opts, spec):
     by_address = {}
     stepping = {}  # thread id -> breakpoint to put back after one step
     calls, errors = [], []
+    # Each call as it is read, one per line, for a script that drives the
+    # game to watch.
+    live = open(opts.live, "w", encoding="utf-8") if opts.live else None
     armed = False
     ev = DEBUG_EVENT()
     try:
@@ -392,7 +395,12 @@ def run(opts, spec):
                         if call is not None:
                             if opts.tick is not None:
                                 call = {"tick": proc.u32(opts.tick - image_base + proc.base), **call}
+                            elif opts.clock:
+                                call = {"tick": int((time.monotonic() - start) * 1000), **call}
                             calls.append(call)
+                            if live is not None:
+                                live.write(json.dumps(call, ensure_ascii=False) + "\n")
+                                live.flush()
                     except (OSError, ValueError) as e:
                         errors.append(f"{b.call} at {addr:#x}: {e}")
                     # Run the original instruction once, then put the
@@ -448,6 +456,9 @@ def main():
                    help="seconds to run before the breakpoints go in (skip the start-up)")
     p.add_argument("--tick", type=lambda s: int(s, 0),
                    help="address of a frame counter to write as each call's tick")
+    p.add_argument("--live", help="also write each call to this file as it happens, one per line")
+    p.add_argument("--clock", action="store_true",
+                   help="write the milliseconds since the start as each call's tick")
     p.add_argument("--game", help="game name for the trace header (as the runtime names it)")
     opts = p.parse_args()
     if k32 is None:

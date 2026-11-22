@@ -2,7 +2,7 @@
 
 use silky_vm::{Flow, Vm};
 
-use super::holo::Holo;
+use super::holo::{Fade, Holo, Lights, FADE_IN_FRAMES, WIPE_RULE};
 use super::mail::Mail;
 use super::panels::{Battle, Swarm};
 use crate::games::Call;
@@ -528,14 +528,43 @@ impl Runtime {
                 holo.faces.retain(|x| !x.eq_ignore_ascii_case(&f));
                 holo.faces.push(f);
             }
-            // (how): 0 with light particles, 1 at once, 2 fading in.
-            (2, 1) => holo.shown = !holo.body.is_empty(),
-            // (time): fade out, then 5: gone.
-            (3, 1) | (5, 0) => {
-                holo.shown = false;
-                holo.body.clear();
-                holo.faces.clear();
+            // (way): 0 wiping in among specks of light, 1 at once, 2
+            // fading in, over 12 frames; the script goes on. Up already,
+            // she stays as she is (a new picture shows at once).
+            (2, 1) => {
+                let was = holo.shown;
+                holo.shown = !holo.body.is_empty();
+                if holo.shown && !was {
+                    holo.fade = None;
+                    holo.lights = None;
+                    match c.int(0) {
+                        0 => {
+                            holo.fade = Some(Fade::wipe(WIPE_RULE, FADE_IN_FRAMES));
+                            let seed = self.scene.effects.rng ^ self.handled as u32;
+                            holo.lights = Some(Lights::new(holo.middle(), seed));
+                        }
+                        2 => holo.fade = Some(Fade::new(0, 255, FADE_IN_FRAMES, false)),
+                        _ => {}
+                    }
+                }
             }
+            // (time): she and the panel fade out over `time` frames while
+            // the script waits, then she is gone.
+            (3, 1) => {
+                if !holo.shown {
+                    holo.remove();
+                    return self.done();
+                }
+                let fade = Fade::new(255, 0, c.int(0), true);
+                holo.fade = Some(fade);
+                return self.wait_for(crate::host::Pause::Transition(crate::host::Transition {
+                    ms: fade.length_ms() as u32,
+                    rule: None,
+                    spin: None,
+                    live: true,
+                }));
+            }
+            (5, 0) => holo.remove(),
             // (dx, dy, time): move her picture.
             (4, 3) => holo.offset = (holo.offset.0 + c.int(0), holo.offset.1 + c.int(1)),
             // (half): panel picture.

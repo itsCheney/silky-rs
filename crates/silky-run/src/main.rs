@@ -487,6 +487,10 @@ fn snap(
                             println!("{}", path.display());
                         }
                     }
+                    // So do the hologram's fades.
+                    if let Some(holo) = &mut rt.scene.holo {
+                        holo.finish();
+                    }
                     // Second steps of effects end at once too.
                     while rt.follow_up() {
                         rt.pause = None;

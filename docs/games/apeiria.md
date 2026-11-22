@@ -24,7 +24,7 @@ All 171 scripts decode; the story text is in the scripts (no MAP tables). Headle
 - αMAIL, the in-game mail screen (`Game.1012`), read from the executable: the phone frame (`SLD.akb`) and the mail list of `mail01_p.akb` with the tray label (sub 0, list A or B), the newest mail row (byte 1200 or 1400, set by sub 11), the "new mail" notice with its count (subs 5 and 6), the selected row (subs 8 and 9) and the open mail on `mail02_p.akb` with its body text (subs 3 and 4), scrolled by pages of 381 pixels (sub 10). Sub 7 puts the Apeiria system window in the panel instead of the list, at (309, 36); sub 14 puts a mail in the first free byte of 1400 to 1499. Places were checked against Wine; the body wrap width is a guess.
 - Standing characters, read from the executable: the slot gives the centre (slot 1 at -400, 2 and 3 at +400 from the middle), and the top edge is (1 - size) · a - size · k with a and k by character (`chNN`). Checked against Wine.
 - The window portrait (`Game.10` subs 6, 8, 11 to 13): the face of the body picture, cut by a window per character and drawn at 45 % at (-144, 440), with cheeks over it; the name plate moves to x = 210 while it is up. Characters take cheeks (`Game.13.6`), move at once (13.8) and change body in place (13.13).
-- Apeiria on the hologram panel (`Game.1013`): the top or bottom half of `sld_mini.akb` under the characters and, over it, a window of her picture at half size with the expressions drawn over it; on the top half she is at 230 / 255 opacity. Checked against Wine.
+- Apeiria on the hologram panel (`Game.1013`): the top or bottom half of `sld_mini.akb` under the characters and, over it, a window of her picture at half size with the expressions drawn over it; on the top half she is at 230 / 255 opacity. Checked against Wine. Her coming and going, read from the executable: way 0 of sub 2 wipes her picture in from the middle through rule 47 (`47.bin`, laid over the panel) over 12 frames while 50 specks of `light.akb` rise from the bottom of the screen into the panel (`CMiniLightAnime`); way 2 fades her in over 12 frames; sub 3 fades her and the panel out over the frames it is given while the script waits. Shown again while she is up, she stays as she is. The wipe and specks were not seen under Wine yet: in the stretch traced she first comes while the screen changes.
 - Pictures over the scene: copies of one picture at fixed spots (`Game.995`, the virus swarms; tables for 1, 2, 4, 8, 16 and 32 copies, scaled about their centres), the deduction board at (132, 15) (`Game.994`), the notes panel `k01_0N.akb` at (145, 0) and the explanation screen over `kbg.akb` (`Game.996`), the item panel at the left, its bottom at y = 495 (`Game.997`).
 - The DNA PC (`Game.1014`): its screen goes into the background, the monitor over it, and the system window at (305, 37) is pieced from `apeirasystem.akb`.
 - The HP gauges of the battles (`Game.1015`): five gauges cut from `hp.akb`, green from half, orange from a tenth, red below, a skull at 0; steps queued with sub 4 run with sub 9. Sub 6 (id, interval, count, delta, gauge) moves a gauge's HP by delta every interval milliseconds, count times, kept between 1 and 100 and ending at 1; sub 7 (id, gauge) stops it. The original also writes the HP to word variables 100 to 104, which the scripts do not read.
@@ -45,7 +45,8 @@ All 171 scripts decode; the story text is in the scripts (no MAP tables). Headle
 
 ## Not done yet
 
-- Fades, slides and particles of the pictures over the scene (995 to 997, 1012 to 1015) are not done; they appear and go at once.
+- Fades, slides and particles of the pictures over the scene (995 to 997, 1012, 1014, 1015) are not done; they appear and go at once.
+- Under Wine the original holds the script 0.6 to 0.8 seconds inside each way-0 show of the hologram while the screen is up, also when she is up already (timed with the trace probe); where that wait comes from is not read yet, and here the script goes on.
 - Of the effects above, only `Game.1001` sub 1 was compared frame by frame with the original under Wine; the rest follow the executable's code and were checked in the runtime only.
 - Kind 14 of `Game.998` and spells 4 and 6 of `Game.1002` are drawn into the background by the original; here they are sprites kept until the next background. A screen left covered by spell 0 or an increasing spell 1 likewise stays until the background changes.
 
@@ -67,6 +68,8 @@ Addresses in `apeiria.exe` of the build above. The code itself does not name the
 | αMAIL object: sheets loaded | 0x477ba0 |
 | αMAIL subs 0, 1, 2, 3, 4, 5, 6, 8/9 | 0x4783b0, 0x477db0, 0x478060, 0x4788a0, 0x478bf0, 0x478e60, 0x479200, 0x479480 |
 | Hologram (`Game.1013`) handler; her place, the panel's place | 0x491550; 0x468410, 0x468480 |
+| Hologram: show (sub 2), fade out (sub 3), take away | 0x467eb0, 0x4681c0, 0x467720 |
+| Light specks (`CMiniLightAnime`): set up, first specks, step, start again | 0x468660, 0x4689b0, 0x4688a0, 0x468c90 |
 | Window portrait: face windows | 0x4625b0 |
 | `Game.12`, `Game.13`, `Game.14` handlers | 0x48c710, 0x48ca40, 0x48d0e0 |
 | Copies of a picture (`Game.995`): handler, set up, show, hide; spot tables | 0x48dad0, 0x487700, 0x487950, 0x487ce0; 0x574c60 (by count through 0x4891b0) |

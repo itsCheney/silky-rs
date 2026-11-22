@@ -3698,6 +3698,12 @@ impl Session {
             self.base = None;
             self.frame = None;
         }
+        if let Some(holo) = &mut self.rt.scene.holo {
+            if holo.advance(ms) {
+                self.base = None;
+                self.frame = None;
+            }
+        }
         self.shown_ms += ms;
         if self.state == State::Busy {
             // Several short steps (input polls) may fit in one tick.

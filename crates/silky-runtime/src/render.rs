@@ -176,6 +176,9 @@ pub struct Renderer {
     /// 景の海のアペイリア: the picture on the hologram panel, by its
     /// state.
     holo: Option<(crate::games::apeiria::holo::Holo, Arc<Image>)>,
+    /// Rule pictures of the hologram's wipe laid over the panel, by rule
+    /// and the panel's place.
+    rules: std::collections::HashMap<(u32, i32, i32), Option<Arc<Vec<u8>>>>,
     /// Pictures with their opacity scaled, by name and opacity.
     faded: HashMap<(String, u8), Arc<Image>>,
     /// 景の海のアペイリア: pictures its effects made.
@@ -209,6 +212,7 @@ impl Renderer {
             emote_gpu: None,
             snow: None,
             holo: None,
+            rules: std::collections::HashMap::new(),
             faded: HashMap::new(),
             effects: Default::default(),
             douk_font: None,
@@ -838,9 +842,12 @@ impl Renderer {
         let (px, py) = holo.panel_at();
         let (w, h) = PANEL_SIZE;
         let half = (holo.panel.clamp(0, 1) as u32) * h;
-        canvas.draw_part(&panel, (0, half, w, h), px, py, false, 255);
+        let (her, panel_alpha) = holo.fade_alpha();
+        canvas.draw_part(&panel, (0, half, w, h), px, py, false, panel_alpha);
         let key = crate::games::apeiria::holo::Holo {
             offset: (0, 0),
+            fade: None,
+            lights: None,
             ..holo.clone()
         };
         let img = match &self.holo {
@@ -862,8 +869,61 @@ impl Renderer {
                 img
             }
         };
+        let img = if her < 255 {
+            crate::games::apeiria::panels::faded(&img, her)
+        } else {
+            img
+        };
         let (x, y) = holo.window_at();
-        canvas.draw_scaled(&img, x, y, holo.factor());
+        match holo.wipe() {
+            // She wipes in over what is drawn so far.
+            Some((rule, t)) => {
+                let from = canvas.clone();
+                canvas.draw_scaled(&img, x, y, holo.factor());
+                // The rule picture is the panel's size in the top left
+                // corner of a screen: it is laid over the panel.
+                let mask = self
+                    .rules
+                    .entry((rule, px, py))
+                    .or_insert_with(|| {
+                        let data = assets.data(&format!("{rule:02}.bin")).ok()?;
+                        let (sw, sh) = (canvas.width as i32, canvas.height as i32);
+                        let mut m = vec![255u8; (sw * sh) as usize];
+                        for y in 0..h as i32 {
+                            for x in 0..w as i32 {
+                                let (dx, dy) = (px + x, py + y);
+                                if dx < 0 || dy < 0 || dx >= sw || dy >= sh {
+                                    continue;
+                                }
+                                if let Some(&v) = data.get((y * 1280 + x) as usize) {
+                                    m[(dy * sw + dx) as usize] = v;
+                                }
+                            }
+                        }
+                        Some(Arc::new(m))
+                    })
+                    .clone();
+                *canvas = Canvas::blend_shared(&from, canvas, t, mask);
+            }
+            None => canvas.draw_scaled(&img, x, y, holo.factor()),
+        }
+        if let Some(lights) = &holo.lights {
+            let light = assets.image(crate::games::apeiria::holo::LIGHT)?;
+            let (w, h) = (light.width as f32, light.height as f32);
+            for p in &lights.specks {
+                let Some((x, y, a)) = p.at else { continue };
+                let k = p.size as f32 / 100.0;
+                let (x, y) = (x as f32, y as f32);
+                let corners = [[x, y], [x + w * k, y], [x, y + h * k]];
+                canvas.draw_sprite(
+                    Some(&light),
+                    (0, 0, light.width, light.height),
+                    corners,
+                    [255, 255, 255, a],
+                    true,
+                );
+            }
+        }
         Ok(())
     }
 

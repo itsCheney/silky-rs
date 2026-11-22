@@ -18,6 +18,24 @@
 | `Save.3`、`Save.8` | 返回值 | 不返回值 |
 | `HEffect`（类 17） | 像 `Effect` 一样播放音效（来自脚本） | 未实现 |
 
+## 调用记录探针
+
+程序链接地址（映像基址 0x400000），供 `tools/trace/probe.py` 使用（见 [trace.zh-CN.md](../trace.zh-CN.md)）。已在 Wine 下核对前几章。
+
+| 内容 | 地址 |
+| --- | --- |
+| 脚本操作码分派（操作码 0x18 进入 `native` 处理函数，0x19 进入 `message`） | 0x4b2a95（字节表 0x4b2e34，跳转表 0x4b2d74） |
+| `native` 处理函数；弹出类号，再按 类号 − 1 分派 | 0x49e0a0 |
+| 断点：类号已弹出，语句的值仍在栈上 | 0x49e103（`eax` = 类号，`esi` = 脚本对象，开头就是它的值栈 vector） |
+| 弹出值：复制栈顶的值，每个 0x20 字节；+0 为种类（0 数字，1 字符串），+4 为数字，+8 为 `std::string` | 0x4b2e90 |
+| `message` 处理函数（在这里下断点可标出每条消息） | 0x4b2c00 |
+
+这个版本的 spec 见英文页面。
+
+在一个函数的开头和结尾各下一个断点就能给它计时：用 `--clock` 这样测出了全息面板显示（0x467eb0，结束于 0x4681ab）所用的时间（见 [apeiria.zh-CN.md](../games/apeiria.zh-CN.md)）。
+
+程序从 `AppData\Roaming\SilkysPlus\apeiria` 读取 `apeiria_inst.xml`，其中 `InstallPath` 没有设置时立即停止；存档和设置在它旁边的 `Save` 文件夹中。把那里 `onemes.dat` 的每一位都设为 1 后，按住 Ctrl 就能把剧情快进到要记录的地方。
+
 ## 游戏
 
 - [景の海のアペイリア](../games/apeiria.zh-CN.md)
