@@ -600,6 +600,17 @@ impl Renderer {
                 z => canvas.draw_scaled(&img, x as f32, y as f32, z as f32 / 100.0),
             }
         }
+        // 景の海のアペイリア: what the effects drew into the background.
+        for paint in &scene.panels.painted {
+            use crate::games::apeiria::panels::Paint;
+            match paint {
+                Paint::Fill(c) => {
+                    let rgba = [(c >> 16) as u8, (c >> 8) as u8, *c as u8, 255];
+                    canvas.fill(0, 0, canvas.width, canvas.height, rgba);
+                }
+                Paint::Picture(name) => canvas.draw(&assets.image(name)?, 0, 0, false),
+            }
+        }
         for name in scene.overlays.values() {
             let img = assets.image(name)?;
             canvas.draw(&img, 0, 0, true);

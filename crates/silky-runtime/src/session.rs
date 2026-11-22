@@ -1022,9 +1022,19 @@ impl Session {
         if busy.is_some() && self.state == State::Busy {
             // Effects the script waited for end with the wait.
             self.rt.scene.effects.settle();
+            self.take_painted();
             self.run()?;
         }
         Ok(())
+    }
+
+    /// Moves what the effects drew into the background to the scene.
+    fn take_painted(&mut self) {
+        for paint in self.rt.scene.effects.take_painted() {
+            self.rt.scene.panels.paint(paint);
+            self.base = None;
+            self.frame = None;
+        }
     }
 
     /// Goes on from the current message.
@@ -3699,6 +3709,7 @@ impl Session {
             self.base = None;
             self.frame = None;
         }
+        self.take_painted();
         if let Some(holo) = &mut self.rt.scene.holo {
             if holo.advance(ms) {
                 self.base = None;

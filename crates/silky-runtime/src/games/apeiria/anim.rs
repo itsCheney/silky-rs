@@ -314,9 +314,15 @@ pub struct Stage {
     /// Sprites of an effect built to be started later, with their
     /// keyframes, by command and number.
     pub sets: BTreeMap<(u32, u32), Vec<(u32, Vec<Key>)>>,
-    /// Sprites standing for what the executable draws into the
-    /// background: they go with it.
+    /// Sprites left covering the screen: they go when the background
+    /// changes.
     pub until_background: Vec<u32>,
+    /// Sprites that are drawn into the background once their keyframes
+    /// end, with what is drawn.
+    pub to_background: Vec<(u32, super::panels::Paint)>,
+    /// What was drawn into the background and is not handed over yet
+    /// (see [`Stage::take_painted`]).
+    painted: Vec<super::panels::Paint>,
     /// Random numbers for the effects that scatter things.
     pub rng: u32,
     /// Counts the changes, so that two stages compare equal while
@@ -365,15 +371,51 @@ impl Stage {
             .retain(|g| !gone.contains(g) || self.sprites.iter().any(|s| s.group == *g));
     }
 
-    /// The background changed: takes off what was drawn into the old one.
+    /// The background changed: what was to be drawn into the old one is
+    /// not drawn.
     pub fn background_changed(&mut self) {
-        if self.until_background.is_empty() {
+        let ids: Vec<u32> = std::mem::take(&mut self.to_background)
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        self.painted.clear();
+        let covers = std::mem::take(&mut self.until_background);
+        let ids: Vec<u32> = ids.into_iter().chain(covers).collect();
+        if ids.is_empty() {
             return;
         }
-        let ids = std::mem::take(&mut self.until_background);
         self.version += 1;
         self.sprites.retain(|s| !ids.contains(&s.id));
         self.users.retain(|_, u| !ids.contains(&u.sprite()));
+    }
+
+    /// What was drawn into the background since the last call.
+    pub fn take_painted(&mut self) -> Vec<super::panels::Paint> {
+        std::mem::take(&mut self.painted)
+    }
+
+    /// Sprites whose keyframes are all over go into the background.
+    fn paint_ended(&mut self) {
+        if self.to_background.is_empty() {
+            return;
+        }
+        let ended: Vec<u32> = self
+            .sprites
+            .iter()
+            .filter(|s| s.active == 0 && !s.keys.is_empty() && s.next >= s.keys.len())
+            .map(|s| s.id)
+            .collect();
+        let mut i = 0;
+        while i < self.to_background.len() {
+            if ended.contains(&self.to_background[i].0) {
+                let (id, paint) = self.to_background.remove(i);
+                self.painted.push(paint);
+                self.sprites.retain(|s| s.id != id);
+                self.users.retain(|_, u| u.sprite() != id);
+            } else {
+                i += 1;
+            }
+        }
     }
 
     /// Takes up a program of steps, up to its first wait.
@@ -417,6 +459,11 @@ impl Stage {
     }
 
     fn take_steps(&mut self) {
+        self.take_queued();
+        self.paint_ended();
+    }
+
+    fn take_queued(&mut self) {
         while let Some(step) = self.queue.front().cloned() {
             match step {
                 Step::Wait(g) if self.running.contains(&g) => return,
@@ -739,5 +786,30 @@ mod tests {
         assert_eq!(st.sprites.len(), 1);
         st.advance(10 * TICK_MS);
         assert!(st.sprites.is_empty());
+    }
+
+    #[test]
+    fn a_sprite_goes_into_the_background_as_it_ends() {
+        use super::super::panels::Paint;
+        let mut st = stage(vec![Key::new(3).show(true).fade(0, 255)]);
+        st.to_background.push((1, Paint::Fill(0x123456)));
+        st.advance(2 * TICK_MS);
+        assert_eq!(st.sprites.len(), 1);
+        assert!(st.take_painted().is_empty());
+        st.advance(10 * TICK_MS);
+        assert!(st.sprites.is_empty());
+        assert_eq!(st.take_painted(), [Paint::Fill(0x123456)]);
+        assert!(st.take_painted().is_empty());
+    }
+
+    #[test]
+    fn a_new_background_drops_what_was_not_drawn_yet() {
+        use super::super::panels::Paint;
+        let mut st = stage(vec![Key::new(30).show(true).fade(0, 255)]);
+        st.to_background.push((1, Paint::Fill(0)));
+        st.background_changed();
+        assert!(st.sprites.is_empty());
+        st.settle();
+        assert!(st.take_painted().is_empty());
     }
 }

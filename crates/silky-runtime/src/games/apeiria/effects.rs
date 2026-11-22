@@ -6,6 +6,7 @@
 //! See `docs/games/apeiria.md` for what each one shows.
 
 use super::anim::{Key, Look, Sprite, Stage, Step};
+use super::panels::Paint;
 
 /// The commands, which own the sprites they put up.
 pub const ATTACK: u32 = 998;
@@ -1010,8 +1011,10 @@ pub fn screen_effect(st: &mut Stage, sub: i32, ints: &[i32], strs: &[String]) {
 
 /// `Game.1002` (`sub`, numbers, words): spells, each played to its end
 /// (the script waits). What the executable draws into the background
-/// stays until the background changes, and so does a screen left covered
-/// in a colour. Gives back `Some(None)` when the screen is no longer
+/// is drawn into [`Panels::painted`](super::panels::Panels) as the
+/// sprite ends; a screen left covered in a colour (spell 0, an
+/// increasing spell 1) is a sprite over everything. Both stay until the
+/// background changes. Gives back `Some(None)` when the screen is no longer
 /// covered.
 pub fn spell(st: &mut Stage, sub: i32, ints: &[i32], strs: &[String]) -> Option<Option<u32>> {
     const O: u32 = SPELL;
@@ -1115,7 +1118,7 @@ pub fn spell(st: &mut Stage, sub: i32, ints: &[i32], strs: &[String]) -> Option<
         4 => {
             let s = b.sprite(fill(0xff3b010c), 8);
             b.play(vec![(s, vec![Key::new(128).show(true).fade(0, 255)])], true);
-            b.st.until_background.push(s);
+            b.st.to_background.push((s, Paint::Fill(0x3b010c)));
         }
         // (frames, colour), 10 (picture, frames): a light up over the
         // frames, and down after 4 more.
@@ -1177,7 +1180,7 @@ pub fn spell(st: &mut Stage, sub: i32, ints: &[i32], strs: &[String]) -> Option<
                 vec![(s, vec![Key::new(frames).turning(0, 360, at).user(u)])],
                 true,
             );
-            b.st.until_background.push(s);
+            b.st.to_background.push((s, Paint::Picture(second)));
         }
         // (0, 1): a burst grows to 2.5 times its size over 24 frames; two
         // more pictures come up over 32 frames after 32 and 64.
@@ -1304,9 +1307,10 @@ pub fn attack(st: &mut Stage, sub: i32, ints: &[i32]) {
             let ids: Vec<u32> = st
                 .sprites
                 .iter()
-                .filter(|s| s.owner == O && !st.until_background.contains(&s.id))
+                .filter(|s| s.owner == O)
                 .map(|s| s.id)
                 .collect();
+            st.to_background.retain(|(s, _)| !ids.contains(s));
             st.play(vec![Step::Remove(ids)]);
             st.sets.retain(|k, _| k.0 != O);
             st.slots.retain(|k, _| k.0 != O);
@@ -1319,11 +1323,8 @@ pub fn attack(st: &mut Stage, sub: i32, ints: &[i32]) {
 fn drop_attack(st: &mut Stage, id: u32) {
     st.slots.remove(&(ATTACK, id));
     if let Some(keys) = st.sets.remove(&(ATTACK, id)) {
-        let ids: Vec<u32> = keys
-            .iter()
-            .map(|(s, _)| *s)
-            .filter(|s| !st.until_background.contains(s))
-            .collect();
+        let ids: Vec<u32> = keys.iter().map(|(s, _)| *s).collect();
+        st.to_background.retain(|(s, _)| !ids.contains(s));
         st.play(vec![Step::Remove(ids)]);
     }
 }
@@ -1669,9 +1670,9 @@ fn build_attack(b: &mut Build, kind: i32, a: &[i32], kept: bool) -> Vec<(u32, Ve
             b.adding(s);
             vec![(s, twice(8))]
         }
-        // An event picture changing nine times, each over 48 frames. The
-        // executable draws each into the background, so they stay when
-        // the attack is taken off.
+        // An event picture changing nine times, each over 48 frames. Each
+        // is drawn into the background as it ends, so they stay when the
+        // attack is taken off.
         14 => {
             let mut out = vec![];
             let names = (1..10)
@@ -1684,7 +1685,7 @@ fn build_attack(b: &mut Build, kind: i32, a: &[i32], kept: bool) -> Vec<(u32, Ve
                     key = key.wait(48 * k as i32);
                 }
                 out.push((s, vec![key]));
-                b.st.until_background.push(s);
+                b.st.to_background.push((s, Paint::Picture(name)));
             }
             let holder = b.sprite(Look::Nothing, 0);
             out.push((holder, vec![Key::new(624).show(true)]));
@@ -2001,4 +2002,68 @@ fn corners(s: &Sprite, w: f32, h: f32) -> [[f32; 2]; 3] {
         ]
     };
     [at(0.0, 0.0), at(w, 0.0), at(0.0, h)]
+}
+
+#[cfg(test)]
+mod paint_tests {
+    use super::super::anim::TICK_MS;
+    use super::*;
+
+    fn painted(st: &mut Stage) -> Vec<Paint> {
+        st.settle();
+        st.take_painted()
+    }
+
+    #[test]
+    fn spells_paint_the_background_and_leave_no_sprite() {
+        let mut st = Stage::default();
+        spell(&mut st, 4, &[], &[]);
+        assert_eq!(painted(&mut st), [Paint::Fill(0x3b010c)]);
+        assert!(st.sprites.is_empty());
+
+        // Spells 0 and 1 leave a cover sprite until the background
+        // changes.
+        spell(&mut st, 0, &[], &[]);
+        assert!(painted(&mut st).is_empty());
+        assert_eq!(st.sprites.len(), 1);
+        spell(&mut st, 1, &[1, 64, 10], &[]);
+        assert!(painted(&mut st).is_empty());
+        assert_eq!(st.sprites.len(), 2);
+        st.background_changed();
+        assert!(st.sprites.is_empty());
+
+        // Coming back from black draws nothing.
+        spell(&mut st, 1, &[64, 1, 10], &[]);
+        assert!(painted(&mut st).is_empty());
+    }
+
+    #[test]
+    fn spell_six_paints_its_second_picture() {
+        let mut st = Stage::default();
+        let strs = ["a.akb".to_string(), "b.akb".to_string()];
+        spell(&mut st, 6, &[640, 360, 10], &strs);
+        assert_eq!(painted(&mut st), [Paint::Picture("b.akb".into())]);
+        assert!(st.sprites.is_empty());
+    }
+
+    #[test]
+    fn kind_fourteen_paints_each_picture_in_turn() {
+        let mut st = Stage::default();
+        attack(&mut st, 1, &[1, 14]);
+        attack(&mut st, 2, &[1]);
+        // Not played yet: nothing painted.
+        assert!(st.take_painted().is_empty());
+        st.advance(48 * 3 * TICK_MS);
+        let first = st.take_painted();
+        assert!(!first.is_empty() && first.len() < 10);
+        assert_eq!(first[0], Paint::Picture("ev1701_h01.akb".into()));
+        st.advance(1000 * TICK_MS);
+        let rest = st.take_painted();
+        assert_eq!(first.len() + rest.len(), 10);
+        assert_eq!(rest.last(), Some(&Paint::Picture("ev1701.akb".into())));
+        // Taking the attack off leaves what was painted.
+        attack(&mut st, 4, &[]);
+        st.settle();
+        assert!(st.take_painted().is_empty());
+    }
 }

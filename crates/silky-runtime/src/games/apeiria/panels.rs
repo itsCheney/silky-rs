@@ -51,6 +51,18 @@ pub struct Panels {
     /// A mail header and its text drawn into this background (992 sub
     /// 1): background, cell, text, page.
     pub note: Option<(String, i32, String, i32)>,
+    /// What the attack and spell effects drew into this background
+    /// (998 kind 14, 1002 subs 0, 1, 4 and 6), in the order drawn.
+    pub painted: Vec<Paint>,
+}
+
+/// Something drawn into the background over its whole screen.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum Paint {
+    /// The screen in a colour (0xRRGGBB).
+    Fill(u32),
+    /// A picture of the screen's size.
+    Picture(String),
 }
 
 impl Panels {
@@ -141,6 +153,16 @@ impl Panels {
     /// The background changed: what was drawn into the old one goes.
     pub fn background_changed(&mut self) {
         self.explain_kept = None;
+        self.painted.clear();
+    }
+
+    /// Draws into the background; a colour over the whole screen hides
+    /// all that was drawn before it.
+    pub fn paint(&mut self, paint: Paint) {
+        if matches!(paint, Paint::Fill(_)) {
+            self.painted.clear();
+        }
+        self.painted.push(paint);
     }
 }
 
@@ -1069,5 +1091,24 @@ mod drain_tests {
         assert_eq!(p.dna.as_mut().unwrap().fade(0), 0);
         p.advance(0);
         assert!(p.dna.is_none());
+    }
+}
+
+#[cfg(test)]
+mod paint_tests {
+    use super::*;
+
+    #[test]
+    fn a_colour_hides_what_was_before_and_a_background_clears_all() {
+        let mut p = Panels::default();
+        p.paint(Paint::Picture("a.akb".into()));
+        p.paint(Paint::Fill(0));
+        p.paint(Paint::Picture("b.akb".into()));
+        assert_eq!(p.painted.len(), 2);
+        let json = serde_json::to_string(&p).unwrap();
+        let back: Panels = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.painted, p.painted);
+        p.background_changed();
+        assert!(p.painted.is_empty());
     }
 }
