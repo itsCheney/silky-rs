@@ -182,12 +182,9 @@ pub(crate) fn nothing_to_do(class: i32, sub: i32) -> bool {
             // Select.0(-1): selection settings; the selection itself is
             // `Game.20`.
             | (1, 0)
-            // The original rebuilds its scene after a load from a store of
-            // variables (Save.2 reads one, 4 writes, 5 and 6 delete) and
-            // keeps its own backlog (BackLog.0..3) and message records
-            // (MesWnd.3 with `Game.23` text); this runtime saves the scene
-            // and keeps its own backlog.
-            | (27, 2 | 4 | 5 | 6)
+            // The original keeps its own backlog (BackLog.0..3) and message
+            // records (MesWnd.3 with `Game.23` text); this runtime keeps its
+            // own backlog. (Its store of variables, `Save`, is `store.rs`.)
             | (BACKLOG, 0..=3)
             | (MESWND, 3)
     )

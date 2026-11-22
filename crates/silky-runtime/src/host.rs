@@ -26,6 +26,7 @@ const HEFFECT_CHANNELS: i32 = 100;
 const MESWND: i32 = 2;
 const MOUSE: i32 = 12;
 const FLAG: i32 = 14;
+const SAVE: i32 = 27;
 const BACKLOG: i32 = 22;
 const XML: i32 = 25;
 
@@ -1263,6 +1264,15 @@ impl Host for Runtime {
                     if let Some(changed) = crate::flag::call(&mut self.system.flags, vm, sub, &args)
                     {
                         self.system_changed |= changed;
+                        self.handled += 1;
+                        return Ok(Flow::Continue);
+                    }
+                }
+                if class == SAVE && matches!(title, Title::Fuyukuru | Title::Apeiria) {
+                    if let Some(r) = self.scene.store.call(sub, &args) {
+                        if let Some(v) = r {
+                            vm.push(v);
+                        }
                         self.handled += 1;
                         return Ok(Flow::Continue);
                     }

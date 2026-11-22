@@ -192,6 +192,8 @@ pub struct Scene {
     /// Snow falls (ふゆから、くるる。, command 115).
     #[serde(default)]
     pub snow: bool,
+    /// The engine's store of variables (class `Save`, see [`crate::store`]).
+    pub store: crate::store::Store,
     /// 景の海のアペイリア's attack and spell effects (commands 998, 1000,
     /// 1001, 1002). Not saved.
     #[serde(skip)]

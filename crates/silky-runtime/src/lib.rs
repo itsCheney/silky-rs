@@ -29,6 +29,7 @@ pub mod scene;
 pub mod screens;
 pub mod session;
 pub mod sprite;
+pub mod store;
 pub mod system;
 pub mod text;
 pub mod ui;

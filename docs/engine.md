@@ -41,7 +41,7 @@ Each game links its own copy of the engine, and the engine classes changed betwe
 | 24 | OneMes | Not done yet |
 | 25 | Xml | Settings the original reads from its XML file |
 | 26 | Ui | Waits and per-frame polls |
-| 27 | Save | The runtime saves the scene itself |
+| 27 | Save | The store of variables the scripts rebuild the scene from after a load: `2 (table, key, default)` reads, `4 (table, key, value, 0)` writes, `5 (table, key)` and `6 (key)` delete (from one table, from all). Done in ふゆから、くるる。 and 景の海のアペイリア, kept in the scene so saves hold it; the runtime also saves the scene itself |
 | 28 | Wait | Not done yet |
 | 29 | Game | Per game, see [game-commands.md](game-commands.md) |
 
