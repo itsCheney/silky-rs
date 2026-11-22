@@ -15,8 +15,8 @@
 //! `flag_data.rs` (see `docs/games/doukyuusei.md`) and run against the
 //! story state when the list opens: a base list, flags that mark an event
 //! done (its day and time are then words the story kept), and flags that
-//! move or lock later ones. Flags set together are applied one after the
-//! other, which matches the rules where they act alone only. A girl's
+//! move later ones. Flags set together are applied one after the other, and
+//! several flags of one slot each make an event done (see [`records`]). A girl's
 //! conditional extra event is added by hand (see [`records`]). The jump to
 //! an event ([`start_event`]) sets the story state the event expects; the
 //! session then drops what is up and starts the event's script.
