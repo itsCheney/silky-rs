@@ -213,8 +213,11 @@ impl Runtime {
             991 | 1003 => self.done(),
             // (file) / (): a movie of a character changing clothes over
             // the scene (`chNN_chg.vsd`), played when movies are on; 1
-            // closes it. Not played: the scene stays as with movies off.
-            CHANGE_MOVIE if matches!(c.sub, 0 | 1) => self.done(),
+            // closes it. `Movie.3` plays what is set up and answers 1.
+            CHANGE_MOVIE if matches!(c.sub, 0 | 1) => {
+                self.movie = c.str(0).filter(|_| c.sub == 0);
+                self.done()
+            }
             // (): the list of conclusions drawn into the background
             // layer (see [`super::panels::CONCLUSIONS_SHEET`]).
             992 if c.sub == 0 => {
