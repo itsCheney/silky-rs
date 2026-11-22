@@ -487,9 +487,13 @@ fn snap(
                             println!("{}", path.display());
                         }
                     }
-                    // So do the hologram's fades.
+                    // So do the hologram's and the panels' fades.
                     if let Some(holo) = &mut rt.scene.holo {
                         holo.finish();
+                    }
+                    rt.scene.panels.finish();
+                    if rt.scene.mail.as_mut().is_some_and(|m| m.finish()) {
+                        rt.scene.mail = None;
                     }
                     // Second steps of effects end at once too.
                     while rt.follow_up() {

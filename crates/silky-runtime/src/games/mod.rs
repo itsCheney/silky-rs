@@ -237,6 +237,7 @@ impl Runtime {
                 scene.background = c.str(0);
                 scene.town = None;
                 scene.effects.background_changed();
+                scene.panels.background_changed();
                 if let Some(name) = &scene.background {
                     self.system
                         .seen

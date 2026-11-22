@@ -1,8 +1,9 @@
 //! The αMAIL screen of 景の海のアペイリア (`Game.1012`), read from the
 //! executable: a glass panel (`SLD.akb`) with the mail list
 //! (`mail01_p.akb`), a "new mail" notice and an open mail
-//! (`mail02_p.akb`), or the Apeiria system window. The opening and
-//! closing animations are not done; the parts appear at once.
+//! (`mail02_p.akb`), or the Apeiria system window. The panel wipes in
+//! from its middle with rising light specks and closes by shrinking to
+//! a tenth of its height.
 
 use std::sync::Arc;
 
@@ -33,6 +34,96 @@ pub struct Mail {
     /// The panel holds the Apeiria system window instead of the list
     /// (sub 7, with the mode its animation takes).
     pub system: Option<i32>,
+    /// The panel opening or closing.
+    pub anim: Option<MailAnim>,
+    /// Light specks rising into it as it opens.
+    pub lights: Option<super::holo::Lights>,
+}
+
+/// The panel opening (sub 1): it wipes in through rule picture 46 (the
+/// panel's size, lighter outwards) over 64 frames while light specks
+/// rise into it; or closing (sub 2): over 16 frames its height goes to a
+/// tenth about its middle (479, 259), and it is gone. The script waits
+/// for either.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct MailAnim {
+    pub opening: bool,
+    /// Time since the start.
+    pub ms: u64,
+}
+
+/// Rule picture of the panel wiping in.
+pub const WIPE_RULE: u32 = 46;
+const CLOSE_FRAMES: i32 = 16;
+
+impl MailAnim {
+    pub fn frames(&self) -> i32 {
+        if self.opening {
+            super::holo::MAIL_FRAMES
+        } else {
+            CLOSE_FRAMES
+        }
+    }
+
+    pub fn length_ms(&self) -> u64 {
+        self.frames() as u64 * super::anim::TICK_MS
+    }
+
+    pub fn done(&self) -> bool {
+        self.ms >= self.length_ms()
+    }
+
+    /// How far it is, 0 to 1.
+    pub fn progress(&self) -> f32 {
+        let n = self.frames();
+        (self.ms / super::anim::TICK_MS).min(n as u64) as f32 / n as f32
+    }
+}
+
+impl Mail {
+    /// Starts the panel opening or closing; the time the script waits.
+    pub fn animate(&mut self, opening: bool, seed: u32) -> u64 {
+        let a = MailAnim { opening, ms: 0 };
+        self.anim = Some(a);
+        self.lights = opening.then(|| super::holo::Lights::mail(seed));
+        a.length_ms()
+    }
+
+    /// Steps the animation: whether it moved, and whether the panel is
+    /// gone.
+    pub fn advance(&mut self, ms: u64) -> (bool, bool) {
+        let Some(a) = &mut self.anim else {
+            return (false, false);
+        };
+        a.ms += ms;
+        let done = a.done();
+        let closed = done && !a.opening;
+        if let Some(l) = &mut self.lights {
+            l.advance(ms);
+            if l.done() {
+                self.lights = None;
+            }
+        }
+        if done {
+            self.anim = None;
+            self.lights = None;
+        }
+        (true, closed)
+    }
+
+    /// Ends the animation at once; whether the panel is gone.
+    pub fn finish(&mut self) -> bool {
+        let closed = self.anim.is_some_and(|a| !a.opening);
+        self.anim = None;
+        self.lights = None;
+        closed
+    }
+
+    /// The panel's top left and size.
+    pub fn panel() -> ((i32, i32), (u32, u32)) {
+        (PANEL, PANEL_SIZE)
+    }
 }
 
 /// The system window in the panel (sub 7): the pieces of the DNA PC's
@@ -97,19 +188,29 @@ impl Mail {
         let list = assets.image("mail01_p.akb")?;
         let glass = assets.image("sld.akb")?;
         let (pw, ph) = PANEL_SIZE;
-        canvas.draw_part(&glass, (0, 0, pw, ph), PANEL.0, PANEL.1, false, 255);
+        let sq = self.anim.filter(|a| !a.opening).map(|a| {
+            let mid = (PANEL.1 + PANEL_SIZE.1 as i32 / 2) as f32;
+            (mid, 1.0 - 0.9 * a.progress())
+        });
+        part(canvas, sq, &glass, (0, 0, pw, ph), PANEL);
         if self.system.is_some() {
             use super::panels::{SYSTEM_PARTS, SYSTEM_SHEET};
             let sheet = assets.image(SYSTEM_SHEET)?;
             for (src, (dx, dy)) in SYSTEM_PARTS {
-                part(canvas, &sheet, src, (SYSTEM_AT.0 + dx, SYSTEM_AT.1 + dy));
+                part(
+                    canvas,
+                    sq,
+                    &sheet,
+                    src,
+                    (SYSTEM_AT.0 + dx, SYSTEM_AT.1 + dy),
+                );
             }
             return Ok(());
         }
         let at = |p: (i32, i32)| (LIST.0 + p.0, LIST.1 + p.1);
-        part(canvas, &list, LIST_SHEET, LIST);
+        part(canvas, sq, &list, LIST_SHEET, LIST);
         let tray_row = if self.tray == 0 { 662 } else { 686 };
-        part(canvas, &list, (0, tray_row, 120, 24), at(TRAY));
+        part(canvas, sq, &list, (0, tray_row, 120, 24), at(TRAY));
         if self.newest > 0 {
             let i = self.newest as u32 - 1;
             let picked = if self.selected == Some(0) {
@@ -119,19 +220,20 @@ impl Mail {
             };
             let x = 1067 + 692 * (i / 13) + picked;
             let y = ROW_SIZE.1 * (i % 13);
-            part(canvas, &list, (x, y, ROW_SIZE.0, ROW_SIZE.1), at(ROW));
+            part(canvas, sq, &list, (x, y, ROW_SIZE.0, ROW_SIZE.1), at(ROW));
         }
-        part(canvas, &list, OLDER_SHEET, at(OLDER));
-        part(canvas, &list, OLDER_MORE_SHEET, at(OLDER_MORE));
-        part(canvas, &list, SCROLL_SHEET, at(SCROLL));
+        part(canvas, sq, &list, OLDER_SHEET, at(OLDER));
+        part(canvas, sq, &list, OLDER_MORE_SHEET, at(OLDER_MORE));
+        part(canvas, sq, &list, SCROLL_SHEET, at(SCROLL));
         if let Some(n) = self.notice {
-            part(canvas, &list, NOTICE_SHEET, NOTICE);
+            part(canvas, sq, &list, NOTICE_SHEET, NOTICE);
             let n = n.clamp(0, 9) as u32;
             let d = (NOTICE.0 + DIGIT.0, NOTICE.1 + DIGIT.1);
-            part(canvas, &list, (375 + 33 * n, 341, 33, 41), d);
+            part(canvas, sq, &list, (375 + 33 * n, 341, 33, 41), d);
             let (wx, wy, sx, sy, w, h) = WING;
             part(
                 canvas,
+                sq,
                 &list,
                 (sx, sy, w, h),
                 (NOTICE.0 + wx, NOTICE.1 + wy),
@@ -139,7 +241,7 @@ impl Mail {
         }
         if let Some(body) = &self.body {
             let sheet = assets.image("mail02_p.akb")?;
-            part(canvas, &sheet, BODY_SHEET, BODY);
+            part(canvas, sq, &sheet, BODY_SHEET, BODY);
             if let Some(tr) = text {
                 let page = self.body_page;
                 tr.with_wide_advance(1.0, |tr| draw_body(canvas, tr, body, page));
@@ -180,6 +282,24 @@ fn draw_body(canvas: &mut Canvas, tr: &TextRenderer, body: &str, page: i32) {
     }
 }
 
-fn part(canvas: &mut Canvas, img: &Arc<Image>, part: (u32, u32, u32, u32), at: (i32, i32)) {
-    canvas.draw_part(img, part, at.0, at.1, false, 255);
+/// Draws `part` of `img` at `at`; `squash` (middle, factor) scales it
+/// vertically about a line while the panel closes.
+fn part(
+    canvas: &mut Canvas,
+    squash: Squash,
+    img: &Arc<Image>,
+    part: (u32, u32, u32, u32),
+    at: (i32, i32),
+) {
+    match squash {
+        None => canvas.draw_part(img, part, at.0, at.1, false, 255),
+        Some((mid, k)) => {
+            let (x, w, h) = (at.0 as f32, part.2 as f32, part.3 as f32);
+            let y = mid + (at.1 as f32 - mid) * k;
+            let corners = [[x, y], [x + w, y], [x, y + h * k]];
+            canvas.draw_sprite(Some(img), part, corners, [255; 4], false);
+        }
+    }
 }
+
+type Squash = Option<(f32, f32)>;

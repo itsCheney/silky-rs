@@ -875,7 +875,8 @@ impl Session {
             self.frame = None;
         }
         if let Some(b) = self.rt.scene.panels.battle.as_mut() {
-            if !b.drains.is_empty() && b.advance(clock) {
+            let drained = !b.drains.is_empty() && b.advance(clock);
+            if b.step(clock) || drained {
                 self.base = None;
                 self.frame = None;
             }
@@ -3703,6 +3704,20 @@ impl Session {
                 self.base = None;
                 self.frame = None;
             }
+        }
+        if let Some(m) = &mut self.rt.scene.mail {
+            let (moved, closed) = m.advance(ms);
+            if closed {
+                self.rt.scene.mail = None;
+            }
+            if moved {
+                self.base = None;
+                self.frame = None;
+            }
+        }
+        if self.rt.scene.panels.advance(ms) {
+            self.base = None;
+            self.frame = None;
         }
         self.shown_ms += ms;
         if self.state == State::Busy {

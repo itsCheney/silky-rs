@@ -4,7 +4,7 @@ use silky_vm::{Flow, Vm};
 
 use super::holo::{Fade, Holo, Lights, FADE_IN_FRAMES, WIPE_RULE};
 use super::mail::Mail;
-use super::panels::{Battle, Swarm};
+use super::panels::{Battle, ItemAnim, Swarm, Tween, WindowAnim};
 use crate::games::Call;
 use crate::host::Runtime;
 
@@ -83,6 +83,19 @@ impl Runtime {
             }
             _ => self.done(),
         }
+    }
+
+    /// Waits `ms` while the screen goes on changing.
+    fn live_wait(&mut self, ms: u64) -> Option<silky_vm::Result<Flow>> {
+        if ms == 0 {
+            return self.done();
+        }
+        self.wait_for(crate::host::Pause::Transition(crate::host::Transition {
+            ms: ms as u32,
+            rule: None,
+            spin: None,
+            live: true,
+        }))
     }
 
     /// `Game.993`: 0 sets the shake up, 2 (kind) picks its steps, 3
@@ -306,12 +319,22 @@ impl Runtime {
                 scene.background = Some(MONITOR_SCREEN.into());
                 scene.panels.monitor = true;
             }
-            // The system window opens (1) and closes (2); 3 takes the
-            // monitor away too.
-            (1, 0) => scene.panels.system = true,
-            (2, 0) => scene.panels.system = false,
+            // The system window opens (1) and closes (2) while the script
+            // waits; 3 takes it and the monitor away at once.
+            (1 | 2, 0) => {
+                let opening = c.sub == 1;
+                if opening {
+                    scene.panels.system = true;
+                } else if !scene.panels.system {
+                    return self.done();
+                }
+                let a = WindowAnim::new(opening);
+                scene.panels.system_anim = Some(a);
+                return self.live_wait(a.length_ms());
+            }
             (3, 0) => {
                 scene.panels.system = false;
+                scene.panels.system_anim = None;
                 scene.panels.monitor = false;
             }
             // A strand of DNA scrolling in the window (4) and its progress
@@ -322,22 +345,29 @@ impl Runtime {
         self.done()
     }
 
-    /// `Game.1015`, the HP gauges. Their slides are not done.
+    /// `Game.1015`, the HP gauges.
     fn battle(&mut self, c: &Call) -> Option<silky_vm::Result<Flow>> {
         let battle = &mut self.scene.panels.battle;
         let gauge = |i: i32| usize::try_from(i).ok().filter(|i| *i < 5);
         match (c.sub, c.args.len()) {
             // Sets the gauges up, out of view.
             (0, 0) => *battle = Some(Battle::default()),
-            // (gauge): slides it in (1) or out (2).
+            // (gauge): slides it in (1) or out (2) over 16 frames.
             (1 | 2, 1) => {
                 if let (Some(b), Some(i)) = (battle.as_mut(), gauge(c.int(0))) {
-                    b.shown[i] = c.sub == 1;
+                    b.slide(i, c.sub == 1);
                 }
             }
-            // (hp, gauge): moves (3) or sets (5) its HP.
-            (3 | 5, 2) => {
+            // (hp, gauge): moves its HP there over 128 frames (3) or sets
+            // it (5).
+            (3, 2) => {
                 if let (Some(b), Some(i)) = (battle.as_mut(), gauge(c.int(1))) {
+                    b.move_hp(i, c.int(0));
+                }
+            }
+            (5, 2) => {
+                if let (Some(b), Some(i)) = (battle.as_mut(), gauge(c.int(1))) {
+                    b.hp_moves[i] = None;
                     b.hp[i] = c.int(0);
                 }
             }
@@ -394,11 +424,13 @@ impl Runtime {
         match (c.sub, c.args.len()) {
             // (alpha, size, count, file): new copies, hidden.
             (0, 4) => *swarm = Some(Swarm::new(c.str(3)?, c.int(2), c.int(1), c.int(0))),
-            // (time, wave, to, from): fade copies in; with wave 1 the first
-            // of them comes in rippling.
-            (1, 4) | (2, 4) => {
+            // (time, wave, to, from): copies fade in (1) or out (2) over
+            // `time` frames while the script waits; with wave 1 the first
+            // of them wavers as it goes.
+            (1 | 2, 4) => {
                 if let Some(s) = swarm {
-                    s.set(c.int(3), c.int(2), c.sub == 1);
+                    let ms = s.change(c.int(3), c.int(2), c.sub == 1, c.int(0), c.int(1) == 1);
+                    return self.live_wait(ms);
                 }
             }
             (3, 0) => *swarm = None,
@@ -433,18 +465,78 @@ impl Runtime {
             (EXPLAIN, 2, 1) => p.notes = Some(c.int(0)),
             // The explanation screen: 10 sets it up, 11 drops it.
             (EXPLAIN, 10, 0) => {}
-            (EXPLAIN, 11, 0) => p.explain = None,
-            // (file) at once (12) or with a wipe (15); (time, file) fading
-            // (14); (time, rule, file) through a rule (13, 19).
-            (EXPLAIN, 12 | 15, 1) => p.explain = c.str(0),
-            (EXPLAIN, 14, 2) => p.explain = c.str(1),
-            (EXPLAIN, 13 | 19, 3) => p.explain = c.str(2),
-            // 16 stops the transition, 17 fades the screen in, 18 keeps it
-            // in the picture layer.
-            (EXPLAIN, 16 | 17, 0) | (EXPLAIN, 18, 1) => {}
-            // (file): the item panel slides in; 1 takes it away.
-            (ITEM, 0, 1) => p.item = c.str(0),
-            (ITEM, 1, 0) => p.item = None,
+            (EXPLAIN, 11, 0) => {
+                p.explain = None;
+                p.explain_fade = None;
+                p.explain_over = None;
+            }
+            // (file) at once.
+            (EXPLAIN, 12, 1) => p.explain = c.str(0),
+            // (time, file) and (time, rule, file): the new screen fades in
+            // over the old one in `time` frames while the script waits
+            // (the rule is not used).
+            (EXPLAIN, 13, 3) | (EXPLAIN, 14, 2) => {
+                let file = c.str(c.args.len() - 1)?;
+                let t = Tween::once(c.int(0), 0, 255);
+                let ms = t.length_ms();
+                p.explain_over = Some((file, t));
+                return self.live_wait(ms);
+            }
+            // (file): the new screen blinks over the old one until sub 16:
+            // after 42 frames it fades out over 8, and after 128 more in
+            // over 8.
+            (EXPLAIN, 15, 1) => {
+                let keys = vec![(0, 1, 255, 255), (42, 8, 255, 0), (128, 8, 0, 255)];
+                p.explain_over = Some((c.str(0)?, Tween::looping(keys)));
+            }
+            // (time, _, file): the new screen fades in over `time` frames
+            // again and again until sub 16.
+            (EXPLAIN, 19, 3) => {
+                let keys = vec![(0, 1, 255, 255), (0, c.int(0), 0, 255)];
+                p.explain_over = Some((c.str(2)?, Tween::looping(keys)));
+            }
+            // Stops the blinking where it is.
+            (EXPLAIN, 16, 0) => {
+                if let Some((_, t)) = &mut p.explain_over {
+                    t.stop();
+                }
+            }
+            // The screen fades out over 12 frames while the script waits.
+            (EXPLAIN, 17, 0) => {
+                if let Some((_, t)) = &mut p.explain_over {
+                    t.stop();
+                }
+                if p.explain.is_some() {
+                    let t = Tween::once(12, 255, 0);
+                    let ms = t.length_ms();
+                    p.explain_fade = Some(t);
+                    return self.live_wait(ms);
+                }
+            }
+            // (layer): the screen is drawn into the background (0) or the
+            // picture layer (1) and stays there until the background
+            // changes.
+            (EXPLAIN, 18, 1) => {
+                if let Some((_, t)) = &mut p.explain_over {
+                    t.stop();
+                }
+                p.explain_kept = p.explain.take();
+            }
+            // (file): the item panel opens; 1 closes it. The script waits
+            // for either.
+            (ITEM, 0, 1) => {
+                p.item = c.str(0);
+                let a = ItemAnim::new(true);
+                p.item_anim = Some(a);
+                return self.live_wait(a.length_ms());
+            }
+            (ITEM, 1, 0) => {
+                if p.item.is_some() {
+                    let a = ItemAnim::new(false);
+                    p.item_anim = Some(a);
+                    return self.live_wait(a.length_ms());
+                }
+            }
             _ => return None,
         }
         self.done()
@@ -529,8 +621,8 @@ impl Runtime {
                 holo.faces.push(f);
             }
             // (way): 0 wiping in among specks of light, 1 at once, 2
-            // fading in, over 12 frames; the script goes on. Up already,
-            // she stays as she is (a new picture shows at once).
+            // fading in, over 12 frames while the script waits. Up
+            // already, she stays as she is (a new picture shows at once).
             (2, 1) => {
                 let was = holo.shown;
                 holo.shown = !holo.body.is_empty();
@@ -545,6 +637,9 @@ impl Runtime {
                         }
                         2 => holo.fade = Some(Fade::new(0, 255, FADE_IN_FRAMES, false)),
                         _ => {}
+                    }
+                    if let Some(f) = holo.fade {
+                        return self.live_wait(f.length_ms());
                     }
                 }
             }
@@ -588,8 +683,24 @@ impl Runtime {
                     ..Mail::default()
                 });
             }
-            (1, 0) => mail.get_or_insert_with(Mail::default).shown = true,
-            (2, 0) => *mail = None,
+            // The panel opens, or closes and goes, while the script
+            // waits.
+            (1, 0) => {
+                let seed = self.scene.effects.rng ^ self.handled as u32;
+                let m = mail.get_or_insert_with(Mail::default);
+                m.shown = true;
+                let ms = m.animate(true, seed);
+                return self.live_wait(ms);
+            }
+            (2, 0) => match mail {
+                Some(m) if m.shown => {
+                    m.notice = None;
+                    m.body = None;
+                    let ms = m.animate(false, 0);
+                    return self.live_wait(ms);
+                }
+                _ => *mail = None,
+            },
             (3, 1) => {
                 let text = c.str(0)?.replace("\\n", "\n");
                 mail.get_or_insert_with(Mail::default).body = Some(text);

@@ -75,6 +75,12 @@ const LIGHT_FRAMES: i32 = 4;
 /// wide as the panel is times how far the specks are (up to 510 pixels)
 /// and between y 154 and 483, after up to one frame. None starts in the
 /// last 4 frames.
+///
+/// The αMAIL panel's specks (`Game.1012` sub 1) work the same way with
+/// other numbers ([`Lights::mail`]): 64 frames, each speck 8 frames
+/// long, from (640, 720); the first ones end at y 259, the later ones
+/// in a band up to 880 pixels wide between y 20 and 479, after up to 6
+/// frames each time; none starts in the last 8 frames.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct Lights {
@@ -86,7 +92,40 @@ pub struct Lights {
     pub rng: u32,
     /// Time not yet stepped.
     pub carry: u64,
+    /// The αMAIL panel's specks.
+    pub mail: bool,
 }
+
+/// The numbers of a kind of [`Lights`].
+struct Spec {
+    frames: i32,
+    speck: i32,
+    first_y: i32,
+    band: (i32, i32),
+    width: f32,
+    delay: i32,
+}
+
+const HOLO_SPEC: Spec = Spec {
+    frames: FADE_IN_FRAMES,
+    speck: LIGHT_FRAMES,
+    first_y: 549,
+    band: (154, 330),
+    width: 510.0,
+    delay: 2,
+};
+
+/// Frames of the αMAIL panel wiping in.
+pub const MAIL_FRAMES: i32 = 64;
+
+const MAIL_SPEC: Spec = Spec {
+    frames: MAIL_FRAMES,
+    speck: 8,
+    first_y: 259,
+    band: (20, 460),
+    width: 880.0,
+    delay: 7,
+};
 
 /// One speck of [`Lights`].
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -116,10 +155,32 @@ fn rand(rng: &mut u32, n: i32) -> i32 {
 
 impl Lights {
     pub fn new(middle: i32, seed: u32) -> Self {
+        Self::make(middle, seed, false)
+    }
+
+    /// The αMAIL panel's specks.
+    pub fn mail(seed: u32) -> Self {
+        Self::make(640, seed, true)
+    }
+
+    fn spec(&self) -> &'static Spec {
+        if self.mail {
+            &MAIL_SPEC
+        } else {
+            &HOLO_SPEC
+        }
+    }
+
+    fn make(middle: i32, seed: u32, mail: bool) -> Self {
         let mut rng = seed;
+        let first_y = if mail {
+            MAIL_SPEC.first_y
+        } else {
+            HOLO_SPEC.first_y
+        };
         let specks = (0..LIGHT_COUNT)
             .map(|_| {
-                let to = (middle - 16 + rand(&mut rng, 16), 549);
+                let to = (middle - 16 + rand(&mut rng, 16), first_y);
                 let delay = rand(&mut rng, 7);
                 let size = rand(&mut rng, 25) + 25;
                 Light {
@@ -138,39 +199,41 @@ impl Lights {
             middle,
             rng,
             carry: 0,
+            mail,
         }
     }
 
     /// Whether it is over.
     pub fn done(&self) -> bool {
-        self.frame >= FADE_IN_FRAMES
+        self.frame >= self.spec().frames
     }
 
-    /// One frame: `f` from 1 to [`FADE_IN_FRAMES`].
+    /// One frame: `f` from 1 to the number of frames.
     fn step(&mut self) {
         self.frame += 1;
-        let (f, n) = (self.frame, FADE_IN_FRAMES);
+        let spec = self.spec();
+        let (f, n, len) = (self.frame, spec.frames, spec.speck);
         let middle = self.middle;
         for p in &mut self.specks {
-            if p.frame == 0 && n - f < LIGHT_FRAMES {
+            if p.frame == 0 && n - f < len {
                 continue;
             }
             if p.delay > 0 {
                 p.delay -= 1;
                 continue;
             }
-            let x = (p.to.0 - p.from.0) * p.frame / LIGHT_FRAMES + p.from.0;
-            let y = (p.to.1 - p.from.1) * p.frame / LIGHT_FRAMES + p.from.1;
-            let alpha = 255.0 - p.frame as f32 * 255.0 / LIGHT_FRAMES as f32;
+            let x = (p.to.0 - p.from.0) * p.frame / len + p.from.0;
+            let y = (p.to.1 - p.from.1) * p.frame / len + p.from.1;
+            let alpha = 255.0 - p.frame as f32 * 255.0 / len as f32;
             p.at = Some((x, y, alpha as u8));
             p.frame += 1;
-            if p.frame > LIGHT_FRAMES {
-                let end_y = rand(&mut self.rng, 330) + 154;
-                let w = (f as f32 / n as f32 * 510.0) as i32;
+            if p.frame > len {
+                let end_y = rand(&mut self.rng, spec.band.1) + spec.band.0;
+                let w = (f as f32 / n as f32 * spec.width) as i32;
                 let dx = rand(&mut self.rng, w);
                 p.from = (middle, 720);
                 p.to = (middle - w / 2 + dx, end_y);
-                p.delay = rand(&mut self.rng, 2);
+                p.delay = rand(&mut self.rng, spec.delay);
                 p.frame = 0;
             }
         }

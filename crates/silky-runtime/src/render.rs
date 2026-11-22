@@ -766,25 +766,50 @@ impl Renderer {
         if let Some(s) = &p.swarm {
             let spots = spots(s.shown.len());
             let f = s.factor();
-            for (i, _) in s.shown.iter().enumerate().filter(|(_, on)| **on) {
+            let change = s.change.as_ref();
+            for i in 0..s.shown.len() {
+                let changing = change.filter(|c| (c.from..c.to).contains(&i));
+                if !s.shown[i] && changing.is_none() {
+                    continue;
+                }
                 let name = match (&s.first, i) {
                     (Some(first), 0) => first.as_str(),
                     _ => s.picture.as_str(),
                 };
-                let key = (name.to_string(), s.alpha);
-                let img = match self.faded.get(&key) {
-                    Some(img) => img.clone(),
-                    None => {
-                        let picture = assets.image(name)?;
-                        let img = faded(&picture, s.alpha);
-                        self.faded.insert(key, img.clone());
-                        img
-                    }
-                };
                 let (x, y) = spots.get(i).copied().unwrap_or_default();
-                let half = img.width as f32 / 2.0;
-                let (cx, cy) = (x as f32 + half, y as f32 + img.height as f32 / 2.0);
-                canvas.draw_scaled(&img, cx - half * f, cy - img.height as f32 / 2.0 * f, f);
+                let Some(c) = changing else {
+                    let key = (name.to_string(), s.alpha);
+                    let img = match self.faded.get(&key) {
+                        Some(img) => img.clone(),
+                        None => {
+                            let picture = assets.image(name)?;
+                            let img = faded(&picture, s.alpha);
+                            self.faded.insert(key, img.clone());
+                            img
+                        }
+                    };
+                    let half = img.width as f32 / 2.0;
+                    let (cx, cy) = (x as f32 + half, y as f32 + img.height as f32 / 2.0);
+                    canvas.draw_scaled(&img, cx - half * f, cy - img.height as f32 / 2.0 * f, f);
+                    continue;
+                };
+                // Coming or going: drawn at the change's opacity, the
+                // first of them wavering.
+                let mut img = assets.image(name)?;
+                if let Some((amp, step, phase)) = c.ripple().filter(|_| i == c.from) {
+                    img = Arc::new(crate::games::apeiria::effects::rastered(
+                        &img, amp, step, phase,
+                    ));
+                }
+                let (w, h) = (img.width as f32, img.height as f32);
+                let (x0, y0) = (
+                    x as f32 + w / 2.0 * (1.0 - f),
+                    y as f32 + h / 2.0 * (1.0 - f),
+                );
+                let corners = [[x0, y0], [x0 + w * f, y0], [x0, y0 + h * f]];
+                let part = (0, 0, img.width, img.height);
+                let a = c.alpha.value();
+                canvas.draw_sprite(Some(&img), part, corners, [255, 255, 255, a], false);
             }
         }
         if let Some(b) = &p.board {
@@ -794,24 +819,67 @@ impl Renderer {
             let img = assets.image(&format!("k01_{:02}.akb", n))?;
             canvas.draw(&img, NOTES_AT.0, NOTES_AT.1, false);
         }
-        if let Some(e) = &p.explain {
+        if let Some(e) = &p.explain_kept {
             canvas.draw(&assets.image(EXPLAIN_FRAME)?, 0, 0, false);
             canvas.draw(&assets.image(e)?, 0, 0, false);
         }
+        if p.explain.is_some() || p.explain_over.is_some() {
+            // The screen is the scene under it with the frame and the
+            // picture drawn in; a new one is laid over the old at its
+            // opacity.
+            let base = canvas.clone();
+            let screen = |pic: &str, assets: &mut Assets| -> Result<Canvas> {
+                let mut c = base.clone();
+                c.draw(&assets.image(EXPLAIN_FRAME)?, 0, 0, false);
+                c.draw(&assets.image(pic)?, 0, 0, false);
+                Ok(c)
+            };
+            if let Some(e) = &p.explain {
+                let to = screen(e, assets)?;
+                *canvas = match p.explain_fade.as_ref().map(|t| t.value()) {
+                    Some(a) => Canvas::blend(canvas, &to, a as f32 / 255.0, None),
+                    None => to,
+                };
+            }
+            if let Some((e, t)) = &p.explain_over {
+                let a = t.value();
+                if a > 0 {
+                    let to = screen(e, assets)?;
+                    *canvas = Canvas::blend(canvas, &to, a as f32 / 255.0, None);
+                }
+            }
+        }
         if let Some(i) = &p.item {
             let img = assets.image(i)?;
-            canvas.draw(&img, 0, ITEM_BOTTOM - img.height as i32, false);
+            let y = ITEM_BOTTOM - img.height as i32;
+            match p.item_anim {
+                None => canvas.draw(&img, 0, y, false),
+                Some(a) => {
+                    let (sx, sy) = a.scale();
+                    let (w, h) = (img.width as f32, img.height as f32);
+                    let (x0, y0) = (w / 2.0 * (1.0 - sx), y as f32 + h / 2.0 * (1.0 - sy));
+                    let corners = [[x0, y0], [x0 + w * sx, y0], [x0, y0 + h * sy]];
+                    let part = (0, 0, img.width, img.height);
+                    canvas.draw_sprite(Some(&img), part, corners, [255; 4], false);
+                }
+            }
         }
         if p.system {
             let sheet = assets.image(SYSTEM_SHEET)?;
+            let k = p.system_anim.map_or(1.0, |a| a.height());
             for (part, (x, y)) in SYSTEM_PARTS {
-                canvas.draw_part(&sheet, part, SYSTEM_AT.0 + x, SYSTEM_AT.1 + y, false, 255);
+                let (x, y) = ((SYSTEM_AT.0 + x) as f32, (SYSTEM_AT.1 + y) as f32);
+                let y = SYSTEM_MIDDLE + (y - SYSTEM_MIDDLE) * k;
+                let (w, h) = (part.2 as f32, part.3 as f32 * k);
+                let corners = [[x, y], [x + w, y], [x, y + h]];
+                canvas.draw_sprite(Some(&sheet), part, corners, [255; 4], false);
             }
         }
         if let Some(b) = &p.battle {
             let hp = assets.image("hp.akb")?;
-            for i in (0..5).filter(|i| b.shown[*i]) {
-                let g = Battle::gauge(i);
+            for (i, x) in (0..5).filter_map(|i| Some((i, b.x(i)?))) {
+                let mut g = Battle::gauge(i);
+                g.at.0 = x;
                 let col = Battle::column(b.hp[i]);
                 let (fx, fy, fw, fh) = g.frame;
                 canvas.draw_part(&hp, (fx + col, fy, fw, fh), g.at.0, g.at.1, false, 255);
@@ -826,6 +894,65 @@ impl Renderer {
                     canvas.draw_part(&hp, SKULL, sx, sy, false, 255);
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// A rule picture the size of a panel, from the top left corner of
+    /// its file, laid over the panel at `at` on a screen-size mask that
+    /// is 255 elsewhere.
+    fn rule_mask(
+        &mut self,
+        assets: &mut Assets,
+        rule: u32,
+        at: (i32, i32),
+        size: (u32, u32),
+        canvas: &Canvas,
+    ) -> Option<Arc<Vec<u8>>> {
+        let (px, py) = at;
+        let (w, h) = size;
+        self.rules
+            .entry((rule, px, py))
+            .or_insert_with(|| {
+                let data = assets.data(&format!("{rule:02}.bin")).ok()?;
+                let (sw, sh) = (canvas.width as i32, canvas.height as i32);
+                let mut m = vec![255u8; (sw * sh) as usize];
+                for y in 0..h as i32 {
+                    for x in 0..w as i32 {
+                        let (dx, dy) = (px + x, py + y);
+                        if dx < 0 || dy < 0 || dx >= sw || dy >= sh {
+                            continue;
+                        }
+                        if let Some(&v) = data.get((y * 1280 + x) as usize) {
+                            m[(dy * sw + dx) as usize] = v;
+                        }
+                    }
+                }
+                Some(Arc::new(m))
+            })
+            .clone()
+    }
+
+    /// Light specks rising (hologram, αMAIL panel), added to the screen.
+    fn draw_lights(
+        canvas: &mut Canvas,
+        lights: &crate::games::apeiria::holo::Lights,
+        assets: &mut Assets,
+    ) -> Result<()> {
+        let light = assets.image(crate::games::apeiria::holo::LIGHT)?;
+        let (w, h) = (light.width as f32, light.height as f32);
+        for p in &lights.specks {
+            let Some((x, y, a)) = p.at else { continue };
+            let k = p.size as f32 / 100.0;
+            let (x, y) = (x as f32, y as f32);
+            let corners = [[x, y], [x + w * k, y], [x, y + h * k]];
+            canvas.draw_sprite(
+                Some(&light),
+                (0, 0, light.width, light.height),
+                corners,
+                [255, 255, 255, a],
+                true,
+            );
         }
         Ok(())
     }
@@ -882,47 +1009,13 @@ impl Renderer {
                 canvas.draw_scaled(&img, x, y, holo.factor());
                 // The rule picture is the panel's size in the top left
                 // corner of a screen: it is laid over the panel.
-                let mask = self
-                    .rules
-                    .entry((rule, px, py))
-                    .or_insert_with(|| {
-                        let data = assets.data(&format!("{rule:02}.bin")).ok()?;
-                        let (sw, sh) = (canvas.width as i32, canvas.height as i32);
-                        let mut m = vec![255u8; (sw * sh) as usize];
-                        for y in 0..h as i32 {
-                            for x in 0..w as i32 {
-                                let (dx, dy) = (px + x, py + y);
-                                if dx < 0 || dy < 0 || dx >= sw || dy >= sh {
-                                    continue;
-                                }
-                                if let Some(&v) = data.get((y * 1280 + x) as usize) {
-                                    m[(dy * sw + dx) as usize] = v;
-                                }
-                            }
-                        }
-                        Some(Arc::new(m))
-                    })
-                    .clone();
+                let mask = self.rule_mask(assets, rule, (px, py), (w, h), canvas);
                 *canvas = Canvas::blend_shared(&from, canvas, t, mask);
             }
             None => canvas.draw_scaled(&img, x, y, holo.factor()),
         }
         if let Some(lights) = &holo.lights {
-            let light = assets.image(crate::games::apeiria::holo::LIGHT)?;
-            let (w, h) = (light.width as f32, light.height as f32);
-            for p in &lights.specks {
-                let Some((x, y, a)) = p.at else { continue };
-                let k = p.size as f32 / 100.0;
-                let (x, y) = (x as f32, y as f32);
-                let corners = [[x, y], [x + w * k, y], [x, y + h * k]];
-                canvas.draw_sprite(
-                    Some(&light),
-                    (0, 0, light.width, light.height),
-                    corners,
-                    [255, 255, 255, a],
-                    true,
-                );
-            }
+            Self::draw_lights(canvas, lights, assets)?;
         }
         Ok(())
     }
@@ -1040,7 +1133,23 @@ impl Renderer {
         }
 
         if let Some(mail) = &scene.mail {
-            mail.draw(&mut canvas, assets, self.text.as_ref())?;
+            use crate::games::apeiria::mail::{Mail, WIPE_RULE};
+            match mail.anim {
+                None => mail.draw(&mut canvas, assets, self.text.as_ref())?,
+                // It wipes in over what is drawn so far.
+                Some(a) if a.opening => {
+                    let from = canvas.clone();
+                    mail.draw(&mut canvas, assets, self.text.as_ref())?;
+                    let (at, size) = Mail::panel();
+                    let mask = self.rule_mask(assets, WIPE_RULE, at, size, &canvas);
+                    canvas = Canvas::blend_shared(&from, &canvas, a.progress(), mask);
+                }
+                // It shrinks about its middle as it draws itself.
+                Some(_) => mail.draw(&mut canvas, assets, self.text.as_ref())?,
+            }
+            if let Some(lights) = &mail.lights {
+                Self::draw_lights(&mut canvas, lights, assets)?;
+            }
         }
         if scene.text.is_some() && window && self.title == Title::Doukyuusei {
             let (color, opacity) = self.window;

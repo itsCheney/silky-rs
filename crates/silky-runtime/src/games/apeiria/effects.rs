@@ -1953,29 +1953,35 @@ fn picture(
             phase,
         } => {
             let src = picture(source, canvas, screen, assets)?;
-            let (w, h) = (src.width as usize, src.height as usize);
-            let mut rgba = vec![0u8; w * h * 4];
-            let mut angle = *phase as f64;
-            for y in 0..h {
-                angle += *step as f64;
-                let dx = ((angle * 3.141592 / 180.0).sin() * *amp as f64) as i64;
-                let (to, from) = if dx >= 0 {
-                    (dx as usize, 0)
-                } else {
-                    (0, (-dx) as usize)
-                };
-                let n = w.saturating_sub(to.max(from));
-                let row = y * w * 4;
-                rgba[row + to * 4..row + (to + n) * 4]
-                    .copy_from_slice(&src.rgba[row + from * 4..row + (from + n) * 4]);
-            }
-            Image {
-                width: src.width,
-                height: src.height,
-                rgba,
-            }
+            rastered(&src, *amp, *step, *phase)
         }
     })
+}
+
+/// `src` with its rows moved sideways along a sine wave, as
+/// [`Look::Raster`] says.
+pub fn rastered(src: &Image, amp: f32, step: f32, phase: f32) -> Image {
+    let (w, h) = (src.width as usize, src.height as usize);
+    let mut rgba = vec![0u8; w * h * 4];
+    let mut angle = phase as f64;
+    for y in 0..h {
+        angle += step as f64;
+        let dx = ((angle * 3.141592 / 180.0).sin() * amp as f64) as i64;
+        let (to, from) = if dx >= 0 {
+            (dx as usize, 0)
+        } else {
+            (0, (-dx) as usize)
+        };
+        let n = w.saturating_sub(to.max(from));
+        let row = y * w * 4;
+        rgba[row + to * 4..row + (to + n) * 4]
+            .copy_from_slice(&src.rgba[row + from * 4..row + (from + n) * 4]);
+    }
+    Image {
+        width: src.width,
+        height: src.height,
+        rgba,
+    }
 }
 
 /// Top left, top right and bottom left corners of a sprite of `w` x `h`
