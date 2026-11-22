@@ -630,27 +630,32 @@ impl Runtime {
                 holo.faces.retain(|x| !x.eq_ignore_ascii_case(&f));
                 holo.faces.push(f);
             }
-            // (way): 0 wiping in among specks of light, 1 at once, 2
-            // fading in, over 12 frames while the script waits. Up
-            // already, she stays as she is (a new picture shows at once).
+            // (way): 0 wiping in among specks of light (fading in on the
+            // bottom half), 1 at once, 2 fading in, over 12 frames while
+            // the script waits. Up already, she comes again the same way;
+            // while she is still coming, the script waits for that.
             (2, 1) => {
-                let was = holo.shown;
                 holo.shown = !holo.body.is_empty();
-                if holo.shown && !was {
-                    holo.fade = None;
-                    holo.lights = None;
-                    match c.int(0) {
-                        0 => {
-                            holo.fade = Some(Fade::wipe(WIPE_RULE, FADE_IN_FRAMES));
-                            let seed = self.scene.effects.rng ^ self.handled as u32;
-                            holo.lights = Some(Lights::new(holo.middle(), seed));
-                        }
-                        2 => holo.fade = Some(Fade::new(0, 255, FADE_IN_FRAMES, false)),
-                        _ => {}
+                if !holo.shown {
+                    return self.done();
+                }
+                if let Some(f) = holo.fade.filter(|f| !f.done()) {
+                    let left = f.length_ms().saturating_sub(f.ms);
+                    return self.live_wait(left);
+                }
+                holo.fade = None;
+                holo.lights = None;
+                match c.int(0) {
+                    0 if holo.panel == 0 => {
+                        holo.fade = Some(Fade::wipe(WIPE_RULE, FADE_IN_FRAMES));
+                        let seed = self.scene.effects.rng ^ self.handled as u32;
+                        holo.lights = Some(Lights::new(holo.middle(), seed));
                     }
-                    if let Some(f) = holo.fade {
-                        return self.live_wait(f.length_ms());
-                    }
+                    0 | 2 => holo.fade = Some(Fade::new(0, 255, FADE_IN_FRAMES, false)),
+                    _ => {}
+                }
+                if let Some(f) = holo.fade {
+                    return self.live_wait(f.length_ms());
                 }
             }
             // (time): she and the panel fade out over `time` frames while
