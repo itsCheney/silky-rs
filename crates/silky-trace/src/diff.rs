@@ -156,7 +156,12 @@ impl Projection {
             // second copy.
             for p in 1..=SQUASH {
                 let n = out.len();
-                if n >= 2 * p && (0..p).all(|k| out[n - 2 * p + k].1 == out[n - p + k].1) {
+                if n >= 2 * p
+                    && (0..p).all(|k| {
+                        let (x, y) = (&out[n - 2 * p + k].1, &out[n - p + k].1);
+                        x == y || (self.leftovers && (self.same_call(x, y) || self.same_call(y, x)))
+                    })
+                {
                     out.truncate(n - p);
                     break;
                 }
@@ -520,6 +525,19 @@ mod tests {
             ..Projection::default()
         };
         assert!(diff(&e, &a, &p, Walk::default()).same());
+        // A call repeated with more leftovers each time counts once.
+        let more = [
+            call("D.4", &[1]),
+            call("D.4", &[0, 1]),
+            call("D.4", &[0, 0, 1]),
+        ];
+        let one = [call("D.4", &[1])];
+        let sq = Projection {
+            leftovers: true,
+            squash: true,
+            ..Projection::default()
+        };
+        assert!(diff(&more, &one, &sq, Walk::default()).same());
         // Extra values on the runtime side, or a different tail, differ.
         assert!(!diff(&a, &e, &p, Walk::default()).same());
         let b = [
