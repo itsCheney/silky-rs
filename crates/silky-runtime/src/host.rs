@@ -275,9 +275,10 @@ pub struct Runtime {
     pub read_before: bool,
     /// Movie file set up by `Movie.0`, played by `Movie.2`.
     pub movie: Option<String>,
-    /// `Movie.1` set a moving background up; the next `Movie.3` answers 1
-    /// for it.
-    movie_background: bool,
+    /// A movie was set up that is not played here (a moving background
+    /// of `Movie.1`, or a game's own movie command); the next `Movie.3`
+    /// answers 1 for it, as the original does after playing it.
+    pub(crate) movie_unplayed: bool,
     /// Character jolts (command 13, sub 7) for the frontend to play: slot
     /// and four offsets.
     pub jolts: Vec<(i32, Jolt)>,
@@ -368,7 +369,7 @@ impl Runtime {
             system_changed: false,
             read_before: false,
             movie: None,
-            movie_background: false,
+            movie_unplayed: false,
             pending_text: None,
             message_script: String::new(),
             actions: Vec::new(),
@@ -1179,7 +1180,7 @@ impl Host for Runtime {
                             if self.assets.exists(silky_format::game::Kind::Layer, &still) {
                                 self.scene.background = Some(still);
                             }
-                            self.movie_background = true;
+                            self.movie_unplayed = true;
                         }
                         (2, []) => self.movie = None,
                         (3, []) if self.movie.is_some() => {
@@ -1187,7 +1188,7 @@ impl Host for Runtime {
                             self.pause = Some(Pause::Movie);
                             return Ok(Flow::Yield);
                         }
-                        (3, []) => vm.push(std::mem::take(&mut self.movie_background) as i32),
+                        (3, []) => vm.push(std::mem::take(&mut self.movie_unplayed) as i32),
                         _ => {}
                     }
                     if matches!((sub, args.len()), (0, 1) | (1, 2) | (2, 0) | (3, 0)) {
