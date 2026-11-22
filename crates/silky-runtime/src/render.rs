@@ -867,7 +867,13 @@ impl Renderer {
         if p.system {
             let sheet = assets.image(SYSTEM_SHEET)?;
             let k = p.system_anim.map_or(1.0, |a| a.height());
-            for (part, (x, y)) in SYSTEM_PARTS {
+            // Only the background while the strand of DNA is there.
+            let parts = if p.dna.is_some() {
+                1
+            } else {
+                SYSTEM_PARTS.len()
+            };
+            for &(part, (x, y)) in &SYSTEM_PARTS[..parts] {
                 let (x, y) = ((SYSTEM_AT.0 + x) as f32, (SYSTEM_AT.1 + y) as f32);
                 let y = SYSTEM_MIDDLE + (y - SYSTEM_MIDDLE) * k;
                 let (w, h) = (part.2 as f32, part.3 as f32 * k);

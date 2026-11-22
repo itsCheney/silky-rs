@@ -338,11 +338,14 @@ impl Runtime {
                 scene.panels.monitor = false;
                 scene.panels.dna = None;
             }
-            // A strand of DNA turning in the window, set up hidden (4) and
-            // brought in while the script waits (5).
-            (4, 0) => scene.panels.dna = Some(Dna::default()),
-            (5, 0) => {
-                let ms = scene.panels.dna.get_or_insert_with(Dna::default).show();
+            // A strand of DNA turning in the window, brought in (4) and
+            // taken away (5) while the script waits.
+            (4 | 5, 0) => {
+                let dna = scene.panels.dna.get_or_insert_with(Dna::new);
+                let ms = dna.fade(if c.sub == 4 { 255 } else { 0 });
+                if c.sub == 5 && ms == 0 {
+                    scene.panels.dna = None;
+                }
                 if ms > 0 {
                     return self.live_wait(ms);
                 }

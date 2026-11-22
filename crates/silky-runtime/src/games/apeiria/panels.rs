@@ -77,9 +77,7 @@ impl Panels {
         if let Some(d) = &mut self.dna {
             let frame = d.ms / TICK_MS;
             d.ms += ms;
-            if let Some(t) = &mut d.alpha {
-                t.advance(ms);
-            }
+            moved |= d.alpha.advance(ms);
             moved |= d.opacity() > 0 && d.ms / TICK_MS != frame;
         }
         self.settle();
@@ -106,8 +104,8 @@ impl Panels {
         if let Some(b) = &mut self.battle {
             b.finish();
         }
-        if let Some(t) = self.dna.as_mut().and_then(|d| d.alpha.as_mut()) {
-            t.ms = t.length_ms();
+        if let Some(d) = &mut self.dna {
+            d.alpha.ms = d.alpha.length_ms();
         }
         self.settle();
     }
@@ -115,6 +113,9 @@ impl Panels {
     /// A picture that came takes the screen's place; a screen that went
     /// is gone.
     fn settle(&mut self) {
+        if self.dna.as_ref().is_some_and(Dna::gone) {
+            self.dna = None;
+        }
         if let Some(a) = self.system_anim.filter(|a| a.done()) {
             if !a.opening {
                 self.system = false;
@@ -373,14 +374,17 @@ pub const SYSTEM_MIDDLE: f32 = (SYSTEM_AT.1 + 215) as f32;
 /// wave 85 pixels wide, half a degree a row, the wave going on 2
 /// degrees a frame, the blue half a turn behind. Over the top half the
 /// blue line lies over the red, over the bottom half the red over the
-/// blue. It comes in over 16 frames while the script waits (sub 5).
+/// blue. It comes in over 16 frames and goes over 16 (sub 5) while the
+/// script waits; the window shows only its background meanwhile.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct Dna {
     /// Time since it was set up.
     pub ms: u64,
-    /// Its opacity; none while hidden.
-    pub alpha: Option<Tween>,
+    /// Its opacity.
+    pub alpha: Tween,
+    /// Fading out, to go once faded.
+    pub leaving: bool,
 }
 
 impl Dna {
@@ -390,6 +394,17 @@ impl Dna {
     pub const ROWS: u32 = 400;
     pub const AMP: f64 = 85.0;
     pub const FADE_FRAMES: i32 = 16;
+
+    /// Set up, still hidden.
+    pub fn new() -> Self {
+        Self {
+            alpha: Tween {
+                stopped: Some(0),
+                ..Tween::default()
+            },
+            ..Self::default()
+        }
+    }
 
     /// Wave angle of line `i` now, in degrees.
     pub fn phase(&self, i: usize) -> f64 {
@@ -415,24 +430,24 @@ impl Dna {
     }
 
     pub fn opacity(&self) -> u8 {
-        self.alpha.as_ref().map_or(0, Tween::value)
+        self.alpha.value()
     }
 
-    /// Starts the fade in; how long the script waits.
-    pub fn show(&mut self) -> u64 {
-        match &self.alpha {
-            // Already coming: it is there at once.
-            Some(t) if !t.done() => {
-                self.alpha = Some(Tween::once(1, 255, 255));
-                0
-            }
-            _ => {
-                let t = Tween::once(Self::FADE_FRAMES, 0, 255);
-                let ms = t.length_ms();
-                self.alpha = Some(t);
-                ms
-            }
+    /// Whether it has faded out.
+    pub fn gone(&self) -> bool {
+        self.leaving && self.alpha.done()
+    }
+
+    /// Fades it to `to` over [`Self::FADE_FRAMES`]; how long the script
+    /// waits. A fade still running ends at `to` at once instead.
+    pub fn fade(&mut self, to: u8) -> u64 {
+        self.leaving = to == 0;
+        if !self.alpha.done() {
+            self.alpha.stopped = Some(to);
+            return 0;
         }
+        self.alpha = Tween::once(Self::FADE_FRAMES, 255 - to, to);
+        self.alpha.length_ms()
     }
 }
 
@@ -1029,28 +1044,30 @@ mod drain_tests {
     }
 
     #[test]
-    fn dna_turns_and_comes_in() {
-        let mut d = Dna::default();
+    fn dna_turns_comes_and_goes() {
+        let mut d = Dna::new();
         assert_eq!(d.opacity(), 0);
+        assert!(!d.gone());
         // First frame: 2 degrees, the blue half a turn on.
         assert_eq!(d.phase(0), 2.0);
         assert_eq!(d.phase(1), 182.0);
         // Row 179 of red: sin(92) * 85.
         assert_eq!(d.shift(0, 179), 84);
         assert_eq!(d.shift(1, 179), -84);
-        let ms = d.show();
-        assert_eq!(ms, 16 * TICK_MS);
-        // Shown again while coming: there at once.
-        assert_eq!(d.show(), 0);
-        assert_eq!(d.opacity(), 255);
         let mut p = Panels {
-            dna: Some(Dna::default()),
+            dna: Some(d),
             ..Panels::default()
         };
-        p.dna.as_mut().unwrap().show();
+        assert_eq!(p.dna.as_mut().unwrap().fade(255), 16 * TICK_MS);
         p.advance(8 * TICK_MS);
         assert_eq!(p.dna.as_ref().unwrap().opacity(), 127);
         p.finish();
         assert_eq!(p.dna.as_ref().unwrap().opacity(), 255);
+        assert_eq!(p.dna.as_mut().unwrap().fade(0), 16 * TICK_MS);
+        p.advance(8 * TICK_MS);
+        // Going again while going: gone at once.
+        assert_eq!(p.dna.as_mut().unwrap().fade(0), 0);
+        p.advance(0);
+        assert!(p.dna.is_none());
     }
 }
