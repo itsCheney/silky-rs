@@ -12,7 +12,7 @@ silky-run snap  <game folder> --path 0,1 --lines 300 --trace run.json
 silky-player    <game folder> --trace play.json                    # written when the window closes
 ```
 
-`snap` and `silky-player` run the real runtime, so their traces hold what the runtime itself answered. The player's calls carry the session clock in milliseconds as their `tick`; `trace` and `snap` have no clock and leave it out. A run that stops on an error still writes its trace, up to the call that failed.
+`snap` and `silky-player` run the real runtime, so their traces hold what the runtime itself answered. The player's calls carry the session clock in milliseconds as their `tick`; `trace` and `snap` have no clock and leave it out. A run that stops on an error still writes its trace, up to the call that failed. To compare `snap` frames with screenshots of the original, `--settle 3000` lets the pictures over the scene play on for three seconds before each saved line, as if the player had waited there.
 
 ## Comparing
 

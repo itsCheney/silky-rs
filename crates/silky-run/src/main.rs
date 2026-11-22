@@ -101,6 +101,11 @@ enum Command {
         /// 1280 x 720; pictures are scaled up and text is drawn at this size.
         #[arg(long, default_value_t = 1080)]
         height: u32,
+        /// Milliseconds the pictures over the scene (effects, panels)
+        /// play on before a chosen line is saved, as if the player waited
+        /// there. The run itself goes on as without it.
+        #[arg(long, default_value_t = 0)]
+        settle: u64,
         /// How frames are drawn: `cpu` directly, `record` as the draw
         /// lists a GPU compositor gets, played back in software (to check
         /// them against `cpu`), `gpu` by that compositor (feature `gpu`).
@@ -199,6 +204,7 @@ fn main() -> Result<()> {
             path,
             actions,
             height,
+            settle,
             renderer,
             trace,
         } => {
@@ -210,6 +216,7 @@ fn main() -> Result<()> {
                 path,
                 actions,
                 renderer,
+                settle,
             };
             let mut vm = Vm::new(Profile::default());
             if trace.is_some() {
@@ -315,12 +322,40 @@ fn write_trace(
     Ok(())
 }
 
+/// `scene` with its effects and panels played on for `ms` milliseconds,
+/// a frame at a time.
+fn settled(scene: &silky_runtime::Scene, ms: u64) -> silky_runtime::Scene {
+    let mut scene = scene.clone();
+    let mut left = ms;
+    while left > 0 {
+        let step = left.min(16);
+        left -= step;
+        scene.effects.advance(step);
+        for paint in scene.effects.take_painted() {
+            scene.panels.paint(paint);
+        }
+        if let Some(holo) = &mut scene.holo {
+            holo.advance(step);
+        }
+        if let Some(m) = &mut scene.mail {
+            if m.advance(step).1 {
+                scene.mail = None;
+            }
+        }
+        scene.panels.advance(step);
+    }
+    scene
+}
+
 /// What `snap` answers at selections and action menus.
 struct Picks {
     choose: usize,
     path: Vec<usize>,
     actions: Vec<usize>,
     renderer: String,
+    /// Milliseconds the pictures over the scene play on before a line is
+    /// saved.
+    settle: u64,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -434,7 +469,8 @@ fn snap(
                     renderer.progress_snow(&rt.scene, 1000);
                     rt.tick_anime(1);
                     if lines.contains(&line_no) {
-                        let mut frame = renderer.render(&rt.scene, &mut rt.assets)?;
+                        let scene = settled(&rt.scene, picks.settle);
+                        let mut frame = renderer.render(&scene, &mut rt.assets)?;
                         let ui = Ui {
                             waiting: true,
                             plate: rt.plate(&vm),
@@ -455,6 +491,11 @@ fn snap(
                 // Headless: transitions and waits end at once; input polls
                 // see a click now and then so wait-for-click loops end.
                 Some(Pause::Transition(t)) => {
+                    // A live wait: the pictures over the scene play to its
+                    // end, as they would while the player waits.
+                    if t.live {
+                        rt.scene = settled(&rt.scene, t.ms as u64);
+                    }
                     // A still picture held after a movie.
                     if let (Some(name), true) = (&after_movie, t.ms >= 1000) {
                         let frame = renderer.render(&rt.scene, &mut rt.assets)?;
