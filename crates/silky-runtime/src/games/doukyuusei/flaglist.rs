@@ -184,6 +184,10 @@ pub struct Env<'a> {
 /// The text line that says the cash is not enough.
 const NO_CASH: u16 = 306;
 
+/// The day the generated rules give a later event while an earlier one's
+/// byte is set (see [`records`]).
+const LAST_STORY_DAY: i32 = 830;
+
 /// The girl who has a conditional extra event, the byte that adds it and
 /// the byte that marks it done (its day and time are words 330 and 331).
 const EXTRA_GIRL: usize = 4;
@@ -237,18 +241,92 @@ pub fn records(girl: usize, env: &Env) -> Vec<Record> {
         return out;
     }
     for g in rules.gate.iter().filter(|g| byte(g.flag) != 0) {
-        if let Some(r) = out.get_mut(g.event as usize) {
+        let Some(r) = out.get_mut(g.event as usize) else {
+            continue;
+        };
+        // A byte that marks an event done holds later events back until
+        // the day that event happened: the rules give the end of the story
+        // as that day and lock the events, but they wait for the day, no
+        // longer, and are not locked.
+        let Some(day) = rules
+            .done
+            .iter()
+            .find(|d| d.flag == g.flag)
+            .map(|d| word(d.date))
+        else {
             g.patch.apply(r);
+            continue;
+        };
+        let kept = Patch {
+            d0: g.patch.d0.filter(|&d| d != LAST_STORY_DAY),
+            state: None,
+            ..g.patch
+        };
+        kept.apply(r);
+        if g.patch.d0 == Some(LAST_STORY_DAY) {
+            // A trip to another town starts the day after.
+            r.d0 = r.d0.max(if r.stage == 1 { day + 1 } else { day });
         }
     }
     let mut done = vec![false; out.len()];
+    let base = out.clone();
+    let mut extras: Vec<(usize, Record)> = Vec::new();
     for d in rules.done.iter().filter(|d| byte(d.flag) != 0) {
-        if let Some(r) = out.get_mut(d.event as usize) {
-            d.patch.apply(r);
-            r.state = 1;
-            r.d0 = word(d.date);
-            r.t0 = word(d.time);
-            done[d.event as usize] = true;
+        let e = d.event as usize;
+        if e >= out.len() {
+            continue;
+        }
+        // Several bytes of one slot: each one is an event done, and the
+        // events done take the places of the ones after the slot.
+        let mut r = if done[e] {
+            base[e].clone()
+        } else {
+            out[e].clone()
+        };
+        d.patch.apply(&mut r);
+        r.state = 1;
+        r.d0 = word(d.date);
+        r.t0 = word(d.time);
+        if done[e] {
+            extras.push((e, r));
+        } else {
+            out[e] = r;
+            done[e] = true;
+        }
+    }
+    for e in (0..out.len()).rev() {
+        let mine: Vec<Record> = extras
+            .iter()
+            .filter(|(at, _)| *at == e)
+            .map(|(_, r)| r.clone())
+            .collect();
+        if mine.is_empty() {
+            continue;
+        }
+        // The later events still waiting are those not done, and the next
+        // one is not before the last of the days these were done.
+        let latest = mine
+            .iter()
+            .chain(std::iter::once(&out[e]))
+            .map(|r| r.d0)
+            .max();
+        let scripts: Vec<&str> = mine
+            .iter()
+            .chain(std::iter::once(&out[e]))
+            .map(|r| r.script)
+            .collect();
+        for script in scripts {
+            if let Some(i) = (e + 1..out.len()).find(|&i| !done[i] && out[i].script == script) {
+                out.remove(i);
+                done.remove(i);
+            }
+        }
+        if let Some(i) = (e + 1..out.len()).find(|&i| !done[i]) {
+            out[i].d0 = out[i].d0.max(latest.unwrap_or(0));
+        }
+        for (k, r) in mine.into_iter().enumerate() {
+            out.insert(e + 1 + k, r);
+            done.insert(e + 1 + k, true);
         }
     }
     if girl == EXTRA_GIRL && byte(EXTRA_BYTE) == 1 {
@@ -328,14 +406,15 @@ pub fn start_event(rec: &Record, vm: &mut Vm) {
     vm.set_var_b(JUMPED_AT, 1);
 }
 
-/// The record shown in the cell of `day`: one that starts that day, done
-/// before waiting before out of reach; among equals the one the jump goes
+/// The record shown in the cell of `day`: one that starts that day, waiting
+/// before out of reach before done; among equals the one the jump goes
 /// to (the original lets that cell be clicked when two events share the
 /// day), else the later one.
 pub fn cell_record(records: &[Record], day: i32) -> Option<usize> {
+    // Under Wine a done event shows under the others of its day.
     let rank = |s: u8| match s {
-        1 => 0,
-        0 => 1,
+        0 => 0,
+        2 => 1,
         _ => 2,
     };
     let mut best: Option<usize> = None;
@@ -1103,19 +1182,74 @@ mod tests {
     #[test]
     fn flags() {
         // Girl 1: byte 223 marks event 0 done (day and time are words
-        // 470, 471) and moves the later events' windows to the end.
+        // 470, 471) and holds the later events back to its day.
         let r = states(1, &[223], &[(470, 812), (471, 930)]);
         assert_eq!((r[0].state, r[0].d0, r[0].t0, r[0].d1), (1, 812, 930, -1));
-        assert_eq!((r[1].d0, r[2].d0, r[3].d0), (830, 830, 830));
+        assert_eq!((r[1].d0, r[2].d0, r[3].d0), (814, 818, 826));
         // Byte 324 frees event 1.
         let r = states(1, &[324], &[]);
         assert_eq!((r[1].state, r[1].reason, r[2].reason), (0, 0, 296));
-        // Girl 0: byte 248 marks event 1 done and locks the later ones.
+        // Girl 0: byte 248 marks event 1 done; the later ones are not locked.
         let r = states(0, &[248], &[(451, 811), (461, 900)]);
-        assert_eq!(st(&r), [0, 1, 2, 2, 2, 2, 2, 2, 2, 2]);
-        assert_eq!((r[2].d0, r[1].d0), (830, 811));
+        assert_eq!(st(&r), [0, 1, 0, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!((r[2].d0, r[1].d0), (812, 811));
         // The first waiting event is the one to jump to.
         assert!(r[0].jump && !r[1].jump);
+    }
+
+    /// Cases from the original under Wine (saves with bytes set together).
+    #[test]
+    fn several_bytes() {
+        // Girl 1: byte 223 done on day 22 holds the later events back to
+        // that day, no longer (they were moved to the end of the story).
+        let r = states(1, &[223], &[(470, 822), (471, 930)]);
+        assert_eq!((r[1].d0, r[2].d0, r[3].d0), (822, 822, 826));
+        assert_eq!((r[1].state, r[3].state), (2, 2));
+        // Without the day word they stay where they are.
+        let r = states(1, &[223], &[]);
+        assert_eq!((r[1].d0, r[2].d0, r[3].d0), (814, 818, 826));
+        // Girl 4: bytes 250, 481, 483 and 484 mark four events done; the
+        // rest are those not done, as they are by day.
+        let w = [(574, 811), (576, 812), (582, 813), (586, 815)];
+        let r = states(4, &[250, 481, 483, 484], &w);
+        let list: Vec<(&str, u8, i32)> = r.iter().map(|r| (r.script, r.state, r.d0)).collect();
+        assert_eq!(
+            list,
+            [
+                ("timtim1.mes", 1, 811),
+                ("sakima4.mes", 1, 812),
+                ("myhous9.mes", 1, 813),
+                ("okujyo4.mes", 1, 815),
+                ("kouens8.mes", 0, 818),
+                ("yabuki8.mes", 0, 819),
+                ("timtim.mes", 0, 819),
+                ("kouens7.mes", 0, 821),
+                ("eiga6.mes", 0, 822),
+                ("myhou11.mes", 0, 825),
+            ]
+        );
+        // A trip waits for the day after.
+        let r = states(4, &[481], &[(576, 825)]);
+        assert_eq!((r[2].d0, r[4].d0, r[8].d0), (825, 826, 826));
+        // Girl 10: three bytes of one slot make three events done, and the
+        // next waits for the last of their days.
+        let w = [(300, 818), (302, 815), (304, 816)];
+        let r = states(10, &[152, 182, 183], &w);
+        assert_eq!(st(&r), [1, 1, 1, 0, 0, 0, 0]);
+        assert_eq!((r[3].script, r[3].d0, r[4].d0), ("kaisha2.mes", 818, 817));
+    }
+
+    #[test]
+    fn same_day_cell() {
+        // Waiting, then out of reach, then done.
+        let mut r = states(10, &[182], &[(300, 811)]);
+        assert_eq!(r[0].state, 1);
+        assert_eq!(cell_record(&r, 11), Some(2));
+        r[2].state = 2;
+        assert_eq!(cell_record(&r, 11), Some(2));
+        r[2].state = 1;
+        r[2].d0 = 812;
+        assert_eq!(cell_record(&r, 11), Some(0));
     }
 
     #[test]
