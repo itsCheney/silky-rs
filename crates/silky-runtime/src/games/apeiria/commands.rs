@@ -6,7 +6,7 @@ use super::holo::{Fade, Holo, Lights, FADE_IN_FRAMES, WIPE_RULE};
 use super::mail::Mail;
 use super::panels::{Battle, ItemAnim, Swarm, Tween, WindowAnim};
 use crate::games::Call;
-use crate::host::Runtime;
+use crate::host::{Pause, Runtime};
 
 /// The αMAIL screen (`docs/game-commands.md`).
 const MAIL: i32 = 1012;
@@ -246,11 +246,25 @@ impl Runtime {
                 self.scene.panels.note = Some((bg, c.int(2), text, c.int(1)));
                 self.done()
             }
-            // (n) returns an entry of the save list, 1 closes it;
-            // only the title script uses it.
+            // Sub 0 (mode): the mail forward screen, a selection over the
+            // mails listed; returns the mail picked. Sub 1 draws its rows
+            // again.
             1016 => {
                 if c.sub == 0 {
-                    vm.push(0);
+                    let ms = self.scene.mail_select.get_or_insert_with(Default::default);
+                    ms.mode = c.int(0);
+                    ms.open(|i| vm.var_b(i));
+                    if ms.rows.is_empty() {
+                        ms.shown = false;
+                        vm.push(-1);
+                        return self.done();
+                    }
+                    // Opening fades the screen in over 12 frames, lifting
+                    // the cover the script left.
+                    self.scene.cover = None;
+                    self.choices = ms.labels();
+                    self.choice_status.clear();
+                    return self.wait_for(Pause::Choice);
                 }
                 self.done()
             }

@@ -456,6 +456,13 @@ impl Runtime {
         self.choice_status.clear();
         // 同級生 Remake's selection takes its status plate down again.
         self.scene.plate = false;
+        // The mail forward screen answers with the mail picked.
+        if let Some(ms) = self.scene.mail_select.as_mut().filter(|m| m.shown) {
+            let result = ms.answer(index);
+            ms.shown = false;
+            vm.push(result);
+            return;
+        }
         vm.push(index as i32 + 1);
     }
 

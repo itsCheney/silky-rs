@@ -568,6 +568,13 @@ fn snap(
                     let choose = path.get(selections).copied().unwrap_or(choose);
                     selections += 1;
                     println!("select [{}] -> {}", rt.choices.join(" | "), choose);
+                    if rt.scene.mail_select.as_ref().is_some_and(|m| m.shown) {
+                        let scene = settled(&rt.scene, picks.settle);
+                        let frame = renderer.render(&scene, &mut rt.assets)?;
+                        let path = out.join(format!("mailselect{selections}.png"));
+                        write_png(&path, &frame)?;
+                        println!("{}", path.display());
+                    }
                     let pick = choose.min(rt.choices.len().saturating_sub(1));
                     rt.answer_choice(vm, pick);
                 }

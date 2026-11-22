@@ -161,6 +161,9 @@ pub struct Scene {
     /// The αMAIL screen (景の海のアペイリア, command 1012).
     #[serde(default)]
     pub mail: Option<crate::games::apeiria::mail::Mail>,
+    /// The mail forward screen (景の海のアペイリア, command 1016).
+    #[serde(default)]
+    pub mail_select: Option<crate::games::apeiria::mail_select::MailSelect>,
     /// Apeiria on the hologram panel (景の海のアペイリア, command 1013).
     #[serde(default)]
     pub holo: Option<crate::games::apeiria::holo::Holo>,

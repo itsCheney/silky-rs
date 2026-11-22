@@ -9,6 +9,7 @@ pub mod effects;
 pub mod holo;
 pub mod keys;
 pub mod mail;
+pub mod mail_select;
 pub mod omake;
 pub mod panels;
 pub mod vo;

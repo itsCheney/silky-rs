@@ -1182,6 +1182,9 @@ impl Renderer {
                 Self::draw_lights(&mut canvas, lights, assets)?;
             }
         }
+        if let Some(ms) = &scene.mail_select {
+            ms.draw(&mut canvas, assets)?;
+        }
         if scene.text.is_some() && window && self.title == Title::Doukyuusei {
             let (color, opacity) = self.window;
             let rgb = color.map(|c| (c.clamp(0.0, 1.0) * 255.0).round() as u8);
