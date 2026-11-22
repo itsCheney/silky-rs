@@ -10,7 +10,7 @@
 //! - 21 `(to, from, sprite)`: opacity from `from` to `to` (0..255).
 //! - 24 `(hard, appear, rule, sprite)`: the sprite appears (`appear` 1) or
 //!   goes (0) through the rule mask `NN.bin`, with a hard edge if `hard`.
-//! - 25 `()`: new group; returns its number.
+//! - 25 `()`: new group; returns its number, the lowest one free from 0.
 //! - 26 `(sprite, group)`: adds the sprite to the group.
 //! - 27 `(wait, group)`: runs the group, waiting for its end if `wait` 1.
 //! - 28 `(group)`: deletes the group.
@@ -51,7 +51,6 @@ pub struct Sprites {
     fills: BTreeMap<i32, u32>,
     animations: BTreeMap<i32, Animation>,
     groups: BTreeMap<i32, Vec<i32>>,
-    next_group: i32,
 }
 
 /// Result of a sprite call.
@@ -93,9 +92,10 @@ impl Sprites {
                 Call::Done
             }
             (25, 0) => {
-                self.next_group += 1;
-                self.groups.insert(self.next_group, Vec::new());
-                Call::Value(self.next_group)
+                // The lowest number not in use, counting from 0.
+                let g = (0..).find(|g| !self.groups.contains_key(g)).unwrap_or(0);
+                self.groups.insert(g, Vec::new());
+                Call::Value(g)
             }
             (26, 2) => {
                 self.groups.entry(n(1)).or_default().push(n(0));
@@ -161,6 +161,7 @@ mod tests {
                 rule: 44
             }]
         );
+        assert_eq!(g, 0);
         s.call(28, &int(&[g]));
 
         s.call(6, &int(&[1, -16777216, 6, 720, 1280, 0, 0]));
@@ -182,5 +183,18 @@ mod tests {
                 opacity: 128
             }]
         );
+    }
+
+    #[test]
+    fn group_numbers_are_reused() {
+        let mut s = Sprites::default();
+        let mut new = |s: &mut Sprites| match s.call(25, &[]) {
+            Some(Call::Value(g)) => g,
+            _ => panic!(),
+        };
+        assert_eq!((new(&mut s), new(&mut s)), (0, 1));
+        s.call(28, &int(&[0]));
+        assert_eq!(new(&mut s), 0);
+        assert_eq!(new(&mut s), 2);
     }
 }
