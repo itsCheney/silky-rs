@@ -3,7 +3,7 @@
 //! (`Game.995`), the deduction board (994), the notes and explanation
 //! screens (996), the item panel (997), the DNA PC (1014) and the HP
 //! gauges (1015). The copies, the explanation screen, the item panel,
-//! the DNA PC's window and the gauges move as the executable has them;
+//! the DNA PC's window and strand and the gauges move as the executable has them;
 //! the board and the notes appear and go at once.
 
 use std::sync::Arc;
@@ -43,6 +43,8 @@ pub struct Panels {
     pub system: bool,
     /// The system window opening or closing.
     pub system_anim: Option<WindowAnim>,
+    /// The strand of DNA in it (1014 subs 4 and 5).
+    pub dna: Option<Dna>,
     /// The list of conclusions drawn into this background (992): cells
     /// of [`CONCLUSIONS_SHEET`], top first.
     pub conclusions: Option<(String, Vec<u8>)>,
@@ -72,6 +74,14 @@ impl Panels {
             a.ms += ms;
             moved = true;
         }
+        if let Some(d) = &mut self.dna {
+            let frame = d.ms / TICK_MS;
+            d.ms += ms;
+            if let Some(t) = &mut d.alpha {
+                t.advance(ms);
+            }
+            moved |= d.opacity() > 0 && d.ms / TICK_MS != frame;
+        }
         self.settle();
         moved
     }
@@ -95,6 +105,9 @@ impl Panels {
         }
         if let Some(b) = &mut self.battle {
             b.finish();
+        }
+        if let Some(t) = self.dna.as_mut().and_then(|d| d.alpha.as_mut()) {
+            t.ms = t.length_ms();
         }
         self.settle();
     }
@@ -355,6 +368,74 @@ impl WindowAnim {
 /// Middle of the system window, about which it opens and closes.
 pub const SYSTEM_MIDDLE: f32 = (SYSTEM_AT.1 + 215) as f32;
 
+/// The strand of DNA turning in the system window (1014 sub 4): a red
+/// and a blue 16 x 430 line, their rows moved sideways along a sine
+/// wave 85 pixels wide, half a degree a row, the wave going on 2
+/// degrees a frame, the blue half a turn behind. Over the top half the
+/// blue line lies over the red, over the bottom half the red over the
+/// blue. It comes in over 16 frames while the script waits (sub 5).
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct Dna {
+    /// Time since it was set up.
+    pub ms: u64,
+    /// Its opacity; none while hidden.
+    pub alpha: Option<Tween>,
+}
+
+impl Dna {
+    pub const LINES: [&'static str; 2] = ["RedLine.akb", "BlueLine.akb"];
+    /// Place of the lines in the system window, and the rows drawn.
+    pub const AT: (i32, i32) = (330, 15);
+    pub const ROWS: u32 = 400;
+    pub const AMP: f64 = 85.0;
+    pub const FADE_FRAMES: i32 = 16;
+
+    /// Wave angle of line `i` now, in degrees.
+    pub fn phase(&self, i: usize) -> f64 {
+        let frame = self.ms / TICK_MS + 1;
+        (frame * 2 % 360) as f64 + 180.0 * i as f64
+    }
+
+    /// How far row `row` of line `i` moves sideways.
+    pub fn shift(&self, i: usize, row: u32) -> i32 {
+        let a = self.phase(i) + 0.5 * (row + 1) as f64;
+        ((a * 3.141592 / 180.0).sin() * Self::AMP) as i32
+    }
+
+    /// Lines and rows in the order drawn: (line, first row, end row).
+    pub fn order() -> [(usize, u32, u32); 4] {
+        let half = Self::ROWS / 2;
+        [
+            (0, 0, half),
+            (1, 0, half),
+            (1, half, Self::ROWS),
+            (0, half, Self::ROWS),
+        ]
+    }
+
+    pub fn opacity(&self) -> u8 {
+        self.alpha.as_ref().map_or(0, Tween::value)
+    }
+
+    /// Starts the fade in; how long the script waits.
+    pub fn show(&mut self) -> u64 {
+        match &self.alpha {
+            // Already coming: it is there at once.
+            Some(t) if !t.done() => {
+                self.alpha = Some(Tween::once(1, 255, 255));
+                0
+            }
+            _ => {
+                let t = Tween::once(Self::FADE_FRAMES, 0, 255);
+                let ms = t.length_ms();
+                self.alpha = Some(t);
+                ms
+            }
+        }
+    }
+}
+
 /// The item panel opening like a screen switched on, about its middle:
 /// a line 1 % high grows to its width over 8 frames, then to its height
 /// over 4; or closing, its height going to nothing over 12. The script
@@ -583,6 +664,9 @@ pub struct Battle {
     pub slides: [Option<Slide>; 5],
     /// HP going from one value to another (sub 3).
     pub hp_moves: [Option<Slide>; 5],
+    /// Gauges shaking as their HP drops: how hard (0 to 2) and the
+    /// frame.
+    pub shakes: [Option<(usize, i32)>; 5],
     /// Frame of the clock last stepped.
     pub frame: Option<u64>,
 }
@@ -624,6 +708,14 @@ pub const GAUGE_OUT: i32 = -424;
 /// Frames of a slide (subs 1 and 2) and of an HP move (sub 3).
 pub const SLIDE_FRAMES: i32 = 16;
 pub const HP_FRAMES: i32 = 128;
+/// A gauge whose HP drops shakes for 16 frames, going round these four
+/// offsets: by 2 pixels for a drop up to 20, 8 up to 40, 16 above.
+pub const SHAKE_FRAMES: i32 = 16;
+const SHAKES: [[(i32, i32); 4]; 3] = [
+    [(2, 0), (0, 2), (-2, 0), (0, -2)],
+    [(8, 0), (0, 8), (-8, 0), (0, -8)],
+    [(16, 0), (0, 16), (-16, 0), (0, -16)],
+];
 
 /// One HP change over time (`Game.1015` sub 6), read from the
 /// executable: every `interval` milliseconds the gauge's HP moves by
@@ -651,6 +743,7 @@ impl Default for Battle {
             drains: Vec::new(),
             slides: [None; 5],
             hp_moves: [None; 5],
+            shakes: [None; 5],
             frame: None,
         }
     }
@@ -769,10 +862,26 @@ impl Battle {
     }
 
     /// Moves gauge `i`'s HP to `hp` over [`HP_FRAMES`] frames, dropping
-    /// the queued HP moves of it.
+    /// the queued HP moves of it; a drop shakes the gauge.
     pub fn move_hp(&mut self, i: usize, hp: i32) {
         self.queue.retain(|&(k, g, _)| !(k == 2 && g == i as i32));
+        let drop = self.hp[i] - hp;
+        if drop > 0 {
+            let kind = if drop > 40 {
+                2
+            } else if drop > 20 {
+                1
+            } else {
+                0
+            };
+            self.shakes[i] = Some((kind, 0));
+        }
         self.hp_moves[i] = Some(Slide::new(self.hp[i], hp, HP_FRAMES));
+    }
+
+    /// How far gauge `i` is shaken now.
+    pub fn shake(&self, i: usize) -> (i32, i32) {
+        self.shakes[i].map_or((0, 0), |(k, f)| SHAKES[k.min(2)][(f % 4) as usize])
     }
 
     /// Steps the slides and HP moves once a frame up to clock time `now`;
@@ -783,15 +892,22 @@ impl Battle {
         self.frame = Some(frame);
         let mut moved = false;
         for _ in last..frame {
-            if self
+            let idle = self
                 .slides
                 .iter()
                 .chain(&self.hp_moves)
-                .all(Option::is_none)
-            {
+                .all(Option::is_none);
+            if idle && self.shakes.iter().all(Option::is_none) {
                 break;
             }
             for i in 0..5 {
+                if let Some((_, f)) = &mut self.shakes[i] {
+                    *f += 1;
+                    moved = true;
+                    if *f >= SHAKE_FRAMES {
+                        self.shakes[i] = None;
+                    }
+                }
                 if let Some(s) = &mut self.slides[i] {
                     s.done += 1;
                     moved = true;
@@ -822,6 +938,7 @@ impl Battle {
             if let Some(m) = self.hp_moves[i].take() {
                 self.hp[i] = m.to;
             }
+            self.shakes[i] = None;
         }
     }
 
@@ -909,5 +1026,31 @@ mod drain_tests {
         p.finish();
         assert_eq!(p.explain.as_deref(), Some("b.akb"));
         assert!(p.explain_over.is_none());
+    }
+
+    #[test]
+    fn dna_turns_and_comes_in() {
+        let mut d = Dna::default();
+        assert_eq!(d.opacity(), 0);
+        // First frame: 2 degrees, the blue half a turn on.
+        assert_eq!(d.phase(0), 2.0);
+        assert_eq!(d.phase(1), 182.0);
+        // Row 179 of red: sin(92) * 85.
+        assert_eq!(d.shift(0, 179), 84);
+        assert_eq!(d.shift(1, 179), -84);
+        let ms = d.show();
+        assert_eq!(ms, 16 * TICK_MS);
+        // Shown again while coming: there at once.
+        assert_eq!(d.show(), 0);
+        assert_eq!(d.opacity(), 255);
+        let mut p = Panels {
+            dna: Some(Dna::default()),
+            ..Panels::default()
+        };
+        p.dna.as_mut().unwrap().show();
+        p.advance(8 * TICK_MS);
+        assert_eq!(p.dna.as_ref().unwrap().opacity(), 127);
+        p.finish();
+        assert_eq!(p.dna.as_ref().unwrap().opacity(), 255);
     }
 }

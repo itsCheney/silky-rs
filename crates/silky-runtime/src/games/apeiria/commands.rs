@@ -310,7 +310,7 @@ impl Runtime {
 
     /// `Game.1014`, the DNA PC.
     fn dna_pc(&mut self, c: &Call) -> Option<silky_vm::Result<Flow>> {
-        use super::panels::MONITOR_SCREEN;
+        use super::panels::{Dna, MONITOR_SCREEN};
         let scene = &mut self.scene;
         match (c.sub, c.args.len()) {
             // Its screen goes into the background layer, the monitor over
@@ -336,10 +336,17 @@ impl Runtime {
                 scene.panels.system = false;
                 scene.panels.system_anim = None;
                 scene.panels.monitor = false;
+                scene.panels.dna = None;
             }
-            // A strand of DNA scrolling in the window (4) and its progress
-            // bar (5).
-            (4 | 5, 0) => {}
+            // A strand of DNA turning in the window, set up hidden (4) and
+            // brought in while the script waits (5).
+            (4, 0) => scene.panels.dna = Some(Dna::default()),
+            (5, 0) => {
+                let ms = scene.panels.dna.get_or_insert_with(Dna::default).show();
+                if ms > 0 {
+                    return self.live_wait(ms);
+                }
+            }
             _ => return None,
         }
         self.done()

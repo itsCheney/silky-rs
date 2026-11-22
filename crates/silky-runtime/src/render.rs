@@ -875,11 +875,25 @@ impl Renderer {
                 canvas.draw_sprite(Some(&sheet), part, corners, [255; 4], false);
             }
         }
+        if let Some(d) = p.dna.as_ref().filter(|d| p.system && d.opacity() > 0) {
+            let lines = [assets.image(Dna::LINES[0])?, assets.image(Dna::LINES[1])?];
+            let (x, y) = (SYSTEM_AT.0 + Dna::AT.0, SYSTEM_AT.1 + Dna::AT.1);
+            let a = d.opacity();
+            for (i, from, to) in Dna::order() {
+                let img = &lines[i];
+                for row in from..to.min(img.height) {
+                    let dx = d.shift(i, row);
+                    let part = (0, row, img.width, 1);
+                    canvas.draw_part(img, part, x + dx, y + row as i32, false, a);
+                }
+            }
+        }
         if let Some(b) = &p.battle {
             let hp = assets.image("hp.akb")?;
             for (i, x) in (0..5).filter_map(|i| Some((i, b.x(i)?))) {
                 let mut g = Battle::gauge(i);
-                g.at.0 = x;
+                let (dx, dy) = b.shake(i);
+                g.at = (x + dx, g.at.1 + dy);
                 let col = Battle::column(b.hp[i]);
                 let (fx, fy, fw, fh) = g.frame;
                 canvas.draw_part(&hp, (fx + col, fy, fw, fh), g.at.0, g.at.1, false, 255);
