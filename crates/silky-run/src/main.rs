@@ -151,6 +151,12 @@ enum Command {
         /// ran, instead of counting each repeated block once.
         #[arg(long)]
         no_squash: bool,
+        /// An expected call matches an actual one of the same name when
+        /// its arguments end with the actual's: the original leaves the
+        /// values a handler did not take on the stack, and its later calls
+        /// carry them in front.
+        #[arg(long)]
+        leftovers: bool,
     },
 }
 
@@ -230,6 +236,7 @@ fn main() -> Result<()> {
             window,
             show,
             no_squash,
+            leftovers,
         } => {
             let read = |p: &PathBuf| {
                 silky_trace::Trace::read(p).with_context(|| format!("reading {}", p.display()))
@@ -241,6 +248,7 @@ fn main() -> Result<()> {
                 skip,
                 from,
                 squash: !no_squash,
+                leftovers,
             };
             let walk = silky_trace::Walk {
                 context,

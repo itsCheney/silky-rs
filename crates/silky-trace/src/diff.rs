@@ -65,6 +65,11 @@ pub struct Projection {
     /// fade, input) runs as many times as the time it takes, which differs
     /// between runs and under Wine.
     pub squash: bool,
+    /// An expected call matches an actual call of the same name when its
+    /// arguments end with the actual call's: the original leaves the
+    /// values a handler did not take on the stack, and its later calls
+    /// carry them in front.
+    pub leftovers: bool,
 }
 
 fn matches(name: &str, pattern: &str) -> bool {
@@ -94,6 +99,19 @@ impl Projection {
     fn keeps(&self, call: &Call) -> bool {
         (self.only.is_empty() || self.only.iter().any(|p| matches(&call.call, p)))
             && !self.skip.iter().any(|p| matches(&call.call, p))
+    }
+
+    /// Whether an expected and an actual call (compared forms) match.
+    fn same_call(&self, e: &Call, a: &Call) -> bool {
+        if !self.leftovers {
+            return e == a;
+        }
+        e.tick == a.tick
+            && e.script == a.script
+            && e.pc == a.pc
+            && e.call == a.call
+            && e.result == a.result
+            && e.args.ends_with(&a.args)
     }
 
     /// The compared form of a call.
@@ -214,14 +232,19 @@ impl Default for Walk {
 /// Where two lists that differ at their first item agree again: the
 /// offsets of the first shared item on the best alignment of the first
 /// `window` items of each, or of both ends when only those are left.
-fn rejoin(e: &[(usize, Call)], a: &[(usize, Call)], window: usize) -> Option<(usize, usize)> {
+fn rejoin(
+    p: &Projection,
+    e: &[(usize, Call)],
+    a: &[(usize, Call)],
+    window: usize,
+) -> Option<(usize, usize)> {
     let (n, m) = (e.len().min(window), a.len().min(window));
     // lcs[x][y]: longest common subsequence of e[x..n] and a[y..m].
     let w = m + 1;
     let mut lcs = vec![0u16; (n + 1) * w];
     for x in (0..n).rev() {
         for y in (0..m).rev() {
-            lcs[x * w + y] = if e[x].1 == a[y].1 {
+            lcs[x * w + y] = if p.same_call(&e[x].1, &a[y].1) {
                 lcs[(x + 1) * w + y + 1] + 1
             } else {
                 lcs[(x + 1) * w + y].max(lcs[x * w + y + 1])
@@ -230,7 +253,7 @@ fn rejoin(e: &[(usize, Call)], a: &[(usize, Call)], window: usize) -> Option<(us
     }
     let (mut x, mut y) = (0, 0);
     while x < n && y < m {
-        if e[x].1 == a[y].1 {
+        if p.same_call(&e[x].1, &a[y].1) {
             return Some((x, y));
         }
         if lcs[(x + 1) * w + y] >= lcs[x * w + y + 1] {
@@ -248,7 +271,7 @@ fn rejoin(e: &[(usize, Call)], a: &[(usize, Call)], window: usize) -> Option<(us
 pub fn diff(expected: &[Call], actual: &[Call], projection: &Projection, walk: Walk) -> Report {
     let e = projection.apply(expected);
     let a = projection.apply(actual);
-    let same = |i: usize, j: usize| e[i].1 == a[j].1;
+    let same = |i: usize, j: usize| projection.same_call(&e[i].1, &a[j].1);
     let (mut i, mut j) = (0, 0);
     let mut divergences = Vec::new();
     let mut same_prefix = None;
@@ -266,7 +289,7 @@ pub fn diff(expected: &[Call], actual: &[Call], projection: &Projection, walk: W
             break;
         }
         same_prefix.get_or_insert(i.min(j));
-        let rejoin = rejoin(&e[i..], &a[j..], walk.window).map(|(x, y)| (i + x, j + y));
+        let rejoin = rejoin(projection, &e[i..], &a[j..], walk.window).map(|(x, y)| (i + x, j + y));
         let shown = |list: &[(usize, Call)], from: usize, to: usize| list[from..to].to_vec();
         let (ti, tj) = rejoin.unwrap_or(((i + 5).min(e.len()), (j + 5).min(a.len())));
         divergences.push(Divergence {
@@ -473,6 +496,38 @@ mod tests {
         };
         let text = diff(&e, &a, &Projection::default(), walk).to_string();
         assert!(text.contains("  - ... 2 more\n"), "{text}");
+    }
+
+    #[test]
+    fn leftover_values_in_front_of_the_original_args() {
+        let call = |name: &str, args: &[i32]| Call {
+            tick: None,
+            script: None,
+            pc: None,
+            call: name.into(),
+            args: args.iter().map(|&v| Arg::Int(v)).collect(),
+            result: None,
+        };
+        let e = [
+            call("A.1", &[0, 5, 6]),
+            call("B.2", &[0, 7]),
+            call("C.3", &[]),
+        ];
+        let a = [call("A.1", &[5, 6]), call("B.2", &[7]), call("C.3", &[])];
+        assert!(!diff(&e, &a, &Projection::default(), Walk::default()).same());
+        let p = Projection {
+            leftovers: true,
+            ..Projection::default()
+        };
+        assert!(diff(&e, &a, &p, Walk::default()).same());
+        // Extra values on the runtime side, or a different tail, differ.
+        assert!(!diff(&a, &e, &p, Walk::default()).same());
+        let b = [
+            call("A.1", &[0, 5, 9]),
+            call("B.2", &[0, 7]),
+            call("C.3", &[]),
+        ];
+        assert!(!diff(&b, &a, &p, Walk::default()).same());
     }
 
     #[test]

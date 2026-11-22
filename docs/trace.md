@@ -95,4 +95,6 @@ An expression is registers, numbers, `+` and `-`, and `[...]` for the 32-bit val
 
 A handler that does not take all of a statement's values leaves the rest on the stack, under the next statements' values, until the script returns. The probe reads the whole stack, so the original's calls then carry those values in front.
 
+`--leftovers` makes `diff` allow for this: an original call matches a runtime call of the same name when the original's arguments end with the runtime's (extra leading values on the original side only).
+
 On ふゆから、くるる。 (2026 build), the probe and `silky-run snap` agree on every call from the start to the first lines of the story, except the logo's wait loop, which the runtime leaves at once because headless runs play no sound, the random sound, and the title menu's buttons reacting to the mouse. On 同級生 (2022 build) they agree from the start to the title menu, apart from a value one call leaves on the stack (see the build page).
