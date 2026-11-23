@@ -20,6 +20,8 @@ struct GpuVertex {
     color: [f32; 4],
     clip_rect: [f32; 4],
     mode: [f32; 4],
+    /// Mosaic cell size and where the cells start, in pixels.
+    mosaic: [f32; 4],
 }
 
 /// What a range of vertices is drawn as.
@@ -126,7 +128,7 @@ impl GpuRaster {
         });
         let attributes = wgpu::vertex_attr_array![
             0 => Float32x2, 1 => Float32x2, 2 => Float32x2,
-            3 => Float32x4, 4 => Float32x4, 5 => Float32x4
+            3 => Float32x4, 4 => Float32x4, 5 => Float32x4, 6 => Float32x4
         ];
         let buffers = [wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<GpuVertex>() as u64,
@@ -587,6 +589,12 @@ impl GpuRaster {
                             color: v.color,
                             clip_rect: s.clip,
                             mode: [s.blend_mode as f32, wipe_scale, wipe_bias, wipe],
+                            mosaic: [
+                                super::raster::mosaic_cell(s.param),
+                                at.dx - super::raster::HALF_PICTURE,
+                                at.dy - super::raster::HALF_PICTURE,
+                                0.0,
+                            ],
                         });
                     }
                     Some((id, s.texture))

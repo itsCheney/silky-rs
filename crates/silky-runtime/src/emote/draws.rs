@@ -38,6 +38,9 @@ pub struct Style {
     pub clip: [f32; 4],
     /// Alpha scale and bias of a stencil wipe.
     pub wipe: Option<(f32, f32)>,
+    /// The frame's blend parameter (`bp`): for the mosaic, the number of
+    /// cells across the picture the game draws into, or minus a cell size.
+    pub param: f32,
 }
 
 #[derive(Debug)]
@@ -200,6 +203,7 @@ fn sprite_mesh(sprite: &EmoteStaticSprite) -> Mesh {
         wipe: info
             .stencil_wipe_enabled
             .then_some((info.stencil_wipe_scale, info.stencil_wipe_bias)),
+        param: sprite.blend_parameter,
     };
     let corners = sprite.corner_colors.map(|c| corner_color(sprite, c));
     let vertices = match &sprite.mesh {

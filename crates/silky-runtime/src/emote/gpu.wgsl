@@ -14,6 +14,8 @@ struct VertexIn {
     @location(4) clip_rect: vec4<f32>,
     // Blend mode, wipe scale, wipe bias, wipe on.
     @location(5) mode: vec4<f32>,
+    // Mosaic cell size and where the cells start.
+    @location(6) mosaic: vec4<f32>,
 };
 
 struct VertexOut {
@@ -23,6 +25,7 @@ struct VertexOut {
     @location(2) color: vec4<f32>,
     @location(3) clip_rect: vec4<f32>,
     @location(4) mode: vec4<f32>,
+    @location(5) mosaic: vec4<f32>,
 };
 
 @vertex
@@ -34,6 +37,7 @@ fn vs_main(v: VertexIn) -> VertexOut {
     out.color = v.color;
     out.clip_rect = v.clip_rect;
     out.mode = v.mode;
+    out.mosaic = v.mosaic;
     return out;
 }
 
@@ -108,6 +112,18 @@ fn fs_buffered(v: VertexOut) -> @location(0) vec4<f32> {
         discard;
     }
     let d = textureLoad(below, vec2<i32>(v.position.xy), 0);
+    if ((mode & 0xFF0Fu) == 0x10Cu) {
+        // Mosaic: the picture below at the middle of the cell.
+        let cell = v.mosaic.x;
+        let grid = v.mosaic.yz;
+        let at = floor(floor((v.position.xy - grid) / cell) * cell + cell * 0.5 + 0.5 + grid);
+        let size = vec2<f32>(textureDimensions(below));
+        var m = vec4<f32>(0.0);
+        if (all(at >= vec2<f32>(0.0)) && all(at < size)) {
+            m = textureLoad(below, vec2<i32>(at), 0);
+        }
+        return vec4<f32>(mix(d.rgb, m.rgb, c.a), d.a);
+    }
     if (d.a <= 0.0) {
         return d;
     }

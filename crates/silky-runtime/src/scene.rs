@@ -40,6 +40,11 @@ pub struct Place {
     pub scale: i32,
     pub x: i32,
     pub y: i32,
+    /// An H scene model (`?g...`): the engine hands its position to the
+    /// model rather than to the picture it draws, which puts it a little
+    /// higher than a standing model at the same numbers.
+    #[serde(default)]
+    pub scene: bool,
 }
 
 impl Place {
@@ -50,6 +55,7 @@ impl Place {
         scale: 35,
         x: 500,
         y: -930,
+        scene: false,
     };
 
     /// A standing model in `slot` at `scale` percent (command 40, sub 0):
@@ -69,18 +75,26 @@ impl Place {
                 scale,
                 x: 1,
                 y: -683,
+                scene: true,
             };
         }
         let y = ((1.0 - s) * 800.0 - 1200.0) as i32;
-        Place { scale, x, y }
+        Place {
+            scale,
+            x,
+            y,
+            scene: false,
+        }
     }
 
     /// Where the model's origin lands on the 1280 x 720 screen. The driver
     /// takes the position as a camera offset, hence the signs; the
     /// constants were measured on screenshots of the game (0.35 at the
-    /// bottom left and 0.6 on the right agree).
+    /// bottom left and 0.6 on the right agree). An H scene model sits 26
+    /// pixels higher, which brings its 1280 x 720 frame onto the screen.
     pub fn origin(&self) -> (f32, f32) {
-        (640.0 - self.x as f32, -258.0 - self.y as f32)
+        let top = if self.scene { -284.0 } else { -258.0 };
+        (640.0 - self.x as f32, top - self.y as f32)
     }
 }
 

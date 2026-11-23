@@ -81,6 +81,8 @@ pub struct Target {
     /// Premultiplied RGBA.
     pub color: Vec<[f32; 4]>,
     stencil: Vec<u8>,
+    /// The picture before a mosaic draw, which reads it cell by cell.
+    below: Vec<[f32; 4]>,
 }
 
 impl Target {
@@ -91,6 +93,7 @@ impl Target {
             height,
             color: vec![[0.0; 4]; n],
             stencil: vec![0; n],
+            below: Vec::new(),
         }
     }
 
@@ -116,6 +119,9 @@ impl Target {
             let Some(texture) = textures.get(&draw.mesh.style.texture) else {
                 continue;
             };
+            if draw.mesh.style.blend_mode & 0xFF0F == MOSAIC {
+                self.below.clone_from(&self.color);
+            }
             if draw.stencil.is_empty() {
                 self.mesh(&draw.mesh, texture, at, Pass::Color(None));
                 continue;
@@ -237,6 +243,25 @@ impl Target {
                 match pass {
                     Pass::Increment(_) => self.stencil[i] = self.stencil[i].saturating_add(1),
                     Pass::Decrement(_) => self.stencil[i] = self.stencil[i].saturating_sub(1),
+                    Pass::Color(_) if style.blend_mode & 0xFF0F == MOSAIC => {
+                        let cell = mosaic_cell(style.param);
+                        let grid = (at.dx - HALF_PICTURE, at.dy - HALF_PICTURE);
+                        let sx = mosaic_sample(x as f32 + 0.5, grid.0, cell);
+                        let sy = mosaic_sample(y as f32 + 0.5, grid.1, cell);
+                        let m = if sx >= 0
+                            && sy >= 0
+                            && sx < self.width as i64
+                            && sy < self.height as i64
+                        {
+                            self.below[(sy as u32 * self.width + sx as u32) as usize]
+                        } else {
+                            [0.0; 4]
+                        };
+                        let d = &mut self.color[i];
+                        for k in 0..3 {
+                            d[k] += (m[k] - d[k]) * src[3];
+                        }
+                    }
                     Pass::Color(_) => blend(&mut self.color[i], src, style.blend_mode & 0xFF0F),
                 }
             }
@@ -328,6 +353,31 @@ fn fragment(mut c: [f32; 4], style: &Style) -> Option<[f32; 4]> {
     (c[3] > 0.003).then_some(c)
 }
 
+/// `bm` 0x10c: the driver's mosaic, which fills each cell with the
+/// picture below at the cell's middle.
+pub(crate) const MOSAIC: u32 = 0x10c;
+
+/// Half the size of the square picture the game draws a model into, with
+/// the model's origin in its middle; the mosaic cells line up with it.
+pub(crate) const HALF_PICTURE: f32 = 1000.0;
+
+/// The mosaic cell size in pixels for the blend parameter `param`: that
+/// many cells across the game's picture, at least one pixel each, or minus
+/// the size itself when negative.
+pub(crate) fn mosaic_cell(param: f32) -> f32 {
+    if param < 0.0 {
+        -param
+    } else {
+        (HALF_PICTURE * 2.0 / param.max(1.0)).ceil()
+    }
+}
+
+/// The pixel the mosaic reads for the pixel centered at `p`, with cells
+/// of `cell` pixels starting at `grid`.
+fn mosaic_sample(p: f32, grid: f32, cell: f32) -> i64 {
+    (((p - grid) / cell).floor() * cell + cell * 0.5 + 0.5 + grid).floor() as i64
+}
+
 /// The fixed-function blend of mode 0..=5 into a premultiplied target.
 fn blend(d: &mut [f32; 4], s: [f32; 4], mode: u32) {
     let a = s[3];
@@ -379,8 +429,8 @@ fn blend(d: &mut [f32; 4], s: [f32; 4], mode: u32) {
 /// The blends of `bm` 0x100 to 0x10c, as the driver's shaders mix the
 /// picture below (`b`) with the sprite (`c`): linear dodge, linear burn,
 /// overlay, hard light, soft light, color dodge, color burn, lighten,
-/// darken, difference, exclusion, luminance. The mosaic (0x10c) and
-/// later ones leave the picture as it is.
+/// darken, difference, exclusion, luminance. The mosaic (0x10c) is drawn
+/// on its own and later ones leave the picture as it is.
 pub(crate) fn buffered(mode: u32, b: [f32; 3], c: [f32; 3]) -> [f32; 3] {
     let luma = 0.298912 * b[0] + 0.586611 * b[1] + 0.114478 * b[2];
     std::array::from_fn(|k| {
@@ -411,7 +461,20 @@ pub(crate) fn buffered(mode: u32, b: [f32; 3], c: [f32; 3]) -> [f32; 3] {
 
 #[cfg(test)]
 mod tests {
-    use super::{blend, buffered};
+    use super::{blend, buffered, mosaic_cell, mosaic_sample};
+
+    #[test]
+    fn mosaic_cells() {
+        // 80 cells across the 2000 pixel picture, or a size given outright.
+        assert_eq!(mosaic_cell(80.0), 25.0);
+        assert_eq!(mosaic_cell(0.0), 2000.0);
+        assert_eq!(mosaic_cell(-8.0), 8.0);
+        // Every pixel of a cell reads the one in its middle.
+        assert_eq!(mosaic_sample(0.5, 0.0, 25.0), 13);
+        assert_eq!(mosaic_sample(24.5, 0.0, 25.0), 13);
+        assert_eq!(mosaic_sample(25.5, 0.0, 25.0), 38);
+        assert_eq!(mosaic_sample(10.5, 15.0, 25.0), 3);
+    }
 
     #[test]
     fn blends_reading_the_picture_below() {

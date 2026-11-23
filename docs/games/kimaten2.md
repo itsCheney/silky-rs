@@ -55,12 +55,15 @@ The one-shot timelines of these models give a length of 3 ticks while their fram
 
 The H scene models clip the whole picture to a frame layer, `トリミング枠`, whose opacity is 0. A stencil source counts by its shape, whatever its opacity, so the frame still cuts the picture to the screen. Their effect layers and shadows use the E-mote driver's blends that read the picture below (`bm` 0x100 to 0x10b: linear dodge, linear burn, overlay, hard light, soft light, color dodge, color burn, lighten, darken, difference, exclusion, luminance), read from the driver's shaders. Both renderers draw them from a copy of the picture below.
 
+The censor mosaic is the driver's `bm` 0x10c: each cell takes the picture below at its middle. The frame's blend parameter gives the number of cells across the 2000 x 2000 picture the game draws a model into (80, so cells of 25 pixels), and the cells line up with that picture.
+
+When the game loads an H scene model it plays the model's difference timelines 28, 0 and 13 and then main timeline 0, which brings the model to its plain waiting picture. It places these models 26 pixels higher than a standing model at the same numbers, since it hands their position to the model rather than to the picture it draws.
+
+A layer whose key is empty (type 0) is not drawn itself, but its children are. The H scene models keep the lower body under a group whose keys are all empty.
+
 ## Not done yet
 
-- H mode was compared with the game once. Its buttons, gauges and the costume buttons at the top left sit where the game puts them. The model now draws with the game's colors and waiting loop, but it still differs:
-  - The legs sit in another pose, and a see-through cloth layer covers them that the game does not show.
-  - The censor mosaic (`bm` 0x10c) is not drawn yet.
-  - The picture sits about 25 pixels lower than in the game.
+- H mode was compared with the game. Its buttons, gauges and the costume buttons at the top left sit where the game puts them, and the model's waiting picture matches the game's within 2 pixels. The mosaic cells sit 4 pixels higher than the game's.
 
 ## Where things are in the executable
 
@@ -94,6 +97,7 @@ Addresses in `kimaten2.exe` of the build above, for checking the code against th
 | Game pointer (`cursor.akb`): set, frame step, place | 0x4a27a0, 0x4a2ab0, 0x4a2b60 |
 | H mode: dream mist scroll and wave, white flash | 0x47ce30, 0x47cef0, 0x489b10 |
 | E-mote model: queue the next pose (`Game.40` sub 13), play a pose, step the models | 0x45a9a0, 0x452ac0, 0x456fc0 |
+| E-mote model: load (timelines played on an H scene model), place an H scene model | 0x45a1b0, 0x4564b0 |
 | Costume screen: open, set up, click, draw, close | 0x4795b0, 0x479740, 0x479920, 0x479e20, 0x479700 |
 | Sprite animation task (runs once more than its 15 ms have passed) | 0x4186f0 |
 | E-mote: `Pass` on both files (driver vtable +0x110), used by the fourth tool | 0x456d20 |
@@ -106,3 +110,5 @@ Addresses in the `emotedriver.dll` that comes with it:
 | Draw a sprite: blend state by `bm` (0x100 to 0x10f read the picture below) | 0x10061b20 |
 | Pick the shader of a blend that reads the picture below | 0x10060390 |
 | Shader blobs and their sizes | 0x10d32310, 0x1014fcf0 |
+| Mosaic cell size from the blend parameter | 0x10060390 |
+| Copy of the picture below, snapped to the mosaic cells | 0x10065ef0 |

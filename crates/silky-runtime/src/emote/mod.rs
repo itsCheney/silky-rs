@@ -487,6 +487,17 @@ impl Character {
         self.show(file);
     }
 
+    /// What the engine plays when it loads an H scene model: difference
+    /// timelines 28, 0 and 13 (`f00`), then main timeline 0. These reset
+    /// the parts the model shows to its plain waiting picture.
+    pub fn scene_start(&mut self) {
+        for index in [28, 0, 13] {
+            self.h_diff(index, 0);
+        }
+        self.h_main(0, 0, false);
+        self.h_pass();
+    }
+
     /// Stops the main timeline.
     pub fn h_stop_main(&mut self) {
         if let Some(p) = self.pose.take() {
@@ -764,6 +775,9 @@ impl Stage {
             talk: 0.0,
             queued: None,
         };
+        if emote.place.is_some_and(|p| p.scene) {
+            stage.character.scene_start();
+        }
         stage.apply(emote);
         // Settle the first pose before it is shown.
         let _ = stage.character.progress(500.0);

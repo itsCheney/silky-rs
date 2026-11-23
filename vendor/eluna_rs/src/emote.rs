@@ -5014,17 +5014,19 @@ fn travel_layer_at(
             state.shear_x,
             state.shear_y,
         );
-        // A type-0 key with more keys after it is a gap: the layer (and
-        // what hangs off it) is not shown until the next key, as when an
-        // eyelid motion hides the eye white for closed eyes. The last type-0
-        // key only ends the list and keeps the layer as it was.
+        // A type-0 key with more keys after it is a gap: the layer itself is
+        // not drawn until the next key, as when an eyelid motion hides the
+        // eye white for closed eyes. The last type-0 key only ends the list
+        // and keeps the layer as it was. Children still draw with the held
+        // state, as a group whose list is all type-0 keys (a lower-body set
+        // in the H scene models) only places its parts.
         let opacity = if state.serialized_frame_type == 0 && state.next_frame_index.is_some() {
             0.0
         } else {
             state.opa
         };
         draw_ctx = ctx_with_opacity(draw_ctx, opacity);
-        child_ctx = ctx_with_opacity(child_ctx, opacity);
+        child_ctx = ctx_with_opacity(child_ctx, state.opa);
 
         if draw_ctx.layer_type == 12 {
             if let Some(wipe) = state.stencil_wipe {
