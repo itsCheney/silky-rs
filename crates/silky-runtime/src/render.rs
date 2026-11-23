@@ -778,7 +778,9 @@ impl Renderer {
             let spots = spots(s.shown.len());
             let f = s.factor();
             let change = s.change.as_ref();
-            for i in 0..s.shown.len() {
+            // The original makes the copies from the last to the first,
+            // so the first lies on top.
+            for i in (0..s.shown.len()).rev() {
                 let changing = change.filter(|c| (c.from..c.to).contains(&i));
                 if !s.shown[i] && changing.is_none() {
                     continue;
