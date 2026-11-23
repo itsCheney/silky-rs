@@ -54,7 +54,10 @@ The one-shot timelines of these models give a length of 3 ticks while their fram
 
 ## Not done yet
 
-- H mode has not been compared with the game on screen yet.
+- H mode was compared with the game once. Its buttons, gauges and the costume buttons at the top left sit where the game puts them. Three things are still missing:
+  - The extras page's アンネの部屋 opens a costume picker (`Game.51` sub 1) before H mode. It is not carried out, so the runtime goes back to the title instead.
+  - The H scene model draws nothing. Every part of it sits under a whole-picture stencil whose only source is the `トリミング枠` frame layer, which has an opacity of 0, so the mask comes out empty.
+  - With that mask left out, the parts all show at once and no waiting pose plays. What the game starts on the model when H mode opens still has to be read from the executable.
 
 ## Where things are in the executable
 
