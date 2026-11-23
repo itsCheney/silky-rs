@@ -23,6 +23,8 @@ const ACTION_MENU: i32 = 42;
 const MAP: i32 = 43;
 /// H mode.
 const H_MODE: i32 = 49;
+/// The costume screen of アンネの部屋.
+const COSTUME: i32 = 51;
 
 impl Runtime {
     /// きまぐれテンプテーション2's own `Game` commands, before the sub
@@ -79,6 +81,7 @@ impl Runtime {
                 self.wait_for(Pause::Map)
             }
             H_MODE => self.wait_for(Pause::HMode),
+            COSTUME => self.wait_for(Pause::Costume(sub)),
             EMOTE if self.kimaten2_emote(args, sub) => self.done(),
             // Apply: crossfade over the longest time given.
             EMOTES if sub == 2 && args.len() == 1 => {

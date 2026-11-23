@@ -142,6 +142,9 @@ pub enum Pause {
     /// A screen of 同級生 Remake is up ([`Runtime::panel`]); answer
     /// with [`Runtime::answer_action`].
     Panel,
+    /// きまぐれテンプテーション2's costume screen from アンネの部屋
+    /// (`Game.51`, with its mode); answer with [`Runtime::answer_action`].
+    Costume(i32),
     /// きまぐれテンプテーション2's H mode (`Game.49`, see
     /// [`crate::games::kimaten2::hmode`]); the scripts go on when it ends.
     HMode,

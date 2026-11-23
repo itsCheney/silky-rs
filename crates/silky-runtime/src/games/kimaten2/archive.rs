@@ -127,6 +127,8 @@ pub const COSTUME_VAR: usize = 701;
 pub const OUTFIT_VAR: usize = 708;
 /// Forms C and D: (game flag, cleared-game flag).
 pub const COSTUME_UNLOCK: [(usize, usize); 2] = [(711, 3012), (712, 3013)];
+/// Set by the endings: the second outfit button shows only then.
+pub const OUTFIT_UNLOCK: usize = 3007;
 
 /// Ids shared by `notebook.area` and `itemselect.area`.
 pub mod ids {
@@ -304,24 +306,56 @@ impl ArchiveScreen {
     }
 }
 
-/// The costume screen.
+/// The costume screen. The button bar opens it in mode 0; アンネの部屋
+/// opens it with `Game.51` in mode 1, which adds the 次へ button.
 #[derive(Debug, Clone)]
 pub struct CostumeScreen {
     pub form: usize,
     pub second_outfit: bool,
     pub unlocked: [bool; 4],
+    /// The second outfit button is there (byte 3007).
+    pub outfit_button: bool,
+    /// Mode 1: 次へ is there.
+    pub next_button: bool,
+    /// Form and outfit when the screen opened.
+    opened: (usize, bool),
+    /// The button that closed the screen.
+    pub closed_by: Option<i32>,
+    /// Opened by `Game.51`, which waits for its result.
+    pub script: bool,
 }
 
 impl CostumeScreen {
     pub fn new(var: impl Fn(usize) -> u8) -> Self {
+        Self::with_mode(var, 0)
+    }
+
+    pub fn with_mode(var: impl Fn(usize) -> u8, mode: i32) -> Self {
         let mut unlocked = [true; 4];
         for (k, (game, cleared)) in COSTUME_UNLOCK.iter().enumerate() {
             unlocked[2 + k] = var(*game) == 1 || var(*cleared) == 1;
         }
+        let form = (var(COSTUME_VAR) as usize).saturating_sub(1).min(3);
+        let second_outfit = var(OUTFIT_VAR) != 0;
         Self {
-            form: (var(COSTUME_VAR) as usize).saturating_sub(1).min(3),
-            second_outfit: var(OUTFIT_VAR) != 0,
+            form,
+            second_outfit,
             unlocked,
+            outfit_button: var(OUTFIT_UNLOCK) != 0,
+            next_button: mode != 0,
+            opened: (form, second_outfit),
+            closed_by: None,
+            script: false,
+        }
+    }
+
+    /// What `Game.51` returns: 2 for 次へ, else 1 if the costume changed
+    /// and 0 if not.
+    pub fn script_result(&self) -> i32 {
+        if self.closed_by == Some(costume_ids::NEXT) {
+            2
+        } else {
+            i32::from((self.form, self.second_outfit) != self.opened)
         }
     }
 
@@ -680,6 +714,8 @@ impl Archive {
         let id = find(&self.costume, x, y)?;
         match id {
             0..=3 if !c.unlocked[id as usize] => None,
+            costume_ids::OUTFIT if !c.outfit_button => None,
+            costume_ids::NEXT if !c.next_button => None,
             _ => Some(Button::Screen(id)),
         }
     }
@@ -724,12 +760,12 @@ impl Archive {
                         255,
                     );
                 }
-                OUTFIT => {
+                OUTFIT if c.outfit_button => {
                     let row = st(false).min(2) + if c.second_outfit { 3 } else { 0 };
                     CO_OUTFIT.draw(canvas, &sheet, row, a)
                 }
                 BACK => CO_BACK.draw(canvas, &sheet, st(false).min(2), a),
-                NEXT => CO_NEXT.draw(canvas, &sheet, st(false).min(2), a),
+                NEXT if c.next_button => CO_NEXT.draw(canvas, &sheet, st(false).min(2), a),
                 _ => {}
             }
         }
@@ -741,8 +777,15 @@ impl Archive {
         use costume_ids::*;
         match id {
             FORM..=3 if c.unlocked[id as usize] => c.form = id as usize,
-            OUTFIT => c.second_outfit ^= true,
-            BACK | NEXT => return ArchiveAction::Close,
+            OUTFIT if c.outfit_button => c.second_outfit ^= true,
+            BACK => {
+                c.closed_by = Some(BACK);
+                return ArchiveAction::Close;
+            }
+            NEXT if c.next_button => {
+                c.closed_by = Some(NEXT);
+                return ArchiveAction::Close;
+            }
             _ => {}
         }
         ArchiveAction::None
@@ -817,5 +860,33 @@ mod tests {
         assert!(c.second_outfit);
         assert_eq!(c.unlocked, [true, true, false, true]);
         assert_eq!(c.result(), [(701, 3), (708, 1)]);
+        assert!(!c.outfit_button && !c.next_button);
+    }
+
+    #[test]
+    fn costume_from_the_room() {
+        let var = |i: usize| match i {
+            701 => 1,
+            3007 => 1,
+            _ => 0,
+        };
+        let mut c = CostumeScreen::with_mode(var, 1);
+        assert!(c.outfit_button && c.next_button);
+        assert_eq!(c.script_result(), 0);
+        Archive::press_costume(&mut c, costume_ids::OUTFIT);
+        assert_eq!(c.script_result(), 1);
+        Archive::press_costume(&mut c, costume_ids::OUTFIT);
+        assert_eq!(
+            Archive::press_costume(&mut c, costume_ids::BACK),
+            ArchiveAction::Close
+        );
+        assert_eq!(c.script_result(), 0);
+        Archive::press_costume(&mut c, costume_ids::NEXT);
+        assert_eq!(c.script_result(), 2);
+        let mut bar = CostumeScreen::new(var);
+        assert_eq!(
+            Archive::press_costume(&mut bar, costume_ids::NEXT),
+            ArchiveAction::None
+        );
     }
 }

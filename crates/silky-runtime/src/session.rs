@@ -790,6 +790,22 @@ impl Session {
                         self.open_hmode();
                         break;
                     }
+                    Some(Pause::Costume(mode)) => {
+                        let vm = &self.vm;
+                        let mut c = CostumeScreen::with_mode(|i| vm.var_b(i), mode);
+                        c.script = true;
+                        self.screen = Some(Screen::Costume(c));
+                        self.ui.title = None;
+                        self.ui.waiting = false;
+                        self.ui.skip = false;
+                        self.ui.auto = false;
+                        self.skip_to_choice = false;
+                        self.ui.hover = None;
+                        self.state = State::Choice;
+                        self.base = None;
+                        self.frame = None;
+                        break;
+                    }
                     Some(Pause::Extras(kind)) => {
                         self.ui.title = None;
                         self.ui.skip = false;
@@ -1706,6 +1722,10 @@ impl Session {
                 self.frame = None;
             }
             Some(Screen::Extras(_)) => self.leave_extras(-1)?,
+            // From アンネの部屋 a secondary click is もどる.
+            Some(Screen::Costume(c)) if c.script => {
+                self.press_archive(archive::costume_ids::BACK, 0, 0)?
+            }
             Some(_) => self.close_screen(),
             None => return Ok(false),
         }
@@ -2287,7 +2307,18 @@ impl Session {
             _ => ArchiveAction::None,
         };
         match action {
-            ArchiveAction::Close => self.close_screen(),
+            ArchiveAction::Close => {
+                let script = match &self.screen {
+                    Some(Screen::Costume(c)) if c.script => Some(c.script_result()),
+                    _ => None,
+                };
+                self.close_screen();
+                if let Some(result) = script {
+                    self.rt.answer_action(&mut self.vm, result);
+                    self.state = State::Busy;
+                    self.run()?;
+                }
+            }
             ArchiveAction::Seen(i) => self.vm.set_var_b(i, 1),
             ArchiveAction::Recording => {
                 let Some(Screen::Archive(s)) = &mut self.screen else {

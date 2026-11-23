@@ -565,6 +565,11 @@ fn snap(
                 }
                 // Headless: H mode is left at once with its finish button.
                 Some(Pause::HMode) => println!("H mode (finished at once)"),
+                // アンネの部屋's costume screen: 次へ.
+                Some(Pause::Costume(_)) => {
+                    println!("costume screen -> next");
+                    rt.answer_action(vm, 2);
+                }
                 Some(Pause::Choice) => {
                     // On the mail forward screen (景の海のアペイリア) the
                     // default is the first mail not forwarded yet (bytes

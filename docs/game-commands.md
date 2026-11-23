@@ -58,7 +58,7 @@ Commands of ふゆから、くるる。 general enough to try on a game not know
 
 ## きまぐれテンプテーション2
 
-`games/kimaten2/commands.rs`. The commands not listed here or in the common set are reported. Those that return a value were read from the executable: 24, 34, 44, 51, 959, 990, 1006, 1009 and 1010 are not carried out yet.
+`games/kimaten2/commands.rs`. The commands not listed here or in the common set are reported. Those that return a value were read from the executable: 24, 34, 44, 959, 990, 1006, 1009 and 1010 are not carried out yet.
 
 | Call | Returns | Does | Source |
 | --- | --- | --- | --- |
@@ -73,6 +73,7 @@ Commands of ふゆから、くるる。 general enough to try on a game not know
 | `40.3(frames, slot)`, `40.4(frames)` | | Remove one, remove all | Read |
 | `40.16(file)` | | Mouth track of the voice | Read |
 | `40.2` | | Crossfade to the new models over the longest time the other calls gave | Read |
+| `51(mode)` | 0, 1, 2 | Costume screen; mode 1 adds 次へ (answers 2) | Read |
 | `42` | button, or -1 | Action menu from bytes 0 to 6 | Compared |
 | `43(voice set, back, which map)` | place | Map | Compared |
 | `49` | | H mode screen | Read |

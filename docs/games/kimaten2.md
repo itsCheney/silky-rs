@@ -17,7 +17,8 @@ Compared with the original running under Wine: the message text has a one-pixel 
 These screens are drawn from their sheets and read the script's byte variables the way the executable does:
 
 - Notebook entry `i` is open when byte `900 + i` is set, collection item `i` when byte `801 + i` is set.
-- The costume is bytes 701 (form) and 708 (outfit), written back when the screen closes. Forms C and D open with bytes 711 and 712.
+- The costume is bytes 701 (form) and 708 (outfit), written back when the screen closes. Forms C and D open with bytes 711 and 712. The outfit button shows only once byte 3007 is set.
+- The extras page's アンネの部屋 opens the same screen through `Game.51` with a 次へ button added. 次へ answers 2 and goes on to H mode. もどる answers 1 if the costume changed and 0 if not.
 - From the title menu the notebook shows the copies the scripts keep at `1000 +`. Bytes from 1000 on are kept outside a game in `system.json`, so they survive loads and new games.
 - Some notebook entries grow during the story: byte `940 + i` says how many parts are open, the rest of the text is cut off, and a "New" mark stands before the newest part (cut and mark positions from the executable). From the title menu the mark goes away once the entry was opened there (byte 2020 + i).
 - The last collection item, a voice recording, is a play/pause button over its picture that plays five voice files in turn. The executable names them `kt_*.ogg`; they are not in the copy of the game tested, so they are reported as missing.
@@ -54,8 +55,7 @@ The one-shot timelines of these models give a length of 3 ticks while their fram
 
 ## Not done yet
 
-- H mode was compared with the game once. Its buttons, gauges and the costume buttons at the top left sit where the game puts them. Three things are still missing:
-  - The extras page's アンネの部屋 opens a costume picker (`Game.51` sub 1) before H mode. It is not carried out, so the runtime goes back to the title instead.
+- H mode was compared with the game once. Its buttons, gauges and the costume buttons at the top left sit where the game puts them. Two things are still missing:
   - The H scene model draws nothing. Every part of it sits under a whole-picture stencil whose only source is the `トリミング枠` frame layer, which has an opacity of 0, so the mask comes out empty.
   - With that mask left out, the parts all show at once and no waiting pose plays. What the game starts on the model when H mode opens still has to be read from the executable.
 
@@ -90,5 +90,6 @@ Addresses in `kimaten2.exe` of the build above, for checking the code against th
 | H mode: pointer picture by tool and region, table | 0x486600, 0x53c0dc |
 | Game pointer (`cursor.akb`): set, frame step, place | 0x4a27a0, 0x4a2ab0, 0x4a2b60 |
 | H mode: dream mist scroll and wave, white flash | 0x47ce30, 0x47cef0, 0x489b10 |
+| Costume screen: open, set up, click, draw, close | 0x4795b0, 0x479740, 0x479920, 0x479e20, 0x479700 |
 | Sprite animation task (runs once more than its 15 ms have passed) | 0x4186f0 |
 | E-mote: `Pass` on both files (driver vtable +0x110), used by the fourth tool | 0x456d20 |
