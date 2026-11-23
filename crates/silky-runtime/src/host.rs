@@ -466,6 +466,26 @@ impl Runtime {
         vm.push(index as i32 + 1);
     }
 
+    /// A left click at (`x`, `y`) game pixels on the mail forward screen,
+    /// through its area file. Returns whether the click was taken; when it
+    /// ends the screen the mail picked goes back to the script.
+    pub fn mail_select_click(&mut self, vm: &mut Vm, x: i32, y: i32) -> bool {
+        use crate::games::apeiria::mail_select::AREAS;
+        let Some(ms) = self.scene.mail_select.as_mut().filter(|m| m.shown) else {
+            return false;
+        };
+        let areas = crate::screens::area_file(&self.assets, AREAS);
+        let result = ms.click_at(&areas, x, y);
+        if let Some(result) = result {
+            ms.shown = false;
+            self.choices.clear();
+            self.choice_status.clear();
+            self.scene.plate = false;
+            vm.push(result);
+        }
+        true
+    }
+
     /// Game state for a save file: interpreter, scene and text table. Take
     /// it while a message is shown ([`Pause::Text`]).
     pub fn save_state(&self, vm: &Vm) -> SaveState {

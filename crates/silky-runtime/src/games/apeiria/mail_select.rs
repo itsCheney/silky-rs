@@ -90,6 +90,19 @@ impl MailSelect {
         self.checked.filter(|_| self.forward).map(|k| k as i32 + 1)
     }
 
+    /// Left click at (`x`, `y`) against the screen's areas: a row slot
+    /// clicks the listed row it stands for (slots past the listed rows do
+    /// nothing), the forward button presses forward while it is active.
+    /// The result when the click ends the screen.
+    pub fn click_at(&mut self, areas: &[silky_format::area::Area], x: i32, y: i32) -> Option<i32> {
+        let id = areas.iter().find(|a| a.contains(x, y))?.id;
+        if id == FORWARD_AREA {
+            self.click_forward()
+        } else {
+            self.click_row(usize::try_from(id).ok()?)
+        }
+    }
+
     /// Clicks listed row `v`, then forward if it became active; what a
     /// selection answer stands for.
     pub fn answer(&mut self, v: usize) -> i32 {
@@ -140,6 +153,53 @@ impl MailSelect {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use silky_format::area::Area;
+
+    fn areas() -> Vec<Area> {
+        let mut v: Vec<Area> = (0..11)
+            .map(|k| Area {
+                id: k,
+                left: 353,
+                top: 95 + 32 * k,
+                right: 854,
+                bottom: 127 + 32 * k,
+            })
+            .collect();
+        v.push(Area {
+            id: FORWARD_AREA,
+            left: 929,
+            top: 389,
+            right: 989,
+            bottom: 449,
+        });
+        v
+    }
+
+    #[test]
+    fn hit_test_maps_slots_to_listed_rows() {
+        let b = [(0, 255), (1, 3), (2, 4), (1003, 1), (1100, 1)];
+        let mut m = MailSelect::default();
+        m.open(bytes(&b));
+        assert_eq!(m.rows, vec![2, 3, 4]);
+        // slot 1 (y 127..159) is the second listed row, a pair mail.
+        assert_eq!(m.click_at(&areas(), 400, 130), None);
+        assert_eq!(m.checked, Some(3));
+        assert!(m.forward);
+    }
+
+    #[test]
+    fn hit_test_ignores_slots_past_rows_and_inactive_forward() {
+        let b = [(0, 255), (1, 3), (1003, 1)];
+        let mut m = MailSelect::default();
+        m.open(bytes(&b));
+        assert_eq!(m.click_at(&areas(), 400, 130), None);
+        assert_eq!(m.checked, None);
+        assert_eq!(m.click_at(&areas(), 950, 400), None);
+        assert_eq!(m.click_at(&areas(), 10, 10), None);
+        // active forward ends it.
+        m.click_at(&areas(), 400, 100);
+        assert_eq!(m.click_at(&areas(), 950, 400), Some(3));
+    }
 
     fn bytes(set: &[(usize, u8)]) -> impl Fn(usize) -> u8 + '_ {
         move |i| set.iter().find(|s| s.0 == i).map_or(0, |s| s.1)

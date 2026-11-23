@@ -735,7 +735,14 @@ impl Session {
                         if let Some(e) = self.log.last() {
                             self.choice_points.push((len, e.state.clone()));
                         }
-                        self.ui.choices = self.rt.choices.clone();
+                        // The mail forward screen has no bars: it takes
+                        // clicks on its own rows.
+                        let mail = self.rt.scene.mail_select.as_ref().is_some_and(|m| m.shown);
+                        self.ui.choices = if mail {
+                            Vec::new()
+                        } else {
+                            self.rt.choices.clone()
+                        };
                         self.ui.choice_status = self.rt.choice_status.clone();
                         self.ui.choice_page = 0;
                         self.ui.waiting = false;
@@ -1180,6 +1187,27 @@ impl Session {
     /// Primary button pressed at (x, y). On the map jump a press on a
     /// place chooses it at once; its release does nothing.
     pub fn pointer_down(&mut self, x: i32, y: i32) -> Result<()> {
+        // The mail forward screen takes its own clicks, not the choice bars.
+        if self.state == State::Choice
+            && self.dialog.is_none()
+            && self.screen.is_none()
+            && self.rt.scene.mail_select.as_ref().is_some_and(|m| m.shown)
+        {
+            self.press_done = true;
+            self.base = None;
+            if self.rt.mail_select_click(&mut self.vm, x, y)
+                && !self.rt.scene.mail_select.as_ref().is_some_and(|m| m.shown)
+            {
+                self.ui.choices.clear();
+                self.ui.choice_status.clear();
+                let (skip, auto) = self.modes_at_choice;
+                let st = &self.rt.system.settings;
+                self.ui.skip = skip && st.keep_skip_after_choices;
+                self.ui.auto = auto && st.keep_auto_after_choices;
+                self.run()?;
+            }
+            return Ok(());
+        }
         if self.veil.is_none() && self.hmode.is_none() {
             if let (Some(DoukPanel::Jump(_)), Some(Button::Panel(id))) =
                 (&self.ui.panel, self.hit(x, y))
