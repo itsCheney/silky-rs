@@ -73,6 +73,10 @@ pub struct Placement {
     pub scale: f32,
     pub dx: f32,
     pub dy: f32,
+    /// Top left corner of the square picture the game draws the model
+    /// into, from the model's origin in target pixels; the mosaic cells
+    /// line up with it.
+    pub picture: (f32, f32),
 }
 
 pub struct Target {
@@ -245,7 +249,7 @@ impl Target {
                     Pass::Decrement(_) => self.stencil[i] = self.stencil[i].saturating_sub(1),
                     Pass::Color(_) if style.blend_mode & 0xFF0F == MOSAIC => {
                         let cell = mosaic_cell(style.param);
-                        let grid = (at.dx - HALF_PICTURE, at.dy - HALF_PICTURE);
+                        let grid = (at.dx + at.picture.0, at.dy + at.picture.1);
                         let sx = mosaic_sample(x as f32 + 0.5, grid.0, cell);
                         let sy = mosaic_sample(y as f32 + 0.5, grid.1, cell);
                         let m = if sx >= 0

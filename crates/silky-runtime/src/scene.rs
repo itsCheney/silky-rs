@@ -96,6 +96,15 @@ impl Place {
         let top = if self.scene { -284.0 } else { -258.0 };
         (640.0 - self.x as f32, top - self.y as f32)
     }
+
+    /// Top left corner of the 2000 x 2000 picture the game draws the model
+    /// into, from the model's origin; the censor mosaic's cells line up
+    /// with it. An H scene model's picture is 4 pixels lower than its
+    /// origin would put it (measured on the game's mosaic under Wine).
+    pub fn picture(&self) -> (f32, f32) {
+        let half = crate::emote::HALF_PICTURE;
+        (-half, if self.scene { 4.0 - half } else { -half })
+    }
 }
 
 /// An E-mote standing picture (きまぐれテンプテーション2, commands 10 and

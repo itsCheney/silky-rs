@@ -548,6 +548,7 @@ impl Compositor {
             scale: ts,
             dx: -left,
             dy: -top,
+            picture: m.picture,
         };
         self.emote.encode(encoder, m.id, &m.draws, at, &target);
         let group = self.group(&target.create_view(&Default::default()));

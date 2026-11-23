@@ -591,8 +591,8 @@ impl GpuRaster {
                             mode: [s.blend_mode as f32, wipe_scale, wipe_bias, wipe],
                             mosaic: [
                                 super::raster::mosaic_cell(s.param),
-                                at.dx - super::raster::HALF_PICTURE,
-                                at.dy - super::raster::HALF_PICTURE,
+                                at.dx + at.picture.0,
+                                at.dy + at.picture.1,
                                 0.0,
                             ],
                         });

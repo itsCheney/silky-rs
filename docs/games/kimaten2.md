@@ -55,7 +55,7 @@ The one-shot timelines of these models give a length of 3 ticks while their fram
 
 The H scene models clip the whole picture to a frame layer, `トリミング枠`, whose opacity is 0. A stencil source counts by its shape, whatever its opacity, so the frame still cuts the picture to the screen. Their effect layers and shadows use the E-mote driver's blends that read the picture below (`bm` 0x100 to 0x10b: linear dodge, linear burn, overlay, hard light, soft light, color dodge, color burn, lighten, darken, difference, exclusion, luminance), read from the driver's shaders. Both renderers draw them from a copy of the picture below.
 
-The censor mosaic is the driver's `bm` 0x10c: each cell takes the picture below at its middle. The frame's blend parameter gives the number of cells across the 2000 x 2000 picture the game draws a model into (80, so cells of 25 pixels), and the cells line up with that picture.
+The censor mosaic is the driver's `bm` 0x10c: each cell takes the picture below at its middle. The frame's blend parameter gives the number of cells across the 2000 x 2000 picture the game draws a model into (80, so cells of 25 pixels), and the cells line up with that picture. For an H scene model the picture lies 4 pixels lower than the model's origin would put it, measured on the game's mosaic under Wine (the cell edges at y 478, 503, ... on screen; x lines up as it is).
 
 When the game loads an H scene model it plays the model's difference timelines 28, 0 and 13 and then main timeline 0, which brings the model to its plain waiting picture. It places these models 26 pixels higher than a standing model at the same numbers, since it hands their position to the model rather than to the picture it draws.
 
@@ -63,7 +63,7 @@ A layer whose key is empty (type 0) is not drawn itself, but its children are. T
 
 ## Not done yet
 
-- H mode was compared with the game. Its buttons, gauges and the costume buttons at the top left sit where the game puts them, and the model's waiting picture matches the game's within 2 pixels. The mosaic cells sit 4 pixels higher than the game's.
+- Nothing known. H mode was compared with the game: its buttons, gauges and the costume buttons at the top left sit where the game puts them, the model's waiting picture matches the game's within 2 pixels, and the mosaic cells line up with the game's.
 
 ## Where things are in the executable
 

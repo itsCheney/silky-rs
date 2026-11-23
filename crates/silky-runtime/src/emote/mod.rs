@@ -31,6 +31,7 @@ use eluna::{
 use silky_format::akb::Image;
 
 pub use raster::Placement;
+pub(crate) use raster::HALF_PICTURE;
 use raster::{Target, Texture};
 
 /// Keys of the games' E-mote files, tried before a key search.
@@ -117,6 +118,9 @@ pub struct ModelFrame {
     pub(crate) textures: std::sync::Arc<HashMap<u32, Texture>>,
     pub scale: f32,
     pub origin: (f32, f32),
+    /// Top left corner of the game's picture of the model, from the
+    /// origin in game pixels (see [`Placement::picture`]).
+    pub picture: (f32, f32),
     /// Model-space bounds of the draws (x0, y0, x1, y1).
     pub bounds: [f32; 4],
 }
@@ -134,6 +138,7 @@ impl ModelFrame {
             scale: s,
             dx: -left,
             dy: -top,
+            picture: self.picture,
         };
         let mut target = Target::new(width, height);
         target.draw_all(&self.draws, &self.textures, at);
@@ -339,7 +344,7 @@ impl Model {
 
     /// The model as it stands, placed at `origin` with `scale` game
     /// pixels per model unit.
-    pub fn frame(&self, scale: f32, origin: (f32, f32)) -> Option<ModelFrame> {
+    pub fn frame(&self, scale: f32, origin: (f32, f32), picture: (f32, f32)) -> Option<ModelFrame> {
         let draws = draws::plan(self.player.scene(), |i| self.textures.contains_key(&i));
         let bounds = draws_bounds(&draws)?;
         Some(ModelFrame {
@@ -348,6 +353,7 @@ impl Model {
             textures: self.textures.clone(),
             scale,
             origin,
+            picture,
             bounds,
         })
     }
@@ -355,7 +361,12 @@ impl Model {
     /// Draws the model into a new image: model point (x, y) lands on
     /// (x * scale - left, y * scale - top) of the image, where (left, top)
     /// is returned with it.
-    pub fn render(&self, scale: f32, gpu: Option<&mut Gpu>) -> Option<(Image, f32, f32)> {
+    pub fn render(
+        &self,
+        scale: f32,
+        picture: (f32, f32),
+        gpu: Option<&mut Gpu>,
+    ) -> Option<(Image, f32, f32)> {
         let scene = self.player.scene();
         let draws = draws::plan(scene, |i| self.textures.contains_key(&i));
         let [x0, y0, x1, y1] = draws_bounds(&draws)?;
@@ -366,6 +377,7 @@ impl Model {
             scale,
             dx: -left,
             dy: -top,
+            picture,
         };
         #[cfg(feature = "gpu")]
         if let Some(gpu) = gpu {
@@ -574,12 +586,17 @@ impl Character {
         self.models.iter().map(|m| m.id)
     }
 
-    pub fn render(&self, scale: f32, gpu: Option<&mut Gpu>) -> Option<(Image, f32, f32)> {
-        self.models.get(self.active)?.render(scale, gpu)
+    pub fn render(
+        &self,
+        scale: f32,
+        picture: (f32, f32),
+        gpu: Option<&mut Gpu>,
+    ) -> Option<(Image, f32, f32)> {
+        self.models.get(self.active)?.render(scale, picture, gpu)
     }
 
-    pub fn frame(&self, scale: f32, origin: (f32, f32)) -> Option<ModelFrame> {
-        self.models.get(self.active)?.frame(scale, origin)
+    pub fn frame(&self, scale: f32, origin: (f32, f32), picture: (f32, f32)) -> Option<ModelFrame> {
+        self.models.get(self.active)?.frame(scale, origin, picture)
     }
 }
 
@@ -872,7 +889,9 @@ impl Stage {
         if self.frame.is_none() {
             let place = self.applied.place.unwrap_or(crate::scene::Place::COMPANION);
             let (x, y) = place.origin();
-            let f = self.character.frame(place.scale as f32 / 100.0, (x, y))?;
+            let f = self
+                .character
+                .frame(place.scale as f32 / 100.0, (x, y), place.picture())?;
             self.frame = Some(std::sync::Arc::new(f));
         }
         self.frame.clone()
@@ -883,7 +902,9 @@ impl Stage {
         if self.image.is_none() {
             let place = self.applied.place.unwrap_or(crate::scene::Place::COMPANION);
             let (x, y) = place.origin();
-            let (img, left, top) = self.character.render(place.scale as f32 / 100.0, gpu)?;
+            let (img, left, top) =
+                self.character
+                    .render(place.scale as f32 / 100.0, place.picture(), gpu)?;
             self.image = Some((std::sync::Arc::new(img), x + left, y + top));
         }
         self.image.clone()
