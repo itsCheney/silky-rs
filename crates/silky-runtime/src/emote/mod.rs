@@ -500,11 +500,15 @@ impl Character {
     }
 
     /// What the engine plays when it loads an H scene model: difference
-    /// timelines 28, 0 and 13 (`f00`), then main timeline 0. These reset
-    /// the parts the model shows to its plain waiting picture.
-    pub fn scene_start(&mut self) {
+    /// timelines 28, 0 and 13 (`f00`), 18 too in the second outfit, then
+    /// main timeline 0. These reset the parts the model shows to its plain
+    /// waiting picture.
+    pub fn scene_start(&mut self, outfit: bool) {
         for index in [28, 0, 13] {
             self.h_diff(index, 0);
+        }
+        if outfit {
+            self.h_diff(18, 0);
         }
         self.h_main(0, 0, false);
         self.h_pass();
@@ -793,7 +797,7 @@ impl Stage {
             queued: None,
         };
         if emote.place.is_some_and(|p| p.scene) {
-            stage.character.scene_start();
+            stage.character.scene_start(emote.outfit);
         }
         stage.apply(emote);
         // Settle the first pose before it is shown.

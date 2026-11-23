@@ -126,6 +126,10 @@ pub struct Emote {
     #[serde(default)]
     pub next_pose: Option<i32>,
     pub visible: bool,
+    /// The second outfit (byte 708) when the model was loaded; an H scene
+    /// model then starts without its clothes.
+    #[serde(default)]
+    pub outfit: bool,
     /// None for the companion picture of command 10.
     pub place: Option<Place>,
 }
