@@ -331,6 +331,17 @@ fn fragment(mut c: [f32; 4], style: &Style) -> Option<[f32; 4]> {
 /// The fixed-function blend of mode 0..=5 into a premultiplied target.
 fn blend(d: &mut [f32; 4], s: [f32; 4], mode: u32) {
     let a = s[3];
+    if mode & 0x100 != 0 {
+        // Over the straight picture below; its alpha stays.
+        let da = d[3];
+        if da > 0.0 {
+            let r = buffered(mode, [d[0] / da, d[1] / da, d[2] / da], [s[0], s[1], s[2]]);
+            for k in 0..3 {
+                d[k] += (r[k] * da - d[k]) * a;
+            }
+        }
+        return;
+    }
     match mode {
         1 => {
             for k in 0..3 {
@@ -352,6 +363,7 @@ fn blend(d: &mut [f32; 4], s: [f32; 4], mode: u32) {
                 d[k] += s[k] * (1.0 - d[k]);
             }
         }
+        8 => *d = [s[0] * a, s[1] * a, s[2] * a, a],
         _ => {
             for k in 0..3 {
                 d[k] = s[k] * a + d[k] * (1.0 - a);
@@ -361,5 +373,58 @@ fn blend(d: &mut [f32; 4], s: [f32; 4], mode: u32) {
     }
     for k in 0..3 {
         d[k] = d[k].min(1.0);
+    }
+}
+
+/// The blends of `bm` 0x100 to 0x10c, as the driver's shaders mix the
+/// picture below (`b`) with the sprite (`c`): linear dodge, linear burn,
+/// overlay, hard light, soft light, color dodge, color burn, lighten,
+/// darken, difference, exclusion, luminance. The mosaic (0x10c) and
+/// later ones leave the picture as it is.
+pub(crate) fn buffered(mode: u32, b: [f32; 3], c: [f32; 3]) -> [f32; 3] {
+    let luma = 0.298912 * b[0] + 0.586611 * b[1] + 0.114478 * b[2];
+    std::array::from_fn(|k| {
+        let (b, c) = (b[k], c[k]);
+        let r = match mode & 0xF {
+            0 => b + c,
+            1 => b + c - 1.0,
+            2 if b < 0.5 => b * c * 2.0,
+            3 if c < 0.5 => b * c * 2.0,
+            2 | 3 => 1.0 - (1.0 - b) * (1.0 - c) * 2.0,
+            4 => b.powf(if c > 0.5 { 0.5 / c } else { (1.0 - c) * 2.0 }),
+            5 => b / (1.0 - c),
+            6 => 1.0 - (1.0 - b) / c,
+            7 => b.max(c),
+            8 => b.min(c),
+            9 => (b - c).abs(),
+            10 => b + c - 2.0 * b * c,
+            11 => luma * c,
+            _ => b,
+        };
+        if r.is_nan() {
+            b
+        } else {
+            r.clamp(0.0, 1.0)
+        }
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{blend, buffered};
+
+    #[test]
+    fn blends_reading_the_picture_below() {
+        let (b, c) = ([0.25, 0.75, 0.5], [0.5, 0.5, 0.2]);
+        // Overlay (0x102) follows the picture below, darken (0x108) takes
+        // the smaller value.
+        let overlay = buffered(0x102, b, c);
+        assert!((overlay[0] - 0.25).abs() < 1e-6);
+        assert!((overlay[1] - 0.75).abs() < 1e-6);
+        assert_eq!(buffered(0x108, b, c), [0.25, 0.5, 0.2]);
+        // Half the sprite's alpha moves half way; the alpha below stays.
+        let mut d = [0.5, 0.5, 0.5, 1.0];
+        blend(&mut d, [0.0, 0.0, 0.0, 0.5], 0x108);
+        assert_eq!(d, [0.25, 0.25, 0.25, 1.0]);
     }
 }

@@ -29,9 +29,12 @@ enum Pass {
     Fill(u8),
     Increment(u8),
     Decrement(u8),
-    /// Color with blend mode (0..=5), where the stencil equals the
+    /// Color with blend mode (0..=5, 8), where the stencil equals the
     /// reference if there is one.
     Color(u32, Option<u8>),
+    /// A blend that reads the picture below (`bm` 0x100 to 0x10f), from a
+    /// copy taken just before.
+    Buffered(Option<u8>),
 }
 
 struct Batch {
@@ -46,8 +49,12 @@ pub struct GpuRaster {
     queue: wgpu::Queue,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
-    /// Blend modes 0..=5, without and with the stencil test.
+    /// Blend modes 0..=5 and 8, without and with the stencil test.
     color: Vec<[wgpu::RenderPipeline; 2]>,
+    /// The blends reading the picture below, without and with the stencil
+    /// test.
+    buffered: [wgpu::RenderPipeline; 2],
+    below: wgpu::BindGroupLayout,
     increment: wgpu::RenderPipeline,
     decrement: wgpu::RenderPipeline,
     fill: wgpu::RenderPipeline,
@@ -94,6 +101,24 @@ impl GpuRaster {
             bind_group_layouts: &[&layout],
             push_constant_ranges: &[],
         });
+        let below = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("emote below"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            }],
+        });
+        let reading = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("emote buffered"),
+            bind_group_layouts: &[&layout, &below],
+            push_constant_ranges: &[],
+        });
         let plain = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("emote fill"),
             bind_group_layouts: &[],
@@ -119,9 +144,16 @@ impl GpuRaster {
                         write: bool,
                         stencil: wgpu::StencilFaceState,
                         fill: bool| {
+            let buffered = label.starts_with("emote buffered");
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
-                layout: Some(if fill { &plain } else { &textured }),
+                layout: Some(if fill {
+                    &plain
+                } else if buffered {
+                    &reading
+                } else {
+                    &textured
+                }),
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: Some(if fill { "vs_fill" } else { "vs_main" }),
@@ -130,7 +162,13 @@ impl GpuRaster {
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
-                    entry_point: Some(if fill { "fs_fill" } else { "fs_main" }),
+                    entry_point: Some(if fill {
+                        "fs_fill"
+                    } else if buffered {
+                        "fs_buffered"
+                    } else {
+                        "fs_main"
+                    }),
                     targets: &[Some(wgpu::ColorTargetState {
                         format: COLOR,
                         blend,
@@ -167,7 +205,7 @@ impl GpuRaster {
             pass_op,
         };
         use wgpu::{CompareFunction as C, StencilOperation as S};
-        let color = (0..6)
+        let color = (0..9)
             .map(|mode| {
                 [
                     pipeline(
@@ -187,6 +225,22 @@ impl GpuRaster {
                 ]
             })
             .collect();
+        let buffered = [
+            pipeline(
+                "emote buffered",
+                Some(wgpu::BlendState::REPLACE),
+                true,
+                face(C::Always, S::Keep),
+                false,
+            ),
+            pipeline(
+                "emote buffered masked",
+                Some(wgpu::BlendState::REPLACE),
+                true,
+                face(C::Equal, S::Keep),
+                false,
+            ),
+        ];
         let increment = pipeline(
             "emote increment",
             None,
@@ -208,6 +262,8 @@ impl GpuRaster {
             layout,
             sampler,
             color,
+            buffered,
+            below,
             increment,
             decrement,
             fill,
@@ -356,7 +412,7 @@ impl GpuRaster {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: COLOR,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | usage,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC | usage,
             view_formats: &[],
         })
     }
@@ -394,30 +450,70 @@ impl GpuRaster {
         });
         let color_view = target.create_view(&Default::default());
         let stencil_view = stencil.create_view(&Default::default());
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("emote"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &color_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &stencil_view,
-                depth_ops: None,
-                stencil_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(0),
-                    store: wgpu::StoreOp::Discard,
-                }),
-            }),
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
-        if let Some(buffer) = &vertex_buffer {
-            pass.set_vertex_buffer(0, buffer.slice(..));
-        }
+        // The picture below a buffered blend: a copy of the target.
+        let below = batches
+            .iter()
+            .any(|b| matches!(b.pass, Pass::Buffered(_)))
+            .then(|| {
+                let copy = self.device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("emote below"),
+                    size: target.size(),
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: COLOR,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                    view_formats: &[],
+                });
+                let view = copy.create_view(&Default::default());
+                let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("emote below"),
+                    layout: &self.below,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&view),
+                    }],
+                });
+                (copy, group)
+            });
+        let begin = |encoder: &'_ mut wgpu::CommandEncoder, first: bool| {
+            let mut pass = encoder
+                .begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("emote"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &color_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: if first {
+                                wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
+                            } else {
+                                wgpu::LoadOp::Load
+                            },
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &stencil_view,
+                        depth_ops: None,
+                        stencil_ops: Some(wgpu::Operations {
+                            load: if first {
+                                wgpu::LoadOp::Clear(0)
+                            } else {
+                                wgpu::LoadOp::Load
+                            },
+                            store: wgpu::StoreOp::Store,
+                        }),
+                    }),
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                })
+                .forget_lifetime();
+            if let Some(buffer) = &vertex_buffer {
+                pass.set_vertex_buffer(0, buffer.slice(..));
+            }
+            pass
+        };
+        let mut pass = begin(encoder, true);
         for b in &batches {
             let (pipeline, reference) = match b.pass {
                 Pass::Fill(r) => (&self.fill, r),
@@ -427,6 +523,19 @@ impl GpuRaster {
                     &self.color[mode as usize][r.is_some() as usize],
                     r.unwrap_or(0),
                 ),
+                Pass::Buffered(r) => {
+                    let Some((copy, _)) = &below else {
+                        continue;
+                    };
+                    drop(pass);
+                    encoder.copy_texture_to_texture(
+                        target.as_image_copy(),
+                        copy.as_image_copy(),
+                        target.size(),
+                    );
+                    pass = begin(encoder, false);
+                    (&self.buffered[r.is_some() as usize], r.unwrap_or(0))
+                }
             };
             pass.set_pipeline(pipeline);
             pass.set_stencil_reference(reference as u32);
@@ -435,6 +544,9 @@ impl GpuRaster {
                     continue;
                 };
                 pass.set_bind_group(0, group, &[]);
+            }
+            if let (Pass::Buffered(_), Some((_, group))) = (b.pass, &below) {
+                pass.set_bind_group(1, group, &[]);
             }
             pass.draw(b.range.clone(), 0..1);
         }
@@ -503,12 +615,14 @@ impl GpuRaster {
             if !has(style.texture) {
                 continue;
             }
-            let mode = match style.blend_mode & 0xFF0F {
-                m @ 0..=5 => m,
-                _ => 0,
+            let mode = style.blend_mode & 0x10F;
+            let color = |r: Option<u8>| match mode {
+                0x100..=0x10F => Pass::Buffered(r),
+                m @ (0..=5 | 8) => Pass::Color(m, r),
+                _ => Pass::Color(0, r),
             };
             if draw.stencil.is_empty() {
-                push(Some(&draw.mesh), Pass::Color(mode, None), &mut vertices);
+                push(Some(&draw.mesh), color(None), &mut vertices);
                 continue;
             }
             push(None, Pass::Fill(draw.stencil_initial), &mut vertices);
@@ -530,7 +644,7 @@ impl GpuRaster {
             }
             push(
                 Some(&draw.mesh),
-                Pass::Color(mode, Some(draw.stencil_final)),
+                color(Some(draw.stencil_final)),
                 &mut vertices,
             );
         }
@@ -569,6 +683,8 @@ fn blend(mode: u32) -> wgpu::BlendState {
             color: color(F::OneMinusDst, F::One, O::Add),
             alpha: keep,
         },
+        // Blending off: the sprite replaces the picture.
+        8 => wgpu::BlendState::REPLACE,
         _ => wgpu::BlendState {
             color: color(F::SrcAlpha, F::OneMinusSrcAlpha, O::Add),
             alpha: color(F::One, F::OneMinusSrcAlpha, O::Add),

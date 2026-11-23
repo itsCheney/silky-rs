@@ -364,6 +364,9 @@ pub struct EmoteStaticSprite {
     /// Native four-corner colors in serialized 0xRRGGBBAA byte order.
     pub corner_colors: [u32; 4],
     pub visible: bool,
+    /// Visible but for its own opacity: a stencil source still writes its
+    /// shape when its frame is fully transparent (a `トリミング枠` frame).
+    pub shape_visible: bool,
     pub center_x: f32,
     pub center_y: f32,
     pub width: f32,
@@ -1511,11 +1514,12 @@ fn resolve_composite_mask_owners(
                 0 => {
                     // Native second pass tests source LayerInfo+728. For a
                     // type-0 layer this is set only when the ordinary drawable
-                    // was active and had geometry (LayerInfo+132). A visible
-                    // emitted sprite is the portable equivalent.
+                    // was active and had geometry (LayerInfo+132). Its own
+                    // opacity does not count: the H scene models clip the
+                    // whole picture to a `トリミング枠` frame whose `opa` is 0.
                     if sprite_by_key
                         .get(&source.draw_frame_info.native_draw_key)
-                        .is_some_and(|sprite| sprite.visible && sprite.opacity > 0.0)
+                        .is_some_and(|sprite| sprite.shape_visible)
                         && !resolved.contains(&source.path)
                     {
                         resolved.push(source.path.clone());
@@ -2500,6 +2504,7 @@ fn travel_layer(
                             1.0,
                             0.0,
                             visible,
+                            ctx.base_visible && time <= 0,
                             opa_raw,
                             content.field_u32("bm").unwrap_or(0x10),
                             content.field_f32("bp").unwrap_or(0.0),
@@ -3027,6 +3032,7 @@ fn build_sprite(
     scale_y: f32,
     rotation_degrees: f32,
     visible: bool,
+    shape_visible: bool,
     opa_raw: f32,
     blend_mode: u32,
     blend_parameter: f32,
@@ -3071,6 +3077,7 @@ fn build_sprite(
         blend_parameter,
         corner_colors,
         visible,
+        shape_visible,
         center_x,
         center_y,
         width,
@@ -3123,6 +3130,7 @@ fn build_feedback_history_sprite(
         blend_parameter: frame.blend_parameter,
         corner_colors: frame.colors,
         visible: state.visible && timespan.abs() > f32::EPSILON,
+        shape_visible: state.visible && timespan.abs() > f32::EPSILON,
         center_x: (left + right) * 0.5,
         center_y: (top + bottom) * 0.5,
         width: width.abs(),
@@ -5115,6 +5123,7 @@ fn travel_layer_at(
                                 1.0,
                                 0.0,
                                 visible,
+                                draw_ctx.ready_to_draw && draw_ctx.base_visible,
                                 255.0,
                                 state.blend_mode,
                                 state.blend_parameter,
@@ -7478,6 +7487,7 @@ mod tests {
             blend_parameter: 0.0,
             corner_colors: [0xFFFF_FFFF; 4],
             visible: true,
+            shape_visible: true,
             center_x: 0.0,
             center_y: 0.0,
             width: 1.0,
@@ -8563,6 +8573,7 @@ mod tests {
             blend_parameter: 0.0,
             corner_colors: [0x8080_80FF; 4],
             visible: true,
+            shape_visible: true,
             center_x: 10.0,
             center_y: 20.0,
             width: 40.0,

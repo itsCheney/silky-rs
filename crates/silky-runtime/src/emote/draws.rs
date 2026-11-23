@@ -70,9 +70,13 @@ pub fn plan(scene: &EmoteStaticScene, has_texture: impl Fn(u32) -> bool) -> Vec<
         .iter()
         .filter(|s| s.visible && s.opacity > 0.0)
         .collect();
-    let by_key: HashMap<&[u64], &EmoteStaticSprite> = visible
+    // Stencil sources by key: a source counts by its shape, even when its
+    // own opacity is 0.
+    let by_key: HashMap<&[u64], &EmoteStaticSprite> = scene
+        .sprites
         .iter()
-        .map(|s| (s.draw_frame_info.native_draw_key.as_slice(), *s))
+        .filter(|s| s.shape_visible)
+        .map(|s| (s.draw_frame_info.native_draw_key.as_slice(), s))
         .collect();
     let layers: HashMap<&[u64], &EmoteDrawFrameInfo> = scene
         .layer_states
@@ -155,7 +159,7 @@ fn stencil_groups(
                 .iter()
                 .filter_map(|key| by_key.get(key.as_slice()).copied())
                 .filter(|source| usable(source))
-                .map(sprite_mesh)
+                .map(mask_mesh)
                 .filter(|mesh| !mesh.vertices.is_empty())
                 .collect();
             groups.push(StencilGroup {
@@ -171,15 +175,20 @@ fn stencil_groups(
 }
 
 /// The frame's `bm` in the form the rasterizers take: the 0x10 MODULATE2X
-/// bit and the blend equation in the low nibble. The models' shading parts
-/// (eye and hair shadows) use 0x118, drawn as multiply; other high bits are
-/// dropped.
+/// bit, the blend in the low nibble and, for the driver's blends that read
+/// the picture below (`bm` 0x100 to 0x10f), the 0x100 bit. Other high bits
+/// are dropped.
 fn blend_mode(bm: u32) -> u32 {
-    let low = match bm & 0xF {
-        8 => 3,
-        low => low,
+    bm & 0x1FF
+}
+
+/// A stencil source's triangles: its shape, whatever its opacity.
+fn mask_mesh(sprite: &EmoteStaticSprite) -> Mesh {
+    let opaque = EmoteStaticSprite {
+        opacity: 1.0,
+        ..sprite.clone()
     };
-    (bm & 0xF0) | low
+    sprite_mesh(&opaque)
 }
 
 fn sprite_mesh(sprite: &EmoteStaticSprite) -> Mesh {

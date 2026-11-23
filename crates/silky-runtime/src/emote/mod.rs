@@ -738,6 +738,8 @@ pub struct Stage {
     /// Milliseconds of animation not yet run.
     pending: f32,
     talk: f32,
+    /// A main timeline waiting for the one playing to end.
+    queued: Option<usize>,
 }
 
 impl Stage {
@@ -760,6 +762,7 @@ impl Stage {
             frame: None,
             pending: 0.0,
             talk: 0.0,
+            queued: None,
         };
         stage.apply(emote);
         // Settle the first pose before it is shown.
@@ -793,6 +796,10 @@ impl Stage {
                 self.character.set_pose(n.max(0) as usize);
             }
         }
+        if emote.next_pose != self.applied.next_pose {
+            self.queued = emote.next_pose.map(|n| n.max(0) as usize);
+            self.play_queued();
+        }
         if *emote != self.applied {
             self.forget();
         }
@@ -815,8 +822,19 @@ impl Stage {
         if self.character.progress(step).is_err() {
             return false;
         }
+        self.play_queued();
         self.forget();
         true
+    }
+
+    /// Starts the queued main timeline when none plays.
+    fn play_queued(&mut self) {
+        if self.character.main_playing() {
+            return;
+        }
+        if let Some(n) = self.queued.take() {
+            self.character.set_pose(n);
+        }
     }
 
     /// The models, for H mode; the picture is drawn again.

@@ -98,6 +98,10 @@ pub struct Emote {
     pub pose: Option<i32>,
     /// `a` timeline (sub 16).
     pub sub: Option<i32>,
+    /// Main timeline to play once the current one has ended (command 40,
+    /// sub 13).
+    #[serde(default)]
+    pub next_pose: Option<i32>,
     pub visible: bool,
     /// None for the companion picture of command 10.
     pub place: Option<Place>,

@@ -191,6 +191,7 @@ impl Runtime {
             (13..=15, 2) => {
                 if let Some(e) = self.scene.emotes.get_mut(&last) {
                     match sub {
+                        13 => e.next_pose = Some(n(0)),
                         14 => e.sub = Some(n(0)),
                         15 => e.pose = Some(n(0)),
                         _ => {}

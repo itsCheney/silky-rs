@@ -41,7 +41,7 @@ Anneliese is an E-mote 4 model (`.psb`, header encrypted): two files per costume
 Two commands show her, both read from the executable:
 
 - `Game.10` is Anneliese walking along with the protagonist, at the bottom left: sub 6 loads a costume, 7 sets the face and the timeline after the faces, 13 (and 12) the pose, 16 the `a` timelines, 9 and 11 show and hide. Size 0.35, position given as (500, -930).
-- `Game.40` holds standing models by slot: sub 0 (and 12) loads a costume into a slot at a size in percent from the script (50 and 100 in the middle, 60 on the right), 1 sets the face, 15 the pose, 14 the `a` timelines, 8 moves a model, 3 removes one slot and 4 all, and 2 crossfades to the new picture over the frames those calls gave, as `Game.13` does for standing characters. Sub 16 hands over the mouth track of the voice that just started (`k2*.csv`: UTF-16 numbers, 60 a second, the model's `face_talk` value from 0 to 5); it moves the mouth of every Anneliese on screen while the voice plays. The slot gives x (0 middle, 1 left, 2 right) and the size gives y, so the feet stay on the same line.
+- `Game.40` holds standing models by slot: sub 0 (and 12) loads a costume into a slot at a size in percent from the script (50 and 100 in the middle, 60 on the right), 1 sets the face, 15 the pose, 13 the pose that follows once the playing one ends (H mode starts this way on the waiting loop), 14 the `a` timelines, 8 moves a model, 3 removes one slot and 4 all, and 2 crossfades to the new picture over the frames those calls gave, as `Game.13` does for standing characters. Sub 16 hands over the mouth track of the voice that just started (`k2*.csv`: UTF-16 numbers, 60 a second, the model's `face_talk` value from 0 to 5); it moves the mouth of every Anneliese on screen while the voice plays. The slot gives x (0 middle, 1 left, 2 right) and the size gives y, so the feet stay on the same line.
 
 How these positions map to the screen was measured on two screenshots of the game (one of each layout); both agree. The animation runs at 60 frames a second on the GPU (15 in software). Turning off E-mote animation in the settings keeps the picture still. Built without the default `emote` feature, the runtime leaves these pictures out.
 
@@ -53,11 +53,14 @@ How these positions map to the screen was measured on two screenshots of the gam
 
 The one-shot timelines of these models give a length of 3 ticks while their frames run to 50 or 55; they are played to their last frame, since the game waits for them to end.
 
+The H scene models clip the whole picture to a frame layer, `トリミング枠`, whose opacity is 0. A stencil source counts by its shape, whatever its opacity, so the frame still cuts the picture to the screen. Their effect layers and shadows use the E-mote driver's blends that read the picture below (`bm` 0x100 to 0x10b: linear dodge, linear burn, overlay, hard light, soft light, color dodge, color burn, lighten, darken, difference, exclusion, luminance), read from the driver's shaders. Both renderers draw them from a copy of the picture below.
+
 ## Not done yet
 
-- H mode was compared with the game once. Its buttons, gauges and the costume buttons at the top left sit where the game puts them. Two things are still missing:
-  - The H scene model draws nothing. Every part of it sits under a whole-picture stencil whose only source is the `トリミング枠` frame layer, which has an opacity of 0, so the mask comes out empty.
-  - With that mask left out, the parts all show at once and no waiting pose plays. What the game starts on the model when H mode opens still has to be read from the executable.
+- H mode was compared with the game once. Its buttons, gauges and the costume buttons at the top left sit where the game puts them. The model now draws with the game's colors and waiting loop, but it still differs:
+  - The legs sit in another pose, and a see-through cloth layer covers them that the game does not show.
+  - The censor mosaic (`bm` 0x10c) is not drawn yet.
+  - The picture sits about 25 pixels lower than in the game.
 
 ## Where things are in the executable
 
@@ -90,6 +93,16 @@ Addresses in `kimaten2.exe` of the build above, for checking the code against th
 | H mode: pointer picture by tool and region, table | 0x486600, 0x53c0dc |
 | Game pointer (`cursor.akb`): set, frame step, place | 0x4a27a0, 0x4a2ab0, 0x4a2b60 |
 | H mode: dream mist scroll and wave, white flash | 0x47ce30, 0x47cef0, 0x489b10 |
+| E-mote model: queue the next pose (`Game.40` sub 13), play a pose, step the models | 0x45a9a0, 0x452ac0, 0x456fc0 |
 | Costume screen: open, set up, click, draw, close | 0x4795b0, 0x479740, 0x479920, 0x479e20, 0x479700 |
 | Sprite animation task (runs once more than its 15 ms have passed) | 0x4186f0 |
 | E-mote: `Pass` on both files (driver vtable +0x110), used by the fourth tool | 0x456d20 |
+
+Addresses in the `emotedriver.dll` that comes with it:
+
+| What | Address |
+| --- | --- |
+| Blend states, from a table of 13 | 0x10061860, 0x11fc3570 |
+| Draw a sprite: blend state by `bm` (0x100 to 0x10f read the picture below) | 0x10061b20 |
+| Pick the shader of a blend that reads the picture below | 0x10060390 |
+| Shader blobs and their sizes | 0x10d32310, 0x1014fcf0 |
