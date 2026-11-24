@@ -11,22 +11,17 @@
 //! from `flag_p_<lang>.akb`. The first time, a notice of
 //! `dialog3_p_<lang>.akb` (byte 8019) explains the list.
 //!
-//! The events of a girl are records built from her rules, generated into
-//! `flag_data.rs` (see `docs/games/doukyuusei.md`) and run against the
-//! story state when the list opens: a base list, flags that mark an event
-//! done (its day and time are then words the story kept), and flags that
-//! move later ones. Flags set together are applied one after the other, and
-//! several flags of one slot each make an event done (see [`records`]). A girl's
-//! conditional extra event is added by hand (see [`records`]). The jump to
-//! an event ([`start_event`]) sets the story state the event expects; the
-//! session then drops what is up and starts the event's script.
+//! The events of a girl are records built the way the original builds
+//! them, one builder per girl (see `flag_build` and
+//! `docs/games/doukyuusei.md`), from the story state when the list opens.
+//! The first waiting event is the one to jump to. The jump
+//! ([`start_event`]) sets the story state the event expects; the session
+//! then drops what is up and starts the event's script.
 
 use std::sync::Arc;
 
 use silky_format::akb::Image;
 
-use super::flag_clock::Clock;
-use super::flag_data::GIRLS;
 use super::plate::{DATE, MONEY, TIME};
 use super::system::{ids as sys_ids, side, System};
 use crate::assets::{Assets, Language};
@@ -92,87 +87,7 @@ pub struct Record {
     pub jump: bool,
 }
 
-/// Rule data, as generated.
-pub struct Event {
-    pub script: &'static str,
-    pub place: u16,
-    pub reason: u16,
-    pub d0: i32,
-    pub d1: i32,
-    pub t0: i32,
-    pub t1: i32,
-    pub stage: i32,
-    pub sub: i32,
-    pub cost: i32,
-    pub f0: i32,
-    pub state: u8,
-}
-
-/// Fields a flag changes.
-#[derive(Clone, Copy)]
-pub struct Patch {
-    pub d0: Option<i32>,
-    pub d1: Option<i32>,
-    pub t0: Option<i32>,
-    pub t1: Option<i32>,
-    pub state: Option<u8>,
-    pub reason: Option<u16>,
-    pub script: Option<&'static str>,
-    pub place: Option<u16>,
-    pub stage: Option<i32>,
-    pub sub: Option<i32>,
-    pub cost: Option<i32>,
-    pub f0: Option<i32>,
-}
-
-impl Patch {
-    pub const NONE: Patch = Patch {
-        d0: None,
-        d1: None,
-        t0: None,
-        t1: None,
-        state: None,
-        reason: None,
-        script: None,
-        place: None,
-        stage: None,
-        sub: None,
-        cost: None,
-        f0: None,
-    };
-
-    fn apply(&self, r: &mut Record) {
-        macro_rules! set {
-            ($($f:ident),*) => { $( if let Some(v) = self.$f { r.$f = v; } )* };
-        }
-        set!(d0, d1, t0, t1, state, reason, script, place, stage, sub, cost, f0);
-    }
-}
-
-/// Byte `flag` set: the event is done; its day and time are words.
-pub struct Done {
-    pub flag: u16,
-    pub event: u8,
-    pub date: u16,
-    pub time: u16,
-    pub patch: Patch,
-}
-
-/// Byte `flag` set: later events change.
-pub struct Gate {
-    pub flag: u16,
-    pub event: u8,
-    pub patch: Patch,
-}
-
-/// The rules of one girl.
-pub struct Girl {
-    pub events: &'static [Event],
-    pub done: &'static [Done],
-    pub gate: &'static [Gate],
-}
-
-/// The story state the rules read.
+/// The story state the builders read.
 pub struct Env<'a> {
     pub bytes: &'a [u8],
     pub words: &'a [u16],
@@ -183,33 +98,6 @@ pub struct Env<'a> {
     /// Hours × 100 + minutes.
     pub time: i32,
 }
-
-/// The text line that says the cash is not enough.
-const NO_CASH: u16 = 306;
-
-/// The day the generated rules give a later event while an earlier one's
-/// byte is set (see [`records`]).
-const LAST_STORY_DAY: i32 = 830;
-
-/// The girl who has a conditional extra event, the byte that adds it and
-/// the byte that marks it done (its day and time are words 330 and 331).
-const EXTRA_GIRL: usize = 4;
-/// The order of her events between the second and the last.
-const KURUMI_ORDER: [&str; 7] = [
-    "kouens8.mes",
-    "myhous9.mes",
-    "yabuki8.mes",
-    "timtim.mes",
-    "okujyo4.mes",
-    "kouens7.mes",
-    "eiga6.mes",
-];
-const EXTRA_BYTE: u16 = 235;
-const EXTRA_DONE: u16 = 480;
-const EXTRA_DATE_WORD: u16 = 330;
-const EXTRA_TIME_WORD: u16 = 331;
-/// The extra event is never before this day.
-const EXTRA_EARLIEST: i32 = 817;
 
 /// Weekday and the flag word, among the global variables.
 const WEEKDAY: usize = 4;
@@ -224,195 +112,11 @@ const JUMPED_AT: usize = 8001;
 
 /// The records of `girl` (0 to 13) for the story state `env`.
 pub fn records(girl: usize, env: &Env) -> Vec<Record> {
-    let rules = &GIRLS[girl];
-    let byte = |i: u16| env.bytes.get(i as usize).copied().unwrap_or(0);
-    let word = |i: u16| env.words.get(i as usize).copied().unwrap_or(0) as i32;
-    let mut out: Vec<Record> = rules
-        .events
-        .iter()
-        .map(|e| Record {
-            script: e.script,
-            place: e.place,
-            reason: e.reason,
-            d0: e.d0,
-            d1: e.d1,
-            t0: e.t0,
-            t1: e.t1,
-            stage: e.stage,
-            sub: e.sub,
-            cost: e.cost,
-            f0: e.f0,
-            state: e.state,
-            jump: false,
-        })
-        .collect();
-    // Without the unlock byte everything is out of reach.
-    if byte(UNLOCKED as u16) == 0 {
-        for r in &mut out {
-            r.state = 2;
-        }
-        return out;
-    }
-    for g in rules.gate.iter().filter(|g| byte(g.flag) != 0) {
-        let Some(r) = out.get_mut(g.event as usize) else {
-            continue;
-        };
-        // A byte that marks an event done holds later events back until
-        // the day that event happened: the rules give the end of the story
-        // as that day and lock the events, but they wait for the day, no
-        // longer, and are not locked.
-        let Some(day) = rules
-            .done
-            .iter()
-            .find(|d| d.flag == g.flag)
-            .map(|d| word(d.date))
-        else {
-            g.patch.apply(r);
-            continue;
-        };
-        let kept = Patch {
-            d0: g.patch.d0.filter(|&d| d != LAST_STORY_DAY),
-            state: None,
-            ..g.patch
-        };
-        kept.apply(r);
-        if g.patch.d0 == Some(LAST_STORY_DAY) {
-            // A trip to another town starts the day after.
-            r.d0 = r.d0.max(if r.stage == 1 { day + 1 } else { day });
-        }
-    }
-    let mut done = vec![false; out.len()];
-    let base = out.clone();
-    let mut extras: Vec<(usize, Record)> = Vec::new();
-    for d in rules.done.iter().filter(|d| byte(d.flag) != 0) {
-        let e = d.event as usize;
-        if e >= out.len() {
-            continue;
-        }
-        // Several bytes of one slot: each one is an event done, and the
-        // events done take the places of the ones after the slot.
-        let mut r = if done[e] {
-            base[e].clone()
-        } else {
-            out[e].clone()
-        };
-        d.patch.apply(&mut r);
-        r.state = 1;
-        r.d0 = word(d.date);
-        r.t0 = word(d.time);
-        if done[e] {
-            extras.push((e, r));
-        } else {
-            out[e] = r;
-            done[e] = true;
-        }
-    }
-    for e in (0..out.len()).rev() {
-        let mine: Vec<Record> = extras
-            .iter()
-            .filter(|(at, _)| *at == e)
-            .map(|(_, r)| r.clone())
-            .collect();
-        if mine.is_empty() {
-            continue;
-        }
-        // The later events still waiting are those not done, and the next
-        // one is not before the last of the days these were done.
-        let latest = mine
-            .iter()
-            .chain(std::iter::once(&out[e]))
-            .map(|r| r.d0)
-            .max();
-        let scripts: Vec<&str> = mine
-            .iter()
-            .chain(std::iter::once(&out[e]))
-            .map(|r| r.script)
-            .collect();
-        for script in scripts {
-            if let Some(i) = (e + 1..out.len()).find(|&i| !done[i] && out[i].script == script) {
-                out.remove(i);
-                done.remove(i);
-            }
-        }
-        if let Some(i) = (e + 1..out.len()).find(|&i| !done[i]) {
-            out[i].d0 = out[i].d0.max(latest.unwrap_or(0));
-        }
-        for (k, r) in mine.into_iter().enumerate() {
-            out.insert(e + 1 + k, r);
-            done.insert(e + 1 + k, true);
-        }
-    }
-    if girl == EXTRA_GIRL {
-        // Her events done and waiting come in the original's fixed order,
-        // not in the order their bytes were found.
-        let at: Vec<usize> = (0..out.len())
-            .filter(|&i| KURUMI_ORDER.contains(&out[i].script))
-            .collect();
-        let mut moved: Vec<(Record, bool)> =
-            at.iter().map(|&i| (out[i].clone(), done[i])).collect();
-        moved.sort_by_key(|(r, _)| KURUMI_ORDER.iter().position(|&s| s == r.script));
-        for (&i, (r, d)) in at.iter().zip(moved) {
-            out[i] = r;
-            done[i] = d;
-        }
-    }
-    if girl == EXTRA_GIRL && byte(EXTRA_BYTE) == 1 {
-        let is_done = byte(EXTRA_DONE) == 1;
-        let rec = extra_event(&out, is_done, word(EXTRA_DATE_WORD), word(EXTRA_TIME_WORD));
-        // Placed right after her first event, whatever the days.
-        let at = out.len().min(1);
-        out.insert(at, rec);
-        done.insert(at, is_done);
-    }
-    // Each waiting event in turn is fitted to now, from where the hero is
-    // and where the walk to the event before left him.
-    let mut clock = Clock {
-        stage: byte(STAGE_AT as u16) as i32,
-        sub: byte(SUB_AT as u16) as i32,
-        time: env.time,
-        date: env.date,
-        cash: env.cash,
-    };
-    for (r, &is_done) in out.iter_mut().zip(&done) {
-        if !is_done && r.state == 0 && clock.fit(r, NO_CASH) {
-            r.state = 2;
-        }
-    }
+    let mut out = super::flag_build::build(girl, env);
     if let Some(r) = out.iter_mut().find(|r| r.state == 0) {
         r.jump = true;
     }
     out
-}
-
-/// The extra event of one girl: done, it keeps the day and time it
-/// happened; else it starts on the day her first event does, but not before
-/// day 17, and ends on day 30.
-fn extra_event(first: &[Record], done: bool, date: i32, time: i32) -> Record {
-    let mut r = Record {
-        script: "butick.mes",
-        place: 282,
-        reason: 0,
-        d0: EXTRA_EARLIEST,
-        d1: 830,
-        t0: 1000,
-        t1: 1855,
-        stage: 0,
-        sub: 0,
-        cost: 0,
-        f0: 8002,
-        state: 0,
-        jump: false,
-    };
-    if done {
-        r.state = 1;
-        r.d0 = date;
-        r.t0 = time;
-        r.d1 = -1;
-        r.t1 = -1;
-    } else if let Some(f) = first.first() {
-        r.d0 = f.d0.max(EXTRA_EARLIEST);
-    }
-    r
 }
 
 /// The jump to `rec`: the story goes to the day and time the event starts
@@ -1219,149 +923,6 @@ mod tests {
         records(girl, &env(&bytes, &w, 810))
     }
 
-    fn st(r: &[Record]) -> Vec<u8> {
-        r.iter().map(|r| r.state).collect()
-    }
-
-    /// Cases from the rules file (run from the original code).
-    #[test]
-    fn base_rows() {
-        let r = states(0, &[], &[]);
-        assert_eq!(r.len(), 10);
-        assert_eq!(st(&r), [0; 10]);
-        assert_eq!(
-            (r[6].script, r[6].d0, r[6].cost, r[6].f0),
-            ("yabuki.mes", 824, 3, 8002)
-        );
-        assert_eq!(st(&states(1, &[], &[])), [0, 2, 2, 2]);
-        assert_eq!(states(1, &[], &[])[1].reason, 295);
-        assert_eq!(st(&states(7, &[], &[])), [2, 2, 2]);
-        assert_eq!(st(&states(3, &[], &[])), [0, 0, 0, 0, 2, 2, 2]);
-        assert!(states(0, &[], &[])[0].jump && !states(0, &[], &[])[1].jump);
-        // Without the unlock byte everything is out of reach.
-        let w = vec![0u16; 10];
-        let b = vec![0u8; 9000];
-        assert_eq!(st(&records(0, &env(&b, &w, 810))), [2; 10]);
-    }
-
-    #[test]
-    fn flags() {
-        // Girl 1: byte 223 marks event 0 done (day and time are words
-        // 470, 471) and holds the later events back to its day.
-        let r = states(1, &[223], &[(470, 812), (471, 930)]);
-        assert_eq!((r[0].state, r[0].d0, r[0].t0, r[0].d1), (1, 812, 930, -1));
-        assert_eq!((r[1].d0, r[2].d0, r[3].d0), (814, 818, 826));
-        // Byte 324 frees event 1.
-        let r = states(1, &[324], &[]);
-        assert_eq!((r[1].state, r[1].reason, r[2].reason), (0, 0, 296));
-        // Girl 0: byte 248 marks event 1 done; the later ones are not locked.
-        let r = states(0, &[248], &[(451, 811), (461, 900)]);
-        assert_eq!(st(&r), [0, 1, 0, 0, 0, 0, 0, 0, 0, 0]);
-        assert_eq!((r[2].d0, r[1].d0), (812, 811));
-        // The first waiting event is the one to jump to.
-        assert!(r[0].jump && !r[1].jump);
-    }
-
-    /// Cases from the original under Wine (saves with bytes set together).
-    #[test]
-    fn several_bytes() {
-        // Girl 1: byte 223 done on day 22 holds the later events back to
-        // that day, no longer (they were moved to the end of the story).
-        let r = states(1, &[223], &[(470, 822), (471, 930)]);
-        assert_eq!((r[1].d0, r[2].d0, r[3].d0), (822, 822, 826));
-        assert_eq!((r[1].state, r[3].state), (2, 2));
-        // Without the day word they stay where they are.
-        let r = states(1, &[223], &[]);
-        assert_eq!((r[1].d0, r[2].d0, r[3].d0), (814, 818, 826));
-        // Girl 4: bytes 250, 481, 483 and 484 mark four events done; all
-        // come in her fixed order.
-        let w = [(574, 811), (576, 812), (582, 813), (586, 815)];
-        let r = states(4, &[250, 481, 483, 484], &w);
-        let list: Vec<(&str, u8, i32)> = r.iter().map(|r| (r.script, r.state, r.d0)).collect();
-        assert_eq!(
-            list,
-            [
-                ("timtim1.mes", 1, 811),
-                ("sakima4.mes", 1, 812),
-                ("kouens8.mes", 0, 818),
-                ("myhous9.mes", 1, 813),
-                ("yabuki8.mes", 0, 819),
-                ("timtim.mes", 0, 819),
-                ("okujyo4.mes", 1, 815),
-                ("kouens7.mes", 0, 821),
-                ("eiga6.mes", 0, 822),
-                ("myhou11.mes", 0, 825),
-            ]
-        );
-        // A trip waits for the day after.
-        let r = states(4, &[481], &[(576, 825)]);
-        assert_eq!((r[2].d0, r[4].d0, r[8].d0), (825, 826, 826));
-        // Girl 10: three bytes of one slot make three events done, and the
-        // next waits for the last of their days.
-        let w = [(300, 818), (302, 815), (304, 816)];
-        let r = states(10, &[152, 182, 183], &w);
-        assert_eq!(st(&r), [1, 1, 1, 0, 0, 0, 0]);
-        assert_eq!((r[3].script, r[3].d0, r[4].d0), ("kaisha2.mes", 818, 817));
-    }
-
-    #[test]
-    fn same_day_cell() {
-        // Waiting, then out of reach, then done.
-        let mut r = states(10, &[182], &[(300, 811)]);
-        assert_eq!(r[0].state, 1);
-        assert_eq!(cell_record(&r, 11), Some(2));
-        r[2].state = 2;
-        assert_eq!(cell_record(&r, 11), Some(2));
-        r[2].state = 1;
-        r[2].d0 = 812;
-        assert_eq!(cell_record(&r, 11), Some(0));
-    }
-
-    #[test]
-    fn cash_and_expiry() {
-        let mut bytes = vec![0u8; 9000];
-        bytes[UNLOCKED] = 1;
-        let w = vec![0u16; 10];
-        let mut e = env(&bytes, &w, 810);
-        e.cash = 1;
-        let r = records(0, &e);
-        assert_eq!((r[6].state, r[6].reason), (2, 306));
-        e.cash = 500;
-        e.date = 825;
-        // Events whose window ended are out of reach; the trip has no end
-        // day, which makes it its start day only.
-        let r = records(0, &e);
-        assert_eq!((r[5].state, r[6].state), (2, 2));
-        // On its day: the walks to the events before it (the pool and the
-        // park from home) and the trip itself bring the hero there at
-        // 10:20, inside its window.
-        e.date = 824;
-        let r = records(0, &e);
-        assert_eq!((r[6].state, r[6].d0, r[6].t0), (0, 824, 1020));
-        // Too late for it that day.
-        e.time = 1000;
-        let r = records(0, &e);
-        assert_eq!(r[6].state, 2);
-    }
-
-    #[test]
-    fn open_windows_move_to_now() {
-        let mut bytes = vec![0u8; 9000];
-        bytes[UNLOCKED] = 1;
-        let w = vec![0u16; 10];
-        let mut e = env(&bytes, &w, 815);
-        e.time = 1400;
-        let r = records(0, &e);
-        // The pool, fifteen minutes from home: today at that time.
-        assert_eq!((r[0].d0, r[0].t0, r[0].state), (815, 1415, 0));
-        // Too late today: tomorrow at its start time.
-        e.time = 1750;
-        let r = records(0, &e);
-        assert_eq!((r[0].d0, r[0].t0), (816, 830));
-        // Not yet open: as it is.
-        assert_eq!((r[7].d0, r[7].t0), (827, 1800));
-    }
-
     #[test]
     fn cells() {
         let r = states(0, &[], &[]);
@@ -1438,7 +999,7 @@ mod tests {
         s.open_calendar(1);
         assert_eq!(s.click(256), Click::Jump);
         let rec = s.target().cloned().unwrap();
-        assert_eq!(rec.script, GIRLS[1].events[0].script);
+        assert_eq!(rec.script, records(1, &env(&bytes, &w, 810))[0].script);
         let mut vm = Vm::new(silky_format::mes::Profile::default());
         vm.set_g(MONEY, 10);
         start_event(&rec, &mut vm);
@@ -1464,50 +1025,5 @@ mod tests {
         assert_eq!(vm.var_b(STAGE_ONE_AT), 1);
         assert_eq!(vm.var_b(8002), 1);
         assert_eq!(vm.var_g(FLAG_WORD).int() & 0x80, 0x80);
-    }
-
-    #[test]
-    fn extra_event_follows_its_byte() {
-        let mut bytes = vec![0u8; 9000];
-        bytes[UNLOCKED] = 1;
-        let mut w = vec![0u16; 700];
-        let none = records(EXTRA_GIRL, &env(&bytes, &w, 810));
-        assert_eq!(none.len(), 10);
-        assert!(none.iter().all(|r| r.script != "butick.mes"));
-        // The byte adds it: day 17 at the earliest, ends on day 30.
-        bytes[EXTRA_BYTE as usize] = 1;
-        let r = records(EXTRA_GIRL, &env(&bytes, &w, 810));
-        assert_eq!(r.len(), 11);
-        let e = r.iter().find(|r| r.script == "butick.mes").unwrap();
-        assert_eq!(
-            (e.d0, e.d1, e.t0, e.t1, e.place, e.state, e.f0),
-            (817, 830, 1000, 1855, 282, 0, 8002)
-        );
-        // Right after the first event, before one on the same day.
-        assert_eq!(r[1].script, "butick.mes");
-        // After the first event is done late, it follows that day.
-        bytes[250] = 1;
-        w[574] = 820;
-        let r = records(EXTRA_GIRL, &env(&bytes, &w, 810));
-        assert_eq!(r.iter().find(|r| r.script == "butick.mes").unwrap().d0, 820);
-        // Done: the day and time it happened.
-        bytes[EXTRA_DONE as usize] = 1;
-        w[330] = 822;
-        w[331] = 1130;
-        let r = records(EXTRA_GIRL, &env(&bytes, &w, 810));
-        let e = r.iter().find(|r| r.script == "butick.mes").unwrap();
-        assert_eq!((e.state, e.d0, e.t0, e.d1, e.t1), (1, 822, 1130, -1, -1));
-        // Its window ends: out of reach.
-        bytes[EXTRA_DONE as usize] = 0;
-        bytes[250] = 0;
-        let mut e2 = env(&bytes, &w, 831);
-        e2.cash = 500;
-        let r = records(EXTRA_GIRL, &e2);
-        assert_eq!(
-            r.iter().find(|r| r.script == "butick.mes").unwrap().state,
-            2
-        );
-        // No other girl has it.
-        assert_eq!(records(0, &env(&bytes, &w, 810)).len(), 10);
     }
 }

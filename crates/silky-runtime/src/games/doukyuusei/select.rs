@@ -41,7 +41,7 @@ const NEXT_ROW: u32 = 676;
 /// Space above the first bar when paging, which the arrow takes.
 const ARROW_GAP: i32 = 8;
 const PAGED_TOP: i32 = 99;
-/// Badges: 105 x 110 cells, 147 pixels in from the bar's left end.
+/// Badges: 105 x 110 cells, 147 pixels in from the bar's right end.
 const BADGE_W: u32 = 105;
 const BADGE_H: u32 = 110;
 const BADGE_IN: i32 = 147;
