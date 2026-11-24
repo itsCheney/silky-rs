@@ -7,6 +7,7 @@ use super::areasel::AreaSelect;
 use super::itemsel::ItemSelect;
 use super::map::Map;
 use super::notebook::Notebook;
+use super::omake::{Music, Omake};
 use crate::assets::Assets;
 use crate::render::Canvas;
 use crate::text::TextRenderer;
@@ -48,6 +49,8 @@ pub enum Screen {
     Map(Map),
     /// The 捜査手帳.
     Notebook(Notebook),
+    /// The CG, scene and music modes (`Game.30` to `Game.32`).
+    Omake(Box<Omake>),
 }
 
 impl Screen {
@@ -60,6 +63,7 @@ impl Screen {
             Screen::Item(s) => s.hit(x, y),
             Screen::Map(m) => m.hit(x, y),
             Screen::Notebook(n) => n.hit(x, y),
+            Screen::Omake(o) => o.hit(x, y),
         }
     }
 
@@ -71,6 +75,7 @@ impl Screen {
             Screen::Item(s) => s.enabled(id),
             Screen::Map(m) => m.enabled(id),
             Screen::Notebook(n) => n.enabled(id),
+            Screen::Omake(o) => o.enabled(id),
         }
     }
 
@@ -82,6 +87,7 @@ impl Screen {
             Screen::Item(s) => s.click(id),
             Screen::Map(m) => m.click(id),
             Screen::Notebook(n) => n.click(id),
+            Screen::Omake(o) => o.click(id),
         }
     }
 
@@ -92,6 +98,7 @@ impl Screen {
             Screen::Area(s) => s.cancel(),
             Screen::Map(m) => m.cancel(),
             Screen::Notebook(n) => n.cancel(),
+            Screen::Omake(o) => o.cancel(),
             _ => Click::None,
         }
     }
@@ -103,6 +110,7 @@ impl Screen {
             Screen::Action(s) => s.take_bytes(),
             Screen::Map(m) => m.take_bytes(),
             Screen::Notebook(n) => n.take_bytes(),
+            Screen::Omake(o) => o.take_bytes(),
             _ => Vec::new(),
         }
     }
@@ -115,6 +123,7 @@ impl Screen {
             Screen::Item(s) => s.take_sound(),
             Screen::Map(m) => m.take_sound(),
             Screen::Notebook(n) => n.take_sound(),
+            Screen::Omake(_) => None,
         }
     }
 
@@ -126,6 +135,7 @@ impl Screen {
             Screen::Item(s) => s.draw(canvas, assets, look),
             Screen::Map(m) => m.draw(canvas, assets, look),
             Screen::Notebook(n) => n.draw(canvas, assets, look),
+            Screen::Omake(o) => o.draw(canvas, assets, look),
         }
     }
 
@@ -138,6 +148,31 @@ impl Screen {
             Screen::Item(s) => (s.auto_pick(), "item"),
             Screen::Map(m) => m.auto_pick(),
             Screen::Notebook(n) => n.auto_pick(),
+            Screen::Omake(o) => (o.auto_pick(), "omake"),
+        }
+    }
+
+    /// A press or drag at (x, y) on element `id` (the bars of the music
+    /// mode).
+    pub fn press_at(&mut self, id: i32, x: i32, y: i32) {
+        if let Screen::Omake(o) = self {
+            o.press_at(id, x, y);
+        }
+    }
+
+    /// The music the screen asks for (taken once).
+    pub fn take_music(&mut self) -> Option<Music> {
+        match self {
+            Screen::Omake(o) => o.take_music(),
+            _ => None,
+        }
+    }
+
+    /// The music volume the screen set (taken once).
+    pub fn take_volume(&mut self) -> Option<f32> {
+        match self {
+            Screen::Omake(o) => o.take_volume(),
+            _ => None,
         }
     }
 }

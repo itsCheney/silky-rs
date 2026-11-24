@@ -247,6 +247,19 @@ impl Runtime {
     /// its pictures (the engine does this as a picture change is
     /// committed). Does nothing in the other games.
     pub(crate) fn register_cg(&mut self, vm: &mut Vm) {
+        if self.assets.game().title == Title::Kimaten1 {
+            if let Some(bg) = &self.scene.background {
+                let set = crate::games::kimaten1::omake::register(
+                    &vm.bytes,
+                    bg,
+                    !self.scene.overlays.is_empty(),
+                );
+                for (i, v) in set {
+                    vm.set_var_b(i, v);
+                }
+            }
+            return;
+        }
         if self.assets.game().title != Title::Kimaten2 {
             return;
         }

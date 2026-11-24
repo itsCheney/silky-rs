@@ -291,7 +291,7 @@ impl Runtime {
             (cmd::PICTURE, 5, 1) => scene.background_zoom = c.int(0),
             // 2 sets up the change, 11 closes it; nothing to draw.
             (cmd::PICTURE, 2, 0) | (cmd::PICTURE, 11, 0) => {
-                if sub == 2 {
+                if sub == 2 || (sub == 11 && self.assets.game().title == Title::Kimaten1) {
                     self.register_cg(vm);
                 }
             }

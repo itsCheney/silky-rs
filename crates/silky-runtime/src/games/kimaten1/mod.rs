@@ -7,6 +7,7 @@
 
 mod actsel;
 mod areasel;
+mod cgdata;
 mod chrome;
 pub(crate) mod commands;
 pub mod effects;
@@ -15,6 +16,7 @@ mod itemsel;
 pub mod map;
 pub mod notebook;
 pub mod notice;
+pub mod omake;
 pub mod screen;
 pub mod title;
 pub mod window;

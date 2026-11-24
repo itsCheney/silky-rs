@@ -1234,6 +1234,11 @@ impl Session {
     /// Pointer moved to (x, y) in screen pixels.
     pub fn pointer_move(&mut self, x: i32, y: i32) {
         self.ui.pointer = (x, y);
+        // A bar of the music mode follows the pointer while held.
+        if let (Some(Button::Kimaten1(id)), Some(k)) = (self.ui.pressed, &mut self.ui.k1) {
+            k.press_at(id, x, y);
+            let _ = self.k1_answer(crate::games::kimaten1::Click::None);
+        }
         if let Some(h) = &mut self.hmode {
             h.pointer_move(x, y);
             return;
@@ -1962,6 +1967,19 @@ impl Session {
         let sound = s.take_sound();
         for (i, v) in s.take_bytes() {
             self.vm.set_var_b(i, v);
+        }
+        let (music, volume) = (s.take_music(), s.take_volume());
+        match music {
+            Some(crate::games::kimaten1::omake::Music::Play(file)) => {
+                let _ = self.rt.play_music_once(&file);
+            }
+            Some(crate::games::kimaten1::omake::Music::Stop) => self.rt.stop_music(),
+            None => {}
+        }
+        if let Some(v) = volume {
+            let old = self.rt.system.settings.clone();
+            self.rt.system.settings.music = v;
+            self.settings_changed(old);
         }
         if let Some(file) = sound {
             let _ = self.rt.play_sound(&file);
@@ -3847,8 +3865,12 @@ impl Session {
                 }
             }
             Button::Kimaten1(id) => {
+                let (px, py) = self.ui.pointer;
                 let click = match self.ui.k1_menu.as_mut().or(self.ui.k1.as_mut()) {
-                    Some(s) => s.click(id),
+                    Some(s) => {
+                        s.press_at(id, px, py);
+                        s.click(id)
+                    }
                     None => return Ok(()),
                 };
                 self.k1_answer(click)?;

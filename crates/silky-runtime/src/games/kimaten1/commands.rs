@@ -8,6 +8,7 @@ use super::areasel::AreaSelect;
 use super::effects;
 use super::itemsel::{self, ItemSelect};
 use super::map::Map;
+use super::omake::{self, Omake, Saved};
 use super::screen::Screen;
 use crate::audio::Bus;
 use crate::games::cmd::{CHARACTER, PICTURE, SPEAKER, TITLE};
@@ -48,6 +49,40 @@ const NOTICE: i32 = 44;
 const EMOTE_CG: i32 = 48;
 
 impl Runtime {
+    /// The screen of the extras mode `mode`, from the bytes of the script.
+    fn k1_omake(&mut self, mode: usize, vm: &Vm) -> Option<Screen> {
+        let names = Omake::area_files();
+        let areas = [
+            self.k1_areas(names[0])?,
+            self.k1_areas(names[1])?,
+            self.k1_areas(names[2])?,
+        ];
+        let dialog = self.k1_areas("dialog.area")?;
+        let mut saved = Saved {
+            seen: (0..super::cgdata::PICTURES.len().div_ceil(8))
+                .map(|i| vm.var_b(omake::CG_SEEN + i))
+                .collect(),
+            volume: self.system.settings.music,
+            ..Saved::default()
+        };
+        for (i, s) in saved.scenes.iter_mut().enumerate() {
+            *s = vm.var_b(omake::SCENE_FIRST + i);
+        }
+        for (i, t) in saved.tracks.iter_mut().enumerate() {
+            let heard = self.system.music.contains(&omake::track_file(i));
+            *t = u8::from(vm.var_b(omake::MUSIC_FIRST + i) == 1 || heard);
+        }
+        for (t, b) in saved.tabs.iter_mut().zip(omake::TAB_BYTES) {
+            *t = vm.var_b(b);
+        }
+        if !self.audio.is_playing(Bus::Music, 0) {
+            let _ = self.play_music(omake::BGM);
+        }
+        Some(Screen::Omake(Box::new(Omake::open(
+            mode, areas, dialog, saved,
+        ))))
+    }
+
     /// The areas of one of the `.area` files, `None` if it is missing.
     fn k1_areas(&self, name: &str) -> Option<Vec<silky_format::area::Area>> {
         silky_format::area::parse(&self.assets.data(&name.to_ascii_uppercase()).ok()?).ok()
@@ -120,6 +155,20 @@ impl Runtime {
                     vm.var_b(NOTEBOOK_UNLOCKED) != 0,
                 )));
                 self.wait_for(Pause::Kimaten1)
+            }
+            // The extras: CG, scene and music modes; the viewer of アンネ
+            // is not carried out, it leaves at once as its back button does.
+            30..=32 => {
+                let Some(screen) = self.k1_omake((command - 30) as usize, vm) else {
+                    vm.push(omake::LEAVE);
+                    return self.done();
+                };
+                self.k1 = Some(screen);
+                self.wait_for(Pause::Kimaten1)
+            }
+            33 => {
+                vm.push(omake::LEAVE);
+                self.done()
             }
             // Apply: crossfade over the longest time given.
             EMOTES if sub == 2 && args.len() == 1 => {
