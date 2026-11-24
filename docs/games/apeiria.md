@@ -56,7 +56,7 @@ Top or bottom half of `sld_mini.akb` under the characters; over it a window of h
 
 - Sub 2 way 0 on the top half: wipe in from the middle through rule 47 (`47.bin`, laid over the panel) over 12 frames while 50 specks of `light.akb` rise from the bottom of the screen into the panel (`CMiniLightAnime`).
 - Way 0 on the bottom half, and way 2 on either: fade in from nothing over 12 frames.
-- The script waits for both, and while sub 3 fades her and the panel out over the given frames. Shown again while up, she comes again the same way; shown while still coming, the script waits.
+- The script waits for both (the 12 frames, about 0.2 s at the engine's 15 ms tick), and while sub 3 fades her and the panel out over the given frames. Shown again while up, she comes again the same way; shown while still coming, the script waits.
 
 ### Pictures over the scene
 
@@ -104,10 +104,6 @@ Seen state is kept across games in byte variables from 3000. A CG bit (one per p
 - Music mode: 41 tracks in eight slanted rows of `music_title.akb`, scroll bar, music volume. CG and scene modes play `ape_27.ogg` when nothing plays; music mode stops the music it finds. Scroll bar arrows scroll one row on press, not again while held.
 - Modes fade in from black and out to black: 12 steps of the 20 ms tick (240 ms); input waits for the fade. The title menu fades out with the screen.
 - Arrow keys move the pointer to the middle of another button by each screen's own table (a key from no button goes to the first cell); Enter clicks. On a full-screen picture, left and right walk back and forth.
-
-## Not done yet
-
-- Hologram way-0 show: the original holds the script 0.6 to 0.8 s each time; the runtime waits only the 12 frames of coming.
 
 ## Where things are in the executable
 
