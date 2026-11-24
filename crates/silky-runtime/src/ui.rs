@@ -76,6 +76,16 @@ pub mod title {
     pub const APEIRIA_UNLOCK: [(usize, usize); 3] =
         [(CG_MODE, 3002), (SCENE_MODE, 3003), (MUSIC_MODE, 3004)];
 
+    /// なないろリンカネーション: the same, and byte 3001 for settings and
+    /// the bonus page (from the executable's title menu).
+    pub const NANAIRO_UNLOCK: [(usize, usize); 5] = [
+        (SETTINGS, 3001),
+        (EXTRAS, 3001),
+        (CG_MODE, 3002),
+        (SCENE_MODE, 3003),
+        (MUSIC_MODE, 3004),
+    ];
+
     /// Value the title menu call returns to the script for an entry, if
     /// the script handles it. Continue, Load and Settings open engine
     /// screens instead; Extras and Back switch the menu page.
@@ -663,19 +673,51 @@ impl Kimaten2Title {
     }
 }
 
-/// Title menu drawn from fixed cells of `title_p.akb` (景の海のアペイリア):
-/// click areas from `title.area` and `title2.area`, cell positions from
-/// the executable, four 42-pixel state rows per cell (normal, hover,
-/// pressed, disabled).
+/// Title menu drawn from fixed cells of one sheet (景の海のアペイリア,
+/// 同級生 Remake, なないろリンカネーション): click areas from `title.area`
+/// and `title2.area`, cell positions from the executable, four state rows
+/// per cell (normal, hover, pressed, disabled).
 struct SheetTitle {
-    /// (entry, screen area, sheet cell top left); `None` entries are
-    /// drawn disabled and take no clicks.
-    main: Vec<(Option<usize>, Area, (u32, u32))>,
-    extras: Vec<(Option<usize>, Area, (u32, u32))>,
-    /// Height of a state row.
-    row: u32,
+    main: Vec<TitleCell>,
+    extras: Vec<TitleCell>,
+    /// Name of the sheet.
+    sheet: &'static str,
     /// The sheet comes in one picture per language.
     localized: bool,
+    /// Entries and the byte variables that unlock them.
+    unlocks: &'static [(usize, usize)],
+}
+
+/// One entry of a [`SheetTitle`].
+#[derive(Clone, Copy)]
+struct TitleCell {
+    /// `None` entries are drawn disabled and take no clicks.
+    entry: Option<usize>,
+    area: Area,
+    /// Top left of the cell on the sheet.
+    src: (u32, u32),
+    /// Where it goes on screen, and its size.
+    dst: (i32, i32),
+    size: (u32, u32),
+    /// Distance between state rows.
+    row: u32,
+    /// State row drawn when the entry is neither hovered nor pressed.
+    idle: u32,
+}
+
+impl TitleCell {
+    /// A cell drawn over its click area, `row` pixels high.
+    fn on_area(entry: Option<usize>, area: Area, src: (u32, u32), row: u32) -> Self {
+        Self {
+            entry,
+            area,
+            src,
+            dst: (area.left, area.top),
+            size: (area.width(), row),
+            row,
+            idle: 0,
+        }
+    }
 }
 
 impl SheetTitle {
@@ -703,11 +745,8 @@ impl SheetTitle {
             .filter(|a| (0..6).contains(&a.id))
             .map(|a| {
                 let i = a.id as u32;
-                (
-                    Some(MAIN[a.id as usize]),
-                    *a,
-                    (494 * (i % 3), 312 * (i / 3)),
-                )
+                let src = (494 * (i % 3), 312 * (i / 3));
+                TitleCell::on_area(Some(MAIN[a.id as usize]), *a, src, 78)
             })
             .collect();
         const EXTRAS: [(usize, (u32, u32)); 5] = [
@@ -721,14 +760,15 @@ impl SheetTitle {
             .iter()
             .filter_map(|a| {
                 let &(entry, cell) = EXTRAS.get(usize::try_from(a.id).ok()?)?;
-                Some((Some(entry), *a, cell))
+                Some(TitleCell::on_area(Some(entry), *a, cell, 78))
             })
             .collect();
         Ok(Self {
             main,
             extras,
-            row: 78,
+            sheet: "title_p.akb",
             localized: true,
+            unlocks: &[],
         })
     }
 
@@ -755,28 +795,136 @@ impl SheetTitle {
         let mut extras = Vec::new();
         for (id, entry, cell) in MAIN {
             if let Some(a) = main_areas.iter().find(|a| a.id == id) {
-                main.push((Some(entry), *a, cell));
+                main.push(TitleCell::on_area(Some(entry), *a, cell, 42));
                 // The extras page keeps the other main entries, disabled;
                 // bonus stays live as the way back.
                 if id != 4 {
-                    extras.push((None, *a, cell));
+                    extras.push(TitleCell::on_area(None, *a, cell, 42));
                 }
             }
         }
         for (id, entry, cell) in EXTRAS {
             if let Some(a) = extra_areas.iter().find(|a| a.id == id) {
-                extras.push((Some(entry), *a, cell));
+                extras.push(TitleCell::on_area(Some(entry), *a, cell, 42));
             }
         }
         Ok(Self {
             main,
             extras,
-            row: 42,
+            sheet: "title_p.akb",
             localized: false,
+            unlocks: &title::APEIRIA_UNLOCK,
         })
     }
 
-    fn entries(&self, extras: bool) -> &[(Option<usize>, Area, (u32, u32))] {
+    /// なないろリンカネーション: `title.akb`, cells and places from the
+    /// executable. The main entries sit on a 349 x 449 layer at (145, 255),
+    /// the extras on a 352 x 209 layer at (144, 313), shown in turn; the
+    /// round bonus button, at (467, 517), is the way to the extras and
+    /// back. It has three state rows and shows pressed on the extras page.
+    fn load_nanairo(assets: &Assets) -> Result<Self> {
+        let main_areas = area::parse(&assets.data("title.area")?)?;
+        let extra_areas = area::parse(&assets.data("title2.area")?)?;
+        type Spec = (i32, usize, (i32, i32), (u32, u32), (u32, u32), u32);
+        // Area id, entry, place, size, sheet cell, state row step.
+        const MAIN: [Spec; 6] = [
+            (
+                0,
+                title::NEW_GAME,
+                (145 + 63, 255 + 75),
+                (222, 72),
+                (0, 0),
+                72,
+            ),
+            (
+                1,
+                title::CONTINUE,
+                (145, 255 + 150),
+                (349, 73),
+                (222, 0),
+                73,
+            ),
+            (
+                2,
+                title::LOAD,
+                (145 + 61, 255 + 225),
+                (225, 72),
+                (571, 0),
+                72,
+            ),
+            (
+                3,
+                title::SETTINGS,
+                (145 + 72, 255 + 300),
+                (203, 74),
+                (796, 0),
+                74,
+            ),
+            (
+                4,
+                title::QUIT,
+                (145 + 43, 255 + 375),
+                (260, 73),
+                (0, 292),
+                73,
+            ),
+            (5, title::EXTRAS, (467, 517), (189, 189), (999, 0), 189),
+        ];
+        const EXTRAS: [Spec; 4] = [
+            (
+                256,
+                title::CG_MODE,
+                (144 + 75, 313),
+                (203, 55),
+                (450, 296),
+                55,
+            ),
+            (
+                257,
+                title::SCENE_MODE,
+                (144 + 47, 313 + 75),
+                (258, 55),
+                (653, 296),
+                55,
+            ),
+            (
+                258,
+                title::MUSIC_MODE,
+                (144, 313 + 150),
+                (352, 59),
+                (450, 516),
+                59,
+            ),
+            (259, title::BACK, (467, 517), (189, 189), (999, 0), 189),
+        ];
+        let cells = |areas: &[Area], specs: &[Spec]| {
+            specs
+                .iter()
+                .filter_map(|&(id, entry, dst, size, src, row)| {
+                    let area = *areas.iter().find(|a| a.id == id)?;
+                    let idle = if entry == title::BACK { 2 } else { 0 };
+                    Some(TitleCell {
+                        entry: Some(entry),
+                        area,
+                        src,
+                        dst,
+                        size,
+                        row,
+                        idle,
+                    })
+                })
+                .collect()
+        };
+        Ok(Self {
+            main: cells(&main_areas, &MAIN),
+            extras: cells(&extra_areas, &EXTRAS),
+            sheet: "title.akb",
+            localized: false,
+            unlocks: &title::NANAIRO_UNLOCK,
+        })
+    }
+
+    fn entries(&self, extras: bool) -> &[TitleCell] {
         if extras {
             &self.extras
         } else {
@@ -787,8 +935,8 @@ impl SheetTitle {
     fn hit(&self, extras: bool, x: i32, y: i32) -> Option<Button> {
         self.entries(extras)
             .iter()
-            .find(|(e, a, _)| e.is_some() && a.contains(x, y))
-            .and_then(|(e, _, _)| e.map(Button::Title))
+            .find(|c| c.entry.is_some() && c.area.contains(x, y))
+            .and_then(|c| c.entry.map(Button::Title))
     }
 
     fn draw(
@@ -800,20 +948,24 @@ impl SheetTitle {
         language: Language,
     ) -> Result<()> {
         let sheet = if self.localized {
-            assets.localized_image("title_p.akb", language)?
+            assets.localized_image(self.sheet, language)?
         } else {
-            assets.image("title_p.akb")?
+            assets.image(self.sheet)?
         };
-        for &(entry, a, (sx, sy)) in self.entries(extras) {
-            let state = match entry {
+        for c in self.entries(extras) {
+            let state = match c.entry {
                 Some(e) => {
                     let b = Button::Title(e);
-                    ui.state(b, ui.enabled(b), false) as u32
+                    match ui.state(b, ui.enabled(b), false) as u32 {
+                        0 => c.idle,
+                        s => s,
+                    }
                 }
                 None => Self::DISABLED,
             };
-            let part = (sx, sy + self.row * state, a.width(), self.row);
-            canvas.draw_part(&sheet, part, a.left, a.top, false, 255);
+            let (sx, sy) = c.src;
+            let part = (sx, sy + c.row * state, c.size.0, c.size.1);
+            canvas.draw_part(&sheet, part, c.dst.0, c.dst.1, false, 255);
         }
         Ok(())
     }
@@ -1800,6 +1952,11 @@ impl Layout {
                 douk: Some(DoukBar::load(assets)?),
             });
         }
+        let sheet_title = if assets.game().title == silky_format::game::Title::Nanairo {
+            Some(SheetTitle::load_nanairo(assets)?)
+        } else {
+            None
+        };
         // A game not known yet may have no `mes_o.area`: no buttons then.
         let mut bar = if assets.exists(silky_format::game::Kind::Data, "mes_o.area") {
             area::parse(&assets.data("mes_o.area")?)?
@@ -1817,7 +1974,7 @@ impl Layout {
             language,
             bar,
             kimaten2: None,
-            sheet_title: None,
+            sheet_title,
             ring: None,
             douk: None,
         })
@@ -1840,9 +1997,9 @@ impl Layout {
 
     /// Extras entries and the byte variables that unlock them.
     pub fn title_unlocks(&self) -> &'static [(usize, usize)] {
-        match (&self.kimaten2, &self.ring) {
+        match (&self.kimaten2, &self.sheet_title) {
             (Some(_), _) => &title::KIMATEN2_UNLOCK,
-            (None, Some(_)) => &title::APEIRIA_UNLOCK,
+            (None, Some(t)) => t.unlocks,
             _ => &[],
         }
     }
