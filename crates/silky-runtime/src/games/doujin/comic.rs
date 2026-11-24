@@ -14,17 +14,23 @@
 //! game's program file, in the order of the messages of the script (one per
 //! wait, from message number 6167).
 //!
+//! The words appear one by one: a bubble's characters come at the
+//! interval the text speed setting gives (150 ms at the slowest, none at
+//! the fastest or with the one-by-one setting off), a little longer after
+//! a stop mark when that setting is on. A click, or leaving by the keys,
+//! puts the rest up at once; skipping does too.
+//!
 //! Two round buttons (`comic.akb`, at the areas 2 and 3 of
 //! `DOUJINSHI.AREA`) turn the page: the left one forward (the wait returns
-//! 2), the right one back (3). A click on the page itself ends the wait
-//! (0). Sub 6 names a small rectangle of the lettered page that appears
-//! with the next wait (a sound word written in a bubble) instead of text; a
-//! click first lets it stand, the next goes on.
-//!
-//! Not carried out: the characters appear at once, not one by one at the
-//! reading speed; the buttons have no hover or pressed look and make no
-//! sound; the fade-in of the hot spot is instant; right click, the
-//! auto mode and skipping do not return the codes 1 for leaving.
+//! 2), the right one back (3). The sheet has four looks for each: normal,
+//! pointer over, pressed and unavailable; the back button is unavailable
+//! on the first page and does nothing there. A click on a button plays the
+//! confirm sound. A click on the page itself ends the wait (0). Sub 6
+//! names a small rectangle of the lettered page that appears with the next
+//! wait (a sound word written in a bubble) instead of text: it is wiped in
+//! from the top over 24 frames, and a click during that finishes it.
+//! The wait can also come back with 1, the game's own leaving of a scene
+//! replay; the script then returns at once.
 
 use std::sync::Arc;
 
@@ -38,8 +44,33 @@ use crate::text::TextRenderer;
 
 /// Message number of the first wait in `DOJIN.MES`.
 const FIRST_MESSAGE: i32 = 6167;
-/// Size of a character cell.
-const CELL: i32 = 10;
+/// Size of a character cell when the script gives none: width, height.
+const CELL: (i32, i32) = (11, 10);
+/// Variables the script sets the cell size in, and the top of the columns.
+const VAR_CELL_W: usize = 30;
+const VAR_CELL_H: usize = 31;
+const VAR_TOP: usize = 47;
+/// Variable that is 0 on the first page.
+const VAR_PAGE: usize = 15;
+/// Most the columns can run left of the bubble's start; the text goes no
+/// further.
+const COLUMNS_SPAN: i32 = 400;
+/// Longest wait between two characters (at the slowest text speed), and
+/// the extra wait after a stop mark.
+const CHAR_MS: f32 = 150.0;
+const STOP_MS: u64 = 300;
+/// Characters that make the longer wait.
+const STOPS: [char; 4] = ['。', '、', '・', '\u{3000}'];
+/// A frame of the game's animations.
+const FRAME_MS: u64 = 16;
+/// Frames the hot spot takes to appear.
+const SPOT_FRAMES: u64 = 24;
+/// Sound of a click on a round button.
+const CLICK_SOUND: &str = "ses_001.wav";
+/// Rows of `comic.akb`.
+const ROW_NORMAL: u32 = 0;
+const ROW_OVER: u32 = 1;
+const ROW_UNAVAILABLE: u32 = 3;
 /// Variables the script sets the bubble's text start in.
 const VAR_X: usize = 50;
 const VAR_Y: usize = 51;
@@ -55,13 +86,25 @@ pub const PREVIOUS_PAGE: i32 = 3;
 /// A rectangle: left, top, width, height.
 type Rect = (i32, i32, i32, i32);
 
+/// One character of a bubble.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Glyph {
+    x: i32,
+    y: i32,
+    c: char,
+    /// Width of its cell.
+    w: i32,
+    /// Milliseconds after the wait began at which it appears.
+    at: u64,
+}
+
 /// What has been put on the page.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Shown {
-    /// Characters at cells (left, top).
-    Text(Vec<(i32, i32, char)>),
-    /// A rectangle of the lettered page.
-    Spot(Rect),
+    /// Characters of a bubble.
+    Text(Vec<Glyph>),
+    /// A rectangle of the lettered page; true while it is being wiped in.
+    Spot(Rect, bool),
 }
 
 /// The screen object of `Game.40`.
@@ -77,8 +120,16 @@ pub struct Comic {
     anchor: (i32, i32),
     /// Rectangle for the next wait (sub 6).
     next_spot: Option<Rect>,
-    /// A spot just put up that the next click only lets stand.
-    spot_up: bool,
+    /// Size of a character cell.
+    cell: (i32, i32),
+    /// Top of the columns of the bubble.
+    top: i32,
+    /// Milliseconds since the wait began.
+    elapsed: u64,
+    /// The back button is unavailable (the first page).
+    first_page: bool,
+    /// The round button under the pointer.
+    over: Option<i32>,
     /// The lettered version of the page.
     lettered: Option<String>,
     shown: Vec<Shown>,
@@ -103,6 +154,7 @@ impl Comic {
                     .unwrap_or_default(),
             ),
             areas,
+            cell: CELL,
             ..Self::default()
         }
     }
@@ -124,22 +176,102 @@ impl Comic {
             .map(|(id, _)| *id)
     }
 
-    /// Puts the words of message `n` in a bubble from the anchor.
-    fn put_text(&mut self, n: i32) {
+    /// Puts the words of message `n` in a bubble from the anchor, with the
+    /// time each character comes up.
+    fn put_text(&mut self, n: i32, timing: Timing) {
         let text = n
             .checked_sub(FIRST_MESSAGE)
             .and_then(|k| self.texts.get(k as usize))
             .map(String::as_str)
             .unwrap_or("");
-        let (x0, y0) = self.anchor;
-        let mut cells = Vec::new();
-        for (col, line) in text.split('\\').enumerate() {
-            for (row, c) in line.chars().enumerate() {
-                cells.push((x0 - col as i32 * CELL, y0 + row as i32 * CELL, c));
+        let (cw, ch) = self.cell;
+        let (mut x, mut y) = self.anchor;
+        let mut at = 0;
+        let mut glyphs = Vec::new();
+        for c in text.chars() {
+            let mut extra = 0;
+            if c == '\\' {
+                // A new column to the left.
+                x -= cw;
+                y = self.top;
+            } else {
+                let wide = !c.is_ascii();
+                if wide && timing.stop_pause && STOPS.contains(&c) {
+                    extra = STOP_MS;
+                }
+                glyphs.push(Glyph {
+                    x,
+                    y,
+                    c,
+                    w: if wide { cw } else { cw / 2 },
+                    at,
+                });
+                y += ch;
+            }
+            at += timing.interval + extra;
+            if x - cw < self.anchor.0 - COLUMNS_SPAN {
+                break;
             }
         }
-        if !cells.is_empty() {
-            self.shown.push(Shown::Text(cells));
+        if !glyphs.is_empty() {
+            self.shown.push(Shown::Text(glyphs));
+        }
+    }
+
+    /// Starts a wait: the clock of the words and of the hot spot starts,
+    /// the words before it are all there.
+    fn begin_wait(&mut self) {
+        self.elapsed = 0;
+        for item in &mut self.shown {
+            match item {
+                Shown::Text(glyphs) => glyphs.iter_mut().for_each(|g| g.at = 0),
+                Shown::Spot(_, fading) => *fading = false,
+            }
+        }
+    }
+
+    /// Time the words of the newest bubble take to come up in all.
+    fn typing_ms(&self) -> u64 {
+        match self.shown.last() {
+            Some(Shown::Text(glyphs)) => glyphs.last().map_or(0, |g| g.at),
+            _ => 0,
+        }
+    }
+
+    /// Whether the words are still coming up or the hot spot being wiped
+    /// in.
+    fn busy(&self) -> bool {
+        match self.shown.last() {
+            Some(Shown::Text(glyphs)) => glyphs.last().is_some_and(|g| g.at > self.elapsed),
+            Some(Shown::Spot(_, true)) => self.elapsed < SPOT_FRAMES * FRAME_MS,
+            _ => false,
+        }
+    }
+
+    /// Puts the rest up at once. True if there was a rest.
+    pub fn finish(&mut self) -> bool {
+        if !self.busy() {
+            return false;
+        }
+        self.elapsed = u64::MAX / 2;
+        true
+    }
+
+    /// Goes on for `ms` milliseconds. True if the picture changes.
+    pub fn advance(&mut self, ms: u64) -> bool {
+        let busy = self.busy();
+        self.elapsed = self.elapsed.saturating_add(ms);
+        busy
+    }
+
+    /// Look of a round button.
+    fn row(&self, id: i32) -> u32 {
+        if id == PREVIOUS_PAGE && self.first_page {
+            ROW_UNAVAILABLE
+        } else if self.over == Some(id) {
+            ROW_OVER
+        } else {
+            ROW_NORMAL
         }
     }
 
@@ -149,38 +281,48 @@ impl Comic {
             .lettered
             .as_ref()
             .and_then(|name| assets.image(name).ok());
+        let (_, ch) = self.cell;
         for item in &self.shown {
             match item {
-                Shown::Spot(r) => {
+                Shown::Spot(r, fading) => {
                     if let Some(img) = &lettered {
-                        canvas.draw_part(
-                            img,
-                            (r.0.max(0) as u32, r.1.max(0) as u32, r.2 as u32, r.3 as u32),
-                            r.0,
-                            r.1,
-                            false,
-                            255,
-                        );
+                        // Wiped in from the top.
+                        let h = if *fading {
+                            let frame = (self.elapsed / FRAME_MS).min(SPOT_FRAMES);
+                            (r.3 as u64 * frame / SPOT_FRAMES) as i32
+                        } else {
+                            r.3
+                        };
+                        if h > 0 {
+                            canvas.draw_part(
+                                img,
+                                (r.0.max(0) as u32, r.1.max(0) as u32, r.2 as u32, h as u32),
+                                r.0,
+                                r.1,
+                                false,
+                                255,
+                            );
+                        }
                     }
                 }
-                Shown::Text(cells) => {
-                    for &(x, y, c) in cells {
+                Shown::Text(glyphs) => {
+                    for g in glyphs.iter().filter(|g| g.at <= self.elapsed) {
                         if let Some(img) = &lettered {
                             canvas.draw_part(
                                 img,
-                                ((x - 1).max(0) as u32, (y - 1).max(0) as u32, 12, 12),
-                                x - 1,
-                                y - 1,
+                                (g.x.max(0) as u32, g.y.max(0) as u32, g.w as u32, ch as u32),
+                                g.x,
+                                g.y,
                                 false,
                                 255,
                             );
                         } else if let Some(tr) = text {
                             tr.draw_plain(
                                 canvas,
-                                &c.to_string(),
-                                x as f32,
-                                (y + CELL - 1) as f32,
-                                CELL as f32,
+                                &g.c.to_string(),
+                                g.x as f32,
+                                (g.y + ch - 1) as f32,
+                                ch as f32,
                                 [0, 0, 0, 255],
                             );
                         }
@@ -190,17 +332,25 @@ impl Comic {
         }
         if self.arrows {
             if let Ok(sheet) = assets.image("comic.akb") {
-                for (id, (x, y), (sx, sy)) in ARROWS {
+                for (id, (x, y), (sx, _)) in ARROWS {
                     let (x, y) = self
                         .areas
                         .iter()
                         .find(|(a, _)| *a == id)
                         .map_or((x, y), |(_, r)| (r.0, r.1));
-                    canvas.draw_part(&sheet, (sx, sy, ARROW, ARROW), x, y, false, 255);
+                    let row = self.row(id) * ARROW;
+                    canvas.draw_part(&sheet, (sx, row, ARROW, ARROW), x, y, false, 255);
                 }
             }
         }
     }
+}
+
+/// How the characters of a bubble are spaced in time.
+#[derive(Debug, Clone, Copy)]
+struct Timing {
+    interval: u64,
+    stop_pause: bool,
 }
 
 /// The game's program file in its folder.
@@ -253,7 +403,7 @@ fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
 pub enum Click {
     /// Not the screen's: the click goes on as usual.
     Pass,
-    /// Used up (it let a spot stand).
+    /// Used up (it put the rest of the words up, or did nothing).
     Used,
     /// Changed the wait's result; the script goes on.
     Answered,
@@ -264,18 +414,53 @@ pub fn click(rt: &mut Runtime, vm: &mut Vm, x: i32, y: i32) -> Click {
     let Some(comic) = &mut rt.scene.comic else {
         return Click::Pass;
     };
-    if std::mem::take(&mut comic.spot_up) {
-        return Click::Used;
-    }
     match comic.button_at(x, y) {
+        Some(PREVIOUS_PAGE) if comic.first_page => Click::Used,
         Some(code) => {
             // The wait pushed its 0 already.
             let _ = vm.pop();
             vm.push(code);
+            let _ = rt.play_sound(CLICK_SOUND);
             Click::Answered
         }
+        // The first click while words come up or the hot spot appears
+        // finishes that.
+        None if comic.finish() => Click::Used,
         None => Click::Pass,
     }
+}
+
+/// Puts the rest of the words up (keys that go on do this first). True if
+/// there was a rest.
+pub fn finish(rt: &mut Runtime) -> bool {
+    rt.scene.comic.as_mut().is_some_and(Comic::finish)
+}
+
+/// Time the words of the bubble take to come up, `None` without the
+/// screen.
+pub fn typing_ms(rt: &Runtime) -> Option<u64> {
+    rt.scene.comic.as_ref().map(Comic::typing_ms)
+}
+
+/// The clock goes on by `ms`; skipping puts everything up at once. True if
+/// the picture changes.
+pub fn tick(rt: &mut Runtime, ms: u64, skipping: bool) -> bool {
+    let Some(comic) = &mut rt.scene.comic else {
+        return false;
+    };
+    if skipping {
+        return comic.finish();
+    }
+    comic.advance(ms)
+}
+
+/// The pointer is at (x, y). True if a button changes its look.
+pub fn hover(rt: &mut Runtime, x: i32, y: i32) -> bool {
+    let Some(comic) = &mut rt.scene.comic else {
+        return false;
+    };
+    let over = comic.button_at(x, y);
+    std::mem::replace(&mut comic.over, over) != over
 }
 
 impl Runtime {
@@ -287,18 +472,28 @@ impl Runtime {
             0 | 1 => {
                 let n = c.int(0);
                 let background = self.scene.background.clone();
+                let st = &self.system.settings;
+                let typed = st.typewriter && st.text_speed < 1.0;
+                let timing = Timing {
+                    interval: if typed {
+                        ((1.0 - st.text_speed.clamp(0.0, 1.0)) * CHAR_MS) as u64
+                    } else {
+                        0
+                    },
+                    stop_pause: st.punctuation_pause,
+                };
+                let first_page = vm.var_g(VAR_PAGE).int() == 0;
                 if let Some(comic) = &mut self.scene.comic {
                     comic.lettered = background
                         .as_deref()
                         .map(|b| b.trim_end_matches(".akb").trim_end_matches(".AKB"))
                         .map(|stem| format!("{stem}a.akb"))
                         .filter(|name| self.assets.image(name).is_ok());
+                    comic.first_page = first_page;
+                    comic.begin_wait();
                     match comic.next_spot.take() {
-                        Some(r) => {
-                            comic.shown.push(Shown::Spot(r));
-                            comic.spot_up = true;
-                        }
-                        None => comic.put_text(n),
+                        Some(r) => comic.shown.push(Shown::Spot(r, true)),
+                        None => comic.put_text(n, timing),
                     }
                 }
                 let name = self
@@ -324,7 +519,6 @@ impl Runtime {
                     comic.shown.clear();
                     comic.arrows = false;
                     comic.next_spot = None;
-                    comic.spot_up = false;
                 }
                 self.done()
             }
@@ -333,8 +527,10 @@ impl Runtime {
                 if self.scene.comic.is_none() {
                     self.scene.comic = Some(Comic::new(&self.assets));
                 }
+                let first_page = vm.var_g(VAR_PAGE).int() == 0;
                 if let Some(comic) = &mut self.scene.comic {
                     comic.arrows = true;
+                    comic.first_page = first_page;
                 }
                 self.done()
             }
@@ -346,8 +542,14 @@ impl Runtime {
             // Next bubble: where its text starts.
             5 => {
                 let at = (vm.var_g(VAR_X).int(), vm.var_g(VAR_Y).int());
+                let top = vm.var_g(VAR_TOP).int();
+                let cell = (vm.var_g(VAR_CELL_W).int(), vm.var_g(VAR_CELL_H).int());
                 if let Some(comic) = &mut self.scene.comic {
                     comic.anchor = at;
+                    comic.top = top;
+                    if cell.0 > 0 && cell.1 > 0 {
+                        comic.cell = cell;
+                    }
                 }
                 self.done()
             }
@@ -362,8 +564,10 @@ impl Runtime {
             // Puts the two round buttons up again (after the layers were
             // cleared); nothing happens before the screen is created.
             7 => {
+                let first_page = vm.var_g(VAR_PAGE).int() == 0;
                 if let Some(comic) = &mut self.scene.comic {
                     comic.arrows = true;
+                    comic.first_page = first_page;
                 }
                 self.done()
             }
@@ -395,16 +599,61 @@ mod tests {
         let mut c = Comic {
             texts: Arc::new(vec!["ab\\c".to_string()]),
             anchor: (100, 20),
+            top: 20,
+            cell: (11, 10),
             ..Comic::default()
         };
-        c.put_text(FIRST_MESSAGE);
+        let timing = Timing {
+            interval: 40,
+            stop_pause: false,
+        };
+        c.put_text(FIRST_MESSAGE, timing);
+        let glyph = |x, y, c, at| Glyph { x, y, c, w: 5, at };
+        let Shown::Text(g) = &c.shown[0] else {
+            panic!("no text");
+        };
+        // Latin letters take half a cell; the break takes a turn too.
         assert_eq!(
-            c.shown,
-            [Shown::Text(vec![
-                (100, 20, 'a'),
-                (100, 30, 'b'),
-                (90, 20, 'c')
-            ])]
+            g,
+            &[
+                glyph(100, 20, 'a', 0),
+                glyph(100, 30, 'b', 40),
+                glyph(89, 20, 'c', 120)
+            ]
         );
+    }
+
+    #[test]
+    fn stop_marks_wait_longer() {
+        let mut c = Comic {
+            texts: Arc::new(vec!["あ、い".to_string()]),
+            anchor: (100, 20),
+            top: 20,
+            cell: (11, 10),
+            ..Comic::default()
+        };
+        let timing = Timing {
+            interval: 50,
+            stop_pause: true,
+        };
+        c.put_text(FIRST_MESSAGE, timing);
+        let Shown::Text(g) = &c.shown[0] else {
+            panic!("no text");
+        };
+        let at: Vec<u64> = g.iter().map(|g| g.at).collect();
+        assert_eq!(at, [0, 50, 400]);
+        assert_eq!(c.typing_ms(), 400);
+        assert!(c.advance(100));
+        assert!(c.finish());
+        assert!(!c.busy());
+    }
+
+    #[test]
+    fn spot_wipes_in_over_24_frames() {
+        let mut c = Comic::default();
+        c.shown.push(Shown::Spot((0, 0, 10, 24), true));
+        assert!(c.busy());
+        assert!(c.advance(SPOT_FRAMES * FRAME_MS));
+        assert!(!c.busy());
     }
 }

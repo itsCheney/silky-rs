@@ -1587,7 +1587,12 @@ impl Renderer {
             if let (true, Some((body, face)), Title::Doujin) =
                 (scene.portrait2_visible, &scene.portrait2, self.title)
             {
-                let img = self.character(assets, body, face.as_deref())?;
+                let img = self.character_with(
+                    assets,
+                    body,
+                    face.as_deref(),
+                    scene.portrait2_over.as_deref(),
+                )?;
                 crate::games::doujin::window::draw_portrait(&mut canvas, &img, 1);
             }
             if let Some(row) = scene.speaker {

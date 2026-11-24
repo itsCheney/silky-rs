@@ -23,7 +23,8 @@ const FLUSH: i32 = 1005;
 const QUAKE: i32 = 993;
 /// Auto save point.
 const AUTO_SAVE: i32 = 14;
-/// The second portrait window: 6 body, 7 face, 9 show, 11 hide.
+/// The second portrait window: 6 body, 7 face, 8 a picture over the face,
+/// 9 show, 11 and 12 take it down.
 const PORTRAIT2: i32 = 16;
 /// The title menu; its argument is 1 to start on the extras page.
 const TITLE: i32 = 110;
@@ -89,6 +90,7 @@ impl Runtime {
             }
             (PORTRAIT2, 6) => {
                 scene.portrait2 = c.str(0).map(|b| (b, None));
+                scene.portrait2_over = None;
                 self.done()
             }
             (PORTRAIT2, 7) => {
@@ -97,11 +99,22 @@ impl Runtime {
                 }
                 self.done()
             }
+            // (picture): drawn over the face, as cheeks or the like.
+            (PORTRAIT2, 8) => {
+                if scene.portrait2.is_some() {
+                    scene.portrait2_over = c.str(0);
+                }
+                self.done()
+            }
             (PORTRAIT2, 9) => {
                 scene.portrait2_visible = true;
                 self.done()
             }
-            (PORTRAIT2, 11) => {
+            // Both take the window down: its pictures go, a new body must
+            // be set before it can be shown again.
+            (PORTRAIT2, 11 | 12) => {
+                scene.portrait2 = None;
+                scene.portrait2_over = None;
                 scene.portrait2_visible = false;
                 self.done()
             }

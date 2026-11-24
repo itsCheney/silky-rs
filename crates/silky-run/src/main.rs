@@ -333,6 +333,14 @@ fn write_trace(
 /// a frame at a time.
 fn settled(scene: &silky_runtime::Scene, ms: u64) -> silky_runtime::Scene {
     let mut scene = scene.clone();
+    // The doujinshi screen's words: all up when no time is given.
+    if let Some(comic) = &mut scene.comic {
+        if ms == 0 {
+            comic.finish();
+        } else {
+            comic.advance(ms);
+        }
+    }
     let mut left = ms;
     while left > 0 {
         let step = left.min(16);

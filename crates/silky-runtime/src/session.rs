@@ -1028,6 +1028,9 @@ impl Session {
 
     /// Time the whole message takes to appear.
     fn reveal_ms(&self) -> u64 {
+        if let Some(ms) = crate::games::doujin::comic::typing_ms(&self.rt) {
+            return ms;
+        }
         let st = &self.rt.system.settings;
         let Some(text) = self.rt.scene.text.as_deref() else {
             return 0;
@@ -1092,6 +1095,11 @@ impl Session {
 
     /// Goes on from the current message.
     fn advance(&mut self) -> Result<()> {
+        // The doujinshi screen puts the rest of a bubble's words up first.
+        if self.state == State::Text && crate::games::doujin::comic::finish(&mut self.rt) {
+            self.frame = None;
+            return Ok(());
+        }
         if self.state == State::Text && self.shown_chars.is_some() {
             self.reveal_all = true;
             self.shown_chars = None;
@@ -1323,6 +1331,9 @@ impl Session {
             && self.screen.is_none()
             && self.rt.mail_select_hover(x, y)
         {
+            self.frame = None;
+        }
+        if crate::games::doujin::comic::hover(&mut self.rt, x, y) {
             self.frame = None;
         }
         let hover = self.hit(x, y);
@@ -4695,6 +4706,11 @@ impl Session {
             }
             self.frame = None;
             return Ok(true);
+        }
+        if self.state == State::Text
+            && crate::games::doujin::comic::tick(&mut self.rt, ms, self.ui.skip)
+        {
+            self.frame = None;
         }
         if self.state == State::Text {
             let shown = self.revealed();

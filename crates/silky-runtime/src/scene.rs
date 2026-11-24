@@ -188,6 +188,9 @@ pub struct Scene {
     pub portrait2: Option<(String, Option<String>)>,
     #[serde(default)]
     pub portrait2_visible: bool,
+    /// A picture drawn over the second window's face (command 16, sub 8).
+    #[serde(default)]
+    pub portrait2_over: Option<String>,
     /// 景の海のアペイリア: cheeks drawn over the portrait (command 10,
     /// sub 8).
     #[serde(default)]
