@@ -1241,6 +1241,20 @@ impl Renderer {
             if text {
                 self.draw_text_at(&mut canvas, scene, None, (0, 0));
             }
+        } else if scene.text.is_some() && window && self.title == Title::Nanairo {
+            use crate::games::nanairo::window;
+            // The mask filled with the window colour, at the window's
+            // opacity.
+            let (color, opacity) = self.window;
+            let rgb = color.map(|c| (c.clamp(0.0, 1.0) * 255.0) as u8);
+            let parts = assets.image(window::SHEET)?;
+            let band = self.tinted(&parts, window::BAND, rgb);
+            let alpha = (opacity.clamp(0.0, 1.0) * 255.0) as u8;
+            let part = (0, 0, band.width, band.height);
+            canvas.draw_part(&band, part, 0, window::TOP, false, alpha);
+            if text {
+                self.draw_text_at(&mut canvas, scene, None, (0, 0));
+            }
         } else if scene.text.is_some() && window && self.title == Title::Kimaten2 {
             self.kimaten2_window(&mut canvas, scene, assets)?;
             if text {

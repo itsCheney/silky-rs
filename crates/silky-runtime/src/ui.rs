@@ -991,6 +991,8 @@ pub struct Layout {
     douk: Option<DoukBar>,
     /// きまぐれテンプテーション's message window buttons.
     k1: Option<crate::games::kimaten1::window::Bar>,
+    /// なないろリンカネーション's message window buttons.
+    nanairo: Option<crate::games::nanairo::window::Bar>,
 }
 
 /// Message window buttons of 景の海のアペイリア, from the executable: the
@@ -1937,6 +1939,7 @@ impl Layout {
                 ring: None,
                 douk: None,
                 k1: None,
+                nanairo: None,
             });
         }
         if assets.game().title == silky_format::game::Title::Apeiria {
@@ -1948,6 +1951,7 @@ impl Layout {
                 ring: Some(Ring::load(assets)?),
                 douk: None,
                 k1: None,
+                nanairo: None,
             });
         }
         if assets.game().title == silky_format::game::Title::Doukyuusei {
@@ -1959,6 +1963,7 @@ impl Layout {
                 ring: None,
                 douk: Some(DoukBar::load(assets)?),
                 k1: None,
+                nanairo: None,
             });
         }
         if assets.game().title == silky_format::game::Title::Kimaten1 {
@@ -1970,8 +1975,14 @@ impl Layout {
                 ring: None,
                 douk: None,
                 k1: Some(crate::games::kimaten1::window::Bar::load(assets)?),
+                nanairo: None,
             });
         }
+        let nanairo = if assets.game().title == silky_format::game::Title::Nanairo {
+            Some(crate::games::nanairo::window::Bar::load(assets)?)
+        } else {
+            None
+        };
         let sheet_title = if assets.game().title == silky_format::game::Title::Nanairo {
             Some(SheetTitle::load_nanairo(assets)?)
         } else {
@@ -1998,6 +2009,7 @@ impl Layout {
             ring: None,
             douk: None,
             k1: None,
+            nanairo,
         })
     }
 
@@ -2225,6 +2237,9 @@ impl Layout {
         if let Some(k) = &self.k1 {
             return k.hit(ui, x, y);
         }
+        if let Some(n) = &self.nanairo {
+            return n.hit(ui, x, y);
+        }
         self.bar
             .iter()
             .find(|a| a.contains(x, y))
@@ -2428,6 +2443,9 @@ impl Layout {
         }
         if let Some(k) = &self.k1 {
             return k.draw(canvas, assets, ui);
+        }
+        if let Some(n) = &self.nanairo {
+            return n.draw(canvas, assets, ui);
         }
         let sheet = assets.image("message_p.akb")?;
         for a in &self.bar {

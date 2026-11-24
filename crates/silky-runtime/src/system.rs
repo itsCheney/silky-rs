@@ -181,6 +181,12 @@ impl Settings {
             s.music = 0.55;
             s.effects = 0.7;
             s.cut_voice = false;
+        } else if title == silky_format::game::Title::Nanairo {
+            // なないろリンカネーション's own configuration: the colour and
+            // transparency of a new install, each of 268.
+            use crate::games::nanairo::window::{ALPHA, COLOUR, SCALE};
+            s.window_color = COLOUR.map(|c| c as f32 / SCALE as f32);
+            s.window_opacity = (SCALE - ALPHA) as f32 / SCALE as f32;
         } else {
             s.window_opacity = 0.6;
         }
