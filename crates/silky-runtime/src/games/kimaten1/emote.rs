@@ -22,13 +22,16 @@ use crate::scene::{Emote, Place};
 const CG_SLOT: i32 = 100;
 
 /// The companion's key (as the renderer orders the models).
-const COMPANION: i32 = i32::MIN;
+pub(super) const COMPANION: i32 = i32::MIN;
 
 /// Frames the companion fades in over (less over a model that is going),
 /// and the CG model's fade-in.
-const COMPANION_FADE: i32 = 16;
+pub(super) const COMPANION_FADE: i32 = 16;
 const COMPANION_FADE_OVER: i32 = 8;
 const CG_FADE: i32 = 32;
+
+/// How long `Game.10` sub 15 holds the script: five rounds of 400 ms.
+const BAR_BLINK_MS: u32 = 2000;
 
 /// Standing models' x by slot, in the first game's signs.
 const SLOT_X: [i32; 4] = [0, -400, 400, 400];
@@ -55,13 +58,13 @@ pub(super) fn place(x: i32, y: i32, scale: i32) -> Place {
 
 /// The companion beside the protagonist (`Game.10`): 35 percent at
 /// (-542, 400).
-fn companion() -> Place {
+pub(super) fn companion() -> Place {
     place(-542, 400, 35)
 }
 
 /// A standing model in `slot` at `scale` percent. Its y keeps the head at
 /// about the same line whatever the size: `scale * 400 + (1 - scale) * -50`.
-fn standing(slot: i32, scale: i32) -> Place {
+pub(super) fn standing(slot: i32, scale: i32) -> Place {
     let x = usize::try_from(slot)
         .ok()
         .and_then(|i| SLOT_X.get(i))
@@ -95,12 +98,35 @@ impl Runtime {
     /// the extra timeline, 8 the extra timeline alone; 9 shows (fading in);
     /// 11 fades out and removes, 12 removes at once; 13 the main timeline,
     /// 16 the `a` timeline, 17 the main timeline to follow. 10, 14, 15 and
-    /// 18 act on the message window and are not handled here.
+    /// 18 act on the message window: 10 wipes its text (the window and the
+    /// name stay), 14 takes the whole window away, 15 holds the script for
+    /// two seconds while the button bar blinks (the notebook's unlock; the
+    /// blinking is not drawn), 18 does a call on one of the window's parts
+    /// that nothing in the story reaches.
     pub(crate) fn kimaten1_emote(&mut self, args: &[Value], sub: i32) -> bool {
         let a = &args[..args.len().saturating_sub(1)];
         let n = |i: usize| a.get(i).map(Value::int).unwrap_or(0);
         match (sub, a.len()) {
             (4 | 5, 0) => {}
+            (10, 0) => {
+                if self.scene.text.is_some() {
+                    self.scene.text = Some(String::new());
+                }
+            }
+            (14, 0) => {
+                self.scene.text = None;
+                self.scene.speaker = None;
+                self.scene.speaker_name = None;
+            }
+            (15, 0) => {
+                self.pause = Some(crate::host::Pause::Transition(crate::host::Transition {
+                    ms: BAR_BLINK_MS,
+                    rule: None,
+                    spin: None,
+                    live: true,
+                }));
+            }
+            (18, 0) => {}
             // A model that was on screen fades out as the new one loads.
             (6, 2) => {
                 let old = self.scene.emote.clone().filter(|e| e.visible);

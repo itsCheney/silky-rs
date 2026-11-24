@@ -8,6 +8,7 @@ use super::itemsel::ItemSelect;
 use super::map::Map;
 use super::notebook::Notebook;
 use super::omake::{Music, Omake};
+use super::staff::Staff;
 use super::viewer::Viewer;
 use crate::assets::Assets;
 use crate::render::Canvas;
@@ -54,6 +55,8 @@ pub enum Screen {
     Omake(Box<Omake>),
     /// The アンネViewer (`Game.33`).
     Viewer(Box<Viewer>),
+    /// The staff roll (`Game.990`).
+    Staff(Staff),
 }
 
 impl Screen {
@@ -68,6 +71,7 @@ impl Screen {
             Screen::Notebook(n) => n.hit(x, y),
             Screen::Omake(o) => o.hit(x, y),
             Screen::Viewer(v) => v.hit(x, y),
+            Screen::Staff(s) => s.hit(x, y),
         }
     }
 
@@ -81,6 +85,7 @@ impl Screen {
             Screen::Notebook(n) => n.enabled(id),
             Screen::Omake(o) => o.enabled(id),
             Screen::Viewer(v) => v.enabled(id),
+            Screen::Staff(_) => true,
         }
     }
 
@@ -94,6 +99,7 @@ impl Screen {
             Screen::Notebook(n) => n.click(id),
             Screen::Omake(o) => o.click(id),
             Screen::Viewer(v) => v.click(id),
+            Screen::Staff(s) => s.click(id),
         }
     }
 
@@ -133,6 +139,7 @@ impl Screen {
             Screen::Notebook(n) => n.take_sound(),
             Screen::Omake(_) => None,
             Screen::Viewer(v) => v.take_sound(),
+            Screen::Staff(_) => None,
         }
     }
 
@@ -146,6 +153,7 @@ impl Screen {
             Screen::Notebook(n) => n.draw(canvas, assets, look),
             Screen::Omake(o) => o.draw(canvas, assets, look),
             Screen::Viewer(v) => v.draw(canvas, assets, look),
+            Screen::Staff(s) => s.draw(canvas, assets, look),
         }
     }
 
@@ -160,6 +168,7 @@ impl Screen {
             Screen::Notebook(n) => n.auto_pick(),
             Screen::Omake(o) => (o.auto_pick(), "omake"),
             Screen::Viewer(v) => (v.auto_pick(), "viewer"),
+            Screen::Staff(_) => (Some(0), "staff"),
         }
     }
 
@@ -202,6 +211,7 @@ impl Screen {
     pub fn take_music(&mut self) -> Option<Music> {
         match self {
             Screen::Omake(o) => o.take_music(),
+            Screen::Staff(s) => s.take_stop().then_some(Music::Stop),
             _ => None,
         }
     }
@@ -211,6 +221,20 @@ impl Screen {
         match self {
             Screen::Omake(o) => o.take_volume(),
             _ => None,
+        }
+    }
+
+    /// Whether the screen runs on the clock by itself (it is redrawn each
+    /// frame) and the milliseconds since it opened at which it ends.
+    pub fn timed(&self) -> bool {
+        matches!(self, Screen::Staff(_))
+    }
+
+    /// Whether the screen has run its time (see [`Self::timed`]).
+    pub fn over(&self, ms: u64) -> bool {
+        match self {
+            Screen::Staff(s) => s.over(ms),
+            _ => false,
         }
     }
 }

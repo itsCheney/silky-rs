@@ -10,6 +10,7 @@ use super::itemsel::{self, ItemSelect};
 use super::map::Map;
 use super::omake::{self, Omake, Saved};
 use super::screen::Screen;
+use super::staff::Staff;
 use crate::audio::Bus;
 use crate::games::cmd::{CHARACTER, PICTURE, SPEAKER, TITLE};
 use crate::host::{Pause, Runtime};
@@ -47,6 +48,8 @@ const MAP: i32 = 43;
 const NOTICE: i32 = 44;
 /// E-mote CG models.
 const EMOTE_CG: i32 = 48;
+/// The staff roll.
+const STAFF: i32 = 990;
 
 impl Runtime {
     /// The screen of the extras mode `mode`, from the bytes of the script.
@@ -163,6 +166,14 @@ impl Runtime {
                     return self.done();
                 };
                 self.k1 = Some(screen);
+                self.wait_for(Pause::Kimaten1)
+            }
+            // The staff roll: 0 after the normal endings, 1 after the true
+            // one. Answers 1 when it is over.
+            STAFF => {
+                let true_end = sub == 1;
+                let _ = self.play_music_once(Staff::track(true_end));
+                self.k1 = Some(Screen::Staff(Staff::open(true_end)));
                 self.wait_for(Pause::Kimaten1)
             }
             // The viewer of アンネ.
@@ -292,6 +303,20 @@ impl Runtime {
                 }
                 self.done()
             }
+            // (file): E-mote models change a set time into the voice line
+            // (see [`super::vo`]). The story never ends the list with sub
+            // 1; it drops what is left.
+            1007 => {
+                self.vo_steps = match (sub, args.first().and_then(Value::as_str)) {
+                    (0, Some(file)) => self
+                        .assets
+                        .data(&file.to_ascii_uppercase())
+                        .map(|b| super::vo::parse(&b))
+                        .unwrap_or_default(),
+                    _ => Vec::new(),
+                };
+                self.done()
+            }
             1006 if sub == 0 => {
                 vm.push(0);
                 self.done()
@@ -302,8 +327,11 @@ impl Runtime {
             }
             // Nothing to do here: the handle lists and engine tables
             // (1006.11, 1010, 1011), the two engine hooks 10008 and 10009,
-            // and 35.2.
-            1006 | 1010 | 1011 | 10008 | 10009 => self.done(),
+            // and 35.2. 1003 takes no sub command in the engine (it calls
+            // one fixed method of the game object, whatever the script
+            // passes) and only the library function that starts the
+            // screen-skip setup uses it.
+            1003 | 1006 | 1010 | 1011 | 10008 | 10009 => self.done(),
             35 if sub == 2 => self.done(),
             CHARACTER if matches!(sub, 5 | 6 | 8 | 9 | 11 | 12) => self.done(),
             _ => None,

@@ -4329,6 +4329,13 @@ impl Session {
                 .then(|| self.rt.k1_notices.clone());
             self.frame = None;
         }
+        // The staff roll rises by itself and ends when its time is up.
+        if let Some(s) = self.ui.k1.as_ref().filter(|s| s.timed()) {
+            self.frame = None;
+            if s.over(self.ui.clock.saturating_sub(self.ui.k1_since)) {
+                self.k1_answer(crate::games::kimaten1::Click::Result(1))?;
+            }
+        }
         if let Some(v) = self.veil {
             self.frame = None;
             if v.done(self.ui.clock) {

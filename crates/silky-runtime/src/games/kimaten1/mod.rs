@@ -18,8 +18,10 @@ pub mod notebook;
 pub mod notice;
 pub mod omake;
 pub mod screen;
+pub mod staff;
 pub mod title;
 pub mod viewer;
+pub mod vo;
 pub mod window;
 
 pub use commands::SHARED_COMMANDS;

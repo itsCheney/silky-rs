@@ -47,6 +47,8 @@ pub enum Step {
         body: String,
         faces: Vec<String>,
     },
+    /// きまぐれテンプテーション's E-mote changes ([`crate::games::kimaten1::vo`]).
+    Emote(crate::games::kimaten1::vo::Change),
 }
 
 impl Step {
@@ -110,6 +112,7 @@ impl Step {
                 holo.scale = scale;
                 holo.faces = faces;
             }
+            Step::Emote(change) => change.apply(scene),
         }
     }
 }
