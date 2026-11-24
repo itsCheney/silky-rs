@@ -3,7 +3,7 @@
 use silky_vm::{Flow, Vm};
 
 use crate::games::Call;
-use crate::host::{FollowUp, Runtime};
+use crate::host::{FollowUp, Pause, Runtime};
 use silky_vm::native::GAME;
 
 /// The doujinshi pages (`DOJIN.MES`).
@@ -18,11 +18,38 @@ const FLUSH: i32 = 1005;
 const QUAKE: i32 = 993;
 /// Auto save point.
 const AUTO_SAVE: i32 = 14;
+/// The second portrait window: 6 body, 7 face, 9 show, 11 hide.
+const PORTRAIT2: i32 = 16;
+/// The title menu; its argument is 1 to start on the extras page.
+const TITLE: i32 = 110;
 
 impl Runtime {
     /// This game's own commands. `None` for the others.
     pub(crate) fn doujin_game(&mut self, vm: &mut Vm, c: &Call) -> Option<silky_vm::Result<Flow>> {
+        let scene = &mut self.scene;
         match (c.command, c.sub) {
+            (TITLE, _) => {
+                self.k1_title_extras = c.int(0) == 1;
+                self.wait_for(Pause::Title)
+            }
+            (PORTRAIT2, 6) => {
+                scene.portrait2 = c.str(0).map(|b| (b, None));
+                self.done()
+            }
+            (PORTRAIT2, 7) => {
+                if let Some(p) = &mut scene.portrait2 {
+                    p.1 = c.str(0);
+                }
+                self.done()
+            }
+            (PORTRAIT2, 9) => {
+                scene.portrait2_visible = true;
+                self.done()
+            }
+            (PORTRAIT2, 11) => {
+                scene.portrait2_visible = false;
+                self.done()
+            }
             // Not carried out yet, but these subs leave a value for the
             // script.
             (DOUJINSHI, 0 | 1) => {

@@ -182,6 +182,12 @@ pub struct Scene {
     /// bottom left over the window while `portrait_visible` is set.
     pub portrait: Option<(String, Option<String>)>,
     pub portrait_visible: bool,
+    /// 先輩が私の妄想にドージンする: the second portrait window (command
+    /// 16), on the right.
+    #[serde(default)]
+    pub portrait2: Option<(String, Option<String>)>,
+    #[serde(default)]
+    pub portrait2_visible: bool,
     /// 景の海のアペイリア: cheeks drawn over the portrait (command 10,
     /// sub 8).
     #[serde(default)]

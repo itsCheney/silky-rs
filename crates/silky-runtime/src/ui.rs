@@ -60,6 +60,9 @@ pub mod title {
     pub const VIEWER: usize = 10;
     pub const NOTEBOOK: usize = 11;
     pub const ROOM: usize = 12;
+    /// 先輩が私の妄想にドージンする: the extras page's first button, the
+    /// doujinshi.
+    pub const BODY_TOUCH: usize = 13;
 
     /// きまぐれテンプテーション2: extras entries and the byte variable that
     /// unlocks each (from the executable's title menu): music
@@ -700,6 +703,9 @@ struct SheetTitle {
     localized: bool,
     /// Entries and the byte variables that unlock them.
     unlocks: &'static [(usize, usize)],
+    /// What the title call returns for an entry, where the game numbers
+    /// them its own way.
+    result: Option<fn(usize) -> Option<i32>>,
 }
 
 /// One entry of a [`SheetTitle`].
@@ -783,6 +789,7 @@ impl SheetTitle {
             sheet: "title_p.akb",
             localized: true,
             unlocks: &[],
+            result: None,
         })
     }
 
@@ -828,6 +835,7 @@ impl SheetTitle {
             sheet: "title_p.akb",
             localized: false,
             unlocks: &title::APEIRIA_UNLOCK,
+            result: None,
         })
     }
 
@@ -935,6 +943,41 @@ impl SheetTitle {
             sheet: "title.akb",
             localized: false,
             unlocks: &title::NANAIRO_UNLOCK,
+            result: None,
+        })
+    }
+
+    /// 先輩が私の妄想にドージンする: cells of `title_p.akb` laid over the
+    /// click areas of `title.area` and `title2.area` (see
+    /// [`crate::games::doujin::title`]).
+    fn load_doujin(assets: &Assets) -> Result<Self> {
+        use crate::games::doujin::title as d;
+        let main_areas = area::parse(&assets.data("title.area")?)?;
+        let extra_areas = area::parse(&assets.data("title2.area")?)?;
+        let cells = |areas: &[Area], specs: &[d::Spec]| {
+            specs
+                .iter()
+                .filter_map(|&(id, entry, src, width)| {
+                    let area = *areas.iter().find(|a| a.id == id)?;
+                    Some(TitleCell {
+                        entry: Some(entry),
+                        area,
+                        src,
+                        dst: (area.left, area.top),
+                        size: (width, d::ROW),
+                        row: d::ROW,
+                        idle: 0,
+                    })
+                })
+                .collect()
+        };
+        Ok(Self {
+            main: cells(&main_areas, &d::MAIN),
+            extras: cells(&extra_areas, &d::EXTRAS),
+            sheet: "title_p.akb",
+            localized: true,
+            unlocks: &d::UNLOCKS,
+            result: Some(d::result),
         })
     }
 
@@ -1003,6 +1046,7 @@ pub struct Layout {
     k1: Option<crate::games::kimaten1::window::Bar>,
     /// なないろリンカネーション's message window buttons.
     nanairo: Option<crate::games::nanairo::window::Bar>,
+    doujin: Option<crate::games::doujin::window::Bar>,
 }
 
 /// Message window buttons of 景の海のアペイリア, from the executable: the
@@ -1914,6 +1958,10 @@ impl Layout {
         self.kimaten2.is_some()
     }
 
+    pub fn is_doujin(&self) -> bool {
+        self.doujin.is_some()
+    }
+
     pub fn is_kimaten1(&self) -> bool {
         self.k1.is_some()
     }
@@ -1954,6 +2002,7 @@ impl Layout {
                 douk: None,
                 k1: None,
                 nanairo: None,
+                doujin: None,
             });
         }
         if assets.game().title.is_apeiria() {
@@ -1966,6 +2015,7 @@ impl Layout {
                 douk: None,
                 k1: None,
                 nanairo: None,
+                doujin: None,
             });
         }
         if assets.game().title == silky_format::game::Title::Doukyuusei {
@@ -1978,6 +2028,7 @@ impl Layout {
                 douk: Some(DoukBar::load(assets)?),
                 k1: None,
                 nanairo: None,
+                doujin: None,
             });
         }
         if assets.game().title == silky_format::game::Title::Kimaten1 {
@@ -1990,6 +2041,7 @@ impl Layout {
                 douk: None,
                 k1: Some(crate::games::kimaten1::window::Bar::load(assets)?),
                 nanairo: None,
+                doujin: None,
             });
         }
         let nanairo = if assets.game().title == silky_format::game::Title::Nanairo {
@@ -1997,10 +2049,10 @@ impl Layout {
         } else {
             None
         };
-        let sheet_title = if assets.game().title == silky_format::game::Title::Nanairo {
-            Some(SheetTitle::load_nanairo(assets)?)
-        } else {
-            None
+        let sheet_title = match assets.game().title {
+            silky_format::game::Title::Nanairo => Some(SheetTitle::load_nanairo(assets)?),
+            silky_format::game::Title::Doujin => Some(SheetTitle::load_doujin(assets)?),
+            _ => None,
         };
         // A game not known yet may have no `mes_o.area`: no buttons then.
         let mut bar = if assets.exists(silky_format::game::Kind::Data, "mes_o.area") {
@@ -2024,6 +2076,11 @@ impl Layout {
             douk: None,
             k1: None,
             nanairo,
+            doujin: if assets.game().title == silky_format::game::Title::Doujin {
+                Some(crate::games::doujin::window::Bar::load(assets)?)
+            } else {
+                None
+            },
         })
     }
 
@@ -2033,6 +2090,9 @@ impl Layout {
     pub fn title_result(&self, entry: usize) -> Option<i32> {
         if self.k1.is_some() {
             return crate::games::kimaten1::title::result(entry);
+        }
+        if let Some(f) = self.sheet_title.as_ref().and_then(|t| t.result) {
+            return f(entry);
         }
         if self.douk.is_some() {
             return match entry {
@@ -2258,6 +2318,9 @@ impl Layout {
         if let Some(k) = &self.k1 {
             return k.hit(ui, x, y);
         }
+        if let Some(d) = &self.doujin {
+            return d.hit(ui, x, y);
+        }
         if let Some(n) = &self.nanairo {
             return n.hit(ui, x, y);
         }
@@ -2475,6 +2538,10 @@ impl Layout {
         }
         if let Some(n) = &self.nanairo {
             return n.draw(canvas, assets, ui);
+        }
+        if let Some(d) = &self.doujin {
+            let help = text.filter(|_| ui.tooltips).map(|t| (t, self.language));
+            return d.draw(canvas, assets, ui, help);
         }
         let sheet = assets.image("message_p.akb")?;
         for a in &self.bar {

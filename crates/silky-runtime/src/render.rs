@@ -1439,8 +1439,18 @@ impl Renderer {
             let portrait = scene.portrait.as_ref().filter(|_| !self.title.is_apeiria());
             if let (true, Some((body, face))) = (scene.portrait_visible, portrait) {
                 let img = self.character(assets, body, face.as_deref())?;
-                let (x, y) = PORTRAIT_POS;
-                canvas.draw_scaled(&img, x, y, PORTRAIT_SCALE);
+                if self.title == Title::Doujin {
+                    crate::games::doujin::window::draw_portrait(&mut canvas, &img, 0);
+                } else {
+                    let (x, y) = PORTRAIT_POS;
+                    canvas.draw_scaled(&img, x, y, PORTRAIT_SCALE);
+                }
+            }
+            if let (true, Some((body, face)), Title::Doujin) =
+                (scene.portrait2_visible, &scene.portrait2, self.title)
+            {
+                let img = self.character(assets, body, face.as_deref())?;
+                crate::games::doujin::window::draw_portrait(&mut canvas, &img, 1);
             }
             if let Some(row) = scene.speaker {
                 let sheet = assets.localized_image("nameplate.akb", self.language)?;
@@ -1451,6 +1461,12 @@ impl Renderer {
             if text {
                 // Shaken with the rest below.
                 self.draw_text_at(&mut canvas, scene, None, (0, 0));
+                if let (Title::Doujin, Some(name), Some(tr)) =
+                    (self.title, &scene.speaker_name, &self.text)
+                {
+                    use crate::games::doujin::window::{NAME_BASELINE, NAME_LEFT};
+                    self.draw_edged(tr, &mut canvas, name, NAME_LEFT, NAME_BASELINE);
+                }
             }
         }
         if let Some(c) = scene.cover {

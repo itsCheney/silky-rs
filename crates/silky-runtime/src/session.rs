@@ -4314,7 +4314,7 @@ impl Session {
         if self.layout.keeps_global_bytes() {
             self.store_global_bytes();
         }
-        if self.layout.is_kimaten2() {
+        if self.layout.is_kimaten2() || self.layout.is_doujin() {
             self.slide_bar(before);
         }
         self.tick_menu_anim();

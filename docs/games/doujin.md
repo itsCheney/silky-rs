@@ -10,17 +10,17 @@ All scripts decode. Headless, `silky-run snap --path 0` plays from the start to 
 
 - Selections: before each option the script tests a flag, to hide routes already taken. The runtime gathers those options into one selection and answers the option's own value + 1, as the scripts expect.
 - Engine calls are all carried out, except `MesWnd.3` and `Sprite.5` (once each).
-- The game's own commands not carried out yet: `Game.40` (doujinshi pages), `Game.16`, `Game.11`, `Game.110`, `Game.30` to `Game.32`.
-- `Game.1006` (the `.brt` breath animation), `Game.1007` (`.vo` pictures), 1005, 12.8, 14 are carried out. 13.18, 993, 1003, 961.1, 12.7, 10.4, 10.5 and 10.16 are accepted with nothing to do (their objects are never set up in this build).
-- `Game.40` subs 0 and 1 leave a value for the script. The module gives 0 until they are carried out.
+- Carried out: the title menu (`Game.110`), the speaker name (`Game.11`), the second portrait window (`Game.16` subs 6, 7, 9 and 11), the breath animation (`Game.1006`, from `.brt` files), the pictures that change with the voice line (`Game.1007`, from `.vo` files), the zoom and white flash (1005), the rule wipe (12.8) and the auto save point (14).
+- Accepted with nothing to do: 13.18 (it stops what 13.17 attaches to a standing character), 993 apart from 993.1, 1003, 961.1, 12.7, 10.4, 10.5 and 10.16.
+- Not carried out yet: the doujinshi pages (`Game.40`) and `Game.16` subs 8 and 12. `Game.40` subs 0 and 1 leave a value for the script; the module gives 0 until they are carried out. CG, scene and music modes (`Game.30` to `Game.32`) use the common screens.
 - Movies: the game's movies (`do-jin*.dat`) are ASF files (VC-1 video, WMA Pro sound). The runtime decodes MPEG-1 only, so they are not played yet.
-- Interface: the common title and message window are drawn. The game's own title menu, name plate and button bar are not drawn yet.
+- Interface: the game's own title menu (`title_p.akb` cells over the areas of `title.area` and `title2.area`, extras page started by `Game.110(1)`), the message window's button bar with its click-wait mark, padlock and tooltips, the speaker name on the window's top line and the two portrait windows (`Game.10` on the left, `Game.16` on the right) are drawn. Not measured against the original yet: the name's size and baseline, the click-wait frame time and the bar's show height; the pages of the title do not fade into each other and the full-screen skip picture (`skip.akb`) is not shown.
 
 ## Open items
 
 - Carry out the game's own commands listed above, starting with the doujinshi viewer (`Game.40`).
 - Decode the movies (VC-1 and WMA Pro in ASF).
-- Draw the game's own title menu, name plate and button bar.
+- Check the title menu, name line, button bar, wait mark and portrait places against the original under Wine; the page fade of the title menu and the skip picture.
 - Carry out `MesWnd.3` and `Sprite.5`.
 - The meaning of the codes returned by `Game.20`, `Game.110` and the screens `Game.30` to `Game.32` is not known yet.
 - Check the runtime against the original program under Wine.
@@ -61,6 +61,14 @@ Addresses in `doujin.exe` of the build above, as linked. The code itself does no
 | `Game.12.7`, reset of globals | 0x484270 |
 | `Game.1009` | 0x495228 |
 | `Game.1010` | 0x4983b0 |
+| Title menu object: build, page switch, click, hover, cell state | 0x492780, 0x4938e0, 0x492b80, 0x492b30, 0x4931d0 |
+| Title cell tables: places, sheet cells, sizes (11 cells) | 0x53c6c0, 0x53c668, 0x53c718 |
+| Message window layers and button cells | 0x470aa0 |
+| Message window button tooltip lines | 0x471310 |
+| Message window button states (hide 0xd, padlock 0xe) | 0x4725b0 |
+| Message window click-wait mark | 0x476f00 |
+| Portrait windows: second (`Game.16`), first (`Game.10`) | 0x474c90, 0x475340 |
+| Message window settings (`/Config/MesWnd/*`) | 0x424130 |
 | Config flag test used by 10, 12, 16, 993, 1006 and 1007 | 0x423ee0 |
 | Message window list (singleton) | 0x49d600 |
 | Game object holder (singleton) | 0x49a5f0 |
