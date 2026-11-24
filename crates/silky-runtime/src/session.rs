@@ -5079,6 +5079,7 @@ impl Session {
             if self.busy.is_none() {
                 self.was_covered = self.rt.scene.cover.is_some();
             }
+            self.ui.jumping = self.skip_to_choice;
             if ui_alpha > 0.0 {
                 let bare = (ui_alpha < 1.0).then(|| frame.clone());
                 self.layout.draw(

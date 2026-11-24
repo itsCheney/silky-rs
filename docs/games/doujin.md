@@ -17,13 +17,13 @@ All scripts decode. Headless, `silky-run snap --path 0` plays from the start to 
 - Also carried out: `Game.16` sub 8 (a picture laid over the second portrait, kept until the portrait changes) and sub 12 (clears the second portrait).
 - Differs from the original: the finished typing shows the whole page at once in the original, here each bubble finishes alone; the pressed row of the buttons is not shown; the auto-mode wait uses the runtime's own formula; the over-picture of 16.8 is drawn with the shared overlay, not with the original's blend that keeps the destination alpha.
 - Movies: the game's movies (`do-jin*.dat`) are ASF files (VC-1 video, WMA Pro sound). The runtime decodes MPEG-1 only, so they are not played yet.
-- Interface: the game's own title menu (`title_p.akb` cells over the areas of `title.area` and `title2.area`, extras page started by `Game.110(1)`), the message window's button bar with its click-wait mark, padlock and tooltips, the speaker name on the left of the text and the two portrait windows (`Game.10` on the left, `Game.16` on the right) are drawn. The window is the shaded band alone (the second, textured block of `message_p.akb` is not drawn), the text starts at x = 180 and the title button shows the home cell. The name is 28 pixels tall, the click-wait mark changes frame every 650 ms (39 ticks), all buttons of the bar slide by the same step, the two pages of the title cross-fade over 400 ms (24 ticks), and the full-screen skip picture (`skip.akb`) covers the screen while skipping. The name's place and the skip picture's timing are not checked against a shot of the original.
+- Interface: the game's own title menu (`title_p.akb` cells over the areas of `title.area` and `title2.area`, extras page started by `Game.110(1)`), the message window's button bar with its click-wait mark, padlock and tooltips, the speaker name above the text and the two portrait windows (`Game.10` on the left, `Game.16` on the right) are drawn. The window is the shaded band alone (the second, textured block of `message_p.akb` is not drawn), the text starts at x = 180 and the title button shows the home cell. The name is set above the text in the text's own size, without the text's cells; the click-wait mark changes frame every 650 ms (39 ticks), all buttons of the bar slide by the same step, the two pages of the title cross-fade over 400 ms (24 ticks), and the full-screen picture `skip.akb` covers the screen while the jump button skips on to the next unread text or selection (plain skipping shows no picture). Checked against shots of the original under Wine: the name line, the text and the bar; the title appears at once, with no fade on opening.
 
 ## Open items
 
 - Find what starts the code 1 (leave) of the doujinshi wait, and check the screen's typing pace against the original.
 - Decode the movies (VC-1 and WMA Pro in ASF).
-- Check the title menu, name line, button bar, wait mark and portrait places, the page fade of the title menu and the skip picture against the original under Wine.
+- Check the wait mark, the portrait places and the page fade of the title menu against the original under Wine.
 - The meaning of the codes returned by `Game.20` and `Game.110` is not known yet.
 - Check the runtime against the original program under Wine.
 
@@ -40,6 +40,7 @@ Addresses in `doujin.exe` of the build above, as linked. The code itself does no
 | Command above 910: byte table, jump table | 0x4955fc, 0x4955cc |
 | `Game.10`, portrait set (subs 4 to 16) | 0x495640 |
 | `Game.11`, name plate | 0x494b58 |
+| Jump button (bar button 5): the full-screen `skip.akb` picture and the jump | 0x473bb8, 0x470f60 |
 | `Game.12`, background and difference pictures | 0x495f60 |
 | `Game.13`, standing characters | 0x4967b0 |
 | `Game.14` | 0x494c72 |

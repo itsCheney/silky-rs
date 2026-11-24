@@ -45,7 +45,8 @@ const LOCK_OFF: u32 = 929;
 /// テンプテーション2 does.
 const DROP: i32 = 40;
 
-/// The full-screen picture shown while skipping.
+/// The full-screen picture shown while jumping to the next unread text or
+/// selection.
 pub const SKIP_PICTURE: &str = "skip.akb";
 
 /// The click-wait mark: ten 44 pixel frames down the sheet from (504,
@@ -61,11 +62,11 @@ const WAIT_FRAME_MS: u64 = 650;
 pub const TEXT_LEFT: f32 = 180.0;
 pub const TEXT_WIDTH: f32 = 930.0;
 
-/// The speaker's name is 28 pixels tall, on a layer 178 across and 27 down
-/// from the window's corner.
+/// The speaker's name is set in the text's own size, without the text's
+/// cells, on a layer 178 across and 27 down from the window's corner.
 pub const NAME_LEFT: f32 = 178.0;
 pub const NAME_BASELINE: f32 = TOP as f32 + 51.0;
-pub const NAME_SIZE: f32 = 28.0;
+pub const NAME_SIZE: f32 = 24.0;
 
 /// Portrait windows: the body picture is shrunk into a 1024 pixel layer
 /// that shows at 40 % (a 2048 pixel picture ends at a fifth of its size),

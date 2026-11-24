@@ -165,6 +165,8 @@ pub struct Ui {
     /// Skip goes through unread text too (きまぐれテンプテーション2's
     /// skip-all button).
     pub skip_all: bool,
+    /// Skipping on to the next unread text or selection (the jump button).
+    pub jumping: bool,
     /// The voice of the message plays again each time it ends
     /// (きまぐれテンプテーション2's voice loop button).
     pub loop_voice: bool,
@@ -2367,9 +2369,15 @@ impl Layout {
         text_shown: bool,
         text: Option<&TextRenderer>,
     ) -> Result<()> {
-        // 先輩が私の妄想にドージンする: skipping covers the whole screen
-        // with one picture.
-        if let (true, true, true, None) = (self.doujin.is_some(), ui.skip, text_shown, ui.title) {
+        // 先輩が私の妄想にドージンする: the jump to the next unread text or
+        // selection covers the whole screen with one picture; plain skipping
+        // does not.
+        if let (true, true, true, None) = (
+            self.doujin.is_some(),
+            ui.skip && ui.jumping,
+            text_shown,
+            ui.title,
+        ) {
             let skip = assets.image(crate::games::doujin::window::SKIP_PICTURE)?;
             canvas.draw(&skip, 0, 0, false);
             return Ok(());
