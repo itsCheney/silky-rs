@@ -141,6 +141,9 @@ pub enum User {
         from: u8,
         to: u8,
     },
+    /// 先輩が私の妄想にドージンする's puff of breath: the picture fades in
+    /// to 196 over the first half of the keyframe and out over the rest.
+    Breath { owner: u32, sprite: u32 },
 }
 
 /// One streak of [`User::Bullets`].
@@ -231,7 +234,8 @@ impl User {
             | User::Bars { owner, .. }
             | User::Swords { owner, .. }
             | User::Ramp { owner, .. }
-            | User::Tint { owner, .. } => *owner,
+            | User::Tint { owner, .. }
+            | User::Breath { owner, .. } => *owner,
         }
     }
 
@@ -249,11 +253,18 @@ impl User {
             | User::Bars { sprite, .. }
             | User::Swords { sprite, .. }
             | User::Ramp { sprite, .. }
-            | User::Tint { sprite, .. } => *sprite,
+            | User::Tint { sprite, .. }
+            | User::Breath { sprite, .. } => *sprite,
         }
     }
 
-    pub fn start(&mut self, _sprites: &mut [Sprite]) {}
+    pub fn start(&mut self, sprites: &mut [Sprite]) {
+        if let User::Breath { sprite, .. } = self {
+            if let Some(s) = sprites.iter_mut().find(|s| s.id == *sprite) {
+                s.alpha = 0;
+            }
+        }
+    }
 
     pub fn finish(&mut self, sprites: &mut [Sprite]) {
         match self {
@@ -274,6 +285,11 @@ impl User {
             User::Tint { sprite, to, .. } => {
                 if let Some(s) = sprites.iter_mut().find(|s| s.id == *sprite) {
                     s.tint = [*to; 3];
+                }
+            }
+            User::Breath { sprite, .. } => {
+                if let Some(s) = sprites.iter_mut().find(|s| s.id == *sprite) {
+                    s.alpha = 0;
                 }
             }
             _ => {}
@@ -520,6 +536,20 @@ impl User {
                 if let Some(i) = find(sprites, *sprite) {
                     if let Look::Reveal { threshold, .. } = &mut sprites[i].look {
                         *threshold = f as f32 * *step;
+                    }
+                }
+                return;
+            }
+            User::Breath { sprite, .. } => {
+                if let Some(i) = find(sprites, *sprite) {
+                    let half = n / 2;
+                    if half > 0 {
+                        sprites[i].alpha = if f <= half {
+                            f * 196 / half
+                        } else {
+                            196 + (half - f) * 196 / (half + (n & 1))
+                        }
+                        .clamp(0, 255) as u8;
                     }
                 }
                 return;

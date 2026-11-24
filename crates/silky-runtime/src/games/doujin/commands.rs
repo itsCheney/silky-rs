@@ -3,23 +3,120 @@
 use silky_vm::{Flow, Vm};
 
 use crate::games::Call;
-use crate::host::Runtime;
+use crate::host::{FollowUp, Runtime};
 use silky_vm::native::GAME;
 
 /// The doujinshi pages (`DOJIN.MES`).
 const DOUJINSHI: i32 = 40;
 /// Effect objects; sub 0 creates one and returns its handle.
 const EFFECT: i32 = 1006;
+/// Pictures that change with the voice line (`.vo` files).
+const VOICE_PICTURES: i32 = 1007;
+/// Zoom and white flash.
+const FLUSH: i32 = 1005;
+/// The screen shake.
+const QUAKE: i32 = 993;
+/// Auto save point.
+const AUTO_SAVE: i32 = 14;
 
 impl Runtime {
     /// This game's own commands. `None` for the others.
     pub(crate) fn doujin_game(&mut self, vm: &mut Vm, c: &Call) -> Option<silky_vm::Result<Flow>> {
         match (c.command, c.sub) {
             // Not carried out yet, but these subs leave a value for the
-            // script; the others of the same command leave none.
-            (DOUJINSHI, 0 | 1) | (EFFECT, 0) => {
+            // script.
+            (DOUJINSHI, 0 | 1) => {
                 self.skip(format!("Game.{}.{}", c.command, c.sub), vm, GAME, c.command);
                 vm.push(0);
+                Some(Ok(Flow::Continue))
+            }
+            // "breath" (file, mode, dx, dy, frames, rest): a puff of
+            // breath drifting over the picture, from the file's start;
+            // one replaces the one before and its handle is always 0.
+            (EFFECT, 0) if c.args.len() == 6 => {
+                let brt = c
+                    .str(5)
+                    .and_then(|f| self.assets.data(&f).ok())
+                    .and_then(|b| super::breath::Brt::parse(&b));
+                if let Some(brt) = brt {
+                    let d = (c.int(3), c.int(2));
+                    super::breath::start(&mut self.scene, &brt, d, c.int(1), c.int(0));
+                }
+                vm.push(0);
+                self.handled += 1;
+                Some(Ok(Flow::Continue))
+            }
+            // The puff finishes its round and stops.
+            (EFFECT, 10) => {
+                super::breath::finish(&mut self.scene);
+                self.handled += 1;
+                Some(Ok(Flow::Continue))
+            }
+            // The puff goes; 11 clears all effects of this kind.
+            (EFFECT, 1 | 11) => {
+                super::breath::clear(&mut self.scene);
+                self.handled += 1;
+                Some(Ok(Flow::Continue))
+            }
+            // (file): pictures that change with the voice line; 1 ends them.
+            (VOICE_PICTURES, 0) => {
+                let steps = c
+                    .str(0)
+                    .and_then(|f| self.assets.data(&f).ok())
+                    .map(|b| super::vo::parse(&b))
+                    .unwrap_or_default();
+                self.vo_steps.clear();
+                for (at, step) in steps {
+                    if at == 0 {
+                        step.apply(&mut self.scene);
+                    } else {
+                        self.vo_steps.push((at, step));
+                    }
+                }
+                self.handled += 1;
+                Some(Ok(Flow::Continue))
+            }
+            (VOICE_PICTURES, 1) => {
+                self.vo_steps.clear();
+                self.handled += 1;
+                Some(Ok(Flow::Continue))
+            }
+            // The screen jumps to 1.2 times its size, turns white and
+            // comes back over 16 frames.
+            (FLUSH, 0) => {
+                self.scene.zoom = Some(120);
+                self.then = Some(FollowUp::FlushWhite);
+                self.handled += 1;
+                Some(Ok(self.transition(1, None)))
+            }
+            // Shake: only stopping is ever called; it ends any shaking.
+            (QUAKE, 1) => {
+                self.scene.quake = None;
+                self.scene.shake = (0, 0);
+                self.handled += 1;
+                Some(Ok(Flow::Continue))
+            }
+            // (time, rule): the picture on screen wipes away through a
+            // rule picture over the time, to the picture under it.
+            (12, 8) if c.args.len() == 2 => {
+                self.handled += 1;
+                Some(Ok(self.transition(c.int(0), Some(c.int(1).max(0) as u32))))
+            }
+            // The auto save point.
+            (AUTO_SAVE, -1) => {
+                self.auto_save = true;
+                self.handled += 1;
+                Some(Ok(Flow::Continue))
+            }
+            // Accepted with nothing to do: a breath animation is never
+            // attached to a standing character (13.18); the shake object
+            // is only set up in unused scripts (993.0, 2, 3, 4); the
+            // screen overlay (1003) and the timer list (961.1) are never
+            // set up; 12.7 resets tables that start empty; the "skip
+            // scenes" setting is not offered (10.4, 10.5) and 10.16 only
+            // sets up.
+            (13, 18) | (QUAKE, 0 | 2..=4) | (1003, _) | (961, 1) | (12, 7) | (10, 4 | 5 | 16) => {
+                self.handled += 1;
                 Some(Ok(Flow::Continue))
             }
             _ => None,

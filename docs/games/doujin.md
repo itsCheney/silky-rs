@@ -10,14 +10,15 @@ All scripts decode. Headless, `silky-run snap --path 0` plays from the start to 
 
 - Selections: before each option the script tests a flag, to hide routes already taken. The runtime gathers those options into one selection and answers the option's own value + 1, as the scripts expect.
 - Engine calls are all carried out, except `MesWnd.3` and `Sprite.5` (once each).
-- The game's own commands are not carried out yet: `Game.13.18`, the 1006 effects, the 40 doujinshi pages, 1007, 16, 10, 1005, 12, 1003, 961, 993 and 14.
-- `Game.40` subs 0 and 1 and `Game.1006` sub 0 leave a value for the script. The module gives 0 until they are carried out.
+- The game's own commands not carried out yet: `Game.40` (doujinshi pages), `Game.16`, `Game.11`, `Game.110`, `Game.30` to `Game.32`.
+- `Game.1006` (the `.brt` breath animation), `Game.1007` (`.vo` pictures), 1005, 12.8, 14 are carried out. 13.18, 993, 1003, 961.1, 12.7, 10.4, 10.5 and 10.16 are accepted with nothing to do (their objects are never set up in this build).
+- `Game.40` subs 0 and 1 leave a value for the script. The module gives 0 until they are carried out.
 - Movies: the game's movies (`do-jin*.dat`) are ASF files (VC-1 video, WMA Pro sound). The runtime decodes MPEG-1 only, so they are not played yet.
 - Interface: the common title and message window are drawn. The game's own title menu, name plate and button bar are not drawn yet.
 
 ## Open items
 
-- Carry out the game's own commands listed above, starting with the doujinshi viewer (`Game.40`) and the animation layers (`Game.1006`).
+- Carry out the game's own commands listed above, starting with the doujinshi viewer (`Game.40`).
 - Decode the movies (VC-1 and WMA Pro in ASF).
 - Draw the game's own title menu, name plate and button bar.
 - Carry out `MesWnd.3` and `Sprite.5`.
@@ -49,9 +50,15 @@ Addresses in `doujin.exe` of the build above, as linked. The code itself does no
 | `Game.990`, staff roll | 0x495047 |
 | `Game.993` | 0x497780 |
 | `Game.1003` | 0x495142 |
-| `Game.1005`, timed wait | 0x497f20 |
+| `Game.1005`, zoom and white flash | 0x497f20 |
 | `Game.1006`, animation layers (byte table 0x497f08, jump table 0x497ef4) | 0x497ad0 |
-| `Game.1007`, voice-linked pictures | 0x49516d |
+| `Game.1007`, voice-linked pictures (`.vo` loader 0x469970) | 0x49516d |
+| `Game.1006` breath animation: list slot, entry, key builder, `.brt` loader | 0x456180, 0x455b30, 0x455e20, 0x456360 |
+| `Game.1006` breath fade step (user step), clear all | 0x455aa0, 0x455d90 |
+| Keyframe stepper, key constructor, add key, start and stop, timeline | 0x4ac3e0, 0x4acc00, 0x4abfc0, 0x4ad490, 0x4ad060 |
+| `Game.1003` object (sub switch) | 0x475de0 |
+| `Game.12.8`, rule wipe of the shown picture | 0x483e50 |
+| `Game.12.7`, reset of globals | 0x484270 |
 | `Game.1009` | 0x495228 |
 | `Game.1010` | 0x4983b0 |
 | Config flag test used by 10, 12, 16, 993, 1006 and 1007 | 0x423ee0 |
