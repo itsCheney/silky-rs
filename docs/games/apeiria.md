@@ -61,17 +61,30 @@ Top or bottom half of `sld_mini.akb` under the characters; over it a window of h
 ### Pictures over the scene
 
 - Copies of one picture at fixed spots (`Game.995`, the virus swarms; tables for 1, 2, 4, 8, 16, 32 copies, scaled about their centres). Subs 1 and 2 (time, wave, to, from) fade them in from nothing to their opacity, or out, over `time` frames while the script waits. Wave 1 wavers the first copy row by row (from 256 pixels and 20 degrees a row to nothing, or back); scripts never use it.
-- Deduction board, 1016 x 424 at (132, 15) (`Game.994`). Sub 0 sets it up empty and sub 1 drops it, both at once. The others take 24 frames (12 for sub 5) and the script waits, like the other panels; no wait call was found in the code, so this is taken from them.
+- Deduction board, 1016 x 424 at (132, 15) (`Game.994`). Sub 0 sets it up empty and sub 1 drops it, both at once. The others take 24 frames (12 for sub 5) and the script waits for each; a click does not cut them short.
   - Sub 2 (file) opens it: the picture grows from a line in the middle to its full height. Sub 3 closes it the other way.
   - Sub 4 (file) puts a new picture over the old one: in Apeiria it fades in, in Casablanca it wipes in through rule 1 (`01.bin`, over the whole screen).
   - Sub 5 (y, x, file) shows the new picture at once and a marker, `d00_00.akb`, zooms from double size to its own over 12 frames at (x, y) of the screen, then goes.
-  - The original does none of this while the scene-skip setting is on; the setting is not offered here, so it reads as off. Subs 2 to 5 also leave out their animation when an engine check that was not identified says so.
+  - With `/Config/SceneSkip` at 1 the engine skips subs 0, 2, 3, 4 and 5 (no board change, no animation, no wait) and the runtime does the same; sub 1 always runs; the setting is not offered here, so it reads as off.
 - Notes panel `k01_0N.akb` at (145, 0) and explanation screen over `kbg.akb` (`Game.996`), the scene with the frame and picture drawn in:
   - Subs 13, 14: a new one fades in over the old over `time` frames while the script waits (sub 13's rule is unused).
   - Sub 15: the new one blinks over the old (after 42 frames fades out over 8, after 128 more back in over 8).
   - Sub 19: fades in again and again over `time` frames until sub 16 stops it where it is.
   - Sub 17: fades the screen out over 12 frames, script waits. Sub 18: draws it into the background or picture layer, staying until the background changes.
 - Item panel at the left, bottom at y = 495 (`Game.997`): opens like a screen switched on, a line 1 % high growing to full width over 8 frames, then to full height over 4; closes by height to nothing over 12. The script waits for both.
+
+### Explanation slides (`Game.991`)
+
+Lecture slides: a background (`tbg.akb`, kind 0, or `wbg.akb`, kind 1) with a 1280 x 3880 layer over it, which the script moves up and down so the screen shows a 720-line window. The pictures (`tNN_NN_NN.akb`, `wNN_NN_NN.akb`) are 1280 x 720 or taller, mostly transparent, and drawn over the screen's scene (the backgrounds are translucent at the edges). The panel is above the characters and under the message window.
+
+- Sub 0 (kind) makes it, sub 1 drops it (both at once; sub 0 does nothing when it is there). Sub 2 (file) copies a picture into the layer's top left corner at once and shows the panel. A copy replaces what was there, so a slide drops the bubbles of the one before; a shorter picture leaves the lower lines of a taller one.
+- Sub 4 (frames, file): the picture fades in over `frames` frames, the old one fading out under it, and the script waits. Sub 3 (frames, rule, file) fades it in over the layer on the screen's corner (the rule is not used) and then copies it in; the script waits. Scripts use 12 or 24 frames.
+- Sub 10 (frames, y, x) moves the layer in a straight line from where it is, and the script waits. Sub 12 does the same while the script goes on (a slow scroll through several messages). Sub 11 (y, x) puts it there at once. Sub 6 stops a scroll where it is.
+- Sub 7 stops it and fades the layer out over 12 frames while the script waits; the background stays until sub 1. Sub 8 stops it and leaves the background and the 720 lines that show in the scene's background, which stay until the background changes; the lecture scripts do this before they drop the panel, so the new background wipes in from the slide.
+- Subs 5 and 9 are only called by the library script when it rebuilds the panel after a load, from the values it saved under Save key 65 (0: kind and picture, 3: position; scripts never write 1 and 2). Sub 5 (file) puts a second picture over the screen that blinks (shown, after 42 frames out over 8, after 128 more back in over 8) and sub 9 (frames, _, file) one that fades in over `frames` frames again and again, until sub 6. They draw at the screen's corner, not in the layer.
+- The panel is kept with the scene in saves, so a load brings it back at once; the library script's rebuild then does the same again with no effect.
+- With `/Config/SceneSkip` at 1 the engine skips every sub but 1 (no picture, no scroll, no wait) and the runtime does the same; the setting is not offered here, so it reads as off. Casablanca has the code but no slides and never calls more than sub 1, which does nothing there.
+- Not known: the exact z-order against the characters (the layer is added on top, the background picture and the second picture have priorities 0 and 2); how a sub 12 scroll that is still running meets sub 11 or the next scroll (here sub 11 ends it, a new scroll starts from where the layer is); whether a pixel of a fading picture is blended linearly (here the old picture fades out as the new one fades in).
 
 ### DNA PC (`Game.1014`)
 
@@ -140,6 +153,7 @@ Addresses in `apeiria.exe` of the build above. The code itself does not name the
 | Explanation screen: fade in (subs 13, 14), blink (15), pulse (19), fade out (17), into a layer (18) | 0x46e4c0, 0x46e6a0, 0x46e880, 0x46eba0, 0x46e260, 0x46e430 |
 | Wavering picture (`CRasterAnime`): step, draw | 0x46fd50, 0x46ffa0 |
 | Item panel (`Game.997`): handler, open, close | 0x48e4f0, 0x45a770, 0x45ab90 |
+| Explanation slides (`Game.991`): handler, make (sub 0), drop, copy a picture (2), fade in (3, 4), blink (5), fade out (7), into the scene (8), repeat (9), scroll (10, 12) | 0x48d5d0, 0x484c60, 0x46e100, 0x484d50, 0x484fc0, 0x485200, 0x485410, 0x46e260, 0x484e10, 0x485a50, 0x485790, 0x485910 |
 | DNA PC (`Game.1014`) | 0x4917e0, 0x452130, 0x451ff0 |
 | DNA PC system window: open, close | 0x452400, 0x452ae0 |
 | DNA strand: set up, fade in, fade out, frame, rows | 0x452d40, 0x452630, 0x452800, 0x4530d0, 0x453410 |

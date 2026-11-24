@@ -8,7 +8,7 @@ It runs on the Apeiria module. The program is built from the same code as `apeir
 
 Scripts: `FD0101` to `FD4102` (story), `FD_SCENE_01` to `FD_SCENE_14` (scene mode), `MAIN`, `START`, `OMAKE`, `SCMODE`, `FLAGINI`. They are compiled with debug line markers (`dbg.line`, `dbg.call`) between statements, and a message's text is pushed on the line before the call that shows it (`BackLog.3` inside the `main.inc` macro). The VM keeps message text pushed before a debug marker as part of the next engine call; this was added for this game.
 
-The story comes back to a mail choice (沙羅へメールを送る, 七海へメールを送る) after each route; once both are read it goes on to the last chapter. Headless, `silky-run snap --path 0,1` plays both routes and the last chapter to the ending movie and back to the title, with every engine and `Game` call carried out. The first line's frame matches the original's under Wine, and the engine calls of the first 1,829 lines (from `fd0101.mes` into `fd0201.mes`, 13,526 calls) match the original's but for one thing: after `MesWnd.3` the original runs a voiced line's name and voice calls (the ones between `BackLog.2` and `BackLog.3`) a second time. The engine keeps those calls as the line's backlog record: `BackLog.2` starts it, every script instruction run until `BackLog.3` is appended to it, and the backlog runs it again to replay the voice. Where the record is run right after `MesWnd.3` was not found in the code; the trace shows it. It repeats the same name and voice at once, so the runtime runs them once.
+The story comes back to a mail choice (沙羅へメールを送る, 七海へメールを送る) after each route; once both are read it goes on to the last chapter. Headless, `silky-run snap --path 0,1` plays both routes and the last chapter to the ending movie and back to the title, with every engine and `Game` call carried out. The first line's frame matches the original's under Wine, and the engine calls of the first 1,829 lines (from `fd0101.mes` into `fd0201.mes`, 13,526 calls) match the original's but for one thing: after `MesWnd.3` the original runs a voiced line's name and voice calls (the ones between `BackLog.2` and `BackLog.3`) a second time. The engine keeps those calls as the line's backlog record: `BackLog.2` starts it, every script instruction run until `BackLog.3` is appended to it, and the backlog runs it again to replay the voice. The code shows where: when `MesWnd.3` sets up the line, the message window runs the line's backlog record once more with a flag set that makes the text instructions count characters per line instead of drawing (it measures the line). The name and voice calls in the record run again only because the native calls do not check that flag. They set the same name and voice again; the voice was already started at `MesWnd.3`, so nothing on screen or in sound changes, and the runtime runs them once. The second run is not done when SceneSkip is on and the line was already read (inferred).
 
 ## What differs from Apeiria
 
@@ -23,7 +23,8 @@ Most effects look the same. Many fade-ins became wipes through rule pictures, an
 - `Game.998` with a sub above 4 does nothing (two calls in the scripts).
 - `Game.13` sub 12 (alpha, time, size, name, slot): a standing character at an opacity.
 - `Game.10` sub 14 is a start-up call with nothing to do.
-- Deduction board (`Game.994`): the same as in Apeiria (sub 2 opens it from a line in the middle, 3 closes it, 5 zooms a marker), except that sub 4 wipes the new picture in through rule 1 over 24 frames where Apeiria fades it in. As in Apeiria the script is taken to wait. The story scripts only close and drop the board at start-up.
+- Deduction board (`Game.994`): the same as in Apeiria (sub 2 opens it from a line in the middle, 3 closes it, 5 zooms a marker), except that sub 4 wipes the new picture in through rule 1 over 24 frames where Apeiria fades it in. The script waits for each animation (open, close and change 24 frames, marker 12), and a click does not cut it short. When `/Config/SceneSkip` is 1 the engine skips subs 0, 2, 3, 4 and 5 entirely, and the runtime does the same. The story scripts only close and drop the board at start-up.
+- `Game.991`: Casablanca never shows this panel. It is Apeiria's explanation-slide panel, left in the engine: Casablanca's data has none of its pictures (`tbg.akb`, `wbg.akb`, the `t*` and `w*` slides), its scripts only call sub 1 (destroy, with nothing to destroy) at start-up, and the load code that would rebuild it reads a save value Casablanca never writes. Its sub 3 (a wipe in through a rule picture) has no caller.
 - Conclusions list (`Game.992`): cells are counted from 1, so the cell for value `v` is column (v - 1) / 100, row (v - 1) % 100.
 
 ### Extras
@@ -36,7 +37,6 @@ Most effects look the same. Many fade-ins became wipes through rule pictures, an
 
 ## Not done yet
 
-- `Game.991` is not drawn; the scripts only call its sub 1 at start-up. It runs a tall panel (1280 x 3880, over `tbg.akb` or `wbg.akb` as sub 0 says). Its sub 3 (file, rule, frames) wipes a picture in at the top left through rule picture `rule` over `frames` frames, then keeps it in the panel. It takes the same keyframe as the board's wipe, with the rule from the argument. What the panel is for was not found.
 - The staff roll and the ending pictures are scripted and play as other pictures do.
 - The effects are ported from the executable's code but not compared frame by frame with the original.
 
@@ -53,6 +53,7 @@ Addresses in `casablanca.exe` of the build above (image base 0x400000). The code
 | Conclusions list (`Game.992`) | 0x455170 |
 | Deduction board (`Game.994`): handler, open (sub 2), close (sub 3), new picture (sub 4), marker (sub 5) | 0x48f6a0, 0x4557d0, 0x455a50, 0x455ce0, 0x455fa0 |
 | `Game.991`: handler, wipe in (sub 3) | 0x48ee70, 0x486740 |
+| Message window line set-up; replay of the backlog record; character count while measuring | 0x466120; 0x4b9410; 0x4b9560 |
 | Notes and explanation screen (`Game.996`) | 0x48f910 |
 | Screen effects (`Game.1001`) subs 1, 3, 14, 15, 20 | 0x482b10, 0x4831b0, 0x4852d0, 0x4854e0, 0x485f80 |
 | Ending picture preload | 0x480c50 |

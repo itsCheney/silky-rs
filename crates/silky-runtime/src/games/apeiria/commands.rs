@@ -18,6 +18,8 @@ const HOLO: i32 = 1013;
 const SWARM: i32 = 995;
 /// The deduction board.
 const BOARD: i32 = 994;
+/// The explanation slides.
+const SLIDES: i32 = 991;
 /// The notes panel and the explanation screen.
 const EXPLAIN: i32 = 996;
 /// The item panel.
@@ -136,7 +138,12 @@ impl Runtime {
             SWARM => self.swarm(c),
             BATTLE => self.battle(c),
             DNA_PC => self.dna_pc(c),
+            // With the scene skip setting on, the board changes, animations
+            // and waits are all skipped; sub 1 (drop the board) still runs.
+            BOARD if c.sub != 1 && self.scene_skip() => self.done(),
             BOARD | EXPLAIN | ITEM => self.panels(c),
+            // Not in Casablanca: its calls only drop slides it never makes.
+            SLIDES if !self.casablanca() => self.slides(c),
             PICTURE => self.apeiria_picture(vm, c),
             LONG_VOICE => self.long_voice(c),
             // (file): a picture changes a set time into the voice line
@@ -224,7 +231,8 @@ impl Runtime {
                 }
                 self.effect_wait()
             }
-            // Set up calls of the library script (991, 1003).
+            // Set up calls of the library script (1003), and Casablanca's
+            // 991, which has no slides to show.
             991 | 1003 => self.done(),
             // (file) / (): a movie of a character changing clothes over
             // the scene (`chNN_chg.vsd`), played when movies are on; 1
@@ -610,6 +618,123 @@ impl Runtime {
             _ => return None,
         }
         self.done()
+    }
+
+    /// Lines of a picture (the screen's, when it is not there).
+    fn picture_height(&mut self, file: &str) -> u32 {
+        self.assets.image(file).map_or(720, |i| i.height)
+    }
+
+    fn casablanca(&self) -> bool {
+        self.assets.game().title == silky_format::game::Title::Casablanca
+    }
+
+    /// `Game.991`, the explanation slides (see [`super::slides`]). The
+    /// arguments are in the order pushed.
+    fn slides(&mut self, c: &Call) -> Option<silky_vm::Result<Flow>> {
+        use super::slides::Slides;
+        // With the scene skip setting on, every sub but 1 does nothing.
+        if c.sub != 1 && self.scene_skip() {
+            return self.done();
+        }
+        let wait = match (c.sub, c.args.len()) {
+            // (kind): 0 is `tbg.akb`, 1 `wbg.akb`; nothing if it is there.
+            (0, 1) => {
+                let p = &mut self.scene.panels;
+                if p.slides.is_none() {
+                    p.slides = Some(Slides::new(c.int(0)));
+                }
+                0
+            }
+            (1, 0) => {
+                self.scene.panels.slides = None;
+                0
+            }
+            // (file): drawn at once, and everything shows.
+            (2, 1) => {
+                let file = c.str(0)?;
+                let height = self.picture_height(&file);
+                if let Some(s) = &mut self.scene.panels.slides {
+                    s.show(file, height);
+                }
+                0
+            }
+            // (frames, rule, file) and (frames, file): the picture fades
+            // in while the script waits (the rule is not used).
+            (3, 3) | (4, 2) => {
+                let file = c.str(c.args.len() - 1)?;
+                let frames = c.int(0);
+                let on_screen = c.sub == 3;
+                let height = self.picture_height(&file);
+                self.scene
+                    .panels
+                    .slides
+                    .as_mut()
+                    .map_or(0, |s| s.fade(file, height, frames, on_screen))
+            }
+            // (file): a picture over the slides blinks until sub 6.
+            (5, 1) => {
+                let file = c.str(0)?;
+                if let Some(s) = &mut self.scene.panels.slides {
+                    s.blink(file);
+                }
+                0
+            }
+            (6, 0) => {
+                if let Some(s) = &mut self.scene.panels.slides {
+                    s.stop();
+                }
+                0
+            }
+            // (): the layer fades out over 12 frames while the script
+            // waits; the background stays until sub 1.
+            (7, 0) => self
+                .scene
+                .panels
+                .slides
+                .as_mut()
+                .map_or(0, Slides::fade_out),
+            // (layer): what shows is left in the background.
+            (8, 1) => {
+                let panels = &mut self.scene.panels;
+                if let Some(s) = &mut panels.slides {
+                    s.stop();
+                    panels.slides_kept = Some(s.shot());
+                }
+                0
+            }
+            // (frames, _, file): a picture over the slides fades in again
+            // and again until sub 6.
+            (9, 3) => {
+                let file = c.str(2)?;
+                let frames = c.int(0);
+                if let Some(s) = &mut self.scene.panels.slides {
+                    s.repeat(file, frames);
+                }
+                0
+            }
+            // (frames, y, x): the layer moves there, with the script
+            // waiting (10) or going on (12).
+            (10 | 12, 3) => {
+                let (frames, to) = (c.int(0), (c.int(2), c.int(1)));
+                let waited = c.sub == 10;
+                self.scene
+                    .panels
+                    .slides
+                    .as_mut()
+                    .map_or(0, |s| s.scroll_to(to, frames, waited))
+            }
+            // (y, x): at once.
+            (11, 2) => {
+                let at = (c.int(1), c.int(0));
+                if let Some(s) = &mut self.scene.panels.slides {
+                    s.set_position(at);
+                }
+                0
+            }
+            _ => return None,
+        };
+        self.live_wait(wait)
     }
 
     /// `Game.10`, the message window portrait, as far as it differs from

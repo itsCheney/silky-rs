@@ -870,6 +870,7 @@ impl Renderer {
         assets: &mut Assets,
     ) -> Result<()> {
         use crate::games::apeiria::panels::*;
+        self.draw_slides(canvas, p, assets)?;
         if let Some(s) = &p.swarm {
             let spots = spots(s.shown.len());
             let f = s.factor();
@@ -1022,6 +1023,119 @@ impl Renderer {
                     let (sx, sy) = (g.at.0 + g.skull_at.0, g.at.1 + g.skull_at.1);
                     canvas.draw_part(&hp, SKULL, sx, sy, false, 255);
                 }
+            }
+        }
+        Ok(())
+    }
+
+    /// The explanation slides (`Game.991`): their background, the layer's
+    /// picture at its place, and the picture over it.
+    fn draw_slides(
+        &mut self,
+        canvas: &mut Canvas,
+        p: &crate::games::apeiria::panels::Panels,
+        assets: &mut Assets,
+    ) -> Result<()> {
+        use crate::games::apeiria::slides::{Slides, BACKGROUNDS};
+        // Draws lines `rows` of a picture whose top sits at `at`, as far
+        // as they are on the screen.
+        fn put(canvas: &mut Canvas, img: &Arc<Image>, at: (i32, i32), rows: (u32, u32), alpha: u8) {
+            let (x, y) = at;
+            let top = (rows.0 as i32).max(-y).clamp(0, img.height as i32);
+            let bottom = (rows.1 as i32)
+                .min(canvas.height as i32 - y)
+                .clamp(top, img.height as i32);
+            if bottom > top {
+                let part = (0, top as u32, img.width, (bottom - top) as u32);
+                canvas.draw_part(img, part, x, y + top, false, alpha);
+            }
+        }
+        // The pictures of the layer: each shows the lines no later one
+        // covers. A picture fading in covers the top `to` lines in turn.
+        fn stack(
+            canvas: &mut Canvas,
+            assets: &mut Assets,
+            pictures: &[(String, u32)],
+            at: (i32, i32),
+            fading: Option<(&str, u32, (i32, i32), u8)>,
+        ) -> Result<()> {
+            let cover = fading.map_or(0, |f| f.1);
+            for (i, (name, h)) in pictures.iter().enumerate() {
+                let lo = pictures.get(i + 1).map_or(0, |p| p.1);
+                let img = assets.image(name)?;
+                if fading.is_some() && lo < cover {
+                    // Where the new picture comes, this one goes.
+                    let a = fading.map_or(255, |f| 255 - f.3);
+                    put(canvas, &img, at, (lo, cover.min(*h)), a);
+                    put(canvas, &img, at, (cover.max(lo), *h), 255);
+                } else {
+                    put(canvas, &img, at, (lo, *h), 255);
+                }
+            }
+            if let Some((name, h, at, a)) = fading {
+                put(canvas, &assets.image(name)?, at, (0, h), a);
+            }
+            Ok(())
+        }
+        // What an earlier slide left in the scene.
+        if let Some(k) = &p.slides_kept {
+            canvas.draw(
+                &assets.image(BACKGROUNDS[k.kind.clamp(0, 1) as usize])?,
+                0,
+                0,
+                false,
+            );
+            // Sub 8 copies the 1280 x 720 window of the layer's canvas that
+            // starts at (x, |y|) to the screen's corner, so the layer's
+            // picture lands at (-x, -|y|). That is where the live layer is
+            // drawn for x = 0 and y <= 0, the only places scripts use; a
+            // layer put elsewhere is copied from that window all the same.
+            stack(
+                canvas,
+                assets,
+                &k.pictures,
+                (-k.pos.0, -k.pos.1.abs()),
+                None,
+            )?;
+        }
+        let Some(s) = p.slides.as_ref() else {
+            return Ok(());
+        };
+        let layer = |canvas: &mut Canvas, s: &Slides, assets: &mut Assets| -> Result<()> {
+            let at = s.position();
+            match &s.fade_in {
+                // A picture fading in on the screen's corner (sub 3) goes
+                // over the layer; one fading in the layer (sub 4) takes
+                // its place.
+                Some(f) if f.on_screen => {
+                    stack(canvas, assets, &s.pictures, at, None)?;
+                    let img = assets.image(&f.picture)?;
+                    put(canvas, &img, (0, 0), (0, f.height), f.alpha());
+                    Ok(())
+                }
+                Some(f) => {
+                    let new = (f.picture.as_str(), f.height, at, f.alpha());
+                    stack(canvas, assets, &s.pictures, at, Some(new))
+                }
+                None => stack(canvas, assets, &s.pictures, at, None),
+            }
+        };
+        if s.shown || s.out.is_some() {
+            canvas.draw(&assets.image(s.background())?, 0, 0, false);
+            match &s.out {
+                // The layer fades; its background stays.
+                Some(t) => {
+                    let mut to = canvas.clone();
+                    layer(&mut to, s, assets)?;
+                    *canvas = Canvas::blend(canvas, &to, t.value() as f32 / 255.0, None);
+                }
+                None => layer(canvas, s, assets)?,
+            }
+        }
+        if let Some((name, t)) = &s.over {
+            let a = t.value();
+            if s.shown && a > 0 {
+                canvas.draw_part(&assets.image(name)?, (0, 0, 1280, 720), 0, 0, false, a);
             }
         }
         Ok(())

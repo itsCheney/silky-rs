@@ -454,7 +454,13 @@ fn snap(
     let mut script = String::new();
     let mut polls = 0u64;
     loop {
-        match vm.run(&mut rt, 50_000_000)? {
+        // A pause a follow-up put up is answered before the scripts go on.
+        let stop = if rt.pause.is_some() {
+            Stop::Yield
+        } else {
+            vm.run(&mut rt, 50_000_000)?
+        };
+        match stop {
             Stop::Yield => match rt.pause.take() {
                 Some(Pause::Title) => {
                     if !path.is_empty() && title_saved {
@@ -588,8 +594,12 @@ fn snap(
                     if rt.scene.mail.as_mut().is_some_and(|m| m.finish()) {
                         rt.scene.mail = None;
                     }
-                    // Second steps of effects end at once too.
+                    // Second steps of effects end at once too; a choice one
+                    // puts up is kept for the choice arm to answer.
                     while rt.follow_up() {
+                        if matches!(rt.pause, Some(Pause::Choice)) {
+                            break;
+                        }
                         rt.pause = None;
                     }
                 }

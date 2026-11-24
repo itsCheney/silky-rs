@@ -53,6 +53,11 @@ pub struct Panels {
     /// A mail header and its text drawn into this background (992 sub
     /// 1): background, cell, text, page.
     pub note: Option<(String, i32, String, i32)>,
+    /// The explanation slides (991).
+    pub slides: Option<super::slides::Slides>,
+    /// What the slides left in the background (991 sub 8), until it
+    /// changes.
+    pub slides_kept: Option<super::slides::SlideShot>,
     /// What the attack and spell effects drew into this background
     /// (998 kind 14, 1002 subs 0, 1, 4 and 6), in the order drawn.
     pub painted: Vec<Paint>,
@@ -72,6 +77,9 @@ impl Panels {
     pub fn advance(&mut self, ms: u64) -> bool {
         let mut moved = false;
         if let Some(s) = &mut self.swarm {
+            moved |= s.advance(ms);
+        }
+        if let Some(s) = &mut self.slides {
             moved |= s.advance(ms);
         }
         if let Some(t) = &mut self.explain_fade {
@@ -106,6 +114,9 @@ impl Panels {
     pub fn finish(&mut self) {
         if let Some(s) = &mut self.swarm {
             s.end_change();
+        }
+        if let Some(s) = &mut self.slides {
+            s.finish();
         }
         if let Some(t) = &mut self.explain_fade {
             t.ms = t.length_ms();
@@ -168,6 +179,7 @@ impl Panels {
     /// The background changed: what was drawn into the old one goes.
     pub fn background_changed(&mut self) {
         self.explain_kept = None;
+        self.slides_kept = None;
         self.painted.clear();
     }
 
