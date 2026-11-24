@@ -1577,10 +1577,6 @@ impl Session {
     /// Secondary click: closes a dialog or screen, else does what the
     /// settings say (hide the message window by default).
     pub fn secondary_click(&mut self) -> Result<()> {
-        // The notice of 同級生 Remake only closes with its button or Escape.
-        if matches!(self.ui.panel, Some(DoukPanel::Notice(_))) {
-            return Ok(());
-        }
         if self.back()? {
             return Ok(());
         }
@@ -1718,8 +1714,12 @@ impl Session {
             self.frame = None;
             return Ok(true);
         }
+        // The notice closes on Escape and the secondary click with the
+        // cancel sound.
         if matches!(self.ui.panel, Some(DoukPanel::Notice(_))) {
-            let _ = self.rt.play_sound(crate::games::doukyuusei::name::OK_SOUND);
+            let _ = self
+                .rt
+                .play_sound(crate::games::doukyuusei::name::CANCEL_SOUND);
             self.close_notice()?;
             return Ok(true);
         }
@@ -1731,8 +1731,12 @@ impl Session {
             self.close_notice()?;
             return Ok(true);
         }
-        // The map jump goes back to the walk, the menu as it was.
+        // The map jump goes back to the walk, the menu as it was, with the
+        // cancel sound.
         if matches!(self.ui.panel, Some(DoukPanel::Jump(_))) {
+            let _ = self
+                .rt
+                .play_sound(crate::games::doukyuusei::name::CANCEL_SOUND);
             self.ui.panel = Some(DoukPanel::Town);
             self.ui.hover = None;
             self.frame = None;
@@ -1771,9 +1775,13 @@ impl Session {
                     leave
                 }
                 Some(Panel::Comment(c)) => c.cancel(),
-                // The name entry has no way out; it erases a letter.
+                // The name entry has no way out; only its notice closes.
                 Some(Panel::Name(n)) => {
-                    n.cancel();
+                    if n.secondary() {
+                        let _ = self
+                            .rt
+                            .play_sound(crate::games::doukyuusei::name::CANCEL_SOUND);
+                    }
                     self.frame = None;
                     return Ok(true);
                 }

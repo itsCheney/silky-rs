@@ -447,8 +447,14 @@ impl Name {
         Click::None
     }
 
-    /// The secondary click: Backspace without the sound; the caret goes
-    /// off. Also closes the notice.
+    /// The secondary click and Escape: they close the notice and do
+    /// nothing else on the page. Whether the notice was up.
+    pub fn secondary(&mut self) -> bool {
+        std::mem::take(&mut self.notice)
+    }
+
+    /// Backspace typed: erases before the cursor without the sound; the
+    /// caret goes off. Also closes the notice.
     pub fn cancel(&mut self) {
         if self.notice {
             self.notice = false;
@@ -636,6 +642,13 @@ mod tests {
         assert_eq!(n.click(CONFIRM), Click::None);
         assert!(n.notice);
         n.cancel();
+        assert!(!n.notice);
+        // The secondary click leaves the name as it is.
+        let before = n.text();
+        assert!(!n.secondary());
+        assert_eq!(n.text(), before);
+        n.notice = true;
+        assert!(n.secondary());
         assert!(!n.notice);
         n.name.clear();
         n.cursor = 0;

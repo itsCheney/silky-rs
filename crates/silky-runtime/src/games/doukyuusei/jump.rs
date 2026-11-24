@@ -427,19 +427,21 @@ impl Jump {
         let parts = assets.localized_image(&format!("{stem}_p.akb"), language)?;
         let plates = assets.localized_image(&format!("{stem}plate_p.akb"), language)?;
         canvas.draw_part(&bg, (0, 0, W as u32, H as u32), 0, 0, false, 255);
+        // The parts, the lit one last; then the face layer (faces and the
+        // back button) and over it the name bubble of the place lit.
         let mut label = None;
         for id in (0..self.spec.places.len()).filter(|&i| self.offered(i)) {
             let row = state(id as i32).min(2);
-            let (sx, sy, dx, dy, w, h) = self.place(id);
-            canvas.draw_part(&parts, (sx, sy + h * row, w, h), dx, dy, false, 255);
             if row > 0 {
                 label = Some((id, row));
+                continue;
             }
+            let (sx, sy, dx, dy, w, h) = self.place(id);
+            canvas.draw_part(&parts, (sx, sy, w, h), dx, dy, false, 255);
         }
-        // The name bubble of the place lit, over the parts.
         if let Some((id, row)) = label {
             let (sx, sy, dx, dy, w, h) = self.place(id);
-            canvas.draw_part(&plates, (sx, sy + h * row, w, h), dx, dy, false, 255);
+            canvas.draw_part(&parts, (sx, sy + h * row, w, h), dx, dy, false, 255);
         }
         if self.easy && !self.faces.is_empty() {
             let sheet = assets.localized_image(FACES, language)?;
@@ -464,6 +466,10 @@ impl Jump {
             false,
             255,
         );
+        if let Some((id, row)) = label {
+            let (sx, sy, dx, dy, w, h) = self.place(id);
+            canvas.draw_part(&plates, (sx, sy + h * row, w, h), dx, dy, false, 255);
+        }
         Ok(())
     }
 }

@@ -11,7 +11,7 @@
 //! of 880 x 310 at (520, 355) and the line from row 310). The Close
 //! button (222 x 73 at (849, 560), a row of the sheet's right part per
 //! state: normal, hover, pressed) plays the OK sound and closes; Escape
-//! closes too. The secondary click does nothing. The call takes the kind
+//! and the secondary click close with the cancel sound. The call takes the kind
 //! and returns nothing; the hero's room shows kind 1 before it sets the
 //! flag list's byte. See `docs/games/doukyuusei.md`.
 
