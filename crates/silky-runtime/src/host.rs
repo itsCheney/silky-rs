@@ -340,6 +340,9 @@ pub(crate) enum FollowUp {
     /// 同級生 Remake: the intro's colour picture goes into the
     /// background and the intro is over.
     EndIntro,
+    /// 景の海のアペイリア: the mail forward screen takes input once it has
+    /// faded in.
+    MailChoice,
 }
 
 pub(crate) fn host_error(msg: impl Into<String>) -> silky_vm::Error {
@@ -426,6 +429,10 @@ impl Runtime {
                 self.end_intro();
                 Flow::Continue
             }
+            FollowUp::MailChoice => {
+                self.pause = Some(Pause::Choice);
+                Flow::Yield
+            }
         };
         if matches!(flow, Flow::Continue) {
             self.pause = None;
@@ -487,6 +494,17 @@ impl Runtime {
             vm.push(result);
         }
         true
+    }
+
+    /// The pointer moved to (`x`, `y`) game pixels over the mail forward
+    /// screen; whether the look of the screen changed.
+    pub fn mail_select_hover(&mut self, x: i32, y: i32) -> bool {
+        use crate::games::apeiria::mail_select::AREAS;
+        let Some(ms) = self.scene.mail_select.as_mut().filter(|m| m.shown) else {
+            return false;
+        };
+        let areas = crate::screens::area_file(&self.assets, AREAS);
+        ms.hover_at(&areas, x, y)
     }
 
     /// Game state for a save file: interpreter, scene and text table. Take

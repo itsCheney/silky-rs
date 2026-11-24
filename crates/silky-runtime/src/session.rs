@@ -1192,6 +1192,13 @@ impl Session {
                 return;
             }
         }
+        if self.state == State::Choice
+            && self.dialog.is_none()
+            && self.screen.is_none()
+            && self.rt.mail_select_hover(x, y)
+        {
+            self.frame = None;
+        }
         let hover = self.hit(x, y);
         if hover != self.ui.hover {
             self.ui.hover = hover;
@@ -1211,6 +1218,12 @@ impl Session {
         {
             self.press_done = true;
             self.base = None;
+            // A click while the message window is hidden only brings it back.
+            if self.ui.window_hidden {
+                self.ui.window_hidden = false;
+                self.frame = None;
+                return Ok(());
+            }
             if self.rt.mail_select_click(&mut self.vm, x, y)
                 && !self.rt.scene.mail_select.as_ref().is_some_and(|m| m.shown)
             {
@@ -1567,7 +1580,15 @@ impl Session {
         if matches!(self.ui.panel, Some(DoukPanel::Notice(_))) {
             return Ok(());
         }
-        if self.back()? || self.state != State::Text {
+        if self.back()? {
+            return Ok(());
+        }
+        // The mail forward screen of 景の海のアペイリア does what the
+        // settings say too.
+        if self.mail_select_up() {
+            return self.mail_select_secondary();
+        }
+        if self.state != State::Text {
             return Ok(());
         }
         self.frame = None;
@@ -1586,6 +1607,54 @@ impl Session {
             RightClick::Auto => self.press(Button::Bar(bar::AUTO))?,
             RightClick::Load => self.open_save_load(Mode::Load),
             RightClick::Save => self.open_save_load(Mode::Save),
+        }
+        Ok(())
+    }
+
+    /// Escape: ends the walk on the map, closes what is up, or on the
+    /// mail forward screen does what a secondary click does.
+    pub fn escape(&mut self) -> Result<()> {
+        if self.cancel_walk() || self.back()? {
+            return Ok(());
+        }
+        if self.mail_select_up() {
+            return self.mail_select_secondary();
+        }
+        Ok(())
+    }
+
+    /// Delete: ends the walk on the map, or on the mail forward screen
+    /// does what a secondary click does.
+    pub fn delete_key(&mut self) -> Result<()> {
+        if !self.cancel_walk() && self.mail_select_up() {
+            return self.mail_select_secondary();
+        }
+        Ok(())
+    }
+
+    fn mail_select_up(&self) -> bool {
+        self.state == State::Choice
+            && self.dialog.is_none()
+            && self.screen.is_none()
+            && self.rt.scene.mail_select.as_ref().is_some_and(|m| m.shown)
+    }
+
+    /// Secondary click on the mail forward screen: hide the message window
+    /// (the rows stay), the settings, load, or skip or auto mode for after
+    /// the selection. Saving waits for the next message.
+    fn mail_select_secondary(&mut self) -> Result<()> {
+        self.frame = None;
+        if self.ui.window_hidden {
+            self.ui.window_hidden = false;
+            return Ok(());
+        }
+        match self.rt.system.settings.right_click {
+            RightClick::HideWindow => self.ui.window_hidden = true,
+            RightClick::Settings => self.open_settings(),
+            RightClick::Skip => self.modes_at_choice.0 ^= true,
+            RightClick::Auto => self.modes_at_choice.1 ^= true,
+            RightClick::Load => self.open_save_load(Mode::Load),
+            RightClick::Save => {}
         }
         Ok(())
     }

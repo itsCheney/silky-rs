@@ -6,10 +6,12 @@ use super::holo::{Fade, Holo, Lights, FADE_IN_FRAMES, WIPE_RULE};
 use super::mail::Mail;
 use super::panels::{Battle, ItemAnim, Swarm, Tween, WindowAnim};
 use crate::games::Call;
-use crate::host::{Pause, Runtime};
+use crate::host::{FollowUp, Pause, Runtime};
 
 /// The αMAIL screen (`docs/game-commands.md`).
 const MAIL: i32 = 1012;
+/// The mail forward screen fades in over this many frames.
+const MAIL_FADE_FRAMES: i32 = 12;
 /// Apeiria on the hologram panel.
 const HOLO: i32 = 1013;
 /// Copies of a picture at fixed spots.
@@ -259,11 +261,18 @@ impl Runtime {
                         vm.push(-1);
                         return self.done();
                     }
-                    // Opening fades the screen in over 12 frames, lifting
-                    // the cover the script left.
-                    self.scene.cover = None;
                     self.choices = ms.labels();
                     self.choice_status.clear();
+                    // Opening lifts the cover the script left over 12
+                    // frames; the screen takes input after that.
+                    if self.scene.cover.take().is_some() {
+                        self.handled += 1;
+                        if let Flow::Yield = self.transition(MAIL_FADE_FRAMES, None) {
+                            self.then = Some(FollowUp::MailChoice);
+                            return Some(Ok(Flow::Yield));
+                        }
+                        self.handled -= 1;
+                    }
                     return self.wait_for(Pause::Choice);
                 }
                 self.done()

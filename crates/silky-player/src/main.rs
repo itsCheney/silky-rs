@@ -476,17 +476,8 @@ impl ApplicationHandler for App {
                 }
                 let r = match event.logical_key {
                     Key::Named(NamedKey::Enter | NamedKey::Space) => self.session.proceed(),
-                    Key::Named(NamedKey::Escape) => {
-                        if self.session.cancel_walk() {
-                            Ok(())
-                        } else {
-                            self.session.back().map(|_| ())
-                        }
-                    }
-                    Key::Named(NamedKey::Delete) => {
-                        self.session.cancel_walk();
-                        Ok(())
-                    }
+                    Key::Named(NamedKey::Escape) => self.session.escape(),
+                    Key::Named(NamedKey::Delete) => self.session.delete_key(),
                     Key::Named(
                         k @ (NamedKey::ArrowUp
                         | NamedKey::ArrowDown

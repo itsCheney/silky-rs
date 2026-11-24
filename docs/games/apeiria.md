@@ -91,7 +91,9 @@ Its screen goes into the background, the monitor over it; the system window at (
 - Mail forward screen (`Game.1016` sub 0, with the mode): a modal selection over the DNA PC background.
   - Lists the mails whose byte is set (1001, 1002, 1003, 1100 twice, 1101 twice, 1102 four times; mode 1 only the first three), packed from (353, 95) down in 32-pixel rows of `dnapc_mailparts.akb`, each with a check box at (860, 100); forward button (メール転送) at (929, 389). Hit areas in `mailselect.area` (ids 0 to 10 for rows, 20 for the button).
   - The checked row starts as byte 0 (255 for none). Clicking a row checks it and wakes the button when its number is byte 1 or 2 (or in mode 1); otherwise the screen ends at once with that number. The button ends it with the checked row's number; clicking the checked row unchecks it.
-  - Opening fades the screen in over 12 frames, lifting the script's cover. Story scripts use mode 1; sub 1 redraws the rows. Frontends answer it as a selection over the listed rows. No close button.
+  - Opening fades the screen in over 12 frames, lifting the script's cover; input waits for the fade. Story scripts use mode 1; sub 1 redraws the rows. Frontends answer it as a selection over the listed rows. No close button.
+  - Looks: a row under the pointer comes from x 501 of the sheet; the check box shows the check (y 19). The active button under the pointer is y 60 (y 0 normal, y 180 off).
+  - Right click, Escape and Delete do what the settings say for a right click: hiding the message window (the rows stay; a click brings it back), skip or auto mode, the settings or loading.
 
 ### Extras (`Game.30` to `Game.32`)
 
@@ -106,7 +108,6 @@ Seen state is kept across games in byte variables from 3000. A CG bit (one per p
 ## Not done yet
 
 - Hologram way-0 show: the original holds the script 0.6 to 0.8 s each time; the runtime waits only the 12 frames of coming.
-- Mail forward screen: fade-in not timed, no row hover look, right click (the usual menu in the original) does nothing.
 
 ## Where things are in the executable
 
@@ -167,6 +168,7 @@ Addresses in `apeiria.exe` of the build above. The code itself does not name the
 | HP over time (`Game.1015` subs 6 and 7) | 0x457b80, 0x458310, 0x458690 |
 | αMAIL system window, body page, sent mail (`Game.1012` subs 7, 10, 14) | 0x478700, 0x479790, 0x4786b0 |
 | Mail forward screen (`Game.1016`): handler, set up, show rows, click handling, row available check | 0x491c50, 0x45d210, 0x45e690, 0x45d7f0..0x45d9a7, 0x4a7600 |
+| Mail forward screen: open and fade-in, draw one row, pointer update, right click | 0x45d470, 0x45e460, 0x45d600, 0x45db10 |
 | Screen shake (`Game.993`), its step and offset tables | 0x48d380, 0x4779b0, 0x5346c0..0x534b6f |
 | Zoom flash (`Game.1005`) | 0x48fa30 |
 | Effect handlers: specks (1000), attacks (998), screen effects (1001), spells (1002) | 0x48ecd0, 0x48e610, 0x48f150, 0x48ee60 |

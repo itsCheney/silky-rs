@@ -21,14 +21,16 @@ const MODE1_COUNT: usize = 3;
 const ROW_AT: (i32, i32) = (353, 95);
 const ROW_SIZE: (u32, u32) = (501, 32);
 const ROW_STEP: i32 = 32;
-/// The sheet's checked variant of a row sits right of the plain one.
-const ROW_CHECKED_X: u32 = 501;
+/// The sheet's look of a row under the pointer sits right of the plain one.
+const ROW_HOVER_X: u32 = 501;
 const BOX_AT: (i32, i32) = (860, 100);
 const BOX_SRC: (u32, u32) = (1062, 0);
 const BOX_SIZE: (u32, u32) = (24, 19);
 const BUTTON_AT: (i32, i32) = (929, 389);
 const BUTTON_SRC: (u32, u32) = (1002, 0);
 const BUTTON_OFF_SRC: (u32, u32) = (1002, 180);
+/// The active button under the pointer.
+const BUTTON_HOVER_SRC: (u32, u32) = (1002, 60);
 const BUTTON_SIZE: u32 = 60;
 
 /// State of the screen, kept with the scene so saves keep it.
@@ -47,6 +49,9 @@ pub struct MailSelect {
     pub forward: bool,
     /// Bytes 1 and 2: the mails whose click only checks the row.
     pub pair: [u8; 2],
+    /// Area under the pointer: a row slot or [`FORWARD_AREA`].
+    #[serde(skip)]
+    pub hover: Option<i32>,
 }
 
 impl MailSelect {
@@ -64,6 +69,7 @@ impl MailSelect {
         };
         self.forward = self.checked.is_some();
         self.pair = [bytes(1), bytes(2)];
+        self.hover = None;
         self.shown = true;
     }
 
@@ -103,6 +109,14 @@ impl MailSelect {
         }
     }
 
+    /// Moves the pointer to (`x`, `y`): whether the area under it changed.
+    /// Slots past the listed rows and the forward button while it is off
+    /// have no look of their own, but still count as the area.
+    pub fn hover_at(&mut self, areas: &[silky_format::area::Area], x: i32, y: i32) -> bool {
+        let id = areas.iter().find(|a| a.contains(x, y)).map(|a| a.id);
+        std::mem::replace(&mut self.hover, id) != id
+    }
+
     /// Clicks listed row `v`, then forward if it became active; what a
     /// selection answer stands for.
     pub fn answer(&mut self, v: usize) -> i32 {
@@ -127,7 +141,11 @@ impl MailSelect {
         for (v, &k) in self.rows.iter().enumerate() {
             let y = ROW_STEP * v as i32;
             let on = self.checked == Some(k);
-            let x = if on { ROW_CHECKED_X } else { 0 };
+            let x = if self.hover == Some(v as i32) {
+                ROW_HOVER_X
+            } else {
+                0
+            };
             let src = (x, ROW_STEP as u32 * k as u32, ROW_SIZE.0, ROW_SIZE.1);
             canvas.draw_part(&sheet, src, ROW_AT.0, ROW_AT.1 + y, false, 255);
             let (bx, by) = BOX_SRC;
@@ -139,7 +157,9 @@ impl MailSelect {
             );
             canvas.draw_part(&sheet, src, BOX_AT.0, BOX_AT.1 + y, false, 255);
         }
-        let (sx, sy) = if self.forward {
+        let (sx, sy) = if self.forward && self.hover == Some(FORWARD_AREA) {
+            BUTTON_HOVER_SRC
+        } else if self.forward {
             BUTTON_SRC
         } else {
             BUTTON_OFF_SRC
@@ -199,6 +219,18 @@ mod tests {
         // active forward ends it.
         m.click_at(&areas(), 400, 100);
         assert_eq!(m.click_at(&areas(), 950, 400), Some(3));
+    }
+
+    #[test]
+    fn hover_tracks_the_area_under_the_pointer() {
+        let mut m = MailSelect::default();
+        assert!(m.hover_at(&areas(), 400, 130));
+        assert_eq!(m.hover, Some(1));
+        assert!(!m.hover_at(&areas(), 410, 140));
+        assert!(m.hover_at(&areas(), 950, 400));
+        assert_eq!(m.hover, Some(FORWARD_AREA));
+        assert!(m.hover_at(&areas(), 10, 10));
+        assert_eq!(m.hover, None);
     }
 
     fn bytes(set: &[(usize, u8)]) -> impl Fn(usize) -> u8 + '_ {
