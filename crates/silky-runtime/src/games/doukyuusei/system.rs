@@ -912,7 +912,7 @@ pub fn draw_dialog(
         Action::Delete(_) => 5,
         Action::DeleteAll => 6,
         Action::Jump(_) => 7,
-        Action::Scene(_) => 8,
+        Action::Scene(_) | Action::ReplayReturn => 8,
         Action::FlagJump => 9,
         Action::Unlock(_) => 10,
     };

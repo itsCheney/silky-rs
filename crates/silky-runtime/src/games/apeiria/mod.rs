@@ -13,3 +13,6 @@ pub mod mail_select;
 pub mod omake;
 pub mod panels;
 pub mod vo;
+
+/// Variable H 69: 1 while the scene list replays a scene.
+pub const REPLAY_VAR: usize = 69;

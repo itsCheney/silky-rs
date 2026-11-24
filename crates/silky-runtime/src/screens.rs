@@ -332,6 +332,66 @@ const K2_UNLOCK_NOTE_Y: i32 = 236;
 const K2_UNLOCK_TEXT: (u32, u32, u32, u32) = (830, 643, 590, 51);
 const K2_UNLOCK_TEXT_POS: (i32, i32) = (421, 266);
 
+/// 景の海のアペイリア's `dialog_p.akb`: the plain box (the sheet's second
+/// box, with a black bar, is not used), a strip per question at a fixed
+/// place, and the buttons and check box at their areas' corners.
+const AP_DIALOG_SHEET: &str = "dialog_p.akb";
+const AP_DIALOG_SHADE: [u8; 4] = [0, 0, 0, 127];
+const AP_DIALOG_BOX: (u32, u32, u32, u32) = (565, 0, 498, 212);
+const AP_DIALOG_BOX_AT: (i32, i32) = (391, 254);
+const AP_DIALOG_QUESTION: (u32, u32, u32, u32) = (205, 0, 360, 40);
+const AP_DIALOG_QUESTION_AT: (i32, i32) = (460, 301);
+const AP_DIALOG_YES: Cells = Cells::new(0, 0, 94, 51, 51);
+const AP_DIALOG_NO: Cells = Cells::new(94, 0, 94, 51, 51);
+/// Rows: empty, hover, pressed, ticked.
+const AP_DIALOG_CHECK: Cells = Cells::new(188, 0, 17, 19, 19);
+
+/// Strip of the sheet for a question: save, load, title, quit, delete,
+/// overwrite, delete all, scene list. None for the others.
+fn apeiria_question_row(q: usize) -> Option<u32> {
+    Some(match q {
+        question::SAVE => 0,
+        question::LOAD => 1,
+        question::TITLE => 2,
+        question::QUIT => 3,
+        question::DELETE => 4,
+        question::OVERWRITE => 5,
+        question::DELETE_ALL => 6,
+        question::SCENE_SELECT => 7,
+        _ => return None,
+    })
+}
+
+fn draw_apeiria_dialog(
+    canvas: &mut Canvas,
+    assets: &mut Assets,
+    ui: &Ui,
+    d: &Dialog,
+    areas: &[Area],
+) -> Result<()> {
+    use dialog_ids::*;
+    let sheet = assets.image(AP_DIALOG_SHEET)?;
+    canvas.fill(0, 0, canvas.width, canvas.height, AP_DIALOG_SHADE);
+    let (bx, by) = AP_DIALOG_BOX_AT;
+    canvas.draw_part(&sheet, AP_DIALOG_BOX, bx, by, false, 255);
+    if let Some(row) = apeiria_question_row(d.action.question()) {
+        let (x, y, w, h) = AP_DIALOG_QUESTION;
+        let (qx, qy) = AP_DIALOG_QUESTION_AT;
+        canvas.draw_part(&sheet, (x, y + h * row, w, h), qx, qy, false, 255);
+    }
+    for a in areas {
+        let st = ui.state(Button::Dialog(a.id), true, false) as u32;
+        let (cells, row) = match a.id {
+            YES => (AP_DIALOG_YES, st.min(2)),
+            NO => (AP_DIALOG_NO, st.min(2)),
+            DONT_ASK => (AP_DIALOG_CHECK, if d.dont_ask { 3 } else { st.min(2) }),
+            _ => continue,
+        };
+        canvas.draw_part(&sheet, cells.part(row), a.left, a.top, false, 255);
+    }
+    Ok(())
+}
+
 /// The save screen is for saving or for loading.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -476,6 +536,9 @@ pub enum Action {
     FlagJump,
     /// Replay a scene of the scene mode.
     Scene(usize),
+    /// 景の海のアペイリア: leave the scene being replayed for the scene
+    /// list.
+    ReplayReturn,
     /// きまぐれテンプテーション2: mark everything of an extras screen seen.
     Unlock(crate::Extras),
 }
@@ -492,7 +555,7 @@ impl Action {
             Action::Title => question::TITLE,
             Action::Quit => question::QUIT,
             Action::FlagJump => question::FLAG_JUMP,
-            Action::Scene(_) => question::SCENE_SELECT,
+            Action::Scene(_) | Action::ReplayReturn => question::SCENE_SELECT,
             Action::Unlock(k) => question::UNLOCK + *k as usize,
         }
     }
@@ -537,6 +600,8 @@ pub struct Screens {
     stars: bool,
     /// 同級生 Remake: its own dialog.
     douk: bool,
+    /// 景の海のアペイリア: its own dialog.
+    apeiria: bool,
 }
 
 pub(crate) fn area_file(assets: &Assets, name: &str) -> Vec<Area> {
@@ -594,6 +659,7 @@ impl Screens {
             kimaten2: assets.game().title == silky_format::game::Title::Kimaten2,
             stars: assets.game().title == silky_format::game::Title::Fuyukuru,
             douk,
+            apeiria: assets.game().title == silky_format::game::Title::Apeiria,
             help: HelpLines::load(assets, "saveloadhelp"),
         }
     }
@@ -1165,6 +1231,9 @@ impl Screens {
             let state = |id| ui.state(Button::Dialog(id), true, false) as u32;
             crate::games::doukyuusei::system::draw_dialog(canvas, &sheet, d, &self.dialog, state);
             return Ok(());
+        }
+        if self.apeiria {
+            return draw_apeiria_dialog(canvas, assets, ui, d, &self.dialog);
         }
         canvas.fill(0, 0, canvas.width, canvas.height, [0, 0, 0, 110]);
         let ds = match self.kimaten2 {

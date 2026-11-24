@@ -13,6 +13,7 @@ use silky_format::mes::Profile;
 use silky_vm::{Stop, Vm};
 
 use crate::audio::Bus;
+use crate::games::apeiria::REPLAY_VAR;
 use crate::games::doukyuusei::town::CANCEL_VAR;
 use crate::games::doukyuusei::Panel as DoukPanel;
 use crate::games::kimaten2::archive::{
@@ -1583,6 +1584,9 @@ impl Session {
         if self.back()? {
             return Ok(());
         }
+        if self.replaying() {
+            return self.ask(Action::ReplayReturn);
+        }
         // The mail forward screen of 景の海のアペイリア does what the
         // settings say too.
         if self.mail_select_up() {
@@ -1617,6 +1621,9 @@ impl Session {
         if self.cancel_walk() || self.back()? {
             return Ok(());
         }
+        if self.replaying() {
+            return self.ask(Action::ReplayReturn);
+        }
         if self.mail_select_up() {
             return self.mail_select_secondary();
         }
@@ -1626,10 +1633,42 @@ impl Session {
     /// Delete: ends the walk on the map, or on the mail forward screen
     /// does what a secondary click does.
     pub fn delete_key(&mut self) -> Result<()> {
-        if !self.cancel_walk() && self.mail_select_up() {
+        if self.cancel_walk() {
+            return Ok(());
+        }
+        if self.replaying() {
+            return self.ask(Action::ReplayReturn);
+        }
+        if self.mail_select_up() {
             return self.mail_select_secondary();
         }
         Ok(())
+    }
+
+    /// 景の海のアペイリア: a scene of the scene list is being replayed
+    /// (variable H 69, set by the scene list) and its text waits, so a
+    /// secondary click, Escape or Delete asks about going back to the list.
+    fn replaying(&self) -> bool {
+        self.rt.assets.game().title == silky_format::game::Title::Apeiria
+            && self.state == State::Text
+            && self.dialog.is_none()
+            && self.screen.is_none()
+            && self.vm.var_h(REPLAY_VAR).int() == 1
+    }
+
+    /// Ends the waiting text with result 1, which the scene scripts take
+    /// (in variable G 16) as the sign to return to the scene list.
+    fn leave_replay(&mut self) -> Result<()> {
+        if self.state != State::Text {
+            return Ok(());
+        }
+        if self.vm.pop().is_ok() {
+            self.vm.push(1);
+        }
+        self.shown_chars = None;
+        self.ui.window_hidden = false;
+        self.ui.waiting = false;
+        self.run()
     }
 
     fn mail_select_up(&self) -> bool {
@@ -2758,6 +2797,7 @@ impl Session {
                 self.state = State::Ended;
             }
             Action::Scene(i) => self.leave_extras(i as i32)?,
+            Action::ReplayReturn => self.leave_replay()?,
             Action::Unlock(_) if matches!(self.ui.panel, Some(DoukPanel::Reel(_))) => {
                 if let Some(DoukPanel::Reel(r)) = &mut self.ui.panel {
                     let girl = r.girl.unwrap_or(0);

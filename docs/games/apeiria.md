@@ -101,6 +101,8 @@ Seen state is kept across games in byte variables from 3000. A CG bit (one per p
 
 - CG mode: eight pages of twelve entries (`cgmode_thmNN.akb`), seen count on each, completion of all three modes at the bottom. An entry opens a grid of its pictures (from its `cg_evNNNN.akb` strip, twelve a page) over the dimmed page; a picture shows full screen, clicks walk through every seen picture to the last, then back to the grid. The wheel walks back and forth.
 - Scene mode: six pages of twelve scenes; under the pointer a scene shows a slide show of `scene_thumbNN.akb` (a second each, a second's fade). Click plays the scene.
+- While a scene plays (variable H 69 is 1), a right click, Escape or Delete on its text asks 「シーン回想選択に戻りますか？」 instead of the right-click setting. Yes ends the text with result 1, which the scene script takes as the sign to return to the scene list.
+- Yes/no dialogs: the plain box of `dialog_p.akb` at (391, 254) over black at 127 / 255, the question's strip at (460, 301), the yes and no buttons and the "don't show again" box at their `dialog.area` corners.
 - Music mode: 41 tracks in eight slanted rows of `music_title.akb`, scroll bar, music volume. CG and scene modes play `ape_27.ogg` when nothing plays; music mode stops the music it finds. Scroll bar arrows scroll one row on press, not again while held.
 - Modes fade in from black and out to black: 12 steps of the 20 ms tick (240 ms); input waits for the fade. The title menu fades out with the screen.
 - Arrow keys move the pointer to the middle of another button by each screen's own table (a key from no button goes to the first cell); Enter clicks. On a full-screen picture, left and right walk back and forth.
@@ -150,6 +152,8 @@ Addresses in `apeiria.exe` of the build above. The code itself does not name the
 | CG entry grid: page, picture, next, previous | 0x448420, 0x448c00, 0x448ea0, 0x4491a0 |
 | Completions; mode buttons open | 0x46eea0, 0x46f050, 0x46f110; 0x46ee30 |
 | Scene mode: open, page, buttons, click, slide show | 0x4593a0, 0x459dc0, 0x459ae0, 0x459470, 0x45a410 |
+| Yes/no dialog: made, drawn, item drawn; question rows | 0x4513d0, 0x451a00; 0x5299d0 |
+| Back to the title or the scene list (dialog, then the scene list's end or the title) | 0x4b5260 |
 | Scene bytes, slide show lengths | 0x56e8b0, 0x5299f0 |
 | Music mode: open, list, scroll bar, play, volume | 0x469740, 0x46ad60, 0x46b1d0, 0x46a490, 0x46aa70 |
 | Extras arrow keys (up, down, left, right): CG mode, CG entry grid, scene mode, music mode | 0x444ca0.., 0x447d00.., 0x459770.., 0x469f10.. (+0x50..+0x5c of each screen's vtable) |
