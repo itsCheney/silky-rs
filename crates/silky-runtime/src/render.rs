@@ -1607,8 +1607,16 @@ impl Renderer {
                 if let (Title::Doujin, Some(name), Some(tr)) =
                     (self.title, &scene.speaker_name, &self.text)
                 {
-                    use crate::games::doujin::window::{NAME_BASELINE, NAME_LEFT};
-                    self.draw_edged(tr, &mut canvas, name, NAME_LEFT, NAME_BASELINE);
+                    use crate::games::doujin::window::{NAME_BASELINE, NAME_LEFT, NAME_SIZE};
+                    let white = [255, 255, 255, 255];
+                    let (x, y, z) = (NAME_LEFT, NAME_BASELINE, NAME_SIZE);
+                    match self.text_layout.edge {
+                        TextEdge::Soft => tr.draw_line(&mut canvas, name, x, y, z, white),
+                        TextEdge::Drop => tr.draw_dropped(&mut canvas, name, x, y, z, white),
+                        TextEdge::Outline => {
+                            tr.draw_bold_outlined(&mut canvas, name, x, y, z, white)
+                        }
+                    }
                 }
             }
         }

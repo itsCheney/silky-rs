@@ -224,5 +224,8 @@ pub(crate) fn nothing_to_do(class: i32, sub: i32) -> bool {
         (2, 1) | (10, 0 | 1) | (24, 0 | 2) | (26, 2..=4) | (1, 0)
             // Its own backlog: size, clear, commit of the entry.
             | (22, 0..=2)
+            // Sprite.5 once, after the help picture is loaded: a rectangle
+            // copy between layers, the picture is shown whole anyway.
+            | (19, 5)
     )
 }

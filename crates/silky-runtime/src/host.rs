@@ -1281,13 +1281,20 @@ impl Host for Runtime {
                         return Ok(Flow::Continue);
                     }
                 }
+                // 先輩が私の妄想にドージンする passes the text itself:
+                // MesWnd.3 (text, -1, 1).
+                if class == MESWND && sub == 3 && self.pending_text.is_none() {
+                    if let Some(Value::Str(_)) = args.first() {
+                        self.pending_text = args.first().and_then(Value::as_str).map(String::from);
+                    }
+                }
                 if class == MESWND && sub == 3 {
                     if let Some(text) = self.pending_text.take() {
                         // 同級生 Remake gives no index: its text call keeps
                         // the line id.
                         let index = match args.first() {
+                            Some(Value::Str(_)) | None => self.last_text.unwrap_or(0),
                             Some(v) => v.int().max(0) as usize,
-                            None => self.last_text.unwrap_or(0),
                         };
                         self.scene.text = Some(text);
                         if self.message_script.is_empty() {

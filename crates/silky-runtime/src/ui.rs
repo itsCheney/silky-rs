@@ -706,6 +706,8 @@ struct SheetTitle {
     /// What the title call returns for an entry, where the game numbers
     /// them its own way.
     result: Option<fn(usize) -> Option<i32>>,
+    /// How long a page change cross-fades, in milliseconds (0: it cuts).
+    fade_ms: u64,
 }
 
 /// One entry of a [`SheetTitle`].
@@ -790,6 +792,7 @@ impl SheetTitle {
             localized: true,
             unlocks: &[],
             result: None,
+            fade_ms: 0,
         })
     }
 
@@ -836,6 +839,7 @@ impl SheetTitle {
             localized: false,
             unlocks: &title::APEIRIA_UNLOCK,
             result: None,
+            fade_ms: 0,
         })
     }
 
@@ -944,6 +948,7 @@ impl SheetTitle {
             localized: false,
             unlocks: &title::NANAIRO_UNLOCK,
             result: None,
+            fade_ms: 0,
         })
     }
 
@@ -978,6 +983,7 @@ impl SheetTitle {
             localized: true,
             unlocks: &d::UNLOCKS,
             result: Some(d::result),
+            fade_ms: d::FADE_MS,
         })
     }
 
@@ -996,19 +1002,14 @@ impl SheetTitle {
             .and_then(|c| c.entry.map(Button::Title))
     }
 
-    fn draw(
+    fn draw_page(
         &self,
         canvas: &mut Canvas,
-        assets: &mut Assets,
+        sheet: &std::sync::Arc<silky_format::akb::Image>,
         ui: &Ui,
         extras: bool,
-        language: Language,
-    ) -> Result<()> {
-        let sheet = if self.localized {
-            assets.localized_image(self.sheet, language)?
-        } else {
-            assets.image(self.sheet)?
-        };
+        opacity: u8,
+    ) {
         for c in self.entries(extras) {
             let state = match c.entry {
                 Some(e) => {
@@ -1022,7 +1023,33 @@ impl SheetTitle {
             };
             let (sx, sy) = c.src;
             let part = (sx, sy + c.row * state, c.size.0, c.size.1);
-            canvas.draw_part(&sheet, part, c.dst.0, c.dst.1, false, 255);
+            canvas.draw_part(&sheet, part, c.dst.0, c.dst.1, false, opacity);
+        }
+    }
+
+    fn draw(
+        &self,
+        canvas: &mut Canvas,
+        assets: &mut Assets,
+        ui: &Ui,
+        extras: bool,
+        language: Language,
+    ) -> Result<()> {
+        let sheet = if self.localized {
+            assets.localized_image(self.sheet, language)?
+        } else {
+            assets.image(self.sheet)?
+        };
+        // A page change fades the old buttons out as the new ones come in.
+        let fade = (ui.title_shown > ui.title_opened && self.fade_ms > 0)
+            .then(|| ui.clock.saturating_sub(ui.title_shown))
+            .filter(|&ms| ms < self.fade_ms);
+        let alpha = |f: u64| (f * 255 / self.fade_ms.max(1)) as u8;
+        if let Some(ms) = fade {
+            self.draw_page(canvas, &sheet, ui, !extras, 255 - alpha(ms));
+            self.draw_page(canvas, &sheet, ui, extras, alpha(ms));
+        } else {
+            self.draw_page(canvas, &sheet, ui, extras, 255);
         }
         Ok(())
     }
@@ -2340,6 +2367,13 @@ impl Layout {
         text_shown: bool,
         text: Option<&TextRenderer>,
     ) -> Result<()> {
+        // 先輩が私の妄想にドージンする: skipping covers the whole screen
+        // with one picture.
+        if let (true, true, true, None) = (self.doujin.is_some(), ui.skip, text_shown, ui.title) {
+            let skip = assets.image(crate::games::doujin::window::SKIP_PICTURE)?;
+            canvas.draw(&skip, 0, 0, false);
+            return Ok(());
+        }
         // きまぐれテンプテーション: notices over the scene.
         if let Some(n) = &ui.k1_notices {
             n.draw(canvas, assets, text)?;

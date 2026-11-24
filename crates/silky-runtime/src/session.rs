@@ -4764,6 +4764,14 @@ impl Session {
             self.frame = None;
             return Ok(true);
         }
+        if self.ui.title.is_some()
+            && self.ui.title_shown > self.ui.title_opened
+            && self.layout.is_doujin()
+            && before < self.ui.title_shown + crate::games::doujin::title::FADE_MS
+        {
+            self.frame = None;
+            return Ok(true);
+        }
         let animating = self.ui.waiting && self.state == State::Text && !self.ui.window_hidden;
         if animating && before / 100 != self.ui.clock / 100 {
             self.frame = None;

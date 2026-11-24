@@ -13,6 +13,9 @@ use crate::ui::title;
 /// Height of a cell and distance between its state rows.
 pub const ROW: u32 = 42;
 
+/// A page change cross-fades the two button sets over 24 ticks.
+pub const FADE_MS: u64 = 400;
+
 /// Extras entry that opens the doujinshi (the first button of the page).
 pub const BODY_TOUCH: usize = title::BODY_TOUCH;
 

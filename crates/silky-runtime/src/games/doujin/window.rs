@@ -45,23 +45,27 @@ const LOCK_OFF: u32 = 929;
 /// テンプテーション2 does.
 const DROP: i32 = 40;
 
+/// The full-screen picture shown while skipping.
+pub const SKIP_PICTURE: &str = "skip.akb";
+
 /// The click-wait mark: ten 44 pixel frames down the sheet from (504,
 /// 660), shown 174 below the window top at x = 1021.
 const WAIT_ORIGIN: (u32, u32) = (504, 660);
 const WAIT_CELL: u32 = 44;
 const WAIT_FRAMES: u64 = 10;
 const WAIT_AT: (i32, i32) = (1021, TOP + 174);
-const WAIT_FRAME_MS: u64 = 80;
+const WAIT_FRAME_MS: u64 = 650;
 
 /// Left of the text, and the width of a line (33 cells of 28 pixels and a
 /// little over).
 pub const TEXT_LEFT: f32 = 180.0;
 pub const TEXT_WIDTH: f32 = 930.0;
 
-/// The speaker's name goes on a 600 x 42 layer at the top of the window,
-/// from the left of the text.
-pub const NAME_LEFT: f32 = TEXT_LEFT;
-pub const NAME_BASELINE: f32 = TOP as f32 + 40.0;
+/// The speaker's name is 28 pixels tall, on a layer 178 across and 27 down
+/// from the window's corner.
+pub const NAME_LEFT: f32 = 178.0;
+pub const NAME_BASELINE: f32 = TOP as f32 + 51.0;
+pub const NAME_SIZE: f32 = 28.0;
 
 /// Portrait windows: the body picture is shrunk into a 1024 pixel layer
 /// that shows at 40 % (a 2048 pixel picture ends at a fifth of its size),
@@ -120,10 +124,8 @@ impl Bar {
 
     /// How far a button sits below its place.
     fn drop(id: i32, ui: &Ui) -> i32 {
-        match id {
-            bar::HIDE | bar::PIN => 0,
-            _ => ui.bar_drop.min(DROP),
-        }
+        let _ = id;
+        ui.bar_drop.min(DROP)
     }
 
     pub fn hit(&self, ui: &Ui, x: i32, y: i32) -> Option<Button> {
