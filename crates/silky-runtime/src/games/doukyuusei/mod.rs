@@ -12,6 +12,7 @@ pub mod comment;
 pub mod config;
 mod flag_data;
 pub mod flaglist;
+mod flag_clock;
 pub mod hours;
 pub mod intro;
 mod intro_data;

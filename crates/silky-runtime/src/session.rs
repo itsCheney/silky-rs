@@ -3585,6 +3585,7 @@ impl Session {
             words: &self.vm.words,
             date: g(crate::games::doukyuusei::plate::DATE),
             cash: g(crate::games::doukyuusei::plate::MONEY),
+            time: g(crate::games::doukyuusei::plate::TIME),
         };
         // The notice comes once, the first time.
         let notice = self.vm.var_b(flaglist::NOTICE_SEEN) == 0;

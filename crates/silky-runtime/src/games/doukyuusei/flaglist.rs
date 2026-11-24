@@ -25,6 +25,7 @@ use std::sync::Arc;
 
 use silky_format::akb::Image;
 
+use super::flag_clock::Clock;
 use super::flag_data::GIRLS;
 use super::plate::{DATE, MONEY, TIME};
 use super::system::{ids as sys_ids, side, System};
@@ -179,6 +180,8 @@ pub struct Env<'a> {
     pub date: i32,
     /// In hundreds of yen.
     pub cash: i32,
+    /// Hours × 100 + minutes.
+    pub time: i32,
 }
 
 /// The text line that says the cash is not enough.
@@ -361,14 +364,17 @@ pub fn records(girl: usize, env: &Env) -> Vec<Record> {
         out.insert(at, rec);
         done.insert(at, is_done);
     }
+    // Each waiting event in turn is fitted to now, from where the hero is
+    // and where the walk to the event before left him.
+    let mut clock = Clock {
+        stage: byte(STAGE_AT as u16) as i32,
+        sub: byte(SUB_AT as u16) as i32,
+        time: env.time,
+        date: env.date,
+        cash: env.cash,
+    };
     for (r, &is_done) in out.iter_mut().zip(&done) {
-        if is_done {
-            continue;
-        }
-        if r.state == 0 && r.cost > env.cash {
-            r.state = 2;
-            r.reason = NO_CASH;
-        } else if r.state == 0 && r.d1 != -1 && env.date > r.d1 {
+        if !is_done && r.state == 0 && clock.fit(r, NO_CASH) {
             r.state = 2;
         }
     }
@@ -1196,6 +1202,7 @@ mod tests {
             words,
             date,
             cash: 500,
+            time: 800,
         }
     }
 
@@ -1321,9 +1328,38 @@ mod tests {
         assert_eq!((r[6].state, r[6].reason), (2, 306));
         e.cash = 500;
         e.date = 825;
-        // Events whose window ended are out of reach.
+        // Events whose window ended are out of reach; the trip has no end
+        // day, which makes it its start day only.
         let r = records(0, &e);
-        assert_eq!((r[5].state, r[6].state), (2, 0));
+        assert_eq!((r[5].state, r[6].state), (2, 2));
+        // On its day: the walks to the events before it (the pool and the
+        // park from home) and the trip itself bring the hero there at
+        // 10:20, inside its window.
+        e.date = 824;
+        let r = records(0, &e);
+        assert_eq!((r[6].state, r[6].d0, r[6].t0), (0, 824, 1020));
+        // Too late for it that day.
+        e.time = 1000;
+        let r = records(0, &e);
+        assert_eq!(r[6].state, 2);
+    }
+
+    #[test]
+    fn open_windows_move_to_now() {
+        let mut bytes = vec![0u8; 9000];
+        bytes[UNLOCKED] = 1;
+        let w = vec![0u16; 10];
+        let mut e = env(&bytes, &w, 815);
+        e.time = 1400;
+        let r = records(0, &e);
+        // The pool, fifteen minutes from home: today at that time.
+        assert_eq!((r[0].d0, r[0].t0, r[0].state), (815, 1415, 0));
+        // Too late today: tomorrow at its start time.
+        e.time = 1750;
+        let r = records(0, &e);
+        assert_eq!((r[0].d0, r[0].t0), (816, 830));
+        // Not yet open: as it is.
+        assert_eq!((r[7].d0, r[7].t0), (827, 1800));
     }
 
     #[test]
