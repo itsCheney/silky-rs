@@ -46,6 +46,18 @@ Measured under Wine: the place and pitch of the message text and the place of th
 - The scripts name the picture (`14.10`) and its layers in slot order (`14.1`). A name is kept only if it begins with `H`. When the scene is committed, the combination is looked up in a table of 493 rows. A match sets byte 3200 + row, and also bytes 3001 and 3002. The CG mode reads these bytes.
 - Names are compared without case and without `.akb`.
 
+### Event pictures and effect pictures
+
+The effects are sprites of the shared effect stage: keyframes of fades, zooms and turns stepped once a frame (1/60 s). Where a call makes the script wait, it waits as long as the original's keys last. Times are scaled by `/Config/DisplayEffect/Speed` (half at 1, almost nothing at 2), as for the other transitions. With `/Config/SceneSkip` at 1 these calls do nothing. Effects are not saved; the clean up calls, the end of a chapter and the title menu take them away.
+
+- `Game.22.1` puts up `kirara.akb`, clear. `22.2` makes it flash out: 16 frames, opacity 255 to 0 while it grows to 1.2 times about (640, 360); the script waits.
+- `Game.1001.0` grows the picture on screen to 1.2 times over 16 frames (the script waits), then fades `HG091010_h05_eff.akb` in, holds it 24 frames and starts again, for ever. `1001.1` fades the effect and the enlarged picture out over 24 frames (the script waits) and ends the effect. The fade in's length and the zoom's centre are guesses (see below).
+- `Game.1002.0(name, frames)` fades the scene movie in over `frames` frames and the script waits; `1002.1(frames)` fades it out and stops it. Movies are not decoded: the picture of the same name stands in when the game has one (`HG070502.akb`, `HG030603.akb`), otherwise nothing is drawn and only the time passes. `1002.3` and `1002.4` are the same pair for the effect movies whose opacity comes from the movie (`HG011701.mov`); they draw nothing.
+- `Game.1003.0(name, frames)` fades the effect picture (`HG091013_eff.akb`) in over `frames` frames and the script waits; it stays. `1003.1(frames)` fades it out and releases it.
+- `Game.1005.0` fades `HG080403_eff.akb` in over 64 frames, then the script waits one round of its slow pulse (24 frames held, 96 down, 80 up, 200 in all); the pulse goes on for ever. `1005.1` takes it away at once.
+- `Game.1006.3` (and `.13`, the extras version) shows a figure picture (`HG090202_h01.akb`) and a picture of lines (`HG090203.akb`). The lines fade in and grow to twice their size over 8 frames (`.3` only), then turn 30 degrees one way and back and the other way and back, 12 frames a step, for ever. `1006.20` shows a beam of light (`HG090205.akb`) with a figure picture (`HG090205_h02.akb`) over it that fades from 52 to 169 and back over 128 frames each way. Any call of `Game.1006` first takes away what the last one showed. `1006.100` and the other clean up calls (`1001.3`, `1002.2`, `1003.2`, `1005.2`) take away their effect.
+- `Game.23.0(from, to, _)` moves the picture in sprite 2, which is wider than the screen (2100 pixels, 820 more), sideways one pixel a frame from window position `from` to `to`. A quarter as many steps at speed 1, none at speed 2. The script waits (about 13 s).
+
 ### Other commands carried out
 
 `Game.19` fills byte flags, `Game.26` ends the message window before the next script, `Game.27` and `Game.10` start up, `Game.22.0` registers the picture shown. See [game-commands.md](../game-commands.md#なないろリンカネーション).
@@ -54,9 +66,11 @@ Measured under Wine: the place and pitch of the message text and the place of th
 
 - Calendar screen (`Game.39`, shown at date changes): the script goes on at once.
 - Ending overlay (`Game.50`): the script goes on at once.
-- Event pictures and scene movies (`Game.1001` to `1009`): the stop and clean up calls are accepted; nothing is started.
-- Staff roll (`Game.34`) and the kirara layer (`Game.22.1`, `22.2`) are reported.
-- `Game.3`, `17`, `23` and `40` are reported.
+- Scene movies are not decoded (`Game.1002`): a still stands in or nothing is drawn. The movie laid over the picture by `Game.1001.0` is left out.
+- Not read far enough to guess the numbers: the fade in of `1001.0` (24 frames used), its zoom centre (the screen's middle used), the low point of the `1005` pulse (half used), what the `1006.3` figure and lines do exactly (only the lines turn, about the middle of the screen), whether the `1006.20` pulse repeats (it does here) and which way `Game.23.0` moves (from the first value to the second). Effects in progress are not saved.
+- `Game.1004` and `1007` to `1009` are accepted and draw nothing. `Game.1006` subs 0 to 2 and 4 to 9 (and 10 to 12, 14, 18, 19 of the extras) are reported; they only take away what the last call showed.
+- Staff roll (`Game.34`) is reported.
+- `Game.3`, `17` and `40` are reported.
 - `Game.30` to `32` use the shared extras screens, not the game's own sheets.
 - Standing character calls 6, 8 and 11 to 15 (side, effects, flags, motion) are accepted and not drawn. The flag of `13.5` is not understood.
 - Text line length and the click-wait mark's animation are not measured.
@@ -76,7 +90,15 @@ Measured under Wine: the place and pitch of the message text and the place of th
 | `22.0` | Register the picture shown |
 | `26` | End of chapter |
 | `27` | Message window start up |
-| `39`, `50`, `1001` to `1009` | Accepted, nothing drawn |
+| `22.1`, `22.2` | Sparkle picture: put up, flash out |
+| `23.0(from, to, _)` | Sideways scroll of the picture in sprite 2 |
+| `1001.0`, `1001.1` | Event picture zoom with an effect picture on top; end |
+| `1002.0(name, frames)`, `1002.1(frames)`, `1002.3`, `1002.4` | Scene movie fade in and out (a still stands in) |
+| `1003.0(name, frames)`, `1003.1(frames)` | Effect picture fade in and out |
+| `1005.0`, `1005.1` | Effect picture with a slow pulse; end |
+| `1006.3`, `1006.13`, `1006.20`, `1006.100` | Event animator: swaying lines, glowing figure; clean up |
+| `1001.3`, `1002.2`, `1003.2`, `1005.2` | Clean up: take the effect away |
+| `39`, `50`, `1004`, `1007` to `1009` | Accepted, nothing drawn |
 
 Calls that return a value, read from the executable: 18, 30 to 32 and 34.
 
@@ -95,7 +117,11 @@ Addresses in `nanairo.exe` as linked (image base 0x400000). The code itself does
 | Speaker name (`Game.15`) | 0x46f830 |
 | CG registry: handler | 0x46f3a0 |
 | CG table (493 rows, flags 3200 + n) | 0x533cf0 |
-| `Game.22`: handler | 0x46fa10 |
+| `Game.22`: handler; workers of subs 1 and 2 | 0x46fa10; 0x46e380, 0x46e4f0 |
+| `Game.23` scroll: handler | 0x4734d0 |
+| `/Config/SceneSkip` read; `/Config/DisplayEffect/Speed` read | 0x474ac0; 0x509390 |
+| Movie player: open, stop | 0x42a1e0, 0x42b430 |
+| Event animator (`Game.1006`): move loop helper | 0x44ca50 |
 | `Game.18` handler; title object vtable; its slot 0xb4 reads byte N | 0x46faa0; 0x508e30; 0x487560 |
 | Title: buttons drawn, layers placed | 0x46d050, 0x46c940 |
 | `Game.19` fill | 0x473430 |

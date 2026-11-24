@@ -150,7 +150,7 @@ impl Scene {
     /// the screen's top left.
     pub fn layer_offset(&self, layer: i32) -> (i32, i32) {
         match &self.pan {
-            Some(p) if layer == crate::games::doukyuusei::pan::LAYER => p.shown(),
+            Some(p) if layer == p.layer => p.shown(),
             _ => self.layer_view.get(&layer).copied().unwrap_or((0, 0)),
         }
     }

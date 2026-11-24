@@ -30,8 +30,15 @@ const INIT: i32 = 27;
 impl Runtime {
     /// This game's own commands. `None` for the others.
     pub(crate) fn nanairo_game(&mut self, vm: &mut Vm, c: &Call) -> Option<silky_vm::Result<Flow>> {
+        // Event pictures, effect pictures and scene movies.
+        if matches!(c.command, 22 | 23 | 1001..=1006) && !(c.command == 22 && c.sub == 0) {
+            return self.nanairo_effects(c);
+        }
         match c.command {
-            TITLE => self.wait_for(Pause::Title),
+            TITLE => {
+                crate::games::nanairo::effects::clear_all(&mut self.scene.effects);
+                self.wait_for(Pause::Title)
+            }
             SPEAKER => {
                 self.scene.speaker_name = c.str(0);
                 self.done()
@@ -58,7 +65,9 @@ impl Runtime {
                 _ => None,
             },
             CHAPTER_END => {
-                // Ends the message window before the next script.
+                // Ends the message window before the next script; the
+                // effect pictures do not go on into it.
+                crate::games::nanairo::effects::clear_all(&mut self.scene.effects);
                 self.scene.text = None;
                 self.scene.speaker_name = None;
                 self.done()
@@ -72,12 +81,6 @@ impl Runtime {
             // The calendar screen of a date change and the ending's
             // overlay are not drawn here; the script goes on at once.
             39 | 50 => self.done(),
-            // Scene header cleanup: stop the H scene movie, its effect
-            // layers and animation (nothing of them is started here), and
-            // the start up resets.
-            1001 if c.sub == 3 => self.done(),
-            1002 | 1003 | 1005 if c.sub == 2 => self.done(),
-            1006 if c.sub == 100 => self.done(),
             1007..=1009 => self.done(),
             _ => None,
         }

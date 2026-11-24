@@ -5,6 +5,7 @@
 pub(crate) mod cg;
 mod cg_table;
 pub(crate) mod commands;
+pub(crate) mod effects;
 pub(crate) mod stage;
 pub(crate) mod window;
 

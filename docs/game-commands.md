@@ -126,7 +126,7 @@ Commands of ふゆから、くるる。 general enough to try on a game not know
 
 ## なないろリンカネーション
 
-`games/nanairo/commands.rs`. The commands not listed here or in the common set are reported. Those that return a value were read from the executable: 18, 30 to 32 and 34. 34 is not carried out yet. See [games/nanairo.md](games/nanairo.md).
+`games/nanairo/commands.rs` and `effects.rs`. The commands not listed here or in the common set are reported. Those that return a value were read from the executable: 18, 30 to 32 and 34. 34 is not carried out yet. See [games/nanairo.md](games/nanairo.md).
 
 | Call | Returns | Does | Source |
 | --- | --- | --- | --- |
@@ -148,7 +148,16 @@ Commands of ふゆから、くるる。 general enough to try on a game not know
 | `22.0` | | Register the picture shown | Read |
 | `26` | | End of chapter: empties the message window | Read |
 | `27` | | Message window start up | Read |
-| `39`, `50`, `1001.3`, `1002.2`, `1003.2`, `1005.2`, `1006.100`, `1007` to `1009` | | Accepted, nothing drawn or started | Read |
+| `22.1`, `22.2` | | Sparkle picture (`kirara.akb`): put up clear; flash out over 16 frames, growing to 1.2 times about (640, 360); the script waits | Read |
+| `23.0(from, to, _)` | | Moves the picture in sprite 2 sideways a pixel a frame from window position `from` to `to`; the script waits. The direction is assumed | Read |
+| `1001.0`, `1001.1` | | Event picture: grows to 1.2 times over 16 frames, an effect picture fades in and repeats; the end fades both out over 24 frames. Both wait | Read |
+| `1002.0(name, frames)`, `1002.1(frames)` | | Scene movie fades in and out, the script waits. Movies are not decoded; the picture of the same name stands in | Read |
+| `1002.3(name, frames)`, `1002.4(frames)` | | The same for an effect movie; nothing is drawn, the time passes | Read |
+| `1003.0(name, frames)`, `1003.1(frames)` | | Effect picture fades in and out, the script waits | Read |
+| `1005.0`, `1005.1` | | Effect picture fades in over 64 frames, the script waits a round of its pulse; the end removes it | Read |
+| `1006.3`, `1006.13`, `1006.20` | | Event animator: swaying lines over a figure picture; a glowing figure over a beam of light. Not waiting. Other subs are reported | Read |
+| `1001.3`, `1002.2`, `1003.2`, `1005.2`, `1006.100` | | Clean up: take the effect away | Read |
+| `39`, `50`, `1004`, `1007` to `1009` | | Accepted, nothing drawn or started | Read |
 
 ## 先輩が私の妄想にドージンする
 

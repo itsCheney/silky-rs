@@ -21,6 +21,8 @@ pub const LAYER: i32 = 1;
 /// A pan that is running (the script waits for it).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pan {
+    /// The sprite layer whose picture is moved.
+    pub layer: i32,
     pub from: (i32, i32),
     pub to: (i32, i32),
     pub steps: i32,
@@ -37,6 +39,7 @@ impl Pan {
         let step = step.max(1) * if fast { 4 } else { 1 };
         let dist = (end_x - start_x).abs().max((end_y - start_y).abs());
         Some(Pan {
+            layer: LAYER,
             from: (start_x, start_y),
             to: (end_x, end_y),
             steps: dist / step,
