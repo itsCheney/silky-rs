@@ -26,6 +26,21 @@ pub const COLOUR: [u32; 3] = [19, 70, 133];
 pub const ALPHA: u32 = 50;
 pub const SCALE: u32 = 268;
 
+/// Left of the text and the first line's baseline (measured under Wine:
+/// glyph rows 618..637), the pen advance of a full-width character, the
+/// line pitch and the line length (not measured yet).
+pub const TEXT_LEFT: f32 = 258.0;
+pub const TEXT_BASELINE: f32 = 637.0;
+pub const TEXT_CELL: f32 = 28.0;
+pub const TEXT_LINE: f32 = 32.0;
+pub const TEXT_WIDTH: f32 = 28.0 * 28.0;
+
+/// The click-wait mark: a 29 by 28 layer at x = 1050, 154 below the window
+/// top. The sheet holds its frames in a row from x = 691; this is the one
+/// it rests on.
+pub const WAIT: (u32, u32, u32, u32) = (807, 461, 29, 28);
+pub const WAIT_AT: (i32, i32) = (1050, TOP + 154);
+
 /// The window buttons: (bar id, click area on screen, sheet cell, cell
 /// size, state row step). State rows are normal, hover, pressed and
 /// disabled.

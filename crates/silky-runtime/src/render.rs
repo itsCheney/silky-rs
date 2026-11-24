@@ -10,7 +10,7 @@ use std::sync::Arc;
 use silky_format::akb::Image;
 
 use crate::assets::{Assets, Language};
-use crate::games::{kimaten1, kimaten2};
+use crate::games::{kimaten1, kimaten2, nanairo};
 use crate::scene::Scene;
 use crate::text::TextRenderer;
 use crate::{screen_size, Result};
@@ -92,7 +92,7 @@ impl TextLayout {
             // letters (854 pixels; the English text under Wine).
             // 同級生 Remake draws its text in bitmap fonts instead (see
             // `games::doukyuusei::window`).
-            Title::Fuyukuru | Title::Unknown | Title::Doukyuusei | Title::Nanairo => Self {
+            Title::Fuyukuru | Title::Unknown | Title::Doukyuusei => Self {
                 left: 282.0,
                 baseline: if language == Language::Japanese {
                     585.0
@@ -120,6 +120,19 @@ impl TextLayout {
                 line: kimaten1::window::TEXT_LINE,
                 size: 24.0,
                 wide_advance: kimaten1::window::TEXT_CELL / 24.0,
+                edge: TextEdge::Outline,
+                cells: true,
+            },
+            // なないろリンカネーション: measured under Wine, 28 pixel cells
+            // from x = 258, the first line's glyphs on rows 618..637 and
+            // lines 32 apart. The line length is not measured yet.
+            Title::Nanairo => Self {
+                left: nanairo::window::TEXT_LEFT,
+                baseline: nanairo::window::TEXT_BASELINE,
+                width: nanairo::window::TEXT_WIDTH,
+                line: nanairo::window::TEXT_LINE,
+                size: 24.0,
+                wide_advance: nanairo::window::TEXT_CELL / 24.0,
                 edge: TextEdge::Outline,
                 cells: true,
             },
@@ -1254,6 +1267,9 @@ impl Renderer {
             canvas.draw_part(&band, part, 0, window::TOP, false, alpha);
             if text {
                 self.draw_text_at(&mut canvas, scene, None, (0, 0));
+                // The click-wait mark beside the buttons.
+                let (x, y) = window::WAIT_AT;
+                canvas.draw_part(&parts, window::WAIT, x, y, false, 255);
             }
         } else if scene.text.is_some() && window && self.title == Title::Kimaten2 {
             self.kimaten2_window(&mut canvas, scene, assets)?;
