@@ -3,8 +3,8 @@
 //! (`Game.995`), the deduction board (994), the notes and explanation
 //! screens (996), the item panel (997), the DNA PC (1014) and the HP
 //! gauges (1015). The copies, the explanation screen, the item panel,
-//! the DNA PC's window and strand and the gauges move as the executable has them;
-//! the board and the notes appear and go at once.
+//! the DNA PC's window and strand, the deduction board and the gauges
+//! move as the executable has them; the notes appear and go at once.
 
 use std::sync::Arc;
 
@@ -18,6 +18,8 @@ pub struct Panels {
     pub swarm: Option<Swarm>,
     /// Picture on the deduction board (994).
     pub board: Option<String>,
+    /// The board opening, closing or changing its picture.
+    pub board_anim: Option<BoardAnim>,
     /// Page of the notes panel, `k01_0N.akb` (996 subs 0 to 3).
     pub notes: Option<i32>,
     /// Picture of the explanation screen, over `kbg.akb` (996 subs 10 to
@@ -86,6 +88,10 @@ impl Panels {
             a.ms += ms;
             moved = true;
         }
+        if let Some(a) = &mut self.board_anim {
+            a.ms += ms;
+            moved = true;
+        }
         if let Some(d) = &mut self.dna {
             let frame = d.ms / TICK_MS;
             d.ms += ms;
@@ -111,6 +117,9 @@ impl Panels {
             a.ms = a.length_ms();
         }
         if let Some(a) = &mut self.system_anim {
+            a.ms = a.length_ms();
+        }
+        if let Some(a) = &mut self.board_anim {
             a.ms = a.length_ms();
         }
         if let Some(b) = &mut self.battle {
@@ -139,6 +148,12 @@ impl Panels {
                 self.item = None;
             }
             self.item_anim = None;
+        }
+        if self.board_anim.as_ref().is_some_and(BoardAnim::done) {
+            if self.board_anim.as_ref().map(|a| a.kind) == Some(BoardKind::Close) {
+                self.board = None;
+            }
+            self.board_anim = None;
         }
         if self.explain_fade.as_ref().is_some_and(|t| t.done()) {
             self.explain = None;
@@ -344,6 +359,129 @@ impl SwarmChange {
 
 /// The deduction board: 1016 x 424 at (132, 15).
 pub const BOARD_AT: (i32, i32) = (132, 15);
+/// The marker that zooms onto a spot of the board (sub 5).
+pub const BOARD_MARKER: &str = "d00_00.akb";
+/// The rule picture the board wipes in through in Casablanca.
+pub const BOARD_RULE: u32 = 1;
+
+/// What the board does while the script waits.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum BoardKind {
+    /// Opens from a line in the middle to its full height (sub 2).
+    #[default]
+    Open,
+    /// Closes to a line in the middle (sub 3).
+    Close,
+    /// The new picture fades in over the old (sub 4, Apeiria).
+    Fade,
+    /// The new picture wipes in over the old through this rule (sub 4,
+    /// Casablanca).
+    Wipe(u32),
+    /// A marker zooms from double size onto this spot while the new
+    /// picture is already there (sub 5).
+    Marker(i32, i32),
+}
+
+/// The deduction board opening, closing or changing its picture: 24
+/// frames, or 12 for the marker.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct BoardAnim {
+    pub kind: BoardKind,
+    /// The picture it changes from (fade, wipe).
+    pub from: Option<String>,
+    /// Time since the start.
+    pub ms: u64,
+}
+
+impl BoardAnim {
+    pub fn frames(&self) -> u64 {
+        match self.kind {
+            BoardKind::Marker(..) => 12,
+            _ => 24,
+        }
+    }
+
+    pub fn length_ms(&self) -> u64 {
+        self.frames() * TICK_MS
+    }
+
+    pub fn done(&self) -> bool {
+        self.ms >= self.length_ms()
+    }
+
+    /// How far it is, 0 to 1, by whole frames.
+    pub fn progress(&self) -> f32 {
+        (self.ms / TICK_MS).min(self.frames()) as f32 / self.frames() as f32
+    }
+
+    /// Height factor of the board now (open, close).
+    pub fn height(&self) -> f32 {
+        match self.kind {
+            BoardKind::Open => self.progress(),
+            BoardKind::Close => 1.0 - self.progress(),
+            _ => 1.0,
+        }
+    }
+
+    /// Opacity of the new picture now (fade).
+    pub fn alpha(&self) -> u8 {
+        (255.0 * self.progress()) as u8
+    }
+
+    /// Size factor of the marker now: double, going to its own size.
+    pub fn marker_scale(&self) -> f32 {
+        2.0 - self.progress()
+    }
+}
+
+impl Panels {
+    fn board_start(&mut self, kind: BoardKind, from: Option<String>) -> u64 {
+        let a = BoardAnim { kind, from, ms: 0 };
+        let ms = a.length_ms();
+        self.board_anim = Some(a);
+        ms
+    }
+
+    /// Sub 2: the board opens with this picture. Returns how long the
+    /// script waits (ms).
+    pub fn board_open(&mut self, file: String) -> u64 {
+        self.board = Some(file);
+        self.board_start(BoardKind::Open, None)
+    }
+
+    /// Sub 3: the board closes (nothing if there is none).
+    pub fn board_close(&mut self) -> u64 {
+        if self.board.is_none() {
+            return 0;
+        }
+        self.board_start(BoardKind::Close, None)
+    }
+
+    /// Sub 4: a new picture comes over the old one, fading in
+    /// (Apeiria) or wiping in through rule 1 (Casablanca).
+    pub fn board_change(&mut self, file: String, casablanca: bool) -> u64 {
+        let kind = if casablanca {
+            BoardKind::Wipe(BOARD_RULE)
+        } else {
+            BoardKind::Fade
+        };
+        let from = self.board.replace(file);
+        self.board_start(kind, from)
+    }
+
+    /// Sub 5: a new picture, and a marker zooming onto (x, y).
+    pub fn board_marker(&mut self, at: (i32, i32), file: String) -> u64 {
+        self.board = Some(file);
+        self.board_start(BoardKind::Marker(at.0, at.1), None)
+    }
+
+    /// Subs 0 and 1: no board.
+    pub fn board_clear(&mut self) {
+        self.board = None;
+        self.board_anim = None;
+    }
+}
 /// The notes panel: 958 x 538 at (145, 0).
 pub const NOTES_AT: (i32, i32) = (145, 0);
 /// The explanation screen's frame, drawn under its picture.
@@ -1091,6 +1229,78 @@ mod drain_tests {
         assert_eq!(p.dna.as_mut().unwrap().fade(0), 0);
         p.advance(0);
         assert!(p.dna.is_none());
+    }
+
+    #[test]
+    fn board_opens_and_closes_about_its_middle() {
+        let mut p = Panels::default();
+        // Nothing to close.
+        assert_eq!(p.board_close(), 0);
+        assert!(p.board_anim.is_none());
+        assert_eq!(p.board_open("a.akb".into()), 24 * TICK_MS);
+        let a = p.board_anim.as_ref().unwrap();
+        assert_eq!((a.kind, a.height()), (BoardKind::Open, 0.0));
+        p.advance(6 * TICK_MS);
+        assert_eq!(p.board_anim.as_ref().unwrap().height(), 0.25);
+        p.advance(18 * TICK_MS);
+        assert!(p.board_anim.is_none());
+        assert_eq!(p.board.as_deref(), Some("a.akb"));
+        assert_eq!(p.board_close(), 24 * TICK_MS);
+        p.advance(12 * TICK_MS);
+        assert_eq!(p.board_anim.as_ref().unwrap().height(), 0.5);
+        assert_eq!(p.board.as_deref(), Some("a.akb"));
+        p.finish();
+        assert!(p.board.is_none() && p.board_anim.is_none());
+    }
+
+    #[test]
+    fn board_picture_fades_in_in_apeiria_and_wipes_in_in_casablanca() {
+        for casablanca in [false, true] {
+            let mut p = Panels::default();
+            p.board_open("a.akb".into());
+            p.finish();
+            assert_eq!(p.board_change("b.akb".into(), casablanca), 24 * TICK_MS);
+            let a = p.board_anim.as_ref().unwrap();
+            let kind = if casablanca {
+                BoardKind::Wipe(1)
+            } else {
+                BoardKind::Fade
+            };
+            assert_eq!(a.kind, kind);
+            assert_eq!(a.from.as_deref(), Some("a.akb"));
+            assert_eq!((a.alpha(), a.progress()), (0, 0.0));
+            // The new picture is the board's at once.
+            assert_eq!(p.board.as_deref(), Some("b.akb"));
+            p.advance(12 * TICK_MS);
+            let a = p.board_anim.as_ref().unwrap();
+            assert_eq!((a.alpha(), a.progress()), (127, 0.5));
+            p.advance(12 * TICK_MS);
+            assert!(p.board_anim.is_none());
+            assert_eq!(p.board.as_deref(), Some("b.akb"));
+        }
+    }
+
+    #[test]
+    fn board_marker_zooms_for_12_frames() {
+        let mut p = Panels::default();
+        assert_eq!(p.board_marker((183, 190), "c.akb".into()), 12 * TICK_MS);
+        assert_eq!(p.board.as_deref(), Some("c.akb"));
+        assert_eq!(p.board_anim.as_ref().unwrap().marker_scale(), 2.0);
+        p.advance(6 * TICK_MS);
+        assert_eq!(p.board_anim.as_ref().unwrap().marker_scale(), 1.5);
+        p.advance(6 * TICK_MS);
+        assert!(p.board_anim.is_none());
+        p.board_clear();
+        assert!(p.board.is_none());
+    }
+
+    #[test]
+    fn board_animation_is_kept_with_saves() {
+        let mut p = Panels::default();
+        p.board_change("a.akb".into(), true);
+        let json = serde_json::to_string(&p).unwrap();
+        let back: Panels = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.board_anim, p.board_anim);
     }
 }
 

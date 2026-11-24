@@ -8,7 +8,7 @@ It runs on the Apeiria module. The program is built from the same code as `apeir
 
 Scripts: `FD0101` to `FD4102` (story), `FD_SCENE_01` to `FD_SCENE_14` (scene mode), `MAIN`, `START`, `OMAKE`, `SCMODE`, `FLAGINI`. They are compiled with debug line markers (`dbg.line`, `dbg.call`) between statements, and a message's text is pushed on the line before the call that shows it (`BackLog.3` inside the `main.inc` macro). The VM keeps message text pushed before a debug marker as part of the next engine call; this was added for this game.
 
-The story comes back to a mail choice (沙羅へメールを送る, 七海へメールを送る) after each route; once both are read it goes on to the last chapter. Headless, `silky-run snap --path 0,1` plays both routes and the last chapter to the ending movie and back to the title, with every engine and `Game` call carried out. The first line's frame matches the original's under Wine, and the opening's engine calls match the original's but for one thing: after `MesWnd.3` the original runs a voiced line's name and voice calls (the ones between `BackLog.2` and `BackLog.3`) a second time. That is seen in the trace, not read from the code. The second run repeats the same name and voice at once, so the runtime runs them once.
+The story comes back to a mail choice (沙羅へメールを送る, 七海へメールを送る) after each route; once both are read it goes on to the last chapter. Headless, `silky-run snap --path 0,1` plays both routes and the last chapter to the ending movie and back to the title, with every engine and `Game` call carried out. The first line's frame matches the original's under Wine, and the engine calls of the first 1,829 lines (from `fd0101.mes` into `fd0201.mes`, 13,526 calls) match the original's but for one thing: after `MesWnd.3` the original runs a voiced line's name and voice calls (the ones between `BackLog.2` and `BackLog.3`) a second time. The engine keeps those calls as the line's backlog record: `BackLog.2` starts it, every script instruction run until `BackLog.3` is appended to it, and the backlog runs it again to replay the voice. Where the record is run right after `MesWnd.3` was not found in the code; the trace shows it. It repeats the same name and voice at once, so the runtime runs them once.
 
 ## What differs from Apeiria
 
@@ -16,12 +16,14 @@ The story comes back to a mail choice (沙羅へメールを送る, 七海へメ
 
 Most effects look the same. Many fade-ins became wipes through rule pictures, and the fade-outs stay fades.
 
+- Zoom flash (`Game.1005`): with the scene-skip setting on, the original does nothing at all (no zoom, flash or fade); with it off, the zoom and white flash of Apeiria. The setting is not offered here and reads as off unless a script writes `/Config/SceneSkip`, which the scripts do not.
 - Wipes instead of fade-ins: attack kinds 1 to 5, 13 and 15; spells sub 4 and 9; `Game.1001` subs 1, 3, 14, 15 and 20. Each uses its own rule picture, as the executable does.
 - Attack kind 18 (`Game.998`): a pillar of fire (`attack_17_00.akb`) drops in from above, then wipes out. The script waits until it is gone.
 - Attack kind 14 takes an argument: 0 shows all ten pictures, 1 the first five, 2 the last five.
 - `Game.998` with a sub above 4 does nothing (two calls in the scripts).
 - `Game.13` sub 12 (alpha, time, size, name, slot): a standing character at an opacity.
 - `Game.10` sub 14 is a start-up call with nothing to do.
+- Deduction board (`Game.994`): the same as in Apeiria (sub 2 opens it from a line in the middle, 3 closes it, 5 zooms a marker), except that sub 4 wipes the new picture in through rule 1 over 24 frames where Apeiria fades it in. As in Apeiria the script is taken to wait. The story scripts only close and drop the board at start-up.
 - Conclusions list (`Game.992`): cells are counted from 1, so the cell for value `v` is column (v - 1) / 100, row (v - 1) % 100.
 
 ### Extras
@@ -30,13 +32,11 @@ Most effects look the same. Many fade-ins became wipes through rule pictures, an
 - Scene mode: 14 scenes, 3 x 2 cells a page, 3 pages, seen bytes 3101 to 3114. A scene plays `FD_SCENE_NN.MES`.
 - Music mode: 32 `.wav` tracks in 8 rows; the heard bytes are not in row order. The extras play `casablanca_shortinst.wav`.
 - The scroll bar, the page buttons and the arrow keys follow the new counts. Up from the next arrow of the CG screen goes nowhere, as in the original.
+- Nothing is remembered between openings, in either game. Each time the CG, scene or music screen opens, including when you switch between the three, it starts on the first page (or the top of the music list). The page, scene page and scroll position live only in the screen itself. The one thing the CG screen reads when it opens is a flag in the game's state record with a picture number to start from (the page is that number divided by 16); the scripts never set it, so it never applies.
 
 ## Not done yet
 
-- The deduction board picture (`Game.994` sub 4) shows at once; the original wipes it in (rule 1).
-- `Game.991` sub 3 (unused by the scripts) has a wipe with a rule taken from an argument.
-- The CG page is not restored when the CG screen opens again.
-- The zoom flash reads the scene-skip setting in the original; this is not followed.
+- `Game.991` is not drawn; the scripts only call its sub 1 at start-up. It runs a tall panel (1280 x 3880, over `tbg.akb` or `wbg.akb` as sub 0 says). Its sub 3 (file, rule, frames) wipes a picture in at the top left through rule picture `rule` over `frames` frames, then keeps it in the panel. It takes the same keyframe as the board's wipe, with the rule from the argument. What the panel is for was not found.
 - The staff roll and the ending pictures are scripted and play as other pictures do.
 - The effects are ported from the executable's code but not compared frame by frame with the original.
 
@@ -51,13 +51,15 @@ Addresses in `casablanca.exe` of the build above (image base 0x400000). The code
 | Spells (`Game.1002`) builders for subs 0, 1, 3, 9 | 0x48aa90, 0x48b100, 0x48b9e0, 0x48c4f0 |
 | Zoom flash (`Game.1005`) | 0x4912e0 |
 | Conclusions list (`Game.992`) | 0x455170 |
-| Deduction board (`Game.994`) | 0x455ce0 |
+| Deduction board (`Game.994`): handler, open (sub 2), close (sub 3), new picture (sub 4), marker (sub 5) | 0x48f6a0, 0x4557d0, 0x455a50, 0x455ce0, 0x455fa0 |
+| `Game.991`: handler, wipe in (sub 3) | 0x48ee70, 0x486740 |
 | Notes and explanation screen (`Game.996`) | 0x48f910 |
 | Screen effects (`Game.1001`) subs 1, 3, 14, 15, 20 | 0x482b10, 0x4831b0, 0x4852d0, 0x4854e0, 0x485f80 |
 | Ending picture preload | 0x480c50 |
 | Extras (`Game.30` to `Game.32`) | 0x492280 |
 | Mode open test (bytes 3002 to 3004) | 0x4706f0 |
 | CG mode: page, buttons | 0x4469c0, 0x446650 |
+| CG mode: open (first page) | 0x445cb0 |
 | CG tracker (`Game.12` background), seen check, set by number | 0x447a40, 0x447820, 0x447cd0 |
 | CG entries, pictures (and the copy the seen check reads) | 0x55cc70, 0x55cf30 (0x55f180) |
 | CG entry grid: page, picture, next, previous | 0x449bb0, 0x44a3b0, 0x44a690, 0x44a9a0 |

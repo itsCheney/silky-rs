@@ -34,7 +34,7 @@ With movies on (the starting setting), scripts ask for clothes-change movies (`G
 ### Screen effects
 
 - Shake (`Game.993`): sub 0 sets up, 2 picks one of two tables of eight offsets (sideways only, or both ways, up to 16 pixels), 3 starts, 1 stops. One offset per step (a sixtieth of a second).
-- Zoom flash (`Game.1005`): zoom to 120 %, turn white, fade back over 16 frames (as in ふゆから、くるる。).
+- Zoom flash (`Game.1005`): zoom to 120 %, turn white, fade back over 16 frames (as in ふゆから、くるる。). With the scene-skip setting on the original does nothing here; the setting is not offered, so it reads as off.
 - Attacks and spells play as the executable's keyframe animations (16 ms steps); the script waits while an effect blocks.
   - `Game.998` attacks: kinds 0 to 17 (sub 0) build sprites from the attack sheets with moves, fades, turns, scales and wipes. Bullet streaks, fireball, sword rain, slashes and white flashes use the executable's per-frame code, ported with its random numbers. Sub 1 keeps an attack up until sub 4 takes it down. Kind 14 shows the ev1701 pictures in turn, each drawn into the background as its fade ends, so they stay.
   - `Game.1000`: specks at the top of the screen (subs 0 to 2).
@@ -61,7 +61,11 @@ Top or bottom half of `sld_mini.akb` under the characters; over it a window of h
 ### Pictures over the scene
 
 - Copies of one picture at fixed spots (`Game.995`, the virus swarms; tables for 1, 2, 4, 8, 16, 32 copies, scaled about their centres). Subs 1 and 2 (time, wave, to, from) fade them in from nothing to their opacity, or out, over `time` frames while the script waits. Wave 1 wavers the first copy row by row (from 256 pixels and 20 degrees a row to nothing, or back); scripts never use it.
-- Deduction board at (132, 15) (`Game.994`).
+- Deduction board, 1016 x 424 at (132, 15) (`Game.994`). Sub 0 sets it up empty and sub 1 drops it, both at once. The others take 24 frames (12 for sub 5) and the script waits, like the other panels; no wait call was found in the code, so this is taken from them.
+  - Sub 2 (file) opens it: the picture grows from a line in the middle to its full height. Sub 3 closes it the other way.
+  - Sub 4 (file) puts a new picture over the old one: in Apeiria it fades in, in Casablanca it wipes in through rule 1 (`01.bin`, over the whole screen).
+  - Sub 5 (y, x, file) shows the new picture at once and a marker, `d00_00.akb`, zooms from double size to its own over 12 frames at (x, y) of the screen, then goes.
+  - The original does none of this while the scene-skip setting is on; the setting is not offered here, so it reads as off. Subs 2 to 5 also leave out their animation when an engine check that was not identified says so.
 - Notes panel `k01_0N.akb` at (145, 0) and explanation screen over `kbg.akb` (`Game.996`), the scene with the frame and picture drawn in:
   - Subs 13, 14: a new one fades in over the old over `time` frames while the script waits (sub 13's rule is unused).
   - Sub 15: the new one blinks over the old (after 42 frames fades out over 8, after 128 more back in over 8).
@@ -104,6 +108,7 @@ Seen state is kept across games in byte variables from 3000. A CG bit (one per p
 - While a scene plays (variable H 69 is 1), a right click, Escape or Delete on its text asks 「シーン回想選択に戻りますか？」 instead of the right-click setting. Yes ends the text with result 1, which the scene script takes as the sign to return to the scene list.
 - Yes/no dialogs: the plain box of `dialog_p.akb` at (391, 254) over black at 127 / 255, the question's strip at (460, 301), the yes and no buttons and the "don't show again" box at their `dialog.area` corners.
 - Music mode: 41 tracks in eight slanted rows of `music_title.akb`, scroll bar, music volume. CG and scene modes play `ape_27.ogg` when nothing plays; music mode stops the music it finds. Scroll bar arrows scroll one row on press, not again while held.
+- Nothing is remembered between openings: each time a mode opens (also when switching between modes) it starts on its first page or the top of the list.
 - Modes fade in from black and out to black: 12 steps of the 20 ms tick (240 ms); input waits for the fade. The title menu fades out with the screen.
 - Arrow keys move the pointer to the middle of another button by each screen's own table (a key from no button goes to the first cell); Enter clicks. On a full-screen picture, left and right walk back and forth.
 
@@ -130,7 +135,7 @@ Addresses in `apeiria.exe` of the build above. The code itself does not name the
 | Window portrait: face windows | 0x4625b0 |
 | `Game.12`, `Game.13`, `Game.14` handlers | 0x48c710, 0x48ca40, 0x48d0e0 |
 | Copies of a picture (`Game.995`): handler, set up, show, hide; spot tables | 0x48dad0, 0x487700, 0x487950, 0x487ce0; 0x574c60 (by count through 0x4891b0) |
-| Deduction board (`Game.994`) | 0x48ddf0, 0x453fd0, 0x4544e0, 0x454790 |
+| Deduction board (`Game.994`): handler, open (sub 2), close (sub 3), new picture (sub 4), marker (sub 5) | 0x48ddf0, 0x453fd0, 0x454250, 0x4544e0, 0x454790 |
 | Notes and explanation screen (`Game.996`) | 0x48e060, 0x46d990, 0x46e000, 0x46e170 |
 | Explanation screen: fade in (subs 13, 14), blink (15), pulse (19), fade out (17), into a layer (18) | 0x46e4c0, 0x46e6a0, 0x46e880, 0x46eba0, 0x46e260, 0x46e430 |
 | Wavering picture (`CRasterAnime`): step, draw | 0x46fd50, 0x46ffa0 |

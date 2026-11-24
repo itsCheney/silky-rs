@@ -170,7 +170,9 @@ impl Runtime {
                 self.done()
             }
             // (): the screen zooms to 120% and flashes white, then fades
-            // back (the same steps as ふゆから、くるる。's).
+            // back (the same steps as ふゆから、くるる。's). With the scene
+            // skip setting on there is no zoom, flash or fade at all.
+            FLUSH if c.sub == 0 && self.scene_skip() => self.done(),
             FLUSH if c.sub == 0 => {
                 self.scene.zoom = Some(120);
                 self.then = Some(crate::host::FollowUp::FlushWhite);
@@ -499,13 +501,33 @@ impl Runtime {
     fn panels(&mut self, c: &Call) -> Option<silky_vm::Result<Flow>> {
         let p = &mut self.scene.panels;
         match (c.command, c.sub, c.args.len()) {
-            // The board: 0 sets it up empty, 1 drops it, 3 fades it out.
-            (BOARD, 0 | 1 | 3, 0) => p.board = None,
-            // (file): a picture on the board; 4 wipes to it.
-            (BOARD, 2 | 4, 1) => p.board = c.str(0),
-            // (x, y, file): a marker zooms onto (x, y) of the board, then
-            // the board shows the picture.
-            (BOARD, 5, 3) => p.board = c.str(2),
+            // The board: 0 sets it up empty, 1 drops it.
+            (BOARD, 0 | 1, 0) => p.board_clear(),
+            // (file): the board opens from a line in the middle over 24
+            // frames while the script waits; 3 closes it the same way.
+            (BOARD, 2, 1) => {
+                let ms = p.board_open(c.str(0)?);
+                return self.live_wait(ms);
+            }
+            (BOARD, 3, 0) => {
+                let ms = p.board_close();
+                return self.live_wait(ms);
+            }
+            // (file): a new picture over the old one in 24 frames while
+            // the script waits: a fade in Apeiria, a wipe through rule 1
+            // in Casablanca.
+            (BOARD, 4, 1) => {
+                let casa = self.assets.game().title == silky_format::game::Title::Casablanca;
+                let ms = p.board_change(c.str(0)?, casa);
+                return self.live_wait(ms);
+            }
+            // (y, x, file): the new picture at once, and a marker zooms
+            // onto (x, y) from double size over 12 frames while the
+            // script waits.
+            (BOARD, 5, 3) => {
+                let ms = p.board_marker((c.int(1), c.int(0)), c.str(2)?);
+                return self.live_wait(ms);
+            }
             // (kind): the notes panel; kind 0 is the only one.
             (EXPLAIN, 0, 1) => {}
             (EXPLAIN, 1 | 3, 0) => p.notes = None,

@@ -458,6 +458,12 @@ impl Runtime {
         true
     }
 
+    /// The original's scene skip setting (`/Config/SceneSkip`), off unless
+    /// a script wrote it.
+    pub(crate) fn scene_skip(&self) -> bool {
+        scene_skip_set(&self.xml)
+    }
+
     /// Script the current message is in (lowercase).
     pub fn message_script(&self) -> &str {
         &self.message_script
@@ -1475,5 +1481,25 @@ impl Host for Runtime {
             self.audio.stop_bus(Bus::Voice);
         }
         Ok(Flow::Continue)
+    }
+}
+
+/// Whether the configuration values hold the scene skip setting on.
+fn scene_skip_set(values: &HashMap<String, i32>) -> bool {
+    values.get("/Config/SceneSkip") == Some(&1)
+}
+
+#[cfg(test)]
+mod scene_skip_tests {
+    use super::*;
+
+    #[test]
+    fn scene_skip_is_off_until_written() {
+        let mut values = HashMap::new();
+        assert!(!scene_skip_set(&values));
+        values.insert("/Config/SceneSkip".to_string(), 1);
+        assert!(scene_skip_set(&values));
+        values.insert("/Config/SceneSkip".to_string(), 0);
+        assert!(!scene_skip_set(&values));
     }
 }

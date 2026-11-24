@@ -901,7 +901,7 @@ impl Renderer {
             }
         }
         if let Some(b) = &p.board {
-            canvas.draw(&assets.image(b)?, BOARD_AT.0, BOARD_AT.1, false);
+            self.draw_board(canvas, p, b, assets)?;
         }
         if let Some(n) = p.notes {
             let img = assets.image(&format!("k01_{:02}.akb", n))?;
@@ -1039,6 +1039,77 @@ impl Renderer {
                 Some(Arc::new(m))
             })
             .clone()
+    }
+
+    /// The deduction board (`Game.994`): its picture, opening, closing
+    /// or changing as the script asked.
+    fn draw_board(
+        &mut self,
+        canvas: &mut Canvas,
+        p: &crate::games::apeiria::panels::Panels,
+        name: &str,
+        assets: &mut Assets,
+    ) -> Result<()> {
+        use crate::games::apeiria::panels::{BoardKind, BOARD_AT, BOARD_MARKER};
+        let (bx, by) = BOARD_AT;
+        let img = assets.image(name)?;
+        let whole = (0, 0, img.width, img.height);
+        let Some(a) = &p.board_anim else {
+            canvas.draw(&img, bx, by, false);
+            return Ok(());
+        };
+        match a.kind {
+            BoardKind::Open | BoardKind::Close => {
+                // About the middle row, whole width.
+                let (w, h) = (img.width as f32, img.height as f32);
+                let k = a.height();
+                if k > 0.0 {
+                    let y = by as f32 + h / 2.0 * (1.0 - k);
+                    let corners = [[bx as f32, y], [bx as f32 + w, y], [bx as f32, y + h * k]];
+                    canvas.draw_sprite(Some(&img), whole, corners, [255; 4], false);
+                }
+            }
+            BoardKind::Fade => {
+                if let Some(old) = &a.from {
+                    canvas.draw(&assets.image(old)?, bx, by, false);
+                }
+                let (w, h) = (img.width as f32, img.height as f32);
+                let (x, y) = (bx as f32, by as f32);
+                let corners = [[x, y], [x + w, y], [x, y + h]];
+                canvas.draw_sprite(
+                    Some(&img),
+                    whole,
+                    corners,
+                    [255, 255, 255, a.alpha()],
+                    false,
+                );
+            }
+            BoardKind::Wipe(rule) => {
+                let mut from = canvas.clone();
+                if let Some(old) = &a.from {
+                    from.draw(&assets.image(old)?, bx, by, false);
+                }
+                canvas.draw(&img, bx, by, false);
+                // The rule picture covers the whole screen.
+                let size = (canvas.width, canvas.height);
+                let mask = self.rule_mask(assets, rule, (0, 0), size, canvas);
+                *canvas = Canvas::blend_shared(&from, canvas, a.progress(), mask);
+            }
+            BoardKind::Marker(x, y) => {
+                canvas.draw(&img, bx, by, false);
+                let marker = assets.image(BOARD_MARKER)?;
+                let (w, h) = (marker.width as f32, marker.height as f32);
+                let k = a.marker_scale();
+                let (x0, y0) = (
+                    x as f32 + w / 2.0 * (1.0 - k),
+                    y as f32 + h / 2.0 * (1.0 - k),
+                );
+                let corners = [[x0, y0], [x0 + w * k, y0], [x0, y0 + h * k]];
+                let part = (0, 0, marker.width, marker.height);
+                canvas.draw_sprite(Some(&marker), part, corners, [255; 4], false);
+            }
+        }
+        Ok(())
     }
 
     /// Light specks rising (hologram, αMAIL panel), added to the screen.
