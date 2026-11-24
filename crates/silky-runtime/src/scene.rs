@@ -237,6 +237,9 @@ pub struct Scene {
     /// sub 10), shown while no background picture is loaded.
     #[serde(default)]
     pub town: Option<crate::games::doukyuusei::town::View>,
+    /// 先輩が私の妄想にドージンする: the doujinshi screen (`Game.40`).
+    #[serde(skip)]
+    pub comic: Option<crate::games::doujin::comic::Comic>,
     /// 同級生 Remake: the status plate and menu button are up (see
     /// [`crate::games::doukyuusei::plate`]).
     #[serde(default)]

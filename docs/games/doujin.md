@@ -12,13 +12,14 @@ All scripts decode. Headless, `silky-run snap --path 0` plays from the start to 
 - Engine calls are all carried out, except `MesWnd.3` and `Sprite.5` (once each).
 - Carried out: the title menu (`Game.110`), the speaker name (`Game.11`), the second portrait window (`Game.16` subs 6, 7, 9 and 11), the breath animation (`Game.1006`, from `.brt` files), the pictures that change with the voice line (`Game.1007`, from `.vo` files), the zoom and white flash (1005), the rule wipe (12.8) and the auto save point (14).
 - Accepted with nothing to do: 13.18 (it stops what 13.17 attaches to a standing character), 993 apart from 993.1, 1003, 961.1, 12.7, 10.4, 10.5 and 10.16.
-- Not carried out yet: the doujinshi pages (`Game.40`) and `Game.16` subs 8 and 12. `Game.40` subs 0 and 1 leave a value for the script; the module gives 0 until they are carried out. CG, scene and music modes (`Game.30` to `Game.32`) use the common screens.
+- Carried out: the doujinshi screen (`Game.40`, `comic.rs`): the page picture as the background, the bubbles' words set vertically in 10-pixel cells from the point the script gives (taken from the lettered `do0Na.akb` page where there is one, else drawn with the font), the two round page buttons (`comic.akb`, areas of `DOUJINSHI.AREA`; they return 2 and 3 from a wait), the hot spots of sub 6 and the wait of subs 0 and 1 (0 on a click). `silky-run snap --title 257` plays it headless.
+- Not carried out yet: `Game.16` subs 8 and 12, and of the doujinshi screen the one-by-one appearance of the words, the buttons' hover look and sound, the fade of a hot spot and the code 1 (leave). CG, scene and music modes (`Game.30` to `Game.32`) use the common screens.
 - Movies: the game's movies (`do-jin*.dat`) are ASF files (VC-1 video, WMA Pro sound). The runtime decodes MPEG-1 only, so they are not played yet.
 - Interface: the game's own title menu (`title_p.akb` cells over the areas of `title.area` and `title2.area`, extras page started by `Game.110(1)`), the message window's button bar with its click-wait mark, padlock and tooltips, the speaker name on the left of the text and the two portrait windows (`Game.10` on the left, `Game.16` on the right) are drawn. The window is the shaded band alone (the second, textured block of `message_p.akb` is not drawn), the text starts at x = 180 and the title button shows the home cell. Not measured against the original yet: the name's size and baseline, the click-wait frame time and the bar's show height; the pages of the title do not fade into each other and the full-screen skip picture (`skip.akb`) is not shown.
 
 ## Open items
 
-- Carry out the game's own commands listed above, starting with the doujinshi viewer (`Game.40`).
+- Carry out the game's own commands listed above.
 - Decode the movies (VC-1 and WMA Pro in ASF).
 - Check the title menu, name line, button bar, wait mark and portrait places against the original under Wine; the page fade of the title menu and the skip picture.
 - Carry out `MesWnd.3` and `Sprite.5`.
@@ -45,6 +46,10 @@ Addresses in `doujin.exe` of the build above, as linked. The code itself does no
 | `Game.30` to `Game.32`, CG, scene and music modes | 0x498580 |
 | `Game.35` | 0x499650 |
 | `Game.40`, doujinshi screen | 0x49a140 |
+| Doujinshi object: vtable, start, step (`Game.40.5`), wait (`Game.40.0`) | 0x508eb8, 0x466370, 0x466630, 0x466790 |
+| Doujinshi object: frame update, per-frame update, button draw, click | 0x4669b0, 0x466e90, 0x467130, 0x467330 |
+| Doujinshi object: text typing, finish typing, hot spot animation | 0x467880, 0x467cc0, 0x468430 |
+| Doujinshi bubble texts (strings from `db0001.ogg` to `comic.akb`) | 0x507a50 |
 | `Game.110`, title menu (built by 0x492780) | 0x494e64 |
 | `Game.961` | 0x499820 |
 | `Game.990`, staff roll | 0x495047 |

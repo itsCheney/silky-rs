@@ -27,6 +27,7 @@ silky-run trace <kimaten2 目录> --result 29.110=1 --result 29.42=1,2 --result 
 silky-run snap <游戏目录> --out snaps --font DejaVuSans.ttf --lines 0,10,50
 silky-run snap <游戏目录> --lang 1 --font msyh.ttc --lines 170
 silky-run snap <游戏目录> --lines 99999999 --path 0,1,1   # 把一条路线玩到结局
+silky-run snap <游戏目录> --title 257 --lines 0,20,60   # 先輩が私の妄想にドージンする：从鉴赏页打开同人志
 ```
 
 ```sh

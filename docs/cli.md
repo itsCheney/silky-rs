@@ -27,6 +27,7 @@ silky-run trace <kimaten2 folder> --result 29.110=1 --result 29.42=1,2 --result 
 silky-run snap <game folder> --out snaps --font DejaVuSans.ttf --lines 0,10,50
 silky-run snap <game folder> --lang 1 --font msyh.ttc --lines 170
 silky-run snap <game folder> --lines 99999999 --path 0,1,1   # play a route to its ending
+silky-run snap <game folder> --title 257 --lines 0,20,60   # 先輩が私の妄想にドージンする: the doujinshi from the extras page
 ```
 
 ```sh

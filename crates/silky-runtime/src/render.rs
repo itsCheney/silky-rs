@@ -1493,6 +1493,9 @@ impl Renderer {
                 }
             }
         }
+        if let Some(comic) = &scene.comic {
+            comic.draw(&mut canvas, assets, self.text());
+        }
         if let Some(c) = scene.cover {
             let rgb = [(c >> 16) as u8, (c >> 8) as u8, c as u8, 255];
             canvas.fill(0, 0, canvas.width, canvas.height, rgb);

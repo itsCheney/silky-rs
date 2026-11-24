@@ -4,7 +4,6 @@ use silky_vm::{Flow, Vm};
 
 use crate::games::Call;
 use crate::host::{FollowUp, Pause, Runtime};
-use silky_vm::native::GAME;
 
 /// The doujinshi pages (`DOJIN.MES`).
 const DOUJINSHI: i32 = 40;
@@ -50,13 +49,8 @@ impl Runtime {
                 scene.portrait2_visible = false;
                 self.done()
             }
-            // Not carried out yet, but these subs leave a value for the
-            // script.
-            (DOUJINSHI, 0 | 1) => {
-                self.skip(format!("Game.{}.{}", c.command, c.sub), vm, GAME, c.command);
-                vm.push(0);
-                Some(Ok(Flow::Continue))
-            }
+            // The doujinshi screen.
+            (DOUJINSHI, _) => self.comic_game(vm, c),
             // "breath" (file, mode, dx, dy, frames, rest): a puff of
             // breath drifting over the picture, from the file's start;
             // one replaces the one before and its handle is always 0.

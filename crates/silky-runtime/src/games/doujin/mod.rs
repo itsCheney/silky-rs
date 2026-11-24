@@ -1,4 +1,5 @@
 pub(crate) mod breath;
+pub(crate) mod comic;
 pub(crate) mod commands;
 pub(crate) mod title;
 pub(crate) mod vo;

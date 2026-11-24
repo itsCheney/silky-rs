@@ -91,6 +91,11 @@ enum Command {
         /// comes back to the title (an ending).
         #[arg(long, value_delimiter = ',')]
         path: Vec<usize>,
+        /// Result the title menu returns (default 1, start): 257 on the
+        /// 先輩が私の妄想にドージンする extras page opens the doujinshi, 258 to 260
+        /// the other modes.
+        #[arg(long)]
+        title: Option<i32>,
         /// きまぐれテンプテーション2: buttons to take at the first action
         /// menus, counted from 0, comma separated. Later menus take the
         /// buttons without a pink tick in turn. The first five menus and
@@ -202,6 +207,7 @@ fn main() -> Result<()> {
             font,
             choose,
             path,
+            title: title_choice,
             actions,
             height,
             settle,
@@ -212,6 +218,7 @@ fn main() -> Result<()> {
                 .with_context(|| format!("cannot open game folder {}", game.display()))?;
             let language = pick_language(&silky_runtime::assets::languages(&game), lang)?;
             let picks = Picks {
+                title: title_choice,
                 choose,
                 path,
                 actions,
@@ -349,6 +356,8 @@ fn settled(scene: &silky_runtime::Scene, ms: u64) -> silky_runtime::Scene {
 
 /// What `snap` answers at selections and action menus.
 struct Picks {
+    /// Result of the title menu.
+    title: Option<i32>,
     choose: usize,
     path: Vec<usize>,
     actions: Vec<usize>,
@@ -413,6 +422,7 @@ fn snap(
     }
     let config = Config {
         language,
+        title_choice: picks.title.unwrap_or(1),
         ..Config::default()
     };
     renderer.set_title(game.title);

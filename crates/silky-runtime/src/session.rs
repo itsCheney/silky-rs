@@ -1706,6 +1706,12 @@ impl Session {
             Some(b) if !self.ui.enabled(b) => Ok(()),
             Some(b) => self.press(b),
             None if self.state == State::Text => {
+                use crate::games::doujin::comic::{click, Click};
+                match click(&mut self.rt, &mut self.vm, x, y) {
+                    Click::Used => return Ok(()),
+                    Click::Answered => return self.advance(),
+                    Click::Pass => {}
+                }
                 if self.ui.auto || self.ui.skip {
                     self.ui.auto = false;
                     self.ui.skip = false;
