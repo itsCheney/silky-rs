@@ -70,13 +70,13 @@ pub const OPEN: Status = Status {
     mark: 0,
 };
 
-/// The status of an option from `h[69]` and its mark. In replay mode an
-/// option is clickable only when its mark is 1; gray text is drawn only
-/// when the mark is 0.
+/// The status of an option from `h[69]` and its mark. When `h[69]` is not
+/// 0 an option is clickable only when its mark is 1; its text is gray when
+/// `h[69]` is exactly 1 and the mark is 0.
 pub fn status(mode: i32, mark: u8) -> Status {
     Status {
         clickable: mode == 0 || mark == 1,
-        gray: mode != 0 && mark == 0,
+        gray: mode == 1 && mark == 0,
         mark,
     }
 }
@@ -427,7 +427,8 @@ mod tests {
                 mark: 3
             }
         );
-        // Any non-zero mode counts as replay.
-        assert!(!status(2, 0).clickable && status(2, 0).gray);
+        // Another non-zero value closes options the same way, but only 1
+        // grays the text.
+        assert!(!status(2, 0).clickable && !status(2, 0).gray);
     }
 }
