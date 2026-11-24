@@ -19,6 +19,7 @@ pub mod doukyuusei;
 pub mod fuyukuru;
 pub mod kimaten1;
 pub mod kimaten2;
+pub mod nanairo;
 
 use silky_format::game::{Kind, Title};
 use silky_format::map::MapFile;
@@ -133,6 +134,11 @@ impl Runtime {
         }
         if title == Title::Apeiria {
             if let Some(flow) = self.apeiria_game(vm, &call) {
+                return flow;
+            }
+        }
+        if title == Title::Nanairo {
+            if let Some(flow) = self.nanairo_game(vm, &call) {
                 return flow;
             }
         }

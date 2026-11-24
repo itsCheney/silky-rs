@@ -117,6 +117,16 @@ pub struct Build {
 
 /// Every build checked.
 pub const BUILDS: &[Build] = &[
+    // なないろリンカネーション. Size and SHA-256 not recorded yet: the copy
+    // read was not the file as shipped.
+    Build {
+        exe: "nanairo.exe",
+        version: "1.0.0.2",
+        linked: 1410290840, // 2014-09-09 19:27:20
+        size: 0,
+        sha256: "",
+        profile: &ENGINE_2017,
+    },
     Build {
         exe: "apeiria.exe",
         version: "1.0.3.0",

@@ -82,6 +82,9 @@ pub fn returns_value(title: Title, engine: &Engine, class: i32, sub: i32) -> boo
             // script stack. 44 (sub 4) and 1006 (sub 0) push for one sub
             // only; its module answers those.
             Title::Kimaten1 => matches!(sub, 30..=33 | 41..=43 | 45 | 46 | 110 | 990 | 1009),
+            // なないろリンカネーション: the handlers that push onto the
+            // script stack.
+            Title::Nanairo => matches!(sub, 18 | 30..=32 | 34),
             Title::Kimaten2 => matches!(
                 sub,
                 20 | 24

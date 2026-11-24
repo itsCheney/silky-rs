@@ -1800,7 +1800,12 @@ impl Layout {
                 douk: Some(DoukBar::load(assets)?),
             });
         }
-        let mut bar = area::parse(&assets.data("mes_o.area")?)?;
+        // A game not known yet may have no `mes_o.area`: no buttons then.
+        let mut bar = if assets.exists(silky_format::game::Kind::Data, "mes_o.area") {
+            area::parse(&assets.data("mes_o.area")?)?
+        } else {
+            Vec::new()
+        };
         bar.retain(|a| a.id <= bar::CLOSE);
         for a in &mut bar {
             if a.id == bar::CLOSE {

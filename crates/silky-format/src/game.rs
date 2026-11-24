@@ -108,6 +108,8 @@ pub enum Title {
     Apeiria,
     /// 同級生 Remake.
     Doukyuusei,
+    /// なないろリンカネーション.
+    Nanairo,
     /// A game not known yet: it gets the shared engine and the common
     /// `Game` commands only.
     Unknown,
@@ -122,6 +124,7 @@ impl Title {
             ("apeiria.exe", Title::Apeiria),
             ("fuyukuru.exe", Title::Fuyukuru),
             ("doukyuusei.exe", Title::Doukyuusei),
+            ("nanairo.exe", Title::Nanairo),
         ] {
             if let Some(path) = find_file(root, exe) {
                 return (title, Some(path));
