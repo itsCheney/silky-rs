@@ -8,12 +8,14 @@ use super::areasel::AreaSelect;
 use super::itemsel::{self, ItemSelect};
 use super::map::Map;
 use super::screen::Screen;
-use crate::games::cmd::{PICTURE, SPEAKER, TITLE};
+use crate::audio::Bus;
+use crate::games::cmd::{CHARACTER, PICTURE, SPEAKER, TITLE};
 use crate::host::{Pause, Runtime};
+use silky_format::game::Kind;
 
 /// Commands handled as in the common set. Its other commands are its own;
 /// those not below are reported as not carried out.
-pub const SHARED_COMMANDS: [i32; 3] = [SPEAKER, PICTURE, TITLE];
+pub const SHARED_COMMANDS: [i32; 4] = [SPEAKER, PICTURE, CHARACTER, TITLE];
 
 /// E-mote model of the companion beside the protagonist.
 const EMOTE: i32 = 10;
@@ -30,6 +32,10 @@ const ITEM: i32 = 46;
 const NOTEBOOK_UNLOCKED: usize = 899;
 const TUTORIAL_UNLOCKED: usize = 0xbbf;
 const TUTORIAL_SEEN: usize = 0xbc0;
+/// Voice channels of `Game.961`, apart from the message voices.
+const LONG_VOICE_CHANNELS: i32 = 200;
+/// Frames the string reveal of `Game.1000` runs beyond its own number.
+const STRING_EXTRA_FRAMES: i32 = 64;
 const ITEM_FLAGS: [usize; 5] = itemsel::FLAGS;
 /// The map of the apartment: `(1)` with a back button, `(0)` without.
 const MAP: i32 = 43;
@@ -129,6 +135,81 @@ impl Runtime {
                 }
                 self.done()
             }
+            // Auto save point.
+            14 => {
+                self.auto_save = true;
+                self.done()
+            }
+            // The screen shake, set up as in 景の海のアペイリア's engine.
+            993 => {
+                let scene = &mut self.scene;
+                match sub {
+                    0 => self.quake_mode = 0,
+                    2 => self.quake_mode = args.first().map(Value::int).unwrap_or(0),
+                    3 => scene.quake = Some(if self.quake_mode == 1 { 16 } else { 4 }),
+                    1 => {
+                        scene.quake = None;
+                        scene.shake = (0, 0);
+                    }
+                    _ => return None,
+                }
+                self.done()
+            }
+            // A line of text (a picture strip) wiped in through a rule
+            // mask: (hold, frames, rule, height, width, y). The wipe is
+            // not drawn here; the script waits as long as the original
+            // does, the strip being there from the start.
+            1000 => {
+                let n = |i: usize| args.get(i).map(Value::int).unwrap_or(0);
+                let ms = crate::host::frames_ms(n(1) + STRING_EXTRA_FRAMES) + n(0).max(0) as u32;
+                if ms == 0 {
+                    return self.done();
+                }
+                self.wait_for(Pause::Transition(crate::host::Transition {
+                    ms,
+                    rule: None,
+                    spin: None,
+                    live: true,
+                }))
+            }
+            // The back picture fades in or out over eight frames.
+            999 => {
+                self.handled += 1;
+                Some(Ok(self.transition(8, None)))
+            }
+            // (channel, file) plays a voice that the next message does
+            // not cut; sub 1 (channel) stops it.
+            961 => {
+                match sub {
+                    0 => {
+                        let file = args.get(1).and_then(Value::as_str)?.to_string();
+                        let ch = LONG_VOICE_CHANNELS + args.first().map(Value::int).unwrap_or(0);
+                        if let Err(e) = self.play(Bus::Voice, Kind::Voice, ch, &file) {
+                            return Some(Err(silky_vm::Error::Host(e.to_string())));
+                        }
+                    }
+                    1 => {
+                        let ch = LONG_VOICE_CHANNELS + args.first().map(Value::int).unwrap_or(0);
+                        self.audio.stop(Bus::Voice, ch)
+                    }
+                    _ => return None,
+                }
+                self.done()
+            }
+            1006 if sub == 0 => {
+                vm.push(0);
+                self.done()
+            }
+            1009 => {
+                vm.push(0);
+                self.done()
+            }
+            // Nothing to do here: the handle lists and engine tables
+            // (1006.11, 1010, 1011), the two engine hooks 10008 and 10009,
+            // and 35.2.
+            1006 | 1010 | 1011 | 10008 | 10009 => self.done(),
+            35 if sub == 2 => self.done(),
+            CHARACTER if matches!(sub, 5 | 6 | 8 | 9 | 11 | 12) => self.done(),
             _ => None,
         }
     }
