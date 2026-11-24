@@ -201,8 +201,9 @@ impl Runtime {
     /// 8 moves by (dy, dx, slot), 13 the main timeline to follow, 14 the
     /// `a` timeline, 15 the main timeline, 16 the mouth track of the voice,
     /// 17 the extra timeline alone (slot, extra), 18 pauses the driver, 21
-    /// stops the mouth, 31 clears the mouth tracks' cache. 100 (a white
-    /// flash of a slot) is not handled. False for the calls that are not.
+    /// stops the mouth, 31 clears the mouth tracks' cache. 100 (slot, frames)
+    /// flashes the model the slot had white as it fades out, while the new
+    /// one flashes in. False for the calls that are not.
     pub(crate) fn kimaten1_emotes(&mut self, args: &[Value], sub: i32, vm: &Vm) -> bool {
         let a = &args[..args.len().saturating_sub(1)];
         let n = |i: usize| a.get(i).map(Value::int).unwrap_or(0);
@@ -282,9 +283,10 @@ impl Runtime {
 
     /// `Game.48`, the E-mote CG model: one file, shown over the background.
     /// 0 loads it by name (`hg010200_0` is `hg010200_0.psb`, face 0), 1 sets
-    /// the face (a difference timeline), 15 the main timeline, 2 removes it
-    /// and 3 fades it out over some frames and removes it. The model fades
-    /// in and out in the original; here it appears and goes at once.
+    /// the face (a difference timeline), 15 the main timeline, 2 waits for
+    /// the fade in and 3 fades it out over some frames and removes it, the
+    /// script waiting. A load fades in over 32 frames, and the model it
+    /// replaces stays under it until it is in.
     pub(crate) fn kimaten1_cg(&mut self, args: &[Value], sub: i32) -> bool {
         let a = &args[..args.len().saturating_sub(1)];
         let n = |i: usize| a.get(i).map(Value::int).unwrap_or(0);

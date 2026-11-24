@@ -58,7 +58,7 @@ Commands of ふゆから、くるる。 general enough to try on a game not know
 
 ## きまぐれテンプテーション
 
-`games/kimaten1/commands.rs`. The commands not listed here or in the common set are reported. Those that return a value were read from the executable: 30 to 33, 41, 42, 43, 45, 46, 110, 990 and 1009 always, 44 (sub 4) and 1006 (sub 0) for one sub only. 1001, 1002, 989 and the other subs of 35 are not carried out yet. See [games/kimaten1.md](games/kimaten1.md).
+`games/kimaten1/commands.rs`. The commands not listed here or in the common set are reported. Those that return a value were read from the executable: 30 to 33, 41, 42, 43, 45, 46, 110, 990 and 1009 always, 44 (sub 4) and 1006 (sub 0) for one sub only. The other subs of 35 are not carried out yet. See [games/kimaten1.md](games/kimaten1.md).
 
 | Call | Returns | Does | Source |
 | --- | --- | --- | --- |
@@ -90,13 +90,16 @@ Commands of ふゆから、くるる。 general enough to try on a game not know
 | `45` | option + 1, or 100 | Option list of the registered options | Read |
 | `46` | piece from 1 | Choice of evidence from bytes 224, 231, 212, 213 and 138 | Read |
 | `47.0(card)`, `47.1(first, second)` | | Evidence cards: fade in, stay, fade out | Read |
-| `48.0(file)`, `48.1`, `48.15`, `48.2`, `48.3(frames)` | | E-mote CG model: load, face, main timeline, remove, fade out | Read |
+| `48.0(file)`, `48.1`, `48.15`, `48.2`, `48.3(frames)` | | E-mote CG model: load, face, main timeline, wait for the fade in, fade out and remove | Read |
 | `110(page)` | button | Title menu; argument 1 opens the extras page | Read |
 | `961.0(channel, file)`, `961.1(channel)` | | Long voice that the next message does not cut; stop it | Read |
+| `989` | | Spiral transition; acts only when flag 89 is set, which no script does: nothing to do | Read |
 | `990(true end)` | 1 | Staff roll; 1 as argument after the true ending | Read |
 | `993.0`, `993.2(mode)`, `993.3`, `993.1` | | Screen shake: reset, set the mode, start, stop | Read |
 | `999.0` to `999.3` | | Picture over the screen: fade in, fade out, show, put away | Read |
 | `1000(hold, frames, rule, height, width, y, x)` | | Strip of text wiped in through a rule picture | Read |
+| `1001(type, action)` | | Looping screen effect (soot, darkening pulse, red room with lights, streaks, film); action 0 starts, 1 and 2 stop; type 6 waits | Read |
+| `1002(arg, sub)` | | Text strip, flashes, zoom, flash into a CG, two pictures in turn; the script waits | Read |
 | `1003`, `1006.11`, `1010`, `1011`, `10008`, `10009` | | Set ups the runtime does not need | Read |
 | `1006.0` | 0 | | Read |
 | `1007.0(file)`, `1007.1` | | Changes of models a set time into a voice line (`.vo`); drop what is left | Read |

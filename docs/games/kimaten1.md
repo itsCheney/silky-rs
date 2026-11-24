@@ -59,7 +59,7 @@ The models are the sequel's: `_h0007` with faces 0 to 7 and `_h0813` with faces 
 
 - `Game.10`: the companion beside the message window, at size 0.35 and (-542, 400), fading in over 16 frames. Subs 6, 7, 8, 9, 11, 12, 13, 16 and 17 work as in the sequel. Sub 10 wipes the window's text, 14 takes the whole window away and 15 holds the script for two seconds (the notebook's unlock).
 - `Game.40`: standing models by slot, with x by slot (0, -400, 400) and y from the size, so the feet stay on one line. The sequel's subs apply, plus 17 (the extra timeline alone), 18 (pause the driver), 21 (stop the mouth) and 31 (clear the cache of mouth tracks); sub 16 hands over the mouth track of the voice that just started. Sub 100 flashes a slot white while the old model fades out and the new one fades in.
-- `Game.48`: the one-file CG models of the update, shown over the background (`hg010200_0` is `hg010200_0.psb`). 0 loads one, 1 sets the face, 15 the main timeline, 2 removes it and 3 fades it out. Their place was found by laying the model's first picture over the still picture of the same CG.
+- `Game.48`: the one-file CG models of the update, shown over the background (`hg010200_0` is `hg010200_0.psb`). 0 loads one (fading in over 32 frames), 1 sets the face, 15 the main timeline, 2 waits for the fade in and 3 fades it out and removes it. Their place was found by laying the model's first picture over the still picture of the same CG.
 - Voice-timed models: `Game.1007(file)` reads a `.vo` file, a list of changes made a set time after a voice line starts: a standing model put up or taken away in a slot, or the companion changed, fading over 12 frames (16 for the companion). Records of kind 2 (pictures laid in a layer) are used by no file of the game.
 
 The y origin of a model (350 on screen) was fitted on one screenshot of the game, not read from the executable.
@@ -70,6 +70,9 @@ The y origin of a model (350 on screen) was fitted on one screenshot of the game
 - `Game.999`: a picture laid over the screen. 0 fades in the picture on screen over eight frames, 1 fades it out, 2 shows it at once, 3 puts it away.
 - `Game.993`: screen shake (0 resets, 2 sets the mode, 3 starts, 1 stops).
 - `Game.961`: a long voice on a channel of its own that the next message does not cut; sub 1 stops it.
+- `Game.1001 (type, action)`: a looping screen effect. Action 0 starts it, 1 and 2 stop it. Types 0, 1 and 4 are soot specks drifting up (1 adds a dark haze wiped in through rule 61, 4 uses the other tile). Type 2 is a darkening pulse; 3 adds two waving copies of the screen. Type 5 is a red room with three bobbing lights. Type 6 makes the lights swell, plays a sound and waits. Type 7 is a turned and doubled screen with streaks. Type 8 is an eight-picture film. The effect loops until stopped and the script does not wait, except for type 6. Scene skip turns it off.
+- `Game.1002 (arg)`, the sub on top: 1 a text strip over black; 2 flashes (arg 0 to 3); 3 a zoom from 1.2 to 1.0; 4 a flash, then a CG fades in and becomes the background; 5 the same with eff09; 6 two pictures in turn. All of them make the script wait.
+- `Game.989`: acts only when flag 89 is set. No script sets it, so it does nothing.
 - Nothing to do: `Game.1003`, `1006.11`, `1010`, `1011`, `10008`, `10009`, `35.2`, and the engine calls of the window set up that the game's library makes.
 
 ## Extras
@@ -88,7 +91,7 @@ CG, scene and music modes (`Game.30` to `Game.32`) are tabs of one screen: a pre
 
 ## Not done yet
 
-- `Game.1001` and `Game.1002` (the effect classes: prism, the S0402, S04022, S0405, S0501 and S0501202 scenes, soot, string animation) and `Game.989` (spiral) are reported and not carried out; the story goes on without their pictures.
+- Effects (`Game.1001`, `1002`): which layer they draw over is not known, so fixed depths are used. The red room may hide characters the original keeps visible. The blend modes of the haze, the streaks and the waving copies are not decoded; plain alpha is used. Type 7's turn range and loop point, type 6's light movement and type 8's cycle length are partly guessed. `1002` sub 1 is a plain fade of the text strip, where the original builds it from 255 small pieces. Sub 4 with arg 2 lacks the final copy into the background, and the timings of subs 2, 3 and 6 are partly guessed. `1001` action 2 makes one extra call that is not identified. Random positions cannot match a run of the original, which seeds from a random source; only the order of draws is ported. None of these effects were compared with the original under Wine.
 - Other subs of `Game.35` are reported.
 - The notebook and the map have no fade in or out. The notebook's scroll bar cannot be dragged and the notebook takes no wheel. The unlock-all button of the title's copy works but is not drawn (its place on the sheet is not known). The recording plays its first line only; the original goes on to four more.
 - The skip tutorial (`tutorial.area`, `tutorial01.akb`) was not found among the game files and is left out.
@@ -186,9 +189,15 @@ Addresses in `kimaten.exe` of the build above. The code itself does not name the
 | `Game.1001`, `1002`, `1006`, `1009`, `1010`, `1011` | 0x4985b0, 0x498000, 0x4993f0, 0x499a60, 0x499b50, 0x499d20 |
 | `Game.10008`, `10009`, `989` | 0x49ca40, 0x49c990, 0x499df0 |
 | `Game.1003`, its callee | 0x496a34, 0x4bec70 |
-| Effect classes: soot setup, vtable, create, update, effect random numbers | 0x460060, 0x53a3ec, 0x45ff50, 0x460370, 0x45d040 |
-| Effect classes: S0402, S04022, S0405 | 0x53a2bc, 0x45d950, 0x45dc00, 0x45de90, 0x45dfc0, 0x45ea80, 0x45eec0 |
-| Effect classes: S0501, S0501202, prism, spiral, string animation | 0x53a37c, 0x45f650, 0x53a28c, 0x53a410, 0x53a440, 0x493160 |
+| Effect classes: soot vtable, create, setup, update, spawner, speck setup, speck update | 0x53a3ec, 0x45ff50, 0x460060, 0x460370, 0x4603e0, 0x45fc40, 0x45fe70 |
+| Effect classes: random numbers (rejection sampling) | 0x45d040 |
+| Effect classes: S0402 vtable, setup, update, wave | 0x53a2bc, 0x45d950, 0x45dad0, 0x45dc00 |
+| Effect classes: S04022 constructor, setup, update | 0x45de90, 0x45dfc0, 0x45e590 |
+| Effect classes: S0405 setup, update, light init, light step setup | 0x45ebb0, 0x45eec0, 0x45f0f0, 0x45e9f0 |
+| Effect classes: S0501 vtable, setup | 0x53a37c, 0x45f400 |
+| Effect classes: S0501202 constructor, init, update, next picture | 0x45f650, 0x45f770, 0x45f8a0, 0x45f8d0 |
+| Effect classes: prism, spiral, string animation vtables | 0x53a28c, 0x53a410, 0x53a440 |
+| String animation constructor, key constructor | 0x493160, 0x4ce390 |
 | `Game.1002` subs 1 to 6 | 0x493340, 0x4948c0, 0x4945a0, 0x493510, 0x494160, 0x493d50 |
 | Staff roll: `Game.990`, vtable, create, start, skip, update | 0x49a0b0, 0x53cb5c, 0x48eec0, 0x48f290, 0x48f430, 0x48f530, 0x48f5e0, 0x48f580 |
 | Staff roll: timing tables (roll 106999 ms, strip 1280 x 3080) | 0x56f728, 0x56f784 |
