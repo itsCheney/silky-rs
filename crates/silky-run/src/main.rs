@@ -438,14 +438,30 @@ fn snap(
                     }
                     if !title_saved {
                         let mut frame = renderer.render_scene(&rt.scene, &mut rt.assets, false)?;
+                        // The menu as it settles (its buttons jump in first).
                         let ui = Ui {
                             title: Some(false),
+                            clock: 10_000,
+                            title_shown: 0,
+                            title_opened: 10_000,
                             ..Ui::default()
                         };
                         layout.draw(&mut frame, &mut rt.assets, &ui, false, None)?;
                         let path = out.join("title.png");
                         write_png(&path, &frame)?;
                         println!("{}", path.display());
+                        if layout.is_kimaten1() {
+                            let mut frame =
+                                renderer.render_scene(&rt.scene, &mut rt.assets, false)?;
+                            let ui = Ui {
+                                title: Some(true),
+                                ..ui
+                            };
+                            layout.draw(&mut frame, &mut rt.assets, &ui, false, None)?;
+                            let path = out.join("title_extras.png");
+                            write_png(&path, &frame)?;
+                            println!("{}", path.display());
+                        }
                         title_saved = true;
                     }
                     // "Start" is the new game entry of the game's own menu.

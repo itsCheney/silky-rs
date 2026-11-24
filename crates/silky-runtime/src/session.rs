@@ -666,8 +666,9 @@ impl Session {
                     Some(Pause::Title) => {
                         self.skip_to_choice = false;
                         self.state = State::Title;
-                        self.ui.title = Some(false);
+                        self.ui.title = Some(self.rt.k1_title_extras);
                         self.ui.title_shown = self.ui.clock;
+                        self.ui.title_opened = self.ui.clock;
                         self.ui.locked_titles = self
                             .layout
                             .title_unlocks()
@@ -2648,6 +2649,14 @@ impl Session {
 
     /// The notebook or collection; from the title menu it shows what is
     /// kept outside a game.
+    /// きまぐれテンプテーション: the 捜査手帳 button of the extras page.
+    /// HOOK for the notebook screen, which is built apart from the title
+    /// menu: open it here.
+    fn kimaten1_notebook_hook(&mut self) {
+        self.rt
+            .note_unhandled("kimaten1 notebook (hook)".to_string());
+    }
+
     fn open_archive(&mut self, book: Book) {
         let global = self.state == State::Title;
         let vm = &self.vm;
@@ -3723,6 +3732,7 @@ impl Session {
                     self.ui.title_shown = self.ui.clock;
                 }
                 // The engine's own screen; the script does nothing with 261.
+                title::NOTEBOOK if self.layout.is_kimaten1() => self.kimaten1_notebook_hook(),
                 title::NOTEBOOK => self.open_archive(Book::Notebook),
                 // 同級生 Remake quits from the title on its own.
                 title::QUIT if self.layout.title_result(i).is_none() => self.ask(Action::Quit)?,
@@ -4406,6 +4416,13 @@ impl Session {
                 self.advance()?;
                 return Ok(true);
             }
+        }
+        if self.ui.title.is_some()
+            && self.layout.is_kimaten1()
+            && crate::games::kimaten1::title::animating(&self.ui, before)
+        {
+            self.frame = None;
+            return Ok(true);
         }
         if self.ui.title.is_some()
             && self.layout.is_kimaten2()

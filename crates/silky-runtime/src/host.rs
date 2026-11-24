@@ -307,6 +307,9 @@ pub struct Runtime {
     /// The notices of きまぐれテンプテーション (`Game.44`): strips over the
     /// scene that the script does not wait for.
     pub k1_notices: crate::games::kimaten1::Notices,
+    /// きまぐれテンプテーション: the title menu opens on its extras page
+    /// (the script's argument of `Game.110`).
+    pub k1_title_extras: bool,
     /// The colour covering the screen when 同級生 Remake's name entry
     /// opened: the page shows the background, and the cover comes back
     /// when it is done.
@@ -397,6 +400,7 @@ impl Runtime {
             panel: None,
             k1: None,
             k1_notices: Default::default(),
+            k1_title_extras: false,
             cover_under_name: None,
             town: None,
             sprites: Default::default(),

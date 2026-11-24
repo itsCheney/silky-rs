@@ -15,7 +15,7 @@ use silky_format::game::Kind;
 
 /// Commands handled as in the common set. Its other commands are its own;
 /// those not below are reported as not carried out.
-pub const SHARED_COMMANDS: [i32; 4] = [SPEAKER, PICTURE, CHARACTER, TITLE];
+pub const SHARED_COMMANDS: [i32; 3] = [SPEAKER, PICTURE, CHARACTER];
 
 /// E-mote model of the companion beside the protagonist.
 const EMOTE: i32 = 10;
@@ -62,6 +62,12 @@ impl Runtime {
         args: &[Value],
     ) -> Option<silky_vm::Result<Flow>> {
         match command {
+            // The title menu; its argument 1 opens the extras page (back
+            // from one of the modes).
+            TITLE => {
+                self.k1_title_extras = sub == 1;
+                self.wait_for(Pause::Title)
+            }
             EMOTE if self.kimaten1_emote(args, sub) => self.done(),
             ACTION => {
                 let areas = self.k1_areas("actselect.area")?;

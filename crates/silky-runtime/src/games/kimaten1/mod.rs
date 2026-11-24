@@ -15,6 +15,7 @@ pub mod map;
 pub mod notebook;
 pub mod notice;
 pub mod screen;
+pub mod title;
 pub mod window;
 
 pub use commands::SHARED_COMMANDS;

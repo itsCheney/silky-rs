@@ -226,6 +226,10 @@ pub struct Ui {
     /// Clock when the current title menu page came up (its buttons jump
     /// in from below in きまぐれテンプテーション2).
     pub title_shown: u64,
+    /// Clock when the title menu itself came up (きまぐれテンプテーション's
+    /// heroine changes her face on that clock; a page that came up later
+    /// replaced the other one).
+    pub title_opened: u64,
     /// Show tooltips over the window's buttons (the setting).
     pub tooltips: bool,
 }
@@ -1906,6 +1910,10 @@ impl Layout {
         self.kimaten2.is_some()
     }
 
+    pub fn is_kimaten1(&self) -> bool {
+        self.k1.is_some()
+    }
+
     /// Whether some byte variables are kept across games (see
     /// [`Layout::global_bytes`]).
     pub fn keeps_global_bytes(&self) -> bool {
@@ -2019,6 +2027,9 @@ impl Layout {
     /// [`title::result`]); 同級生 Remake starts a new game with 0 and
     /// numbers its extras 257..=260.
     pub fn title_result(&self, entry: usize) -> Option<i32> {
+        if self.k1.is_some() {
+            return crate::games::kimaten1::title::result(entry);
+        }
         if self.douk.is_some() {
             return match entry {
                 title::NEW_GAME => Some(0),
@@ -2034,6 +2045,7 @@ impl Layout {
     pub fn title_unlocks(&self) -> &'static [(usize, usize)] {
         match (&self.kimaten2, &self.sheet_title) {
             (Some(_), _) => &title::KIMATEN2_UNLOCK,
+            _ if self.k1.is_some() => &crate::games::kimaten1::title::UNLOCKS,
             (None, Some(t)) => t.unlocks,
             _ => &[],
         }
@@ -2210,6 +2222,9 @@ impl Layout {
                 .iter()
                 .find(|(_, a, _)| a.contains(x, y))
                 .map(|(e, _, _)| Button::Title(*e));
+        }
+        if let (Some(extras), Some(_)) = (ui.title, &self.k1) {
+            return crate::games::kimaten1::title::hit(extras, x, y);
         }
         if let (Some(extras), Some(t)) = (ui.title, &self.sheet_title) {
             return t.hit(extras, x, y);
@@ -2417,6 +2432,10 @@ impl Layout {
                 canvas.draw_part(&sheet, part, a.left, top, false, 255);
             }
             return Ok(());
+        }
+        if let (Some(extras), Some(_)) = (ui.title, &self.k1) {
+            let from = (ui.title_shown > ui.title_opened).then_some(!extras);
+            return crate::games::kimaten1::title::draw(canvas, assets, ui, extras, from);
         }
         if let (Some(extras), Some(t)) = (ui.title, &self.sheet_title) {
             return t.draw(canvas, assets, ui, extras, self.language);
