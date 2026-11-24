@@ -12,6 +12,21 @@
 //! text: NUL-terminated (UTF-8 in the 2026 international build)
 //! ```
 //!
+//! The "eomaia" engine (夜勤病棟 Remake) has the same header but a table of
+//! single entries: each is just the text offset, and the line id is the
+//! position. A file is recognised by the first entry of the first table
+//! pointing right behind that table. Sections are Japanese, English,
+//! Traditional Chinese and Simplified Chinese. The texts are UTF-8 and carry
+//! control bytes (most lines start with 0x14, some have 0x1a) that are kept
+//! in the string as they are; they are not decoded yet.
+//!
+//! ```text
+//! u32 header_size                 = 8 * section count
+//! repeat section count: u32 offset, u32 count
+//! at each section offset, count times: u32 text offset
+//! text: NUL-terminated UTF-8
+//! ```
+//!
 //! The 2022 build (同級生 Remake) keeps one file per language,
 //! `X_EN.MAP`, `X_CN.MAP`, `X_TW.MAP`, with a single table indexed by the
 //! message number:
@@ -47,14 +62,26 @@ impl MapFile {
         if header_size == 0 || header_size % 8 != 0 || header_size > data.len() {
             return invalid(FORMAT, format!("bad header size {header_size}"));
         }
+        let compact = u32_at(0)
+            .and_then(|o| Ok((o as usize, u32_at(4)? as usize)))
+            .and_then(|(offset, count)| {
+                Ok(count > 0 && u32_at(offset)? as usize == offset + 4 * count)
+            })
+            .unwrap_or(false);
         let mut sections = Vec::new();
         for s in 0..header_size / 8 {
             let offset = u32_at(8 * s)? as usize;
             let count = u32_at(8 * s + 4)? as usize;
             let mut table = Vec::with_capacity(count);
             for i in 0..count {
-                let number = u32_at(offset + 8 * i)?;
-                let text_at = u32_at(offset + 8 * i + 4)? as usize;
+                let (number, text_at) = if compact {
+                    (i as u32, u32_at(offset + 4 * i)? as usize)
+                } else {
+                    (
+                        u32_at(offset + 8 * i)?,
+                        u32_at(offset + 8 * i + 4)? as usize,
+                    )
+                };
                 let Some(rest) = data.get(text_at..) else {
                     return invalid(FORMAT, format!("text {number} outside the file"));
                 };
@@ -171,9 +198,40 @@ pub fn build(sections: &[Vec<(u32, &str)>]) -> Vec<u8> {
     out
 }
 
+/// Builds a MAP file of the eomaia layout (one u32 per entry, each table
+/// followed by its texts); used by tests.
+pub fn build_compact(sections: &[Vec<&str>]) -> Vec<u8> {
+    let mut out = vec![0u8; 8 * sections.len()];
+    for (si, section) in sections.iter().enumerate() {
+        let table_at = out.len();
+        out[8 * si..8 * si + 4].copy_from_slice(&(table_at as u32).to_le_bytes());
+        out[8 * si + 4..8 * si + 8].copy_from_slice(&(section.len() as u32).to_le_bytes());
+        out.resize(table_at + 4 * section.len(), 0);
+        for (i, text) in section.iter().enumerate() {
+            let text_at = out.len() as u32;
+            out.extend_from_slice(text.as_bytes());
+            out.push(0);
+            out[table_at + 4 * i..table_at + 4 * i + 4].copy_from_slice(&text_at.to_le_bytes());
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compact_table() {
+        let data = build_compact(&[vec!["\u{14}Honk, honk", "\u{1a}b"], vec!["x", "", "z"]]);
+        let map = MapFile::parse(&data).unwrap();
+        assert_eq!(map.section_count(), 2);
+        assert_eq!(map.len(0), 2);
+        assert_eq!(map.line(0, 0), Some("\u{14}Honk, honk"));
+        assert_eq!(map.entry(0, 1), Some((1, "\u{1a}b")));
+        assert_eq!(map.line(1, 1), Some(""));
+        assert_eq!(map.get(1, 2), Some("z"));
+    }
 
     #[test]
     fn round_trip() {

@@ -15,6 +15,7 @@ pub mod hlg;
 pub mod lzss;
 pub mod map;
 pub mod mes;
+pub mod scre;
 pub mod vsd;
 pub mod wav;
 

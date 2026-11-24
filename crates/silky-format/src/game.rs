@@ -5,6 +5,10 @@
 //! `<ScriptArchive><File>Script.arc;Script1.arc</File></ScriptArchive>`.
 //! Later archives are newer and win when both hold the same name. Without
 //! either file, the usual names (`script.arc`, then `script1.arc`) are used.
+//! The "eomaia" engine has neither file. It lists the archives in
+//! `updateInfo.json` (else `systeminfo.json`) under `GameFile`, per kind
+//! (`script`, `image`, `data`, `music`, `effect`, `voice`, `media`), newest
+//! first.
 //! `update.arc`, which the engine also opens, is read as the newest
 //! archive of every kind: it holds E-mote motions added by patches, and in
 //! 同級生 Remake newer scripts, text tables and pictures.
@@ -141,11 +145,21 @@ impl Game {
             .map(fs::read)
             .transpose()?;
         let patch = patch.map(|b| crate::decode_cp932(&b));
+        let json = if patch.is_some() {
+            None
+        } else {
+            find_file(&root, "updateInfo.json")
+                .or_else(|| find_file(&root, "systeminfo.json"))
+                .map(fs::read)
+                .transpose()?
+                .map(|b| String::from_utf8_lossy(&b).into_owned())
+        };
         let mut sets = Vec::new();
         for kind in Kind::ALL {
-            let names = match &patch {
-                Some(xml) => archive_names(xml, kind),
-                None => vec![
+            let names = match (&patch, &json) {
+                (Some(xml), _) => archive_names(xml, kind),
+                (None, Some(json)) => json_archive_names(json, kind),
+                (None, None) => vec![
                     format!("{}.arc", kind.name()),
                     format!("{}1.arc", kind.name()),
                 ],
@@ -238,6 +252,33 @@ pub fn archive_names(xml: &str, kind: Kind) -> Vec<String> {
     names
 }
 
+/// Archive file names of one kind from `updateInfo.json` or
+/// `systeminfo.json`, oldest first (the file lists the newest first).
+pub fn json_archive_names(json: &str, kind: Kind) -> Vec<String> {
+    let key = match kind {
+        Kind::Script => "script",
+        Kind::Layer => "image",
+        Kind::Data => "data",
+        Kind::Music => "music",
+        Kind::Effect => "effect",
+        Kind::Voice => "voice",
+        Kind::Movie => "media",
+    };
+    let Ok(root) = serde_json::from_str::<serde_json::Value>(json.trim_start_matches('\u{feff}'))
+    else {
+        return Vec::new();
+    };
+    match &root["GameFile"][key]["Archive"] {
+        serde_json::Value::String(name) => vec![name.clone()],
+        serde_json::Value::Array(list) => list
+            .iter()
+            .rev()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 /// Finds a file in `dir` ignoring ASCII case (the games come from Windows).
 fn find_file(dir: &Path, name: &str) -> Option<PathBuf> {
     let exact = dir.join(name);
@@ -270,6 +311,25 @@ mod tests {
         );
         assert_eq!(archive_names(xml, Kind::Layer), ["layer.arc"]);
         assert!(archive_names(xml, Kind::Voice).is_empty());
+    }
+
+    #[test]
+    fn reads_update_info() {
+        let json = r#"{"GameFile": {
+            "script": {"Archive": ["script1.arc", "script.arc"], "Enable": true},
+            "image": {"Archive": ["image1.arc", "image.arc"]},
+            "media": {"Archive": "media.arc"}}}"#;
+        assert_eq!(
+            json_archive_names(json, Kind::Script),
+            ["script.arc", "script1.arc"]
+        );
+        assert_eq!(
+            json_archive_names(json, Kind::Layer),
+            ["image.arc", "image1.arc"]
+        );
+        assert_eq!(json_archive_names(json, Kind::Movie), ["media.arc"]);
+        assert!(json_archive_names(json, Kind::Voice).is_empty());
+        assert!(json_archive_names("not json", Kind::Data).is_empty());
     }
 
     #[test]

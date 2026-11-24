@@ -12,6 +12,7 @@ use silky_format::arc::Archive;
 use silky_format::game::{Game, Kind};
 use silky_format::map::MapFile;
 use silky_format::mes::{self, Operand, Profile, Script};
+use silky_format::scre;
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -198,8 +199,55 @@ fn map_for(game: &Game, script: &str) -> Option<MapFile> {
     MapFile::parse(&data).ok()
 }
 
+fn dis_scre(name: &str, data: &[u8]) -> Result<()> {
+    let script = scre::Script::parse(data)?;
+    let labels: HashMap<u32, usize> = script
+        .messages
+        .iter()
+        .enumerate()
+        .map(|(i, &o)| (o, i))
+        .collect();
+    println!(
+        "; {name}: a {}, {} messages",
+        script.header_a,
+        script.messages.len()
+    );
+    for ins in script.disassemble()? {
+        if let Some(i) = labels.get(&ins.offset) {
+            println!("m{i}:");
+        }
+        let operand = match &ins.operand {
+            scre::Operand::None => String::new(),
+            scre::Operand::Int(v) => v.to_string(),
+            scre::Operand::Target(t) => format!("@{t:06x}"),
+            scre::Operand::Str(s) => format!("{s:?}"),
+            scre::Operand::Message { number, extra } => format!("{number} {extra}"),
+            scre::Operand::Native { class, sub, end } => {
+                let mut o = match (class, sub) {
+                    (Some(c), Some(s)) => format!("{c}.{s}"),
+                    _ => String::new(),
+                };
+                if let Some(e) = end {
+                    o.push_str(&format!(" ->@{e:06x}"));
+                }
+                o.trim().to_string()
+            }
+        };
+        println!(
+            "{:06x}  {:<11} {operand}",
+            ins.offset,
+            scre::mnemonic(ins.opcode)
+        );
+    }
+    Ok(())
+}
+
 fn dis(game: &Game, name: &str, profile: Profile) -> Result<()> {
-    let script = Script::parse(&game.set(Kind::Script).read(name)?)?;
+    let data = game.set(Kind::Script).read(name)?;
+    if scre::is_scre(&data) {
+        return dis_scre(name, &data);
+    }
+    let script = Script::parse(&data)?;
     let labels: HashMap<u32, usize> = script
         .table_a
         .iter()
@@ -232,6 +280,69 @@ fn dis(game: &Game, name: &str, profile: Profile) -> Result<()> {
     Ok(())
 }
 
+/// Checks one eomaia script; returns the number of problems.
+fn check_scre(
+    name: &str,
+    data: &[u8],
+    map_entries: Option<usize>,
+    opcodes: &mut BTreeMap<u8, usize>,
+    instr_total: &mut usize,
+    messages_total: &mut usize,
+) -> usize {
+    let mut problems = 0;
+    let script = match scre::Script::parse(data) {
+        Ok(s) => s,
+        Err(e) => {
+            println!("{name}: {e}");
+            return 1;
+        }
+    };
+    let instrs = match script.disassemble() {
+        Ok(i) => i,
+        Err(e) => {
+            println!("{name}: {e}");
+            return 1;
+        }
+    };
+    let mut starts: std::collections::HashSet<u32> = instrs.iter().map(|i| i.offset).collect();
+    starts.insert(script.code.len() as u32);
+    *instr_total += instrs.len();
+    let mut top = None;
+    for ins in &instrs {
+        *opcodes.entry(ins.opcode).or_default() += 1;
+        let target = match &ins.operand {
+            scre::Operand::Target(t) => Some(("jumps", *t)),
+            scre::Operand::Native { end: Some(e), .. } => Some(("defines a body ending", *e)),
+            scre::Operand::Message { number, .. } => {
+                *messages_total += 1;
+                top = top.max(Some(*number as usize));
+                None
+            }
+            _ => None,
+        };
+        if let Some((what, t)) = target.filter(|(_, t)| !starts.contains(t)) {
+            println!(
+                "{name}: {:#x} {what} into an instruction ({t:#x})",
+                ins.offset
+            );
+            problems += 1;
+        }
+    }
+    for (i, o) in script.messages.iter().enumerate() {
+        if !starts.contains(o) {
+            println!("{name}: message[{i}] = {o:#x} is not an instruction");
+            problems += 1;
+        }
+    }
+    if let (Some(t), Some(n)) = (top, map_entries.filter(|&n| n > 0)) {
+        if t >= n {
+            println!("{name}: message {t} beyond its {n} MAP lines");
+            problems += 1;
+        }
+    }
+    problems
+}
+
 fn check(game: &Game, profile: Profile, images: bool) -> Result<()> {
     let mut problems = 0usize;
     let mut opcodes: BTreeMap<u8, usize> = BTreeMap::new();
@@ -242,14 +353,30 @@ fn check(game: &Game, profile: Profile, images: bool) -> Result<()> {
         .into_iter()
         .filter(|n| {
             let l = n.to_ascii_lowercase();
-            l.ends_with(".mes") || l.ends_with(".lib")
+            [".mes", ".lib", ".script", ".package"]
+                .iter()
+                .any(|e| l.ends_with(e))
         })
         .collect();
     let mut instr_total = 0;
     let mut messages_total = 0;
     let mut map_texts = 0;
     for name in &names {
-        let script = match Script::parse(&scripts.read(name)?) {
+        let data = scripts.read(name)?;
+        if scre::is_scre(&data) {
+            let entries = map_for(game, name).map(|m| m.len(0));
+            map_texts += entries.unwrap_or(0);
+            problems += check_scre(
+                name,
+                &data,
+                entries,
+                &mut opcodes,
+                &mut instr_total,
+                &mut messages_total,
+            );
+            continue;
+        }
+        let script = match Script::parse(&data) {
             Ok(s) => s,
             Err(e) => {
                 println!("{name}: {e}");
@@ -358,7 +485,14 @@ fn check(game: &Game, profile: Profile, images: bool) -> Result<()> {
     println!("MAP tables: {}", maps.len());
 
     let layer = game.set(Kind::Layer);
-    let akbs = layer.names();
+    let all_images = layer.names();
+    // Some games keep PNG pictures; only AKB ones are checked.
+    let akbs: Vec<String> = all_images
+        .iter()
+        .filter(|n| layer.read(n).is_ok_and(|d| d.starts_with(b"AKB")))
+        .cloned()
+        .collect();
+    let skipped = all_images.len() - akbs.len();
     let mut cache = HashMap::new();
     for name in &akbs {
         let result = if images {
@@ -378,7 +512,7 @@ fn check(game: &Game, profile: Profile, images: bool) -> Result<()> {
         }
     }
     println!(
-        "images: {} ({})",
+        "images: {} ({}), {skipped} not AKB skipped",
         akbs.len(),
         if images { "decoded" } else { "headers" }
     );

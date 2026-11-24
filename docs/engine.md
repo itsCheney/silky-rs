@@ -19,6 +19,10 @@ A `Game` call goes to the running game's module first, then to the common set. W
 
 Each game links its own copy of the engine, and the engine classes changed between copies. The runtime knows the copy by the program's link time stamp and size and follows its profile where the copies differ; [builds/](builds/README.md) lists the builds checked and a page for each profile.
 
+## The eomaia script format
+
+A later engine, "eomaia" by EXNOA, keeps the archive format and most of the byte code, but its scripts are `.SCRIPT`, `.LIB` and `.PACKAGE` files that start with `SCRE`. The variable and jump instructions have other numbers, `message` takes a second number, and a `native` that defines a function (class 11 to 14, sub command 1) is followed by the target where the body ends, so the instructions before it have to be known to decode it. Its `.MAP` tables have one u32 per entry (the text offset) in four sections: Japanese, English, Traditional Chinese, Simplified Chinese. The texts hold control bytes that are not decoded yet. Its game folder lists the archives in `updateInfo.json` instead of an XML file. The code is in `scre.rs`, `map.rs` and `game.rs` of `silky-format`; `silky-tool dis` and `check` read these scripts too.
+
 ## Engine classes
 
 | Class | Name | What the runtime does |
