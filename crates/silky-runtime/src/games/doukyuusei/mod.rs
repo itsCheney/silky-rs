@@ -27,6 +27,7 @@ pub mod picker;
 pub mod plate;
 pub mod reel;
 pub mod room;
+pub mod savenote;
 pub mod select;
 pub mod sound;
 pub mod system;

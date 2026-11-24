@@ -142,6 +142,10 @@ pub struct Session {
     /// choice), so its release does nothing.
     press_done: bool,
     town_ms: u64,
+    /// The screen element being clicked (for a dialog it opens).
+    clicked: Option<Button>,
+    /// The comment typed for the save about to be made.
+    save_comment: String,
     /// 同級生 Remake's system menu screens.
     douk_system: Option<crate::games::doukyuusei::system::System>,
 }
@@ -262,6 +266,8 @@ impl Session {
             town_pointer_down: false,
             press_done: false,
             town_ms: 0,
+            clicked: None,
+            save_comment: String::new(),
             douk_system,
         };
         s.restart()?;
@@ -351,6 +357,11 @@ impl Session {
 
     /// Saves the shown message to `slot` (see [`save::QUICK`]).
     pub fn save(&mut self, slot: &str) -> Result<()> {
+        self.save_with_comment(slot, String::new())
+    }
+
+    /// Saves to `slot`, keeping the comment typed for it (同級生 Remake).
+    fn save_with_comment(&mut self, slot: &str, comment: String) -> Result<()> {
         let Some(saves) = &self.saves else {
             return Ok(());
         };
@@ -377,7 +388,7 @@ impl Session {
             Some(t) => Some(t.clone()),
             None => self.scene_thumb().ok(),
         };
-        saves.write(slot, state, thumb.as_ref())?;
+        saves.write_with_comment(slot, state, thumb.as_ref(), comment)?;
         self.ui.has_saves = true;
         Ok(())
     }
@@ -1117,12 +1128,19 @@ impl Session {
     /// Whether the screen takes typed text (the name entry).
     pub fn wants_text(&self) -> bool {
         matches!(&self.ui.panel, Some(DoukPanel::Name(n)) if n.typing())
+            || self.dialog.as_ref().is_some_and(|d| d.commenting)
     }
 
     /// Typed or committed text (an input method's result); Backspace
     /// comes as `\u{8}`.
     pub fn text_input(&mut self, text: &str) {
-        if self.screen.is_some() || self.dialog.is_some() {
+        if let Some(d) = self.dialog.as_mut().filter(|d| d.commenting) {
+            if crate::games::doukyuusei::savenote::type_text(&mut d.comment, text) {
+                self.frame = None;
+            }
+            return;
+        }
+        if self.screen.is_some() || self.dialog.is_some() || self.menu_sliding() {
             return;
         }
         if let Some(DoukPanel::Name(n)) = &mut self.ui.panel {
@@ -1195,6 +1213,10 @@ impl Session {
     /// Primary button pressed at (x, y). On the map jump a press on a
     /// place chooses it at once; its release does nothing.
     pub fn pointer_down(&mut self, x: i32, y: i32) -> Result<()> {
+        if self.menu_sliding() {
+            self.press_done = true;
+            return Ok(());
+        }
         // The mail forward screen takes its own clicks, not the choice bars.
         if self.state == State::Choice
             && self.dialog.is_none()
@@ -1415,7 +1437,7 @@ impl Session {
             return Ok(());
         }
         // Input waits for the extras' fade.
-        if self.veil.is_some() {
+        if self.veil.is_some() || self.menu_sliding() {
             return Ok(());
         }
         if let Some(h) = &mut self.hmode {
@@ -1514,7 +1536,10 @@ impl Session {
         }
         if self.screen.is_some() {
             if let Some(Button::Screen(id)) = hit {
-                self.press_screen(id, x, y)?;
+                self.clicked = hit;
+                let result = self.press_screen(id, x, y);
+                self.clicked = None;
+                result?;
             }
             return Ok(());
         }
@@ -1681,7 +1706,7 @@ impl Session {
     /// right click). Returns false if there was none.
     pub fn back(&mut self) -> Result<bool> {
         // H mode ends only with its own finish button.
-        if self.hmode.is_some() || self.veil.is_some() {
+        if self.hmode.is_some() || self.veil.is_some() || self.menu_sliding() {
             return Ok(true);
         }
         if self.dialog.take().is_some() {
@@ -1946,6 +1971,7 @@ impl Session {
         if self.dialog.is_some()
             || self.screen.is_some()
             || self.veil.is_some()
+            || self.menu_sliding()
             || self.hmode.is_some()
         {
             return None;
@@ -1960,7 +1986,7 @@ impl Session {
 
     pub fn wheel(&mut self, up: bool) -> Result<()> {
         // Input waits for the extras' fade.
-        if self.veil.is_some() {
+        if self.veil.is_some() || self.menu_sliding() {
             return Ok(());
         }
         if self.dialog.is_some() {
@@ -2659,6 +2685,58 @@ impl Session {
         }
     }
 
+    /// The menu button: 同級生 Remake slides the six buttons out or back.
+    fn toggle_side_menu(&mut self) {
+        use crate::games::doukyuusei::menu::{slide_passes, MenuAnim};
+        let opening = !self.ui.side_menu;
+        if self.rt.assets.game().title != silky_format::game::Title::Doukyuusei {
+            self.ui.side_menu = opening;
+            return;
+        }
+        let n = slide_passes(self.rt.system.settings.effect_scale());
+        self.ui.side_menu = true;
+        self.ui.menu_anim = Some(MenuAnim {
+            opening,
+            start: self.ui.clock,
+            n,
+        });
+        self.frame = None;
+    }
+
+    /// Whether the side buttons are sliding (the program takes no input).
+    fn menu_sliding(&self) -> bool {
+        self.ui.menu_anim.is_some()
+    }
+
+    /// Redraws the dialog while it fades in and when its caret flips.
+    fn tick_dialog(&mut self) {
+        let clock = self.ui.clock;
+        let Some(d) = &mut self.dialog else { return };
+        if d.fading(clock) {
+            self.frame = None;
+        }
+        if d.commenting {
+            let on = crate::games::doukyuusei::savenote::caret_on(clock - d.opened.min(clock));
+            if on != d.caret {
+                d.caret = on;
+                self.frame = None;
+            }
+        }
+    }
+
+    /// Ends the slide when its last pass is shown.
+    fn tick_menu_anim(&mut self) {
+        if let Some(a) = self.ui.menu_anim {
+            self.frame = None;
+            if a.done(self.ui.clock) {
+                self.ui.menu_anim = None;
+                if !a.opening {
+                    self.ui.side_menu = false;
+                }
+            }
+        }
+    }
+
     fn close_screen(&mut self) {
         match &self.screen {
             Some(Screen::Settings(_) | Screen::DoukConfig(_)) => self.flush_system(),
@@ -2705,10 +2783,30 @@ impl Session {
             (Action::Save(Some(slot)), Some(saves)) => !saves.list().contains(slot),
             _ => false,
         };
+        let douk = self.douk_system.is_some();
+        let commenting = douk && matches!(action, Action::Save(_));
+        // Overwriting starts with the old comment.
+        let comment = match (&action, &self.saves) {
+            (Action::Save(Some(slot)), Some(saves)) if commenting && !fresh => {
+                saves.read(slot).map(|f| f.comment).unwrap_or_default()
+            }
+            _ => String::new(),
+        };
+        let fade = if douk {
+            crate::games::doukyuusei::menu::slide_passes(self.rt.system.settings.effect_scale())
+        } else {
+            0
+        };
         self.dialog = Some(Dialog {
             fresh,
             action,
             dont_ask: false,
+            opener: self.clicked.take().or(self.ui.hover),
+            commenting,
+            comment,
+            opened: self.ui.clock,
+            fade,
+            caret: true,
         });
         self.ui.hover = None;
         self.frame = None;
@@ -2729,10 +2827,16 @@ impl Session {
                         self.rt.system.settings.confirm[d.action.question()] = false;
                         self.rt.system_changed = true;
                     }
+                    self.save_comment = d.comment;
                     self.carry_out(d.action)?;
                 }
             }
             dialog_ids::NO => self.dialog = None,
+            dialog_ids::CLEAR => {
+                if let Some(d) = &mut self.dialog {
+                    d.comment.clear();
+                }
+            }
             dialog_ids::DONT_ASK => {
                 if let Some(d) = &mut self.dialog {
                     d.dont_ask = !d.dont_ask;
@@ -2763,7 +2867,8 @@ impl Session {
                     (None, Some(saves)) => saves.next_slot(),
                     (None, None) => return Ok(()),
                 };
-                self.save(&slot)?;
+                let comment = std::mem::take(&mut self.save_comment);
+                self.save_with_comment(&slot, comment)?;
                 if let Some(Screen::SaveLoad(s)) = &mut self.screen {
                     s.scroll = 0;
                 }
@@ -3512,7 +3617,7 @@ impl Session {
                 self.rt.answer_choice(&mut self.vm, i);
                 self.run()?;
             }
-            Button::Bar(bar::MENU) => self.ui.side_menu = !self.ui.side_menu,
+            Button::Bar(bar::MENU) => self.toggle_side_menu(),
             Button::Bar(bar::RING) => self.ui.ring_closed = !self.ui.ring_closed,
             Button::Bar(id) => match id {
                 bar::AUTO => {
@@ -3812,6 +3917,8 @@ impl Session {
         if self.layout.is_kimaten2() {
             self.slide_bar(before);
         }
+        self.tick_menu_anim();
+        self.tick_dialog();
         if let Some(v) = self.veil {
             self.frame = None;
             if v.done(self.ui.clock) {
@@ -4071,6 +4178,7 @@ impl Session {
                         _ => None,
                     };
                     let douk_can = self.douk_can();
+                    let dialog = self.dialog.as_ref().map(|d| d.opener);
                     let mut c = self.renderer.canvas();
                     let text = self.renderer.text();
                     let assets = &mut self.rt.assets;
@@ -4135,17 +4243,14 @@ impl Session {
                         Screen::DoukConfig(s) => {
                             if let Some(sys) = &self.douk_system {
                                 let ui = &self.ui;
-                                let hover = match ui.hover {
-                                    Some(Button::Screen(id)) => Some(id),
-                                    _ => None,
-                                };
+                                let (hover, state) = under_dialog(ui, dialog);
                                 let (can_save, has_log) = douk_can;
                                 sys.draw_config(
                                     &mut c,
                                     assets,
                                     s,
                                     &self.rt.system.settings,
-                                    |id| ui.state(Button::Screen(id), true, false) as u32,
+                                    state,
                                     hover,
                                     (ui.skip, ui.auto, can_save, has_log),
                                     (under.as_ref(), ui.clock),
@@ -4155,34 +4260,15 @@ impl Session {
                         Screen::DoukSave(s) => {
                             if let Some(sys) = &self.douk_system {
                                 let ui = &self.ui;
-                                let hover = match ui.hover {
-                                    Some(Button::Screen(id)) => Some(id),
-                                    _ => None,
-                                };
-                                sys.draw_save(
-                                    &mut c,
-                                    assets,
-                                    s,
-                                    |id| ui.state(Button::Screen(id), true, false) as u32,
-                                    hover,
-                                )?;
+                                let (hover, state) = under_dialog(ui, dialog);
+                                sys.draw_save(&mut c, assets, s, state, hover)?;
                             }
                         }
                         Screen::DoukFlag(s) => {
                             if let Some(sys) = &self.douk_system {
                                 let ui = &self.ui;
-                                let hover = match ui.hover {
-                                    Some(Button::Screen(id)) => Some(id),
-                                    _ => None,
-                                };
-                                s.draw(
-                                    sys,
-                                    &mut c,
-                                    assets,
-                                    self.rt.config.language,
-                                    |id| ui.state(Button::Screen(id), true, false) as u32,
-                                    hover,
-                                )?;
+                                let (hover, state) = under_dialog(ui, dialog);
+                                s.draw(sys, &mut c, assets, self.rt.config.language, state, hover)?;
                             }
                         }
                         Screen::Extras(e) => self.menus.draw_extras(
@@ -4203,8 +4289,12 @@ impl Session {
                 },
             };
             if let Some(d) = &self.dialog {
+                let font = self
+                    .douk_system
+                    .as_ref()
+                    .and_then(|s| s.font(&mut self.rt.assets));
                 self.screens
-                    .draw_dialog(&mut frame, &mut self.rt.assets, &self.ui, d)?;
+                    .draw_dialog(&mut frame, &mut self.rt.assets, &self.ui, d, font)?;
             }
             if let Some(v) = &self.veil {
                 let (w, h) = self.renderer.size();
@@ -4379,4 +4469,26 @@ fn is_pause_punctuation(c: char) -> bool {
 
 fn vm_error(e: silky_vm::Error) -> Error {
     Error::Invalid(e.to_string())
+}
+/// How a 同級生 Remake screen draws its elements: the hint's element and
+/// the row of each. While a dialog is up (`dialog` holds its opener) the
+/// opener shows pressed with its hint and the rest sit normal, no matter
+/// where the pointer is.
+fn under_dialog(
+    ui: &Ui,
+    dialog: Option<Option<Button>>,
+) -> (Option<i32>, impl Fn(i32) -> u32 + '_) {
+    let id_of = |b: Option<Button>| match b {
+        Some(Button::Screen(id)) => Some(id),
+        _ => None,
+    };
+    let hover = match dialog {
+        Some(opener) => id_of(opener),
+        None => id_of(ui.hover),
+    };
+    let state = move |id: i32| match dialog {
+        Some(opener) => 2 * (id_of(opener) == Some(id)) as u32,
+        None => ui.state(Button::Screen(id), true, false) as u32,
+    };
+    (hover, state)
 }

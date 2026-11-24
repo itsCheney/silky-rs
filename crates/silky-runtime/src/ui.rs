@@ -175,6 +175,8 @@ pub struct Ui {
     pub previous_choice: bool,
     /// きまぐれテンプテーション2's side menu is open.
     pub side_menu: bool,
+    /// 同級生 Remake: the side buttons slide out or back; input waits.
+    pub menu_anim: Option<crate::games::doukyuusei::menu::MenuAnim>,
     /// 景の海のアペイリア: the button ring is folded away.
     pub ring_closed: bool,
     /// Buttons of きまぐれテンプテーション2's action menu, while it is up.
@@ -2046,7 +2048,8 @@ impl Layout {
             plate.draw(canvas, assets, self.language)?;
             if let Some(m) = &d.menu {
                 use crate::games::doukyuusei::menu::HIDDEN;
-                m.draw(canvas, assets, ui.side_menu, |id| {
+                let slide = ui.menu_anim.map(|a| a.slide(ui.clock));
+                m.draw(canvas, assets, ui.side_menu, slide, |id| {
                     if douk_menu_hidden(ui, id) {
                         return HIDDEN;
                     }

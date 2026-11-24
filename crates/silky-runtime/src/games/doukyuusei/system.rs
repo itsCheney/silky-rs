@@ -33,6 +33,7 @@ use crate::render::Canvas;
 use crate::save::{SaveFile, Saves, QUICK};
 use crate::Result;
 
+use super::savenote;
 use super::window::Font;
 
 const W: usize = 1920;
@@ -176,6 +177,8 @@ pub struct Card {
     pub thumb: Option<Arc<Image>>,
     pub saved_at: u64,
     pub info: Info,
+    /// The player's comment (manual saves).
+    pub comment: String,
 }
 
 impl Card {
@@ -186,6 +189,7 @@ impl Card {
             thumb: saves.thumb(slot).map(Arc::new),
             saved_at: file.saved_at,
             info: Info::of(&file.state.vm),
+            comment: file.comment,
         })
     }
 }
@@ -402,7 +406,7 @@ impl System {
             .to_string()
     }
 
-    pub(super) fn font(&self, assets: &mut Assets) -> Option<&Font> {
+    pub fn font(&self, assets: &mut Assets) -> Option<&Font> {
         self.font.get_or_init(|| Font::load(assets).ok()).as_ref()
     }
 
@@ -572,9 +576,17 @@ impl System {
             };
             draw_label(canvas, &sheet, &label, a.left + 8, a.top + 12);
             if let Some(c) = card {
-                // The black field below holds the player's comment, which
-                // is not kept here.
                 draw_info(canvas, &sheet, c, a.left, a.top, &CARD_PLACES);
+                // The black field below holds the comment, or the label of
+                // an auto or quick save.
+                if let Some(font) = self.font(assets) {
+                    let (cx, cy, _, _) = savenote::CARD_AREA;
+                    let lines = savenote::card_lines(&c.slot, &c.comment);
+                    for (k, line) in lines.iter().enumerate() {
+                        let y = a.top + cy + savenote::LINE_PX * k as i32;
+                        font.draw_small(canvas, line, a.left + cx, y);
+                    }
+                }
             }
             if !on {
                 draw_shade(canvas, &sheet, part, a.left, a.top);
@@ -848,17 +860,26 @@ fn draw_money(canvas: &mut Canvas, sheet: &Arc<Image>, text: &str, x: i32, y: i3
 /// comment field when saving), the question (727 x 52 strips from x 880,
 /// in the sheet's order), yes and no (222 x 73 from (96, 660) and (318,
 /// 660), rows normal, hover, pressed) and the "don't show again" box (48 x
-/// 48 from (0, 660), the fourth row ticked). The comment field takes no
-/// typing here.
+/// 48 from (0, 660), the fourth row ticked). `alpha` is the opacity of the
+/// whole dialog (it fades in) and `font` draws the save comment typed in
+/// the field.
 pub fn draw_dialog(
     canvas: &mut Canvas,
     sheet: &Arc<Image>,
     d: &crate::screens::Dialog,
     areas: &[Area],
     state: impl Fn(i32) -> u32,
+    (alpha, font): (u8, Option<&Font>),
 ) {
     use crate::screens::{dialog_ids, Action};
-    canvas.fill(0, 0, canvas.width, canvas.height, [0, 0, 0, 127]);
+    // The shade and everything on it fade as one layer.
+    canvas.fill(
+        0,
+        0,
+        canvas.width,
+        canvas.height,
+        [0, 0, 0, (127 * alpha as u32 / 255) as u8],
+    );
     let saving = matches!(d.action, Action::Save(_));
     let box_y = if saving { 0 } else { 330 };
     let unlock = match d.action {
@@ -869,7 +890,7 @@ pub fn draw_dialog(
         // Without the "don't show again" label (312 x 54 at (501, 244) of
         // the box).
         let (lx, ly, lw, lh) = (501, 244, 312, 54);
-        canvas.draw_part(sheet, (0, box_y, 880, ly), 520, 375, false, 255);
+        canvas.draw_part(sheet, (0, box_y, 880, ly), 520, 375, false, alpha);
         let below = ly + lh;
         canvas.draw_part(
             sheet,
@@ -877,7 +898,7 @@ pub fn draw_dialog(
             520,
             375 + below as i32,
             false,
-            255,
+            alpha,
         );
         canvas.draw_part(
             sheet,
@@ -885,7 +906,7 @@ pub fn draw_dialog(
             520,
             375 + ly as i32,
             false,
-            255,
+            alpha,
         );
         let right = lx + lw;
         canvas.draw_part(
@@ -894,14 +915,14 @@ pub fn draw_dialog(
             520 + right as i32,
             375 + ly as i32,
             false,
-            255,
+            alpha,
         );
     } else {
-        canvas.draw_part(sheet, (0, box_y, 880, 330), 520, 375, false, 255);
+        canvas.draw_part(sheet, (0, box_y, 880, 330), 520, 375, false, alpha);
     }
     if saving {
         // The comment field's clear button.
-        canvas.draw_part(sheet, (48, 660, 48, 48), 1159, 483, false, 255);
+        canvas.draw_part(sheet, (48, 660, 48, 48), 1159, 483, false, alpha);
     }
     let question = match d.action {
         Action::Save(_) if d.fresh => 0,
@@ -919,7 +940,7 @@ pub fn draw_dialog(
     if let Some(k) = unlock {
         // Two lines: all pictures or all scenes of a girl.
         let sy = if k == crate::Extras::Scenes { 619 } else { 519 };
-        canvas.draw_part(sheet, (880, sy, 727, 100), 597, 395, false, 255);
+        canvas.draw_part(sheet, (880, sy, 727, 100), 597, 395, false, alpha);
     } else {
         let question_y = if saving { 411 } else { 443 };
         canvas.draw_part(
@@ -928,7 +949,7 @@ pub fn draw_dialog(
             597,
             question_y,
             false,
-            255,
+            alpha,
         );
     }
     for a in areas {
@@ -942,7 +963,7 @@ pub fn draw_dialog(
                     a.left,
                     a.top,
                     false,
-                    255,
+                    alpha,
                 );
             }
             dialog_ids::DONT_ASK if unlock.is_some() => {}
@@ -954,17 +975,44 @@ pub fn draw_dialog(
                     a.left,
                     a.top,
                     false,
-                    255,
+                    alpha,
                 );
             }
             _ => {}
         }
     }
+    if d.commenting && alpha == 255 {
+        let (fx, fy, _, _) = savenote::FIELD;
+        if let Some(font) = font {
+            font.draw_small(canvas, &d.comment, fx, fy + 2);
+        }
+        if d.caret {
+            let x = fx + savenote::width(&d.comment) as i32 * savenote::UNIT_PX;
+            canvas.fill(x, fy, 2, 24, [255, 255, 255, 255]);
+        }
+    }
+}
+
+/// Opacity of the dialog layer at pass `t` of `n`: 0 to 255 linear.
+pub fn fade_alpha(t: u32, n: u32) -> u8 {
+    if t >= n {
+        return 255;
+    }
+    (255 * t as u64 / n as u64) as u8
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dialog_fades_in_linearly() {
+        assert_eq!(fade_alpha(0, 12), 0);
+        assert_eq!(fade_alpha(6, 12), 127);
+        assert_eq!(fade_alpha(11, 12), 233);
+        assert_eq!(fade_alpha(12, 12), 255);
+        assert_eq!(fade_alpha(0, 0), 255);
+    }
 
     #[test]
     fn slots_and_pages() {

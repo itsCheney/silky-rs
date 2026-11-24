@@ -53,6 +53,9 @@ pub struct SaveFile {
     pub saved_at: u64,
     /// The message shown when saving, for a save list.
     pub text: Option<String>,
+    /// 同級生 Remake: the comment the player typed for a manual save.
+    #[serde(default)]
+    pub comment: String,
     pub state: SaveState,
 }
 
@@ -82,12 +85,24 @@ impl Saves {
 
     /// Writes a save, with a thumbnail if one is given.
     pub fn write(&self, slot: &str, state: SaveState, thumb: Option<&Image>) -> Result<()> {
+        self.write_with_comment(slot, state, thumb, String::new())
+    }
+
+    /// As [`Saves::write`], keeping a comment with the save.
+    pub fn write_with_comment(
+        &self,
+        slot: &str,
+        state: SaveState,
+        thumb: Option<&Image>,
+        comment: String,
+    ) -> Result<()> {
         let file = SaveFile {
             version: VERSION,
             saved_at: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map_or(0, |d| d.as_secs()),
             text: state.scene.text.clone(),
+            comment,
             state,
         };
         std::fs::create_dir_all(&self.dir).map_err(io_error(&self.dir))?;

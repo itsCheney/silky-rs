@@ -63,6 +63,8 @@ pub mod dialog_ids {
     pub const NO: i32 = 1;
     /// "Do not ask again".
     pub const DONT_ASK: i32 = 256;
+    /// 同級生 Remake: the save comment's clear button.
+    pub const CLEAR: i32 = 2;
 }
 
 /// Questions of the dialog sheet, top to bottom.
@@ -568,6 +570,35 @@ pub struct Dialog {
     pub fresh: bool,
     /// "Do not ask again" ticked.
     pub dont_ask: bool,
+    /// 同級生 Remake: the element that was clicked to open the dialog; it
+    /// stays drawn pressed, with its hint, under the dialog.
+    pub opener: Option<Button>,
+    /// 同級生 Remake: the save dialog takes a comment.
+    pub commenting: bool,
+    /// The comment typed so far.
+    pub comment: String,
+    /// The session clock (ms) when the dialog came up.
+    pub opened: u64,
+    /// Passes of its fade-in (0 for none).
+    pub fade: u32,
+    /// The comment caret is shown.
+    pub caret: bool,
+}
+
+impl Dialog {
+    /// Opacity of the dialog layer at `clock`: 0 to 255 linear over its
+    /// fade passes.
+    pub fn alpha(&self, clock: u64) -> u8 {
+        crate::games::doukyuusei::system::fade_alpha(
+            crate::games::doukyuusei::menu::passes(self.opened, clock),
+            self.fade,
+        )
+    }
+
+    /// Whether the fade-in still changes the picture at `clock`.
+    pub fn fading(&self, clock: u64) -> bool {
+        crate::games::doukyuusei::menu::passes(self.opened, clock) <= self.fade && self.fade > 0
+    }
 }
 
 /// An engine screen that is up.
@@ -1211,6 +1242,12 @@ impl Screens {
 
     pub fn hit_dialog(&self, d: &Dialog, x: i32, y: i32) -> Option<Button> {
         let unlock = matches!(d.action, Action::Unlock(_));
+        if self.douk && d.commenting {
+            let (cx, cy, n) = crate::games::doukyuusei::savenote::CLEAR;
+            if (cx..cx + n).contains(&x) && (cy..cy + n).contains(&y) {
+                return Some(Button::Dialog(dialog_ids::CLEAR));
+            }
+        }
         self.dialog
             .iter()
             .filter(|a| !(unlock && a.id == dialog_ids::DONT_ASK))
@@ -1224,12 +1261,20 @@ impl Screens {
         assets: &mut Assets,
         ui: &Ui,
         d: &Dialog,
+        font: Option<&crate::games::doukyuusei::window::Font>,
     ) -> Result<()> {
         use dialog_ids::*;
         if self.douk {
             let sheet = self.sheet(assets, "dialog_p.akb")?;
             let state = |id| ui.state(Button::Dialog(id), true, false) as u32;
-            crate::games::doukyuusei::system::draw_dialog(canvas, &sheet, d, &self.dialog, state);
+            crate::games::doukyuusei::system::draw_dialog(
+                canvas,
+                &sheet,
+                d,
+                &self.dialog,
+                state,
+                (d.alpha(ui.clock), font),
+            );
             return Ok(());
         }
         if self.apeiria {
