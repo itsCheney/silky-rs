@@ -205,6 +205,8 @@ pub struct Ui {
     /// when it opened.
     pub k1: Option<crate::games::kimaten1::Screen>,
     pub k1_since: u64,
+    /// The notices of きまぐれテンプテーション that are up.
+    pub k1_notices: Option<crate::games::kimaten1::Notices>,
     /// 同級生 Remake's status plate, while it is up.
     pub plate: Option<crate::games::doukyuusei::plate::Plate>,
     /// The backlog has entries (同級生 Remake's menu leaves its button out
@@ -2256,6 +2258,10 @@ impl Layout {
         text_shown: bool,
         text: Option<&TextRenderer>,
     ) -> Result<()> {
+        // きまぐれテンプテーション: notices over the scene.
+        if let Some(n) = &ui.k1_notices {
+            n.draw(canvas, assets, text)?;
+        }
         // 同級生 Remake: its own bars, with the bottom buttons of the
         // message window.
         if let (Some(plate), Some(d), true) = (&ui.plate, &self.douk, ui.plate_up()) {

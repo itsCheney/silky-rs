@@ -304,6 +304,9 @@ pub struct Runtime {
     pub panel: Option<crate::games::doukyuusei::Panel>,
     /// The screen of きまぐれテンプテーション that is up.
     pub k1: Option<crate::games::kimaten1::Screen>,
+    /// The notices of きまぐれテンプテーション (`Game.44`): strips over the
+    /// scene that the script does not wait for.
+    pub k1_notices: crate::games::kimaten1::Notices,
     /// The colour covering the screen when 同級生 Remake's name entry
     /// opened: the page shows the background, and the cover comes back
     /// when it is done.
@@ -393,6 +396,7 @@ impl Runtime {
             map: None,
             panel: None,
             k1: None,
+            k1_notices: Default::default(),
             cover_under_name: None,
             town: None,
             sprites: Default::default(),

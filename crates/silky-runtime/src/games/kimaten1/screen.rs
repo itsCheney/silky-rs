@@ -5,6 +5,8 @@
 use super::actsel::ActSelect;
 use super::areasel::AreaSelect;
 use super::itemsel::ItemSelect;
+use super::map::Map;
+use super::notebook::Notebook;
 use crate::assets::Assets;
 use crate::render::Canvas;
 use crate::text::TextRenderer;
@@ -42,6 +44,10 @@ pub enum Screen {
     Area(AreaSelect),
     /// Choosing a piece of evidence (`Game.46`).
     Item(ItemSelect),
+    /// The map of the apartment (`Game.43`).
+    Map(Map),
+    /// The 捜査手帳.
+    Notebook(Notebook),
 }
 
 impl Screen {
@@ -52,6 +58,8 @@ impl Screen {
             Screen::Action(s) => s.hit(x, y),
             Screen::Area(s) => s.hit(x, y),
             Screen::Item(s) => s.hit(x, y),
+            Screen::Map(m) => m.hit(x, y),
+            Screen::Notebook(n) => n.hit(x, y),
         }
     }
 
@@ -61,6 +69,8 @@ impl Screen {
             Screen::Action(s) => s.enabled(id),
             Screen::Area(s) => s.enabled(id),
             Screen::Item(s) => s.enabled(id),
+            Screen::Map(m) => m.enabled(id),
+            Screen::Notebook(n) => n.enabled(id),
         }
     }
 
@@ -70,6 +80,8 @@ impl Screen {
             Screen::Action(s) => s.click(id),
             Screen::Area(s) => s.click(id),
             Screen::Item(s) => s.click(id),
+            Screen::Map(m) => m.click(id),
+            Screen::Notebook(n) => n.click(id),
         }
     }
 
@@ -78,6 +90,8 @@ impl Screen {
     pub fn cancel(&mut self) -> Click {
         match self {
             Screen::Area(s) => s.cancel(),
+            Screen::Map(m) => m.cancel(),
+            Screen::Notebook(n) => n.cancel(),
             _ => Click::None,
         }
     }
@@ -87,6 +101,8 @@ impl Screen {
     pub fn take_bytes(&mut self) -> Vec<(usize, u8)> {
         match self {
             Screen::Action(s) => s.take_bytes(),
+            Screen::Map(m) => m.take_bytes(),
+            Screen::Notebook(n) => n.take_bytes(),
             _ => Vec::new(),
         }
     }
@@ -97,6 +113,8 @@ impl Screen {
             Screen::Action(s) => s.take_sound(),
             Screen::Area(s) => s.take_sound(),
             Screen::Item(s) => s.take_sound(),
+            Screen::Map(m) => m.take_sound(),
+            Screen::Notebook(n) => n.take_sound(),
         }
     }
 
@@ -106,6 +124,8 @@ impl Screen {
             Screen::Action(s) => s.draw(canvas, assets, look),
             Screen::Area(s) => s.draw(canvas, assets, look),
             Screen::Item(s) => s.draw(canvas, assets, look),
+            Screen::Map(m) => m.draw(canvas, assets, look),
+            Screen::Notebook(n) => n.draw(canvas, assets, look),
         }
     }
 
@@ -116,6 +136,8 @@ impl Screen {
             Screen::Action(s) => (s.auto_pick(), "actmenu"),
             Screen::Area(s) => (s.auto_pick(), "area"),
             Screen::Item(s) => (s.auto_pick(), "item"),
+            Screen::Map(m) => m.auto_pick(),
+            Screen::Notebook(n) => n.auto_pick(),
         }
     }
 }

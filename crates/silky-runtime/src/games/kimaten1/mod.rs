@@ -11,8 +11,12 @@ mod areasel;
 mod chrome;
 pub(crate) mod commands;
 mod itemsel;
+pub mod map;
+pub mod notebook;
+pub mod notice;
 pub mod screen;
 pub mod window;
 
 pub use commands::SHARED_COMMANDS;
+pub use notice::Notices;
 pub use screen::{Click, Look, Screen};

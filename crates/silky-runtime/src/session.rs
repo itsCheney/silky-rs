@@ -3988,6 +3988,16 @@ impl Session {
         }
         self.tick_menu_anim();
         self.tick_dialog();
+        // きまぐれテンプテーション's notices slide over the scene.
+        let moved = self.rt.k1_notices.advance(self.ui.clock);
+        if moved || self.ui.k1_notices.is_some() != self.rt.k1_notices.visible() {
+            self.ui.k1_notices = self
+                .rt
+                .k1_notices
+                .visible()
+                .then(|| self.rt.k1_notices.clone());
+            self.frame = None;
+        }
         if let Some(v) = self.veil {
             self.frame = None;
             if v.done(self.ui.clock) {

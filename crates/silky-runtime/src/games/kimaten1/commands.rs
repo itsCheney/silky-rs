@@ -6,6 +6,7 @@ use silky_vm::{Flow, Value, Vm};
 use super::actsel::ActSelect;
 use super::areasel::AreaSelect;
 use super::itemsel::{self, ItemSelect};
+use super::map::Map;
 use super::screen::Screen;
 use crate::games::cmd::{PICTURE, SPEAKER, TITLE};
 use crate::host::{Pause, Runtime};
@@ -30,6 +31,12 @@ const NOTEBOOK_UNLOCKED: usize = 899;
 const TUTORIAL_UNLOCKED: usize = 0xbbf;
 const TUTORIAL_SEEN: usize = 0xbc0;
 const ITEM_FLAGS: [usize; 5] = itemsel::FLAGS;
+/// The map of the apartment: `(1)` with a back button, `(0)` without.
+const MAP: i32 = 43;
+/// The notices: `(text, 0)` queues one, `(1)` shows the queue, `(2)` takes
+/// the strips down, `(3)` clears the queue, `(4)` returns whether strips
+/// are still up.
+const NOTICE: i32 = 44;
 
 impl Runtime {
     /// The areas of one of the `.area` files, `None` if it is missing.
@@ -92,6 +99,33 @@ impl Runtime {
                 Some(Ok(self.transition(t, None)))
             }
             EMOTES if self.kimaten2_emotes(args, sub, vm) => self.done(),
+            MAP => match Map::new(&self.assets, sub == 1, |i| vm.var_b(i)) {
+                Ok(map) => {
+                    self.k1 = Some(Screen::Map(map));
+                    self.wait_for(Pause::Kimaten1)
+                }
+                // Without its pictures there is no map to pick from: go
+                // back, as the back button would.
+                Err(_) => {
+                    vm.push(super::map::BACK_RESULT);
+                    self.done()
+                }
+            },
+            NOTICE => {
+                match (sub, args.first()) {
+                    (0, Some(text)) => {
+                        if let Some(text) = text.as_str() {
+                            self.k1_notices.push(text);
+                        }
+                    }
+                    (1, _) => self.k1_notices.show(),
+                    (2, _) => self.k1_notices.clear(),
+                    (3, _) => self.k1_notices.clear_queue(),
+                    (4, _) => vm.push(self.k1_notices.busy() as i32),
+                    _ => {}
+                }
+                self.done()
+            }
             _ => None,
         }
     }
