@@ -9,6 +9,7 @@ mod actsel;
 mod areasel;
 mod chrome;
 pub(crate) mod commands;
+pub mod effects;
 mod emote;
 mod itemsel;
 pub mod map;

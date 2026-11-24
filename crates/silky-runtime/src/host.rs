@@ -910,6 +910,12 @@ impl Runtime {
 
     /// Pauses for a transition of `frames`, or goes on at once.
     pub(crate) fn transition(&mut self, frames: i32, rule: Option<u32>) -> Flow {
+        if self.assets.game().title == Title::Kimaten1 {
+            crate::games::kimaten1::effects::applied(
+                &mut self.scene.effects,
+                self.scene.background.as_deref(),
+            );
+        }
         let scale = self.system.settings.effect_scale();
         let ms = (frames_ms(frames) as f32 * scale) as u32;
         if ms == 0 {

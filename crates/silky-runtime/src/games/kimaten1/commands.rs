@@ -5,6 +5,7 @@ use silky_vm::{Flow, Value, Vm};
 
 use super::actsel::ActSelect;
 use super::areasel::AreaSelect;
+use super::effects;
 use super::itemsel::{self, ItemSelect};
 use super::map::Map;
 use super::screen::Screen;
@@ -36,8 +37,6 @@ const TUTORIAL_UNLOCKED: usize = 0xbbf;
 const TUTORIAL_SEEN: usize = 0xbc0;
 /// Voice channels of `Game.961`, apart from the message voices.
 const LONG_VOICE_CHANNELS: i32 = 200;
-/// Frames the string reveal of `Game.1000` runs beyond its own number.
-const STRING_EXTRA_FRAMES: i32 = 64;
 const ITEM_FLAGS: [usize; 5] = itemsel::FLAGS;
 /// The map of the apartment: `(1)` with a back button, `(0)` without.
 const MAP: i32 = 43;
@@ -63,6 +62,7 @@ impl Runtime {
         sub: i32,
         args: &[Value],
     ) -> Option<silky_vm::Result<Flow>> {
+        effects::sweep(&mut self.scene);
         match command {
             // The title menu; its argument 1 opens the extras page (back
             // from one of the modes).
@@ -70,7 +70,7 @@ impl Runtime {
                 self.k1_title_extras = sub == 1;
                 self.wait_for(Pause::Title)
             }
-            EMOTE if self.kimaten1_emote(args, sub) => self.done(),
+            EMOTE if self.kimaten1_emote(args, sub) => self.k1_done(),
             ACTION => {
                 let areas = self.k1_areas("actselect.area")?;
                 let b = |i: usize| vm.var_b(i);
@@ -127,8 +127,8 @@ impl Runtime {
                 self.handled += 1;
                 Some(Ok(self.transition(t, None)))
             }
-            EMOTES if self.kimaten1_emotes(args, sub, vm) => self.done(),
-            EMOTE_CG if self.kimaten1_cg(args, sub) => self.done(),
+            EMOTES if self.kimaten1_emotes(args, sub, vm) => self.k1_done(),
+            EMOTE_CG if self.kimaten1_cg(args, sub) => self.k1_done(),
             MAP => match Map::new(&self.assets, sub == 1, |i| vm.var_b(i)) {
                 Ok(map) => {
                     self.k1 = Some(Screen::Map(map));
@@ -177,26 +177,40 @@ impl Runtime {
                 self.done()
             }
             // A line of text (a picture strip) wiped in through a rule
-            // mask: (hold, frames, rule, height, width, y). The wipe is
-            // not drawn here; the script waits as long as the original
-            // does, the strip being there from the start.
+            // mask: (hold, frames, rule, height, width, y, x).
             1000 => {
-                let n = |i: usize| args.get(i).map(Value::int).unwrap_or(0);
-                let ms = crate::host::frames_ms(n(1) + STRING_EXTRA_FRAMES) + n(0).max(0) as u32;
+                let bg = self.scene.background.clone()?;
+                let v: Vec<i32> = (0..7)
+                    .map(|i| args.get(i).map(Value::int).unwrap_or(0))
+                    .collect();
+                let ms = effects::strip(&mut self.scene.effects, &bg, v.try_into().ok()?);
                 if ms == 0 {
                     return self.done();
                 }
                 self.wait_for(Pause::Transition(crate::host::Transition {
-                    ms,
+                    ms: ms as u32,
                     rule: None,
                     spin: None,
                     live: true,
                 }))
             }
-            // The back picture fades in or out over eight frames.
+            // The back picture fades in (0) or out (1) over eight frames;
+            // 2 shows it and 3 puts it away at once.
             999 => {
-                self.handled += 1;
-                Some(Ok(self.transition(8, None)))
+                let bg = self.scene.background.clone();
+                effects::overlay(&mut self.scene.effects, sub, bg.as_deref());
+                self.k1_block(0);
+                self.k1_done()
+            }
+            // The evidence cards (one, or two) fade in, stay and fade out.
+            47 => {
+                let cards: Vec<i32> = args[..args.len().saturating_sub(1)]
+                    .iter()
+                    .map(Value::int)
+                    .collect();
+                effects::evidence(&mut self.scene.effects, &cards);
+                self.k1_block(0);
+                self.k1_done()
             }
             // (channel, file) plays a voice that the next message does
             // not cut; sub 1 (channel) stops it.

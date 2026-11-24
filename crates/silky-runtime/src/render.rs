@@ -473,8 +473,8 @@ impl Renderer {
     #[cfg(feature = "emote")]
     fn draw_emotes(&mut self, canvas: &mut Canvas, scene: &Scene, assets: &Assets) {
         if canvas.ops().is_none() {
-            for (img, x, y) in self.emote_images(scene, assets) {
-                canvas.draw(&img, x.round() as i32, y.round() as i32, false);
+            for (key, img, x, y) in self.emote_images(scene, assets) {
+                draw_faded(canvas, &img, x, y, emote_fx(scene, key));
             }
             return;
         }
@@ -487,7 +487,14 @@ impl Renderer {
             stage.apply(emote);
             if emote.visible {
                 if let Some(frame) = stage.frame() {
-                    canvas.draw_model(&frame);
+                    match emote_fx(scene, key) {
+                        None => canvas.draw_model(&frame),
+                        Some(fx) => {
+                            if let Some((img, x, y)) = frame.rasterize() {
+                                draw_faded(canvas, &Arc::new(img), x, y, Some(fx));
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -516,7 +523,7 @@ impl Renderer {
     }
 
     #[cfg(feature = "emote")]
-    fn emote_images(&mut self, scene: &Scene, assets: &Assets) -> Vec<(Arc<Image>, f32, f32)> {
+    fn emote_images(&mut self, scene: &Scene, assets: &Assets) -> Vec<(i32, Arc<Image>, f32, f32)> {
         self.open_emotes(scene, assets);
         let wanted = emote_order(scene);
         #[cfg(feature = "gpu")]
@@ -530,7 +537,11 @@ impl Renderer {
             };
             stage.apply(emote);
             if emote.visible {
-                out.extend(stage.image(self.emote_gpu.as_mut()));
+                out.extend(
+                    stage
+                        .image(self.emote_gpu.as_mut())
+                        .map(|(img, x, y)| (key, img, x, y)),
+                );
             }
         }
         out
@@ -1418,12 +1429,16 @@ const COMPANION: i32 = i32::MIN;
 /// companion.
 #[cfg(feature = "emote")]
 fn emote_order(scene: &Scene) -> Vec<(i32, &crate::scene::Emote)> {
-    scene
-        .emotes
-        .iter()
-        .rev()
-        .map(|(k, e)| (*k, e))
-        .chain(scene.emote.iter().map(|e| (COMPANION, e)))
+    // The models that are going lie behind the others.
+    crate::games::kimaten1::effects::ghosts(scene)
+        .chain(
+            scene
+                .emotes
+                .iter()
+                .rev()
+                .map(|(k, e)| (*k, e))
+                .chain(scene.emote.iter().map(|e| (COMPANION, e))),
+        )
         .collect()
 }
 
@@ -1451,6 +1466,40 @@ fn draw_layer(
         canvas.draw_part(&img, part, x, y, false, 255);
     }
     Ok(())
+}
+
+/// How the model drawn under `key` fades or whitens, if it does; a model
+/// that is gone (opacity 0) is not drawn.
+#[cfg(feature = "emote")]
+fn emote_fx(scene: &Scene, key: i32) -> Option<(u8, u8)> {
+    crate::games::kimaten1::effects::emote_fx(scene, key)
+}
+
+/// Draws a model picture at `opacity`, its colours mixed towards white by
+/// `white`, both from 0 to 255 (`None`: as it is).
+#[cfg(feature = "emote")]
+fn draw_faded(canvas: &mut Canvas, img: &Arc<Image>, x: f32, y: f32, fx: Option<(u8, u8)>) {
+    let (x, y) = (x.round() as i32, y.round() as i32);
+    let Some((alpha, white)) = fx else {
+        canvas.draw(img, x, y, false);
+        return;
+    };
+    if alpha == 0 {
+        return;
+    }
+    let img = if white == 0 {
+        img.clone()
+    } else {
+        let w = white as u32;
+        let mut t = (**img).clone();
+        for px in t.rgba.chunks_exact_mut(4) {
+            for c in &mut px[..3] {
+                *c = (*c as u32 + (255 - *c as u32) * w / 255) as u8;
+            }
+        }
+        Arc::new(t)
+    };
+    canvas.draw_part(&img, (0, 0, img.width, img.height), x, y, false, alpha);
 }
 
 #[cfg(test)]

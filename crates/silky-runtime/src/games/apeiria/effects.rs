@@ -128,6 +128,19 @@ pub enum User {
         sprite: u32,
         swords: Vec<Sword>,
     },
+    /// A wipe through a rule picture stepped by hand (きまぐれテンプテー
+    /// ション's picture strips): the threshold of the sprite's
+    /// [`Look::Reveal`] is `step` times the frame, and everything shows at
+    /// the end.
+    Ramp { owner: u32, sprite: u32, step: f32 },
+    /// A tint going from `from` to `to` over the keyframe (255 is no
+    /// tint), in [`Sprite::tint`].
+    Tint {
+        owner: u32,
+        sprite: u32,
+        from: u8,
+        to: u8,
+    },
 }
 
 /// One streak of [`User::Bullets`].
@@ -216,7 +229,9 @@ impl User {
             | User::Mosaic { owner, .. }
             | User::Morph { owner, .. }
             | User::Bars { owner, .. }
-            | User::Swords { owner, .. } => *owner,
+            | User::Swords { owner, .. }
+            | User::Ramp { owner, .. }
+            | User::Tint { owner, .. } => *owner,
         }
     }
 
@@ -232,19 +247,36 @@ impl User {
             | User::Mosaic { sprite, .. }
             | User::Morph { sprite, .. }
             | User::Bars { sprite, .. }
-            | User::Swords { sprite, .. } => *sprite,
+            | User::Swords { sprite, .. }
+            | User::Ramp { sprite, .. }
+            | User::Tint { sprite, .. } => *sprite,
         }
     }
 
     pub fn start(&mut self, _sprites: &mut [Sprite]) {}
 
     pub fn finish(&mut self, sprites: &mut [Sprite]) {
-        if let User::Morph { sprite, .. } = self {
-            if let Some(s) = sprites.iter_mut().find(|s| s.id == *sprite) {
-                if let Look::Mix { to, .. } = &s.look {
-                    s.look = (**to).clone();
+        match self {
+            User::Morph { sprite, .. } => {
+                if let Some(s) = sprites.iter_mut().find(|s| s.id == *sprite) {
+                    if let Look::Mix { to, .. } = &s.look {
+                        s.look = (**to).clone();
+                    }
                 }
             }
+            User::Ramp { sprite, .. } => {
+                if let Some(s) = sprites.iter_mut().find(|s| s.id == *sprite) {
+                    if let Look::Reveal { threshold, .. } = &mut s.look {
+                        *threshold = 512.0;
+                    }
+                }
+            }
+            User::Tint { sprite, to, .. } => {
+                if let Some(s) = sprites.iter_mut().find(|s| s.id == *sprite) {
+                    s.tint = [*to; 3];
+                }
+            }
+            _ => {}
         }
     }
 
@@ -481,6 +513,23 @@ impl User {
                         s.y = ((w.to.1 + 300) * w.step / 6 - 300) as f32;
                         w.step += 1;
                     }
+                }
+                return;
+            }
+            User::Ramp { sprite, step, .. } => {
+                if let Some(i) = find(sprites, *sprite) {
+                    if let Look::Reveal { threshold, .. } = &mut sprites[i].look {
+                        *threshold = f as f32 * *step;
+                    }
+                }
+                return;
+            }
+            User::Tint {
+                sprite, from, to, ..
+            } => {
+                if let Some(i) = find(sprites, *sprite) {
+                    let (a, b) = (*from as i32, *to as i32);
+                    sprites[i].tint = [(a + (b - a) * f / n.max(1)) as u8; 3];
                 }
                 return;
             }

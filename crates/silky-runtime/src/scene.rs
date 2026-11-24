@@ -266,6 +266,10 @@ pub struct Scene {
     /// 1001, 1002). Not saved.
     #[serde(skip)]
     pub effects: crate::games::apeiria::anim::Stage,
+    /// きまぐれテンプテーション's E-mote fades (see
+    /// [`crate::games::kimaten1::effects`]). Not saved.
+    #[serde(skip)]
+    pub k1fx: crate::games::kimaten1::effects::Fx,
     /// Screen shake offset in pixels.
     pub shake: (i32, i32),
     /// Current message text.

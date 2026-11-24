@@ -14,11 +14,21 @@
 
 use silky_vm::{Value, Vm};
 
+use super::effects::{self, Fade};
 use crate::host::Runtime;
 use crate::scene::{Emote, Place};
 
 /// The slot the CG model (`Game.48`) is kept in, behind the standing ones.
 const CG_SLOT: i32 = 100;
+
+/// The companion's key (as the renderer orders the models).
+const COMPANION: i32 = i32::MIN;
+
+/// Frames the companion fades in over (less over a model that is going),
+/// and the CG model's fade-in.
+const COMPANION_FADE: i32 = 16;
+const COMPANION_FADE_OVER: i32 = 8;
+const CG_FADE: i32 = 32;
 
 /// Standing models' x by slot, in the first game's signs.
 const SLOT_X: [i32; 4] = [0, -400, 400, 400];
@@ -91,12 +101,20 @@ impl Runtime {
         let n = |i: usize| a.get(i).map(Value::int).unwrap_or(0);
         match (sub, a.len()) {
             (4 | 5, 0) => {}
+            // A model that was on screen fades out as the new one loads.
             (6, 2) => {
+                let old = self.scene.emote.clone().filter(|e| e.visible);
                 if !self.kimaten2_emote(args, 6) {
                     return false;
                 }
                 if let Some(e) = &mut self.scene.emote {
                     e.place = Some(companion());
+                }
+                effects::drop_fade(&mut self.scene.effects, COMPANION);
+                if let Some(old) = old {
+                    let gk = effects::leave(&mut self.scene, COMPANION, old);
+                    effects::fade(&mut self.scene.effects, gk, Fade::Out(COMPANION_FADE));
+                    effects::bind(&mut self.scene, gk);
                 }
             }
             (7, 2) => return self.kimaten2_emote(args, 7),
@@ -106,8 +124,30 @@ impl Runtime {
                     e.face = Some((face, n(0)));
                 }
             }
-            (9, 0) => return self.kimaten2_emote(args, 9),
-            (11 | 12, 0) => self.scene.emote = None,
+            // Fades in over 16 frames (8 over a model that is going), the
+            // script waiting, unless it was shown already.
+            (9, 0) => {
+                let was = self.scene.emote.as_ref().is_some_and(|e| e.visible);
+                if !self.kimaten2_emote(args, 9) {
+                    return false;
+                }
+                if !was && self.scene.emote.is_some() {
+                    let over = self.scene.k1fx.ghosts.iter().any(|g| g.key == 302);
+                    let n = if over {
+                        COMPANION_FADE_OVER
+                    } else {
+                        COMPANION_FADE
+                    };
+                    effects::fade(&mut self.scene.effects, COMPANION, Fade::In(n));
+                    effects::wait_for(&mut self.scene.effects, COMPANION);
+                    self.k1_block(0);
+                }
+            }
+            // Out at once (the original's fade out is called with no time).
+            (11 | 12, 0) => {
+                self.scene.emote = None;
+                effects::drop_fade(&mut self.scene.effects, COMPANION);
+            }
             (13, 1) => {
                 if let Some(e) = &mut self.scene.emote {
                     e.pose = Some(n(0));
@@ -143,6 +183,11 @@ impl Runtime {
         let last = n(a.len().saturating_sub(1));
         match (sub, a.len()) {
             (0, 5) | (12, 6) => {
+                // The model the slot had stays for the flash that may follow.
+                if let Some(old) = self.scene.emotes.get(&last).filter(|e| e.visible) {
+                    let old = old.clone();
+                    self.scene.k1fx.before.insert(last, old);
+                }
                 if !self.kimaten2_emotes(args, sub, vm) {
                     return false;
                 }
@@ -187,6 +232,19 @@ impl Runtime {
                 }
             }
             (18, 1) | (31, 0) => {}
+            // (slot, frames): the model the slot had flashes white and
+            // fades out as the one it has now flashes in; nothing waits.
+            (100, 2) => {
+                let (slot, frames) = (n(0), n(1).max(1));
+                if let Some(old) = self.scene.k1fx.before.remove(&slot) {
+                    let gk = effects::leave(&mut self.scene, slot, old);
+                    effects::fade(&mut self.scene.effects, gk, Fade::WhiteOut(frames));
+                    effects::bind(&mut self.scene, gk);
+                }
+                if self.scene.emotes.contains_key(&slot) {
+                    effects::fade(&mut self.scene.effects, slot, Fade::WhiteIn(frames));
+                }
+            }
             (21, 0) => {
                 self.lip = None;
                 self.lip_track = None;
@@ -209,6 +267,7 @@ impl Runtime {
                 let Some(name) = a[0].as_str() else {
                     return false;
                 };
+                let old = self.scene.emotes.get(&CG_SLOT).cloned();
                 self.scene.emotes.insert(
                     CG_SLOT,
                     Emote {
@@ -220,6 +279,13 @@ impl Runtime {
                         ..Default::default()
                     },
                 );
+                // The model it replaces stays under it until it is in.
+                if let Some(old) = old {
+                    let gk = effects::leave(&mut self.scene, CG_SLOT, old);
+                    effects::fade(&mut self.scene.effects, gk, Fade::Hold(CG_FADE));
+                    effects::bind(&mut self.scene, gk);
+                }
+                effects::fade(&mut self.scene.effects, CG_SLOT, Fade::In(CG_FADE));
             }
             (1, 1) => {
                 if let Some(e) = self.scene.emotes.get_mut(&CG_SLOT) {
@@ -231,8 +297,21 @@ impl Runtime {
                     e.pose = Some(n(0));
                 }
             }
-            (2, 0) | (3, 1) => {
-                self.scene.emotes.remove(&CG_SLOT);
+            // Waits for the fade in; the model stays.
+            (2, 0) => {
+                effects::wait_for(&mut self.scene.effects, CG_SLOT);
+                self.k1_block(0);
+            }
+            // Fades out over the frames and goes, the script waiting.
+            (3, 1) => {
+                effects::drop_fade(&mut self.scene.effects, CG_SLOT);
+                if let Some(old) = self.scene.emotes.remove(&CG_SLOT) {
+                    let gk = effects::leave(&mut self.scene, CG_SLOT, old);
+                    effects::fade(&mut self.scene.effects, gk, Fade::Out(n(0).max(1)));
+                    effects::bind(&mut self.scene, gk);
+                    effects::wait_for(&mut self.scene.effects, gk);
+                    self.k1_block(0);
+                }
             }
             _ => return false,
         }
