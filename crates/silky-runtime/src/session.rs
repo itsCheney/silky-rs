@@ -4438,6 +4438,16 @@ impl Session {
                 self.frame = None;
             }
         }
+        // The extras screen's picked track ended (without audio it plays on).
+        if let Some(k) = &mut self.ui.k1 {
+            if k.track_playing()
+                && self.rt.audio.enabled()
+                && !self.rt.audio.is_playing(Bus::Music, 0)
+                && k.track_ended()
+            {
+                self.frame = None;
+            }
+        }
         let flag = crate::games::doukyuusei::flaglist::available(
             &self.vm.bytes,
             self.vm.var_g(crate::games::doukyuusei::plate::DATE).int(),

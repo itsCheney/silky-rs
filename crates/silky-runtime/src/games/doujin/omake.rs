@@ -65,6 +65,10 @@ const SCROLL_MAX: usize = TRACKS - MUSIC_ROWS;
 const VOLUME_LEFT: i32 = 407;
 const VOLUME_SPAN: f32 = 460.0;
 const BACK: i32 = 0x300;
+/// The sounds of the buttons: the confirm sound for every press that
+/// does something, the cancel sound for the right click that leaves.
+const OK_SOUND: &str = "ses_001.wav";
+const CANCEL_SOUND: &str = "ses_002.wav";
 const PREV: i32 = 0x100;
 const NEXT: i32 = 0x101;
 const SCROLLBAR: i32 = 0x102;
@@ -127,6 +131,8 @@ pub struct Omake {
     playing: Option<usize>,
     music: Option<Music>,
     new_volume: Option<f32>,
+    /// The sound to play for the last press (taken once).
+    sound: Option<&'static str>,
     /// The scene under the pointer and since when.
     hover_since: Cell<(Option<i32>, u64)>,
 }
@@ -228,6 +234,7 @@ impl Omake {
             playing: None,
             music: None,
             new_volume: None,
+            sound: None,
             hover_since: Cell::new((None, 0)),
         }
     }
@@ -334,13 +341,22 @@ impl Omake {
             0xa00..=0xa02 => {
                 let k = (id & 0xff) as usize;
                 if self.tab_open(k) {
+                    self.sound = Some(OK_SOUND);
                     self.mode = k;
                     self.hover_since.set((None, 0));
                 }
                 return Click::None;
             }
-            BACK => return Click::Result(LEAVE),
+            BACK => {
+                self.sound = Some(OK_SOUND);
+                return Click::Result(LEAVE);
+            }
             _ => {}
+        }
+        // Every press that does something plays the confirm sound.
+        let works = self.enabled(id);
+        if works && !(self.mode == 2 && matches!(id, SCROLLBAR | VOLUME)) {
+            self.sound = Some(OK_SOUND);
         }
         match self.mode {
             0 => match id {
@@ -356,7 +372,12 @@ impl Omake {
                 }
                 PREV if self.page > 0 => self.page -= 1,
                 NEXT if self.page + 1 < CG_PAGES => self.page += 1,
-                0x200..=0x203 => self.page = (id & 0xff) as usize,
+                0x200..=0x203 => {
+                    if self.page == (id & 0xff) as usize {
+                        self.sound = None;
+                    }
+                    self.page = (id & 0xff) as usize;
+                }
                 _ => {}
             },
             1 => match id {
@@ -367,7 +388,12 @@ impl Omake {
                 }
                 PREV if self.scene_page > 0 => self.scene_page -= 1,
                 NEXT if self.scene_page + 1 < SCENE_PAGES => self.scene_page += 1,
-                0x200..=0x202 => self.scene_page = (id & 0xff) as usize,
+                0x200..=0x202 => {
+                    if self.scene_page == (id & 0xff) as usize {
+                        self.sound = None;
+                    }
+                    self.scene_page = (id & 0xff) as usize;
+                }
                 _ => {}
             },
             _ => self.click_music(id),
@@ -388,6 +414,9 @@ impl Omake {
             }
             self.picker = Some(p);
             return Click::None;
+        }
+        if self.enabled(id) {
+            self.sound = Some(OK_SOUND);
         }
         match id {
             BACK => {
@@ -459,8 +488,34 @@ impl Omake {
                 self.picker = None;
                 Click::None
             }
-            None => Click::Result(LEAVE),
+            // A track playing stops first; the screen is left only when
+            // none plays, with the cancel sound.
+            None if self.mode == 2 && self.playing.is_some() => {
+                self.playing = None;
+                self.music = Some(Music::Stop);
+                Click::None
+            }
+            None => {
+                self.sound = Some(CANCEL_SOUND);
+                Click::Result(LEAVE)
+            }
         }
+    }
+
+    /// The sound to play for the last press (taken once).
+    pub fn take_sound(&mut self) -> Option<String> {
+        self.sound.take().map(str::to_string)
+    }
+
+    /// Clears the playing row once the picked track has ended; true when
+    /// the screen changed.
+    pub fn track_ended(&mut self) -> bool {
+        self.playing.take().is_some()
+    }
+
+    /// Whether a picked track is meant to be playing.
+    pub fn track_playing(&self) -> bool {
+        self.playing.is_some()
     }
 
     pub fn take_bytes(&mut self) -> Vec<(usize, u8)> {
@@ -1020,6 +1075,51 @@ mod tests {
         assert_eq!(thumb(&bits, 1), Some(0));
         assert_eq!(seen_in(&bits, 1), 2);
         assert_eq!(entry_of(7), 1);
+    }
+
+    fn music_screen() -> Omake {
+        let mut saved = Saved::default();
+        saved.tracks = [1; TRACKS];
+        saved.tabs = [1; MODES];
+        Omake::open(2, [Vec::new(), Vec::new(), Vec::new()], saved)
+    }
+
+    #[test]
+    fn buttons_play_the_confirm_sound() {
+        let mut o = music_screen();
+        o.click(0);
+        assert_eq!(o.take_sound().as_deref(), Some("ses_001.wav"));
+        assert!(o.take_sound().is_none());
+        // The bars make no sound.
+        o.click(VOLUME);
+        o.click(SCROLLBAR);
+        assert!(o.take_sound().is_none());
+        // A button that cannot work makes none either.
+        o.click(PREV);
+        assert!(o.take_sound().is_none());
+        o.click(NEXT);
+        assert!(o.take_sound().is_some());
+    }
+
+    #[test]
+    fn right_click_stops_a_track_before_it_leaves() {
+        let mut o = music_screen();
+        o.click(0);
+        o.take_sound();
+        assert!(matches!(o.cancel(), Click::None));
+        assert!(matches!(o.take_music(), Some(Music::Stop)));
+        assert!(o.take_sound().is_none());
+        assert!(matches!(o.cancel(), Click::Result(LEAVE)));
+        assert_eq!(o.take_sound().as_deref(), Some("ses_002.wav"));
+    }
+
+    #[test]
+    fn a_track_that_ended_clears_the_row() {
+        let mut o = music_screen();
+        o.click(1);
+        assert!(o.track_playing());
+        assert!(o.track_ended());
+        assert!(!o.track_playing());
     }
 
     #[test]

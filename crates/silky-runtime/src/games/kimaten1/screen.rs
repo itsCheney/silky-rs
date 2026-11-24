@@ -152,7 +152,8 @@ impl Screen {
             Screen::Item(s) => s.take_sound(),
             Screen::Map(m) => m.take_sound(),
             Screen::Notebook(n) => n.take_sound(),
-            Screen::Omake(_) | Screen::Doujin(_) => None,
+            Screen::Omake(_) => None,
+            Screen::Doujin(o) => o.take_sound(),
             Screen::Viewer(v) => v.take_sound(),
             Screen::Staff(_) => None,
         }
@@ -235,6 +236,20 @@ impl Screen {
             Screen::Staff(s) => s.take_stop().then_some(Music::Stop),
             _ => None,
         }
+    }
+
+    /// Clears the music row of the extras screen of 先輩が私の妄想にドージンする
+    /// once its track ended; true when the screen changed.
+    pub fn track_ended(&mut self) -> bool {
+        match self {
+            Screen::Doujin(o) => o.track_ended(),
+            _ => false,
+        }
+    }
+
+    /// Whether the screen waits for a picked track to end.
+    pub fn track_playing(&self) -> bool {
+        matches!(self, Screen::Doujin(o) if o.track_playing())
     }
 
     /// The music volume the screen set (taken once).
