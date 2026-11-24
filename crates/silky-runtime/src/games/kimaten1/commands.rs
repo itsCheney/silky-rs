@@ -7,6 +7,7 @@ use super::actsel::ActSelect;
 use super::areasel::AreaSelect;
 use super::effects;
 use super::exselect::ExSelect;
+use super::fx;
 use super::itemsel::{self, ItemSelect};
 use super::map::Map;
 use super::omake::{self, Omake, Saved};
@@ -282,6 +283,31 @@ impl Runtime {
                 self.k1_block(0);
                 self.k1_done()
             }
+            // A looping screen effect (soot, a waving screen, ...): the
+            // type is under the action (0 starts it, 1 and 2 stop it).
+            1001 => {
+                if !self.scene_skip() {
+                    let ty = args.first().map(Value::int).unwrap_or(0);
+                    fx::effect(&mut self.scene.effects, ty, sub);
+                    if sub == 0 && ty == 6 {
+                        let _ = self.play_sound("seg_025a.wav");
+                    }
+                    self.k1_block(0);
+                }
+                self.k1_done()
+            }
+            // The quick flashes and fades; the script waits for them.
+            1002 => {
+                if !self.scene_skip() {
+                    let arg = args.first().map(Value::int).unwrap_or(0);
+                    fx::flash(&mut self.scene.effects, sub, arg);
+                    self.k1_block(0);
+                }
+                self.k1_done()
+            }
+            // The spiral transition: the script never turns its switch on,
+            // so there is nothing to play.
+            989 => self.k1_done(),
             // The evidence cards (one, or two) fade in, stay and fade out.
             47 => {
                 let cards: Vec<i32> = args[..args.len().saturating_sub(1)]

@@ -144,6 +144,9 @@ pub enum User {
     /// 先輩が私の妄想にドージンする's puff of breath: the picture fades in
     /// to 196 over the first half of the keyframe and out over the rest.
     Breath { owner: u32, sprite: u32 },
+    /// One of きまぐれテンプテーション's own effects (see
+    /// `kimaten1::fx`).
+    K1(Box<crate::games::kimaten1::fx::Fx>),
 }
 
 /// One streak of [`User::Bullets`].
@@ -236,6 +239,7 @@ impl User {
             | User::Ramp { owner, .. }
             | User::Tint { owner, .. }
             | User::Breath { owner, .. } => *owner,
+            User::K1(k) => k.owner,
         }
     }
 
@@ -255,6 +259,7 @@ impl User {
             | User::Ramp { sprite, .. }
             | User::Tint { sprite, .. }
             | User::Breath { sprite, .. } => *sprite,
+            User::K1(k) => k.sprite,
         }
     }
 
@@ -292,12 +297,17 @@ impl User {
                     s.alpha = 0;
                 }
             }
+            User::K1(k) => k.finish(sprites),
             _ => {}
         }
     }
 
     /// Frame `f` of `n` of the keyframe that runs it.
     pub fn tick(&mut self, sprites: &mut [Sprite], rng: &mut u32, f: i32, n: i32) {
+        if let User::K1(k) = self {
+            k.tick(sprites, f);
+            return;
+        }
         let find = |sprites: &mut [Sprite], id: u32| sprites.iter().position(|s| s.id == id);
         match self {
             User::Bullets {
