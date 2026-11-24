@@ -179,6 +179,11 @@ pub enum Look {
         rule: u32,
         threshold: f32,
         erasing: bool,
+        /// Width of a row of the rule picture when it is not the source's
+        /// own (the rule is then a picture of that width whose top left
+        /// corner the source's top left corner is laid on); 0 reads the
+        /// rule a row of the source at a time.
+        stride: u32,
     },
 }
 

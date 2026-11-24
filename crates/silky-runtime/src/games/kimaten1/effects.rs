@@ -173,6 +173,7 @@ pub fn strip(st: &mut Stage, background: &str, a: [i32; 7]) -> u64 {
         rule: rule.max(0) as u32,
         threshold: 0.0,
         erasing: false,
+        stride: 0,
     };
     p.add(Sprite::new(id, STRIPS, look, z).at(x as f32, y as f32));
     let step = if frames > 1 {

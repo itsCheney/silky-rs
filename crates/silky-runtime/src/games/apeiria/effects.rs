@@ -450,6 +450,7 @@ impl User {
                         rule: 0,
                         threshold: 0.0,
                         erasing: false,
+                        stride: 0,
                     };
                     s.shown = true;
                     *delay = rand(rng, 64);
@@ -2117,12 +2118,18 @@ fn picture(
             rule,
             threshold,
             erasing,
+            stride,
         } => {
             let mut img = picture(source, canvas, screen, assets)?;
             let rule = assets.data(&format!("{rule:02}.bin")).ok()?;
             let thr = *threshold as i32;
+            let width = img.width.max(1) as usize;
             for (k, px) in img.rgba.chunks_exact_mut(4).enumerate() {
-                let r = rule.get(k).copied().unwrap_or(255) as i32;
+                let at = match *stride as usize {
+                    0 => k,
+                    row => (k / width) * row + k % width,
+                };
+                let r = rule.get(at).copied().unwrap_or(255) as i32;
                 let shown = (thr - r).clamp(0, px[3] as i32);
                 px[3] = if *erasing {
                     px[3] - shown as u8

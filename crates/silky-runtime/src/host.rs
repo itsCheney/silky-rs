@@ -367,6 +367,9 @@ pub(crate) enum FollowUp {
     /// 景の海のアペイリア: the mail forward screen takes input once it has
     /// faded in.
     MailChoice,
+    /// なないろリンカネーション: the staff roll is over (or was cut short),
+    /// and its music stops.
+    EndStaff,
 }
 
 pub(crate) fn host_error(msg: impl Into<String>) -> silky_vm::Error {
@@ -463,6 +466,10 @@ impl Runtime {
             FollowUp::MailChoice => {
                 self.pause = Some(Pause::Choice);
                 Flow::Yield
+            }
+            FollowUp::EndStaff => {
+                self.stop_music();
+                Flow::Continue
             }
         };
         if matches!(flow, Flow::Continue) {

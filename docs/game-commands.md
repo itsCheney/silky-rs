@@ -129,7 +129,7 @@ Commands of ふゆから、くるる。 general enough to try on a game not know
 
 ## なないろリンカネーション
 
-`games/nanairo/commands.rs` and `effects.rs`. The commands not listed here or in the common set are reported. Those that return a value were read from the executable: 18, 30 to 32 and 34. 34 is not carried out yet. See [games/nanairo.md](games/nanairo.md).
+`games/nanairo/commands.rs`, `effects.rs`, `animator.rs` and `ending.rs`. The commands not listed here or in the common set are reported. Those that return a value were read from the executable: 18, 30 to 32 and 34 (34 leaves 0). See [games/nanairo.md](games/nanairo.md).
 
 | Call | Returns | Does | Source |
 | --- | --- | --- | --- |
@@ -158,9 +158,13 @@ Commands of ふゆから、くるる。 general enough to try on a game not know
 | `1002.3(name, frames)`, `1002.4(frames)` | | The same for an effect movie; nothing is drawn, the time passes | Read |
 | `1003.0(name, frames)`, `1003.1(frames)` | | Effect picture fades in and out, the script waits | Read |
 | `1005.0`, `1005.1` | | Effect picture fades in over 64 frames, the script waits a round of its pulse; the end removes it | Read |
-| `1006.3`, `1006.13`, `1006.20` | | Event animator: swaying lines over a figure picture; a glowing figure over a beam of light. Not waiting. Other subs are reported | Read |
+| `1006` subs 0, 1, 2, 3, 7 to 14, 17 to 20, 30 | | Event animator: bobbing figure, pan, swaying lines, big turning picture, beam of light. Not waiting. Some numbers are approximate (see the game's page) | Read |
+| `1006.4`, `1006.5`, `1006.6` | | Dissolve into the picture on sprite 2 (about 0.2 s); fade away (16 frames); wipe away through rule 18 (16 frames). The script waits | Read |
+| `34(staff picture, strip)` | 0 | Staff roll with `31.WAV`: 130.33 s, the script waits; a click ends it. The curves inside the stages are approximate | Read |
+| `50.0`, `50.1(rule, frames, h, w, y, x)`, `50.2` | | Ending overlay: wipes in a rectangle of `moji.akb` through rule `NNN.BIN`, the script waits; `50.2` takes it away | Read |
 | `1001.3`, `1002.2`, `1003.2`, `1005.2`, `1006.100` | | Clean up: take the effect away | Read |
-| `39`, `50`, `1004`, `1007` to `1009` | | Accepted, nothing drawn or started | Read |
+| `1006` other subs | | Do nothing | Read |
+| `39`, `1004`, `1007` to `1009` | | Accepted, nothing drawn or started | Read |
 
 ## 先輩が私の妄想にドージンする
 

@@ -78,9 +78,12 @@ impl Runtime {
             }
             // Object of the library's start up; nothing is read from it.
             10 => self.done(),
-            // The calendar screen of a date change and the ending's
-            // overlay are not drawn here; the script goes on at once.
-            39 | 50 => self.done(),
+            // The ending's message overlay and the staff roll.
+            50 => self.nanairo_ending(c),
+            34 => self.nanairo_staff(vm, c),
+            // The calendar screen of a date change is not drawn here;
+            // the script goes on at once.
+            39 => self.done(),
             1007..=1009 => self.done(),
             _ => None,
         }

@@ -55,8 +55,13 @@ The effects are sprites of the shared effect stage: keyframes of fades, zooms an
 - `Game.1002.0(name, frames)` fades the scene movie in over `frames` frames and the script waits; `1002.1(frames)` fades it out and stops it. Movies are not decoded: the picture of the same name stands in when the game has one (`HG070502.akb`, `HG030603.akb`), otherwise nothing is drawn and only the time passes. `1002.3` and `1002.4` are the same pair for the effect movies whose opacity comes from the movie (`HG011701.mov`); they draw nothing.
 - `Game.1003.0(name, frames)` fades the effect picture (`HG091013_eff.akb`) in over `frames` frames and the script waits; it stays. `1003.1(frames)` fades it out and releases it.
 - `Game.1005.0` fades `HG080403_eff.akb` in over 64 frames, then the script waits one round of its slow pulse (24 frames held, 96 down, 80 up, 200 in all); the pulse goes on for ever. `1005.1` takes it away at once.
-- `Game.1006.3` (and `.13`, the extras version) shows a figure picture (`HG090202_h01.akb`) and a picture of lines (`HG090203.akb`). The lines fade in and grow to twice their size over 8 frames (`.3` only), then turn 30 degrees one way and back and the other way and back, 12 frames a step, for ever. `1006.20` shows a beam of light (`HG090205.akb`) with a figure picture (`HG090205_h02.akb`) over it that fades from 52 to 169 and back over 128 frames each way. Any call of `Game.1006` first takes away what the last one showed. `1006.100` and the other clean up calls (`1001.3`, `1002.2`, `1003.2`, `1005.2`) take away their effect.
+- `Game.1006` is the event animator, two figure pictures (A, `HG090201_h01.akb`, and B over it, `HG090202_h01.akb`) and sometimes a third. Each sub changes what they show and starts motion; the script waits only for 4, 5 and 6. Times are in frames (16 ms) and scaled by the effect speed. 0 and 10: A at (0, 100) rises 20 pixels (fading in for 0), then bobs 20 pixels up and down for ever. 1 and 11: A pans and fades out and in, 64 frames each way. 2: B fades in over 8 frames and bobs. 3 and 13: the figure and `HG090203.akb`, whose lines grow to twice their size over 8 frames (fading in for 3) and swing 30 degrees either way, 12 frames a step. 4: A dissolves into the picture the script put on sprite 2, in 12 steps (about 0.2 s, the script waits). 14: A takes that picture at once and bobs. 5 and 6: the animator fades away (5) or wipes away through rule 18 (6) over 16 frames, the script waits, and it is gone. 7, 12 and 17: A bobs 20 pixels down and up. 8 and 18: `HG090204.akb` at 2.5 times its size turns round for ever over 14-frame turns, with the figure fading in over it. 9: stops the motion and shows only the big picture. 19: stops and shows the sprite 2 picture still. 20 and 30: a beam (`HG090205.akb`) wipes in through rule 18 over 128 frames while the figure over it fades from 52 to 169 and back over 128 frames each way; 20 hides A and B first. 100 takes the animator away, as do the other clean up calls (`1001.3`, `1002.2`, `1003.2`, `1005.2`). Other subs do nothing. A call of one sub goes on from what the last one left; it does not take it away.
 - `Game.23.0(from, to, _)` moves the picture in sprite 2, which is wider than the screen (2100 pixels, 820 more), sideways one pixel a frame from window position `from` to `to`. A quarter as many steps at speed 1, none at speed 2. The script waits (about 13 s).
+
+### Ending
+
+- `Game.50` is the message overlay of the end card. `50.0` prepares, `50.2` takes it away (and is also called alone as a clean up). `50.1(rule, frames, h, w, y, x)` wipes in the rectangle (x, y, w, h) of `moji.akb` (the handwriting) in its own place through the rule picture `NNN.BIN`, over `frames` frames, and the script waits; the piece stays until `50.2`. The rule picture lies on the piece's top left corner, as the pictures `150.BIN` to `153.BIN` are made for. The four calls write the line piece by piece, and the signature last. With `/Config/SceneSkip` at 1 nothing is done.
+- `Game.34(staff picture, strip)` is the staff roll. The music `31.WAV` starts (the scripts do not start it) and the script waits 130.33 s, the length of the music. The ending's `staffNN.akb` fades in and out over 5 s, `staff_p2.akb` follows from 5 s to 10 s, `staff_p3.akb` from 10.33 s to 13.33 s, then the credit strip (`staff_p4.akb` to `staff_p7.akb`, 575 x 3214) scrolls up from below the screen for 106.7 s. At 120 s the logo (`staff_p8.akb`) comes up on black and from 128 s turns into the closing page `staff_p1.akb`. A click, or skip mode, ends the roll at once; the music stops with it. The call leaves 0 on the stack, as the scripts ignore the value. It is not cut short by `/Config/SceneSkip`. The message window is taken away for the roll.
 
 ### Other commands carried out
 
@@ -65,11 +70,9 @@ The effects are sprites of the shared effect stage: keyframes of fades, zooms an
 ## What does not work yet
 
 - Calendar screen (`Game.39`, shown at date changes): the script goes on at once.
-- Ending overlay (`Game.50`): the script goes on at once.
 - Scene movies are not decoded (`Game.1002`): a still stands in or nothing is drawn. The movie laid over the picture by `Game.1001.0` is left out.
-- Not read far enough to guess the numbers: the fade in of `1001.0` (24 frames used), its zoom centre (the screen's middle used), the low point of the `1005` pulse (half used), what the `1006.3` figure and lines do exactly (only the lines turn, about the middle of the screen), whether the `1006.20` pulse repeats (it does here) and which way `Game.23.0` moves (from the first value to the second). Effects in progress are not saved.
-- `Game.1004` and `1007` to `1009` are accepted and draw nothing. `Game.1006` subs 0 to 2 and 4 to 9 (and 10 to 12, 14, 18, 19 of the extras) are reported; they only take away what the last call showed.
-- Staff roll (`Game.34`) is reported.
+- Not read far enough to guess the numbers: the fade in of `1001.0` (24 frames used), its zoom centre (the screen's middle used), the low point of the `1005` pulse (half used) and which way `Game.23.0` moves (from the first value to the second). In the animator: whether the 0.25 size of subs 0 and 10 is a quarter size on screen (it is drawn so, on A), which sides the pans of 1 and 11 move (100 pixels sideways and 5 down are used), what sub 30 does beside leaving A and B, whether the beam's wipe repeats (once), the pivot of the lines of 3 and 13 (the one point of their growth) and the units of the 128 frame fade of 20. In the staff roll the curves inside the stages are not known (pages fade in and out, the strip moves evenly, the logo fades into the closing page), nor the strip's real pace, and the sequence of the last pages is the plainest reading. The wipe of `Game.50.1` uses an even ramp. Effects in progress are not saved.
+- `Game.1004` and `1007` to `1009` are accepted and draw nothing.
 - `Game.3`, `17` and `40` are reported.
 - `Game.30` to `32` use the shared extras screens, not the game's own sheets.
 - Standing character calls 6, 8 and 11 to 15 (side, effects, flags, motion) are accepted and not drawn. The flag of `13.5` is not understood.
@@ -96,9 +99,11 @@ The effects are sprites of the shared effect stage: keyframes of fades, zooms an
 | `1002.0(name, frames)`, `1002.1(frames)`, `1002.3`, `1002.4` | Scene movie fade in and out (a still stands in) |
 | `1003.0(name, frames)`, `1003.1(frames)` | Effect picture fade in and out |
 | `1005.0`, `1005.1` | Effect picture with a slow pulse; end |
-| `1006.3`, `1006.13`, `1006.20`, `1006.100` | Event animator: swaying lines, glowing figure; clean up |
+| `1006` subs 0 to 14, 17 to 20, 30, 100 | Event animator; the other subs do nothing |
+| `34(staff picture, strip)` | Staff roll (returns 0) |
+| `50.0`, `50.1(rule, frames, h, w, y, x)`, `50.2` | Ending message overlay |
 | `1001.3`, `1002.2`, `1003.2`, `1005.2` | Clean up: take the effect away |
-| `39`, `50`, `1004`, `1007` to `1009` | Accepted, nothing drawn |
+| `39`, `1004`, `1007` to `1009` | Accepted, nothing drawn |
 
 Calls that return a value, read from the executable: 18, 30 to 32 and 34.
 
@@ -121,7 +126,7 @@ Addresses in `nanairo.exe` as linked (image base 0x400000). The code itself does
 | `Game.23` scroll: handler | 0x4734d0 |
 | `/Config/SceneSkip` read; `/Config/DisplayEffect/Speed` read | 0x474ac0; 0x509390 |
 | Movie player: open, stop | 0x42a1e0, 0x42b430 |
-| Event animator (`Game.1006`): move loop helper | 0x44ca50 |
+| Event animator (`Game.1006`): dispatcher on the animator object; move loop helper | 0x44a190; 0x44ca50 |
 | `Game.18` handler; title object vtable; its slot 0xb4 reads byte N | 0x46faa0; 0x508e30; 0x487560 |
 | Title: buttons drawn, layers placed | 0x46d050, 0x46c940 |
 | `Game.19` fill | 0x473430 |
@@ -130,7 +135,7 @@ Addresses in `nanairo.exe` as linked (image base 0x400000). The code itself does
 | Message window: colour and transparency (K at 0x50d328) | 0x456160 |
 | Window buttons: layout; button layer placed at (828, Pos + 23) | 0x451af0; 0x4529b0 |
 | Balloon (nine-slice) | 0x454050 |
-| `Game.34` staff roll | 0x46a4a0 |
-| Calendar (`Game.39`): constructor, run | 0x4398b0, 0x439a50 |
+| `Game.34` staff roll: handler; set up; worker thread | 0x46fbc0; 0x46a4a0; 0x46a960 |
+| Calendar (`Game.39`): handler; constructor; init; screen loop; clean up | 0x4729e0; 0x4398b0; 0x439c20; 0x486d40; 0x439a50 |
 | Ending overlay (`Game.50`) | 0x4731d0 |
-| `Game.1001` to `1006` handlers | 0x46fd50, 0x470750, 0x471370, 0x471b20, 0x471e80, 0x472570 |
+| `Game.1001` to `1006` handlers (the last is a thin wrapper that calls the animator's dispatcher) | 0x46fd50, 0x470750, 0x471370, 0x471b20, 0x471e80, 0x472570 |

@@ -26,18 +26,22 @@ const EVENT: u32 = 1001;
 const MOVIE: u32 = 1002;
 const OVERLAY: u32 = 1003;
 const PULSE: u32 = 1005;
-const ANIMATOR: u32 = 1006;
+pub(super) const ANIMATOR: u32 = 1006;
+/// The ending's message overlay (`Game.50`) and the staff roll (`Game.34`).
+pub(super) const ENDING: u32 = 50;
+pub(super) const STAFF: u32 = 34;
 
 /// Drawing order: the zoomed copy of the screen, the movie's picture, the
 /// effect pictures, the second layer of an animator, and the flash.
 const Z_ZOOM: i32 = 0;
 const Z_MOVIE: i32 = 4;
-const Z_EFFECT: i32 = 5;
-const Z_SECOND: i32 = 6;
-const Z_FLASH: i32 = 10;
+pub(super) const Z_EFFECT: i32 = 5;
+pub(super) const Z_SECOND: i32 = 6;
+pub(super) const Z_THIRD: i32 = 7;
+pub(super) const Z_FLASH: i32 = 10;
 
 /// The middle of the screen.
-const CENTRE: (f32, f32) = (640.0, 360.0);
+pub(super) const CENTRE: (f32, f32) = (640.0, 360.0);
 
 /// The sparkle picture of `Game.22`.
 const KIRARA_PICTURE: &str = "kirara.akb";
@@ -45,11 +49,6 @@ const KIRARA_PICTURE: &str = "kirara.akb";
 const EVENT_PICTURE: &str = "HG091010_h05_eff.akb";
 /// The picture of `Game.1005`.
 const PULSE_PICTURE: &str = "HG080403_eff.akb";
-/// The two pictures `Game.1006` sub 3 swings, and the two of sub 20.
-const SWAY_FIGURE: &str = "HG090202_h01.akb";
-const SWAY_LINES: &str = "HG090203.akb";
-const GLOW_FIGURE: &str = "HG090205_h02.akb";
-const GLOW_BEAM: &str = "HG090205.akb";
 
 /// Frames of a time the script gave, at the effect speed (a factor, 1, a
 /// half, or 0 for instant): never less than one.
@@ -59,7 +58,7 @@ pub fn scaled(frames: i32, factor: f32) -> i32 {
 
 /// Frames of a time in an effect that goes on for ever: it keeps its own
 /// length when the speed is instant, so that it does not flicker.
-fn looped(frames: i32, factor: f32) -> i32 {
+pub(super) fn looped(frames: i32, factor: f32) -> i32 {
     if factor > 0.0 {
         scaled(frames, factor)
     } else {
@@ -68,14 +67,14 @@ fn looped(frames: i32, factor: f32) -> i32 {
 }
 
 /// Collects the steps of an effect.
-struct Fx<'a> {
-    st: &'a mut Stage,
-    owner: u32,
-    steps: Vec<Step>,
+pub(super) struct Fx<'a> {
+    pub(super) st: &'a mut Stage,
+    pub(super) owner: u32,
+    pub(super) steps: Vec<Step>,
 }
 
 impl<'a> Fx<'a> {
-    fn new(st: &'a mut Stage, owner: u32) -> Self {
+    pub(super) fn new(st: &'a mut Stage, owner: u32) -> Self {
         Self {
             st,
             owner,
@@ -84,7 +83,7 @@ impl<'a> Fx<'a> {
     }
 
     /// Puts up a sprite, remembered under `slot`.
-    fn sprite(&mut self, slot: u32, look: Look, z: i32) -> u32 {
+    pub(super) fn sprite(&mut self, slot: u32, look: Look, z: i32) -> u32 {
         let id = self.st.id();
         self.steps
             .push(Step::Add(Sprite::new(id, self.owner, look, z)));
@@ -93,19 +92,19 @@ impl<'a> Fx<'a> {
     }
 
     /// The sprite remembered under `slot`, if it is on the stage.
-    fn alive(&mut self, slot: u32) -> Option<u32> {
+    pub(super) fn alive(&mut self, slot: u32) -> Option<u32> {
         let id = self.st.slots.get(&(self.owner, slot)).copied()?;
         self.st.sprite(id).map(|s| s.id)
     }
 
     /// Opacity a sprite has now.
-    fn alpha(&mut self, id: u32) -> u8 {
+    pub(super) fn alpha(&mut self, id: u32) -> u8 {
         self.st.sprite(id).map_or(255, |s| s.alpha)
     }
 
     /// Gives sprites keyframes and starts a timeline of them; `block`
     /// makes the script wait for it.
-    fn play(&mut self, sprites: Vec<(u32, Vec<Key>)>, block: bool) {
+    pub(super) fn play(&mut self, sprites: Vec<(u32, Vec<Key>)>, block: bool) {
         let g = self.st.id();
         let ids: Vec<u32> = sprites.iter().map(|(id, _)| *id).collect();
         for (id, keys) in sprites {
@@ -117,7 +116,14 @@ impl<'a> Fx<'a> {
         }
     }
 
-    fn remove(&mut self, ids: &[u32]) {
+    /// Registers a step of the effect's own that keyframes can run.
+    pub(super) fn user(&mut self, u: crate::games::apeiria::effects::User) -> u32 {
+        let id = self.st.id();
+        self.st.users.insert(id, u);
+        id
+    }
+
+    pub(super) fn remove(&mut self, ids: &[u32]) {
         self.steps.push(Step::Remove(ids.to_vec()));
         let owner = self.owner;
         self.st
@@ -125,7 +131,7 @@ impl<'a> Fx<'a> {
             .retain(|(o, _), id| *o != owner || !ids.contains(id));
     }
 
-    fn run(self) {
+    pub(super) fn run(self) {
         let steps = self.steps;
         self.st.play(steps);
     }
@@ -139,7 +145,9 @@ pub fn clear(st: &mut Stage, owner: u32) {
 
 /// Takes every effect of this game off the stage.
 pub fn clear_all(st: &mut Stage) {
-    for owner in [KIRARA, EVENT, MOVIE, OVERLAY, PULSE, ANIMATOR] {
+    for owner in [
+        KIRARA, EVENT, MOVIE, OVERLAY, PULSE, ANIMATOR, ENDING, STAFF,
+    ] {
         clear(st, owner);
     }
 }
@@ -315,67 +323,6 @@ pub fn pulse_begin(st: &mut Stage, factor: f32) {
     fx.run();
 }
 
-/// `Game.1006.3` (with `fade`) and `.13`: a figure picture and a picture
-/// of lines over it. The lines fade in and grow to twice their size over 8
-/// frames (sub 3 only), then turn 30 degrees one way and back, and the
-/// other way and back, 12 frames each step, for ever.
-///
-/// Approximate: which picture the original turns, and about where, is not
-/// known; the lines turn about the middle of the screen, and the figure
-/// picture stays still over the scene's picture.
-pub fn sway(st: &mut Stage, fade: bool, factor: f32) {
-    clear(st, ANIMATOR);
-    let mut fx = Fx::new(st, ANIMATOR);
-    let figure = fx.sprite(0, Look::picture(SWAY_FIGURE), Z_EFFECT);
-    let lines = fx.sprite(1, Look::picture(SWAY_LINES), Z_SECOND);
-    let step = looped(12, factor);
-    let mut keys = Vec::new();
-    let (appear_figure, appear_lines);
-    if fade {
-        let f = scaled(8, factor);
-        appear_figure = Key::new(f).show(true).fade(0, 255);
-        appear_lines = Key::new(f)
-            .show(true)
-            .fade(0, 255)
-            .scaling((1.0, 1.0), (2.0, 2.0), CENTRE);
-    } else {
-        appear_figure = Key::new(1).show(true);
-        appear_lines = Key::new(1).show(true);
-    }
-    keys.push(appear_lines);
-    for (a, b) in [(0, 30), (30, 0), (0, -30), (-30, 0)] {
-        keys.push(Key::new(step).turning(a, b, CENTRE));
-    }
-    keys.push(Key::jump(1));
-    fx.play(vec![(figure, vec![appear_figure])], false);
-    fx.play(vec![(lines, keys)], false);
-    fx.run();
-}
-
-/// `Game.1006.20`: a beam of light is shown, and over it a figure picture
-/// that fades up from 52 to 169 and back over 128 frames each way, for
-/// ever (the original's repeat is not known; it is the simplest guess).
-pub fn glow(st: &mut Stage, factor: f32) {
-    clear(st, ANIMATOR);
-    let mut fx = Fx::new(st, ANIMATOR);
-    let beam = fx.sprite(0, Look::picture(GLOW_BEAM), Z_EFFECT);
-    let figure = fx.sprite(1, Look::picture(GLOW_FIGURE), Z_SECOND);
-    let f = looped(128, factor);
-    fx.play(vec![(beam, vec![Key::new(1).show(true)])], false);
-    fx.play(
-        vec![(
-            figure,
-            vec![
-                Key::new(f).show(true).fade(52, 169),
-                Key::new(f).fade(169, 52),
-                Key::jump(0),
-            ],
-        )],
-        false,
-    );
-    fx.run();
-}
-
 impl Runtime {
     /// Carries out the effect commands; `None` for the calls that are not
     /// read far enough to be carried out (they are reported). With the
@@ -395,9 +342,8 @@ impl Runtime {
             clear(&mut self.scene.effects, owner);
             return self.done();
         }
-        // A call of the animator replaces what it showed before.
         if c.command == 1006 {
-            clear(&mut self.scene.effects, ANIMATOR);
+            return self.nanairo_animator(c);
         }
         let known = matches!(
             (c.command, c.sub),
@@ -407,7 +353,6 @@ impl Runtime {
                 | (1002, 0 | 1 | 3 | 4)
                 | (1003, 0 | 1)
                 | (1005, 0 | 1)
-                | (1006, 3 | 13 | 20)
         );
         if !known {
             return None;
@@ -438,15 +383,13 @@ impl Runtime {
             (1003, _) => overlay_end(st, c.int(0), f),
             (1005, 0) => pulse_begin(st, f),
             (1005, _) => clear(st, PULSE),
-            (1006, 3) => sway(st, true, f),
-            (1006, 13) => sway(st, false, f),
-            _ => glow(st, f),
+            _ => return None,
         }
         self.nanairo_effect_wait()
     }
 
     /// Waits for the timelines the script has to wait for.
-    fn nanairo_effect_wait(&mut self) -> Option<silky_vm::Result<Flow>> {
+    pub(super) fn nanairo_effect_wait(&mut self) -> Option<silky_vm::Result<Flow>> {
         match self.scene.effects.blocking_ms() {
             Some(ms) if ms > 0 => {
                 let ms = frames_ms((ms / TICK_MS) as i32);
@@ -628,45 +571,6 @@ mod tests {
         play(&mut st, 1000);
         assert_eq!(st.sprites.len(), 1);
         assert!(st.sprites[0].alpha >= 128);
-    }
-
-    #[test]
-    fn the_sway_turns_both_ways_and_does_not_block() {
-        let mut st = Stage::default();
-        sway(&mut st, true, 1.0);
-        assert_eq!(st.blocking_ms(), Some(0));
-        assert_eq!(st.sprites.len(), 2);
-        let lines = |st: &Stage| st.sprites.iter().find(|s| s.z == Z_SECOND).unwrap().clone();
-        // After the 8 frame fade the lines are twice their size.
-        play(&mut st, 9 + 6);
-        let s = lines(&st);
-        assert!((s.scale.0 - 2.0).abs() < 1e-4);
-        assert!(s.turn > 5.0 && s.turn < 25.0, "{}", s.turn);
-        // 12 frames later it is back through 30 degrees; after a turn of
-        // 48 frames it is at the start again and goes on.
-        play(&mut st, 12 + 12 + 12 + 12);
-        assert!(lines(&st).shown);
-        // Sub 13 shows both pictures at once without the fade.
-        sway(&mut st, false, 1.0);
-        assert!(st.sprites.iter().all(|s| s.shown && s.alpha == 255));
-    }
-
-    #[test]
-    fn the_glow_pulses_between_52_and_169() {
-        let mut st = Stage::default();
-        glow(&mut st, 1.0);
-        assert_eq!(st.blocking_ms(), Some(0));
-        let alpha = |st: &Stage| st.sprites.iter().find(|s| s.z == Z_SECOND).unwrap().alpha;
-        assert_eq!(alpha(&st), 52);
-        play(&mut st, 64);
-        assert!((105..=115).contains(&alpha(&st)), "{}", alpha(&st));
-        play(&mut st, 64);
-        assert!(alpha(&st) >= 165);
-        play(&mut st, 128);
-        assert!(alpha(&st) <= 56);
-        // A call of the animator replaces its pictures.
-        sway(&mut st, true, 1.0);
-        assert_eq!(st.sprites.len(), 2);
     }
 
     #[test]
