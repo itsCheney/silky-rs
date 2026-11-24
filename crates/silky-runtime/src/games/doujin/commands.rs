@@ -2,11 +2,17 @@
 
 use silky_vm::{Flow, Vm};
 
+use super::omake::{self, Omake, Saved};
+use crate::audio::Bus;
+use crate::games::kimaten1::Screen;
 use crate::games::Call;
 use crate::host::{FollowUp, Pause, Runtime};
 
 /// The doujinshi pages (`DOJIN.MES`).
 const DOUJINSHI: i32 = 40;
+/// The extras: the CG, scene and music modes.
+const OMAKE_CG: i32 = 30;
+const OMAKE_MUSIC: i32 = 32;
 /// Effect objects; sub 0 creates one and returns its handle.
 const EFFECT: i32 = 1006;
 /// Pictures that change with the voice line (`.vo` files).
@@ -23,6 +29,46 @@ const PORTRAIT2: i32 = 16;
 const TITLE: i32 = 110;
 
 impl Runtime {
+    /// The screen of the extras mode `mode` (the CG, scene or music mode),
+    /// from the bytes of the script. `None` if its layout is missing.
+    fn doujin_omake(&mut self, mode: usize, vm: &Vm) -> Option<Screen> {
+        let areas = Omake::area_files().map(|name| {
+            self.assets
+                .data(name)
+                .ok()
+                .and_then(|d| silky_format::area::parse(&d).ok())
+        });
+        let [Some(a), Some(b), Some(c)] = areas else {
+            return None;
+        };
+        let mut saved = Saved {
+            seen: (0..super::cgdata::PICTURES.len().div_ceil(8))
+                .map(|i| vm.var_b(omake::CG_SEEN + i))
+                .collect(),
+            volume: self.system.settings.music,
+            ..Saved::default()
+        };
+        for (i, s) in saved.scenes.iter_mut().enumerate() {
+            *s = vm.var_b(omake::SCENE_FIRST + i);
+        }
+        for (i, t) in saved.tracks.iter_mut().enumerate() {
+            *t = vm.var_b(omake::MUSIC_FIRST + i);
+        }
+        for (t, b) in saved.tabs.iter_mut().zip(omake::TAB_BYTES) {
+            *t = vm.var_b(b);
+        }
+        // The picture and scene modes play the opening's instrumental when
+        // nothing is playing; the music mode leaves the sound alone.
+        if mode < 2 && !self.audio.is_playing(Bus::Music, 0) {
+            let _ = self.play_music(omake::BGM);
+        }
+        Some(Screen::Doujin(Box::new(Omake::open(
+            mode,
+            [a, b, c],
+            saved,
+        ))))
+    }
+
     /// This game's own commands. `None` for the others.
     pub(crate) fn doujin_game(&mut self, vm: &mut Vm, c: &Call) -> Option<silky_vm::Result<Flow>> {
         let scene = &mut self.scene;
@@ -30,6 +76,16 @@ impl Runtime {
             (TITLE, _) => {
                 self.k1_title_extras = c.int(0) == 1;
                 self.wait_for(Pause::Title)
+            }
+            // The extras: CG, scene and music modes. The script gets -1 to
+            // go back to the title, or the scene picked.
+            (OMAKE_CG..=OMAKE_MUSIC, _) => {
+                let Some(screen) = self.doujin_omake((c.command - OMAKE_CG) as usize, vm) else {
+                    vm.push(omake::LEAVE);
+                    return self.done();
+                };
+                self.k1 = Some(screen);
+                self.wait_for(Pause::Kimaten1)
             }
             (PORTRAIT2, 6) => {
                 scene.portrait2 = c.str(0).map(|b| (b, None));

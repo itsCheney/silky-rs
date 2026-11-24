@@ -56,6 +56,8 @@ pub enum Screen {
     Notebook(Notebook),
     /// The CG, scene and music modes (`Game.30` to `Game.32`).
     Omake(Box<Omake>),
+    /// The CG, scene and music modes of 先輩が私の妄想にドージンする.
+    Doujin(Box<crate::games::doujin::omake::Omake>),
     /// The アンネViewer (`Game.33`).
     Viewer(Box<Viewer>),
     /// The staff roll (`Game.990`).
@@ -74,6 +76,7 @@ impl Screen {
             Screen::Map(m) => m.hit(x, y),
             Screen::Notebook(n) => n.hit(x, y),
             Screen::Omake(o) => o.hit(x, y),
+            Screen::Doujin(o) => o.hit(x, y),
             Screen::Viewer(v) => v.hit(x, y),
             Screen::Staff(s) => s.hit(x, y),
         }
@@ -89,6 +92,7 @@ impl Screen {
             Screen::Map(m) => m.enabled(id),
             Screen::Notebook(n) => n.enabled(id),
             Screen::Omake(o) => o.enabled(id),
+            Screen::Doujin(o) => o.enabled(id),
             Screen::Viewer(v) => v.enabled(id),
             Screen::Staff(_) => true,
         }
@@ -104,6 +108,7 @@ impl Screen {
             Screen::Map(m) => m.click(id),
             Screen::Notebook(n) => n.click(id),
             Screen::Omake(o) => o.click(id),
+            Screen::Doujin(o) => o.click(id),
             Screen::Viewer(v) => v.click(id),
             Screen::Staff(s) => s.click(id),
         }
@@ -118,6 +123,7 @@ impl Screen {
             Screen::Map(m) => m.cancel(),
             Screen::Notebook(n) => n.cancel(),
             Screen::Omake(o) => o.cancel(),
+            Screen::Doujin(o) => o.cancel(),
             Screen::Viewer(v) => v.cancel(),
             _ => Click::None,
         }
@@ -131,6 +137,7 @@ impl Screen {
             Screen::Map(m) => m.take_bytes(),
             Screen::Notebook(n) => n.take_bytes(),
             Screen::Omake(o) => o.take_bytes(),
+            Screen::Doujin(o) => o.take_bytes(),
             Screen::Viewer(v) => v.take_bytes(),
             _ => Vec::new(),
         }
@@ -145,7 +152,7 @@ impl Screen {
             Screen::Item(s) => s.take_sound(),
             Screen::Map(m) => m.take_sound(),
             Screen::Notebook(n) => n.take_sound(),
-            Screen::Omake(_) => None,
+            Screen::Omake(_) | Screen::Doujin(_) => None,
             Screen::Viewer(v) => v.take_sound(),
             Screen::Staff(_) => None,
         }
@@ -161,6 +168,7 @@ impl Screen {
             Screen::Map(m) => m.draw(canvas, assets, look),
             Screen::Notebook(n) => n.draw(canvas, assets, look),
             Screen::Omake(o) => o.draw(canvas, assets, look),
+            Screen::Doujin(o) => o.draw(canvas, assets, look),
             Screen::Viewer(v) => v.draw(canvas, assets, look),
             Screen::Staff(s) => s.draw(canvas, assets, look),
         }
@@ -177,6 +185,7 @@ impl Screen {
             Screen::Map(m) => m.auto_pick(),
             Screen::Notebook(n) => n.auto_pick(),
             Screen::Omake(o) => (o.auto_pick(), "omake"),
+            Screen::Doujin(o) => (o.auto_pick(), "omake"),
             Screen::Viewer(v) => (v.auto_pick(), "viewer"),
             Screen::Staff(_) => (Some(0), "staff"),
         }
@@ -187,6 +196,7 @@ impl Screen {
     pub fn press_at(&mut self, id: i32, x: i32, y: i32) {
         match self {
             Screen::Omake(o) => o.press_at(id, x, y),
+            Screen::Doujin(o) => o.press_at(id, x, y),
             Screen::Viewer(v) => v.press_at(id, x, y),
             _ => {}
         }
@@ -221,6 +231,7 @@ impl Screen {
     pub fn take_music(&mut self) -> Option<Music> {
         match self {
             Screen::Omake(o) => o.take_music(),
+            Screen::Doujin(o) => o.take_music(),
             Screen::Staff(s) => s.take_stop().then_some(Music::Stop),
             _ => None,
         }
@@ -230,6 +241,7 @@ impl Screen {
     pub fn take_volume(&mut self) -> Option<f32> {
         match self {
             Screen::Omake(o) => o.take_volume(),
+            Screen::Doujin(o) => o.take_volume(),
             _ => None,
         }
     }

@@ -260,6 +260,15 @@ impl Runtime {
             }
             return;
         }
+        if self.assets.game().title == Title::Doujin {
+            if let Some(bg) = &self.scene.background {
+                let layers = self.scene.overlays.values().map(String::as_str);
+                for (i, v) in crate::games::doujin::omake::register(&vm.bytes, bg, layers) {
+                    vm.set_var_b(i, v);
+                }
+            }
+            return;
+        }
         if self.assets.game().title != Title::Kimaten2 {
             return;
         }

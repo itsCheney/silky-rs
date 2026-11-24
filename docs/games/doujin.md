@@ -11,9 +11,10 @@ All scripts decode. Headless, `silky-run snap --path 0` plays from the start to 
 - Selections: before each option the script tests a flag, to hide routes already taken. The runtime gathers those options into one selection and answers the option's own value + 1, as the scripts expect.
 - Engine calls are all carried out, except `MesWnd.3` and `Sprite.5` (once each).
 - Carried out: the title menu (`Game.110`), the speaker name (`Game.11`), the second portrait window (`Game.16` subs 6, 7, 9 and 11), the breath animation (`Game.1006`, from `.brt` files), the pictures that change with the voice line (`Game.1007`, from `.vo` files), the zoom and white flash (1005), the rule wipe (12.8) and the auto save point (14).
+- Extras (`Game.30` to `Game.32`, from `OMAKE.MES`): the CG, scene and music modes are the game's own screens (`omake.rs`), tabs of one screen. The back button and a right click answer -1 (the script returns to the title); only the scene mode answers a number, the scene picked (0 to 18, played by `SCMODE.MES`). Pictures seen are bits from byte 3300, set as the picture and its layers on screen match a picture of the game's table (`Game.12` subs 2 and 3); scenes seen are bytes 3101 to 3119, tracks heard bytes 3051 to 3063, and bytes 0xbba to 0xbbc open the tabs. The CG mode has four pages of nine entries and a grid of the entry's variants (nine to a page); the scene mode has three pages and plays two frames of the thumbnail under the pointer; the music mode lists the 13 tracks with a scroll bar and a volume bar and plays a picked track once. The CG and scene modes start the opening's instrumental when no music is playing. The original shows no help lines there (`CGMODEHELP.HLG`, `SCENEHELP.HLG` and `MUSICMODEHELP.HLG` are not read). Not carried out: the click sounds, and the track's end does not clear the playing row.
 - Accepted with nothing to do: 13.18 (it stops what 13.17 attaches to a standing character), 993 apart from 993.1, 1003, 961.1, 12.7, 10.4, 10.5 and 10.16.
 - Carried out: the doujinshi screen (`Game.40`, `comic.rs`): the page picture as the background, the bubbles' words set vertically in 10-pixel cells from the point the script gives (taken from the lettered `do0Na.akb` page where there is one, else drawn with the font), the two round page buttons (`comic.akb`, areas of `DOUJINSHI.AREA`; they return 2 and 3 from a wait), the hot spots of sub 6 and the wait of subs 0 and 1 (0 on a click). `silky-run snap --title 257` plays it headless.
-- Not carried out yet: `Game.16` subs 8 and 12, and of the doujinshi screen the one-by-one appearance of the words, the buttons' hover look and sound, the fade of a hot spot and the code 1 (leave). CG, scene and music modes (`Game.30` to `Game.32`) use the common screens.
+- Not carried out yet: `Game.16` subs 8 and 12, and of the doujinshi screen the one-by-one appearance of the words, the buttons' hover look and sound, the fade of a hot spot and the code 1 (leave).
 - Movies: the game's movies (`do-jin*.dat`) are ASF files (VC-1 video, WMA Pro sound). The runtime decodes MPEG-1 only, so they are not played yet.
 - Interface: the game's own title menu (`title_p.akb` cells over the areas of `title.area` and `title2.area`, extras page started by `Game.110(1)`), the message window's button bar with its click-wait mark, padlock and tooltips, the speaker name on the left of the text and the two portrait windows (`Game.10` on the left, `Game.16` on the right) are drawn. The window is the shaded band alone (the second, textured block of `message_p.akb` is not drawn), the text starts at x = 180 and the title button shows the home cell. Not measured against the original yet: the name's size and baseline, the click-wait frame time and the bar's show height; the pages of the title do not fade into each other and the full-screen skip picture (`skip.akb`) is not shown.
 
@@ -23,7 +24,7 @@ All scripts decode. Headless, `silky-run snap --path 0` plays from the start to 
 - Decode the movies (VC-1 and WMA Pro in ASF).
 - Check the title menu, name line, button bar, wait mark and portrait places against the original under Wine; the page fade of the title menu and the skip picture.
 - Carry out `MesWnd.3` and `Sprite.5`.
-- The meaning of the codes returned by `Game.20`, `Game.110` and the screens `Game.30` to `Game.32` is not known yet.
+- The meaning of the codes returned by `Game.20` and `Game.110` is not known yet. The extras screens leave out the click sounds and the end of a played track.
 - Check the runtime against the original program under Wine.
 
 ## Where things are in the executable
@@ -44,6 +45,14 @@ Addresses in `doujin.exe` of the build above, as linked. The code itself does no
 | `Game.16`, second portrait set (subs 6 to 12) | 0x495b90 |
 | `Game.20`, selection (result from 0x480750) | 0x494d7c |
 | `Game.30` to `Game.32`, CG, scene and music modes | 0x498580 |
+| CG mode screen: build, click, cell state, page fill | 0x456ed0, 0x457040, 0x457a70, 0x457e90 |
+| CG mode variant grid: page, cell state, click, picture on screen, next picture | 0x45a640, 0x45a400, 0x459d50, 0x45aeb0, 0x45b170 |
+| CG mode: cell table (29 entries), picture table (279 pictures, background and layers) | 0x535ce0, 0x535ec0 |
+| CG seen bits: name registration, commit | 0x458e40, 0x458c30 |
+| Scene mode screen: build, click, cell state, page fill, hover animation | 0x46c710, 0x46cb60, 0x46d210, 0x46d580, 0x46db80 |
+| Scene mode: scene byte per cell, thumbnail frame counts | 0x53c520, 0x5030b0 |
+| Music mode screen (vtable 0x509df8): code | 0x47dfc0, 0x47e730, 0x47f1c0 |
+| Completion percent of the CG, scene and music modes, and its drawing | 0x483090, 0x483270, 0x483310, 0x483380 |
 | `Game.35` | 0x499650 |
 | `Game.40`, doujinshi screen | 0x49a140 |
 | Doujinshi object: vtable, start, step (`Game.40.5`), wait (`Game.40.0`) | 0x508eb8, 0x466370, 0x466630, 0x466790 |
