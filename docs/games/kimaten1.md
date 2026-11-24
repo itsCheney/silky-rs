@@ -1,0 +1,194 @@
+# きまぐれテンプテーション
+
+English | [简体中文](kimaten1.zh-CN.md)
+
+Japanese build with the official update 1.04. The runtime knows the game by `kimaten.exe` in its folder; the build described here is 2,039,808 bytes with SHA-256 `36148a0286bd9d31ceaec4323f4be987319bd759e68b5961c59c992b07b54700`. Program version 1.0.4.0, linked 2019-12-16. Engine profile: [engine-2017](../builds/engine-2017.md). Its own `Game` commands: [game-commands.md](../game-commands.md#きまぐれテンプテーション).
+
+The game adds its own commands to the engine (native class 29); which of them return a value comes from the executable. The runtime reads the update's `update.arc` over the other archives, newest first. Its E-mote models are the kind of the sequel ([kimaten2.md](kimaten2.md)), and the calls that take the same arguments go through the same code. The screens are the game's own: the sheets, layouts and tables differ from the sequel's.
+
+## Interface
+
+The player and `silky-run snap` open it. Window, button bar, action menu, investigation, map and notebook are drawn from the game's sheets, with layouts and tables from the executable. The backlog, save and load screens and the settings pages are the engine's, as in [景の海のアペイリア](apeiria.md) (the same engine build).
+
+### Title
+
+- Six buttons along the bottom edge, and a second page of six for the extras. They drop in one after another, 100 ms apart, and bounce into place; a page that is left falls out of sight the same way.
+- The heroine's face on the title changes every five seconds, picking among four of the five faces on the sheet, and fades over 16 frames.
+- Extras page: CG, scene and music need bytes 0xbba, 0xbbb and 0xbbc, Anne Viewer 0xbbd and the notebook 0xbbe (the story sets them); until then they are grey. 戻る always works.
+- The notebook opened from the title shows the copy the scripts keep 1000 bytes higher, with a button that opens every entry. Bytes from 1000 on are kept outside a game in `system.json`.
+
+### Message window and button bar
+
+- A band along the bottom, a colour fill with a diamond texture over it; its top is the saved window position, 505 by default. The text sits in a box from (280, 66) to (1120, 202) under the top, in 28 pixel cells and 36 pixel lines; the speaker name is one line above it.
+- The bar is thirteen buttons: save, load, quick save, quick load, voice loop, jump to the next selection, backlog, auto, skip read text, skip all text, settings, notebook, and one that folds the others away. A cross hides the window.
+- The click-wait bat is four frames of 200 ms at (1126, window top + 90).
+- Buttons show the game's tooltips in the information line.
+- `Game.14` marks an auto save point.
+
+### Action menu
+
+`Game.42`: up to four large buttons (look around, talk, move, present evidence), packed into the first positions of `actselect.area` in that order; the script turns a kind on with bytes 0 to 3. A skip button at the lower right shows once the skip tutorial is unlocked (byte 0xbbf) and answers 100; its press skips the tutorial and the question. The system buttons along the bottom (the same eight on every investigation screen) open the engine's own screens.
+
+### Investigation
+
+`Game.41` lays a hotspot picture (`.carea`, one byte a pixel) over the background. The hotspot under the pointer is tinted pale yellow and the help line reads 「ここを調べる」. A press answers the hotspot's number; the back button, right click and Escape answer 100.
+
+### Evidence choice
+
+`Game.46` shows the pieces of evidence held (bytes 224, 231, 212, 213 and 138 switch the five on), packed into the first positions of `itemselect.area`. A press answers the piece's number from 1. Only the system buttons leave the screen. `Game.47` shows one or two evidence cards over the picture: they fade in over 12 frames, stay 128 frames and fade out over 12, with the script waiting.
+
+### Option list
+
+`Game.45` turns the options the script registered into a list of bars, four to a page with up and down bars to turn pages, for the talk and look menus. A press answers the number the script gave the option, plus one; the back button and right click answer 100. The labels are the strings the option bodies leave; a conditional option list comes as several runs before the selection and keeps the script's numbers.
+
+### Map
+
+`Game.43`: the six rooms (101 to 103 on the first floor, 201 to 203 on the second) as cards, an information line naming each, and the menu buttons. A room whose byte (0 to 5) is 0 is locked. Pressing a room answers 1 to 6; the back button, shown when the call's argument is 1, answers 100. A room not yet looked at (byte 810 plus its number) shows a plain card on hover. The menu's notebook button opens the notebook over the map.
+
+### Notebook
+
+The 捜査手帳 lists 36 entries on three pages of 14 rows. An entry opens its page (`archive_w01.akb` and on) under a title picture; a tall page scrolls ten pixels at a time. Each entry has a byte (900 and on): 0 locked, 1 read, 2 or 3 new; opening a new entry reads it. One entry holds a recording, played from a button over its picture. No `Game` command opens the notebook: the script announces it with a notice, and the player opens it from the bar, the map's menu or the title.
+
+### Notices
+
+`Game.44` queues a string (sub 0), shows the queue (sub 1), takes the strips down (sub 2), clears the queue (sub 3) or answers whether strips are still up (sub 4). A notice is a small pink strip, such as 「捜査手帳」が解放されました, that slides in from the right edge, stays four seconds and slides out. The strips of one batch are as wide as the longest; the older ones step down to make room.
+
+## E-mote
+
+The models are the sequel's: `_h0007` with faces 0 to 7 and `_h0813` with faces 8 to 13, two files per costume, opened by the same key. The game hands the driver its positions the other way round to the sequel: a positive x moves right, a positive y down.
+
+- `Game.10`: the companion beside the message window, at size 0.35 and (-542, 400), fading in over 16 frames. Subs 6, 7, 8, 9, 11, 12, 13, 16 and 17 work as in the sequel. Sub 10 wipes the window's text, 14 takes the whole window away and 15 holds the script for two seconds (the notebook's unlock).
+- `Game.40`: standing models by slot, with x by slot (0, -400, 400) and y from the size, so the feet stay on one line. The sequel's subs apply, plus 17 (the extra timeline alone), 18 (pause the driver), 21 (stop the mouth) and 31 (clear the cache of mouth tracks); sub 16 hands over the mouth track of the voice that just started. Sub 100 flashes a slot white while the old model fades out and the new one fades in.
+- `Game.48`: the one-file CG models of the update, shown over the background (`hg010200_0` is `hg010200_0.psb`). 0 loads one, 1 sets the face, 15 the main timeline, 2 removes it and 3 fades it out. Their place was found by laying the model's first picture over the still picture of the same CG.
+- Voice-timed models: `Game.1007(file)` reads a `.vo` file, a list of changes made a set time after a voice line starts: a standing model put up or taken away in a slot, or the companion changed, fading over 12 frames (16 for the companion). Records of kind 2 (pictures laid in a layer) are used by no file of the game.
+
+The y origin of a model (350 on screen) was fitted on one screenshot of the game, not read from the executable.
+
+## Effects
+
+- `Game.1000`: a line of text, a picture strip, wiped in through a rule picture (hold, frames, rule, height, width, y, x); the script waits for the wipe.
+- `Game.999`: a picture laid over the screen. 0 fades in the picture on screen over eight frames, 1 fades it out, 2 shows it at once, 3 puts it away.
+- `Game.993`: screen shake (0 resets, 2 sets the mode, 3 starts, 1 stops).
+- `Game.961`: a long voice on a channel of its own that the next message does not cut; sub 1 stops it.
+- Nothing to do: `Game.1003`, `1006.11`, `1010`, `1011`, `10008`, `10009`, `35.2`, and the engine calls of the window set up that the game's library makes.
+
+## Extras
+
+CG, scene and music modes (`Game.30` to `Game.32`) are tabs of one screen: a press on a tab changes the mode without going back to the script.
+
+- CG mode: 32 entries of 261 pictures on three pages of 12, each with a seen count, and the completion in per cent. Picture `i` is seen when bit `i % 8` of byte `3300 + i / 8` is set; the runtime sets it when the picture on screen matches a row of the table, as the engine does. An entry opens a grid of its pictures, and a click shows one full screen.
+- Scene mode: eight scenes, seen when bytes 3101 to 3108 are set. A press answers the scene's number from 0 and the script plays it.
+- Music mode: 24 tracks, heard when bytes 3051 to 3074 are set; eight rows with a scroll bar, and the music volume.
+- Each mode's unlock button asks first, then sets every byte of its mode.
+- Anne viewer (`Game.33`): the model over `bg004` with twelve outfits (bytes 3010 and on open them), fourteen expression cells, the poses of an outfit, a size slider, a list of 180 motions with a scroll bar, a blush toggle and a button that hides the others. It answers -1 when left.
+
+## Staff roll
+
+`Game.990`, sub 0 after the normal endings and sub 1 after the true one, differ in the strip, the cover colour and the track. A card shows behind a cover for eight seconds; from 13 seconds the strip (1280 x 3080) rises from the bottom edge at an even speed until it has gone by at 107 seconds. The call answers 1 when the roll is over. A press ends it early.
+
+## Not done yet
+
+- `Game.1001` and `Game.1002` (the effect classes: prism, the S0402, S04022, S0405, S0501 and S0501202 scenes, soot, string animation) and `Game.989` (spiral) are reported and not carried out; the story goes on without their pictures.
+- Other subs of `Game.35` are reported.
+- The notebook and the map have no fade in or out. The notebook's scroll bar cannot be dragged and the notebook takes no wheel. The unlock-all button of the title's copy works but is not drawn (its place on the sheet is not known). The recording plays its first line only; the original goes on to four more.
+- The skip tutorial (`tutorial.area`, `tutorial01.akb`) was not found among the game files and is left out.
+- `Game.10` sub 15 holds the script, but the blinking of the bar is not drawn; sub 18 acts on a part of the window that nothing in the story reaches.
+- Anne viewer: the fades of the buttons (16 frames) and of a model swap (12) are instant; picking the motion that is already playing does not play it again; the original stops some main timelines first; the text has no edge and its baselines are estimated.
+- Staff roll: any press ends it; the original checks a window setting first, which was not found.
+- Extras modes: no click sounds; the registration-suppress flag at +0x8a4 is not ported.
+- Effects: the 64 extra frames after a `Game.1000` wipe are unexplained; the white of a flash is a straight mix where the executable may do it another way; a model that is leaving keeps animating; fades are not cut short by scene skip.
+- Option list: the flags that grey out an option were not found; the pressed text colour and baseline are not compared with the game.
+- Headless, `silky-run snap` presses the action menu, investigation and option screens by itself. It plays through chapters 01 to 04 and reaches the bad endings (`05_bad1`, `05_bad2`) and the `05_02` and `05_03` branches with the ending movie `ed00`. It does not yet reach `05_03_3`, `05_03_4`, `05_04` or the 06 endings (`06_1`, `06_2`, `06_BAD3`, `06_TRUE`): those need wrong evidence picks that the headless picker does not make, and `03_03_c-3.mes` loops.
+
+## Where things are in the executable
+
+Addresses in `kimaten.exe` of the build above. The code itself does not name them.
+
+| What | Address |
+| --- | --- |
+| `Game` dispatcher (vtable 0x53d328) | 0x496800 |
+| Window: shared init, window init, colour fill | 0x470f00, 0x4755b0, 0x475830 |
+| Window: text box reset, begin message and position, update | 0x475a00, 0x476680, 0x476be0 |
+| Window: hide and close, typewriter, name draw, name parameters | 0x475ff0, 0x478f60, 0x477960, 0x541ec0 |
+| Window: `Game.11`, button dispatch, button state, draw a cell, hover | 0x496fa0, 0x473500, 0x472350, 0x472740, 0x471a30 |
+| Window: area updates, skip toggles, scene skip, slide out and in | 0x477500, 0x478130, 0x471260, 0x4731a0, 0x472e30 |
+| Window: open and close, tooltip balloon | 0x471bd0, 0x471cf0, 0x472950 |
+| Window: open save, load, backlog, settings, notebook | 0x4c00d0, 0x4c0100, 0x4bffa0, 0x4c0130, 0x4c0350 |
+| Message window vtables | 0x53af2c, 0x53af44 |
+| Wait mark: vtable, draw frame, step | 0x53bea0, 0x4839e0, 0x483aa0 |
+| Sound defaults: OK `ses_001`, cancel `ses_002` | 0x49d2e0, 0x49d310 |
+| Action menu: `Game.42`, create, init, run | 0x49c1e0, 0x441e50, 0x442040, 0x442400 |
+| Action menu: draw, click, hover, right click | 0x443390, 0x443520, 0x443fd0, 0x4429b0, 0x442940, 0x442e40 |
+| Action menu: system button enabled | 0x443d30 |
+| Investigation: `Game.41`, create, init, run | 0x49c0c0, 0x4484a0, 0x4486d0, 0x448a40 |
+| Investigation: hover, tint, draw, pixel, help line, click, cancel | 0x448fe0, 0x44a150, 0x4495b0, 0x449060, 0x449f30, 0x4490f0, 0x4493d0 |
+| Evidence choice: `Game.46`, create, init, run | 0x49c400, 0x46bef0, 0x46c110, 0x46c560 |
+| Evidence choice: layout, draw, help line, click, tables | 0x46d520, 0x46d3d0, 0x46de60, 0x46cb90, 0x570110, 0x541f40 |
+| Evidence cards: `Game.47`, setup, animation | 0x49c770, 0x46e0f0, 0x46e300 |
+| Option list: `Game.45`, vtable, create, init, run | 0x49c4f0, 0x53a474, 0x4618f0, 0x461ae0, 0x461f10 |
+| Option list: open (`areaselect.area`), hover, click, cancel | 0x462430, 0x462630, 0x4626f0, 0x462970 |
+| Option list: draw by id, sprite layout, page layout | 0x462df0, 0x462ff0, 0x463190 |
+| Option list: bar state (id 5 grey by byte 899), help line, cell draw, up and down arrows | 0x463ff0, 0x464240, 0x463960, 0x463a30, 0x463b00 |
+| Option list: up and down strings, back help string | 0x53a454, 0x53a458, 0x5380d8 |
+| Help lines: investigation (「ここを調べる」), action menu strings, evidence strings | 0x5380c8, 0x53793c..0x537988, 0x53a77c..0x53a7c4 |
+| Standard selection | 0x47c530, 0x47c970 |
+| Map: `Game.43`, vtable, create, load assets | 0x49c2f0, 0x53aba4, 0x46f210, 0x46f340 |
+| Map: run, init, exit fade, show, hide | 0x46f690, 0x46f7e0, 0x46f7c0, 0x46f610, 0x46f650 |
+| Map: hover, click, right click, keyboard | 0x46f8c0, 0x46f930, 0x46fc40, 0x46fe70..0x46ffd0 |
+| Map: draw static, element, info line, info text, fade in and out | 0x470220, 0x470070, 0x470b20, 0x4709a0, 0x470580, 0x470790 |
+| Map: place positions, room info strings, menu info strings | 0x570150, 0x53ab10, 0x5379a4 |
+| Notices: `Game.44`, sub table | 0x49c600, 0x49c754 |
+| Notices: create, init, add, frame, show, clear | 0x46b760, 0x46b8b0, 0x46b940, 0x46b9b0, 0x46bb20, 0x46be30 |
+| Notices: build strip, draw text, strip step, created in the game object | 0x46b190, 0x46b680, 0x46b570, 0x4bed10 |
+| Notebook: vtable, create, exit, init, update, click | 0x53bca8, 0x47e140, 0x47e4d0, 0x47e5c0, 0x47e6c0, 0x47e7e0 |
+| Notebook: draw element, static, list, page | 0x47f1c0, 0x47f740, 0x47f880, 0x480ed0 |
+| Notebook: scroll bar, drag, open entry, info text, voice, unlock all | 0x480490, 0x4805a0, 0x480640, 0x480a70, 0x47ffe0, 0x482100, 0x4821b0 |
+| Notebook: keyboard, entry variable table | 0x47eeb0..0x47f110, 0x5368f0..0x536980 |
+| Skip tutorial: vtable, create, `tutorial.area` use | 0x53cf34, 0x492790, 0x492ab0 |
+| Title: `Game.110`, tab lock check, button state | 0x497c90, 0x491470, 0x491a50 |
+| Title: source cells (main, extras, widths), destination cells | 0x570180, 0x570198, 0x570240, 0x5701e0, 0x570210 |
+| Title: extras buttons start, main start, fall-out, bounce | 0x491ff0, 0x492190, 0x4920a0, 0x492450 |
+| Title: tick, face change and fade | 0x492380, 0x492530, 0x4926d0 |
+| Extras: mode loop, `Game.30` to `Game.33` | 0x49a1d0 |
+| CG mode: picture table, view and registration copies, grid entries | 0x56ad70, 0x56d250, 0x56ab60 |
+| CG mode: page draw, element states, info strings, unlock and dialog, dialog draw | 0x450f80, 0x450b60, 0x451b20, 0x451d20, 0x45c6d0 |
+| CG registration: by background name, by id, `Game.12` | 0x452380, 0x4527c0, 0x4970b0 |
+| CG view: create, draw, handlers | 0x452b70, 0x453a70, 0x454340, 0x454660 |
+| Scene mode: flags 3101 to 3108, percent table, frame counts | 0x56f730, 0x56f760, 0x5368c8 |
+| Scene mode: draw, hover animation, percent | 0x46a4a0, 0x46aa40, 0x482c20 |
+| Music mode: list draw, row state, scroll, volume, play | 0x47b3b0, 0x47a840, 0x47b530, 0x47b0c0, 0x47ae30, 0x47ab90 |
+| Tabs: availability (0xbba and on), CG percent, digits | 0x482960, 0x4829d0, 0x482ce0 |
+| Anne viewer: mode loop case, create, init, result, run start | 0x49a1d0, 0x444270, 0x4443f0, 0x444660, 0x4447e0 |
+| Anne viewer: hover, press, right click, wheel, release, keyboard | 0x444880, 0x4448e0, 0x444c40, 0x444cc0, 0x444d90, 0x444dd0..0x445170 |
+| Anne viewer: slider knob, draw element, draw all (unlock bytes 0xbc2 to 0xbcd), fade in and out | 0x445310, 0x4453b0, 0x445850, 0x445ce0, 0x445ef0 |
+| Anne viewer: slider drag, motion rows ("アクション%03d" at 0x537cd4), scroll | 0x446100, 0x446580, 0x446640, 0x446980, 0x446e90 |
+| Anne viewer: model load (names 0x537ce4..0x537d14), face, outfit, face picture, text, pose cycle | 0x446f10, 0x447520, 0x447590, 0x4475f0, 0x4476f0, 0x447740, 0x447810, 0x4479c0 |
+| Anne viewer: help text (table 0x537d38..0x538014), unlock | 0x447b00, 0x447f30 |
+| E-mote: `Game.10`, scene skip check | 0x496c10, 0x471430, 0x4713e0 |
+| E-mote: `Game.10` sub 6 load (x -542, y 400, 0.35, fade 16) | 0x43fc20, 0x43fcc0 |
+| E-mote: `Game.10` subs 7, 8, 9, 11, 12, 13, 16, 17 | 0x43dd60, 0x43fef0, 0x43ff50, 0x4401f0, 0x43fbe0, 0x43db10, 0x43da70, 0x43de30 |
+| E-mote: `Game.10` subs 10, 14, 15 (message window) | 0x475b60, 0x4763a0, 0x473bc0 |
+| E-mote: companion, fade wait | 0x4402b0, 0x440100, 0x440250 |
+| E-mote: `Game.40`, subs 0 and 12 load, slot x table, costume name to id | 0x49b3b0, 0x43b5c0, 0x43c6f0, 0x43c770 |
+| E-mote: `Game.40` y formula constants | 0x541da4, 0x541de0, 0x541d28, 0x541e10 |
+| E-mote: `Game.40` subs 1, 2, 3, 4, 8, 9 | 0x43c1a0, 0x43bd70, 0x43be90, 0x43bda0, 0x43bf60, 0x43c290 |
+| E-mote: `Game.40` subs 13 to 18 | 0x43b9f0, 0x43b930, 0x43b990, 0x49bd40, 0x43c1f0, 0x43c9c0 |
+| E-mote: `Game.40` subs 21 and 31 | 0x43c170, 0x4403f0, 0x439cd0, 0x43ef20, 0x43f3a0 |
+| E-mote: `Game.40` sub 100 white flash, white-out vtable | 0x43b210, 0x5378b4 |
+| E-mote: standing model manager | 0x43ba40 |
+| E-mote: main timeline, face, extra timeline | 0x4361a0, 0x4362f0, 0x436510 |
+| E-mote: `Game.48`, load, face, remove, fade out, main timeline | 0x49bea0, 0x439a00, 0x43a4b0, 0x439d10, 0x439b60, 0x439be0, 0x43a6e0 |
+| E-mote: CG model vtables, fade in and out | 0x537148, 0x537160, 0x537250, 0x440a20, 0x440b40 |
+| Voice-timed models: `Game.1007`, `.vo` parser, record start, reset | 0x499990, 0x464a10, 0x464cc0, 0x464c70 |
+| Voice-timed models: kinds 0 to 4 | 0x465200, 0x465900, 0x4663e0, 0x466c90, 0x467fb0 |
+| Strip wipe: `Game.1000`, setup, start | 0x498310, 0x46e6d0, 0x46e800 |
+| `Game.993`, `999`, `14`, `961`, `13` | 0x497db0, 0x4981f0, 0x497b40, 0x49b1d0, 0x4974a0 |
+| `Game.1001`, `1002`, `1006`, `1009`, `1010`, `1011` | 0x4985b0, 0x498000, 0x4993f0, 0x499a60, 0x499b50, 0x499d20 |
+| `Game.10008`, `10009`, `989` | 0x49ca40, 0x49c990, 0x499df0 |
+| `Game.1003`, its callee | 0x496a34, 0x4bec70 |
+| Effect classes: soot setup, vtable, create, update, effect random numbers | 0x460060, 0x53a3ec, 0x45ff50, 0x460370, 0x45d040 |
+| Effect classes: S0402, S04022, S0405 | 0x53a2bc, 0x45d950, 0x45dc00, 0x45de90, 0x45dfc0, 0x45ea80, 0x45eec0 |
+| Effect classes: S0501, S0501202, prism, spiral, string animation | 0x53a37c, 0x45f650, 0x53a28c, 0x53a410, 0x53a440, 0x493160 |
+| `Game.1002` subs 1 to 6 | 0x493340, 0x4948c0, 0x4945a0, 0x493510, 0x494160, 0x493d50 |
+| Staff roll: `Game.990`, vtable, create, start, skip, update | 0x49a0b0, 0x53cb5c, 0x48eec0, 0x48f290, 0x48f430, 0x48f530, 0x48f5e0, 0x48f580 |
+| Staff roll: timing tables (roll 106999 ms, strip 1280 x 3080) | 0x56f728, 0x56f784 |

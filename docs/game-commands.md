@@ -56,6 +56,52 @@ Commands of ふゆから、くるる。 general enough to try on a game not know
 
 `1009` returns a value and is not carried out yet.
 
+## きまぐれテンプテーション
+
+`games/kimaten1/commands.rs`. The commands not listed here or in the common set are reported. Those that return a value were read from the executable: 30 to 33, 41, 42, 43, 45, 46, 110, 990 and 1009 always, 44 (sub 4) and 1006 (sub 0) for one sub only. 1001, 1002, 989 and the other subs of 35 are not carried out yet. See [games/kimaten1.md](games/kimaten1.md).
+
+| Call | Returns | Does | Source |
+| --- | --- | --- | --- |
+| `10.6(file, file)` | | E-mote model of the companion: a costume's two files, fading in | Read |
+| `10.7(extra, face)`, `10.8`, `10.13(pose)`, `10.16(timeline)`, `10.17` | | Face, extra timeline, pose, `a` timeline, following pose | Read |
+| `10.9`, `10.11`, `10.12` | | Show, fade out and remove, remove | Read |
+| `10.4`, `10.5` | | Scene skip point, setting off: nothing to do | Read |
+| `10.10`, `10.14` | | Wipe the message window's text; take the window away | Read |
+| `10.15` | | Hold the script two seconds (the notebook's unlock); the bar's blinking is not drawn | Read |
+| `10.18` | | Acts on a part of the window nothing reaches: nothing to do | Read |
+| `11`, `12`, `13` | | Speaker, picture, character: as the common set (`13` subs 5, 6, 8, 9, 11, 12 do nothing) | Read |
+| `14` | | Auto save point | Read |
+| `30`, `31`, `32` | -1, or the scene number | CG, scene and music modes; -1 when left | Read |
+| `33` | -1 | Anne viewer | Read |
+| `35.2` | | Nothing to do | Read |
+| `40.0(frames, size, file, file, slot)`, `40.12(…)` | | Standing E-mote model in a slot | Read |
+| `40.1(slot, extra, face)`, `40.15(pose, slot)`, `40.14(timeline, slot)`, `40.13`, `40.17(slot, extra)` | | Face, pose, `a` timeline, following pose, extra timeline | Read |
+| `40.8(dy, dx, slot)` | | Move a model | Read |
+| `40.3(frames, slot)`, `40.4(frames)` | | Remove one, remove all | Read |
+| `40.16(file)`, `40.21`, `40.31` | | Mouth track of the voice; stop the mouth; clear the cache of mouth tracks | Read |
+| `40.2` | | Crossfade to the new models over the longest time the other calls gave | Read |
+| `40.18` | | Pause the driver | Read |
+| `40.100(slot, frames)` | | White flash: the old model fades out as the new one fades in | Read |
+| `41(number, file)` | hotspot, or 100 | Investigation over the background (`.carea`) | Read |
+| `42(skip)` | kind + 1, or 100 | Action menu from bytes 0 to 3; argument 1 allows the skip button | Read |
+| `43(back)` | room 1 to 6, or 100 | Map of the apartment; argument 1 shows the back button | Read |
+| `44.0(text)`, `44.1`, `44.2`, `44.3` | | Notices: queue a string, show the queue, take the strips down, clear the queue | Read |
+| `44.4` | 0 or 1 | Whether strips are still up | Read |
+| `45` | option + 1, or 100 | Option list of the registered options | Read |
+| `46` | piece from 1 | Choice of evidence from bytes 224, 231, 212, 213 and 138 | Read |
+| `47.0(card)`, `47.1(first, second)` | | Evidence cards: fade in, stay, fade out | Read |
+| `48.0(file)`, `48.1`, `48.15`, `48.2`, `48.3(frames)` | | E-mote CG model: load, face, main timeline, remove, fade out | Read |
+| `110(page)` | button | Title menu; argument 1 opens the extras page | Read |
+| `961.0(channel, file)`, `961.1(channel)` | | Long voice that the next message does not cut; stop it | Read |
+| `990(true end)` | 1 | Staff roll; 1 as argument after the true ending | Read |
+| `993.0`, `993.2(mode)`, `993.3`, `993.1` | | Screen shake: reset, set the mode, start, stop | Read |
+| `999.0` to `999.3` | | Picture over the screen: fade in, fade out, show, put away | Read |
+| `1000(hold, frames, rule, height, width, y, x)` | | Strip of text wiped in through a rule picture | Read |
+| `1003`, `1006.11`, `1010`, `1011`, `10008`, `10009` | | Set ups the runtime does not need | Read |
+| `1006.0` | 0 | | Read |
+| `1007.0(file)`, `1007.1` | | Changes of models a set time into a voice line (`.vo`); drop what is left | Read |
+| `1009` | 0 | | Read |
+
 ## きまぐれテンプテーション2
 
 `games/kimaten2/commands.rs`. The commands not listed here or in the common set are reported. Those that return a value were read from the executable: 24, 34, 44, 959, 990, 1006, 1009 and 1010 are not carried out yet.

@@ -2,15 +2,18 @@
 
 [English](engine-2017.md) | 简体中文
 
-三个程序所用的引擎，都用 Visual Studio 2013 链接。除特别标注外，均从可执行文件读出。
+四个程序所用的引擎，都用 Visual Studio 2013 链接。除特别标注外，均从可执行文件读出。
 
 | 程序 | 版本 | 链接时间（UTC） | SHA-256 |
 | --- | --- | --- | --- |
 | `apeiria.exe`（景の海のアペイリア） | 1.0.3.0 | 2017-11-09 07:06:49 | `dba4857ac6adb02b453a73694737124725bd4c91a9a7ecd60816fa7266e6317e` |
 | `casablanca.exe`（景の海のアペイリア ～カサブランカの騎士～） | 1.0.0.0 | 2017-12-10 14:52:07 | `4865b23597087c03a4dd7017ced9e5c48e8d4479c923705cd41bd91b4246d716` |
+| `kimaten.exe`（きまぐれテンプテーション，带更新 1.04） | 1.0.4.0 | 2019-12-16 04:48:49 | `36148a0286bd9d31ceaec4323f4be987319bd759e68b5961c59c992b07b54700` |
 | `nanairo.exe`（なないろリンカネーション） | 1.0.0.2 | 2014-09-09 19:27:20 | 尚未记录 |
 
 `casablanca.exe` 大小为 1,559,040 字节。它的引擎代码和 `apeiria.exe` 相同，所以下面的差异对两者都成立。trace 探针地址只给出 `apeiria.exe` 和 `casablanca.exe` 的。
+
+`kimaten.exe` 大小为 2,039,808 字节。在检查过的几处（图层 5 上的 `Sprite.1`、`BackLog`、`Movie.3`、`HEffect`），它的引擎调用与下表一致；它的 `Game` 命令见 [kimaten1.zh-CN.md](../games/kimaten1.zh-CN.md)。
 
 `nanairo.exe` 的文件大小尚未记录。它有返回值的引擎调用与下表一致；它的 `Game` 命令见 [nanairo.zh-CN.md](../games/nanairo.zh-CN.md)。
 
@@ -66,4 +69,5 @@
 
 - [景の海のアペイリア](../games/apeiria.zh-CN.md)
 - [景の海のアペイリア ～カサブランカの騎士～](../games/casablanca.zh-CN.md)
+- [きまぐれテンプテーション](../games/kimaten1.zh-CN.md)
 - [なないろリンカネーション](../games/nanairo.zh-CN.md)

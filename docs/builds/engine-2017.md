@@ -2,15 +2,18 @@
 
 English | [简体中文](engine-2017.zh-CN.md)
 
-The engine of three programs, all linked with Visual Studio 2013. Read from the executable unless marked.
+The engine of four programs, all linked with Visual Studio 2013. Read from the executable unless marked.
 
 | Program | Version | Linked (UTC) | SHA-256 |
 | --- | --- | --- | --- |
 | `apeiria.exe` (景の海のアペイリア) | 1.0.3.0 | 2017-11-09 07:06:49 | `dba4857ac6adb02b453a73694737124725bd4c91a9a7ecd60816fa7266e6317e` |
 | `casablanca.exe` (景の海のアペイリア ～カサブランカの騎士～) | 1.0.0.0 | 2017-12-10 14:52:07 | `4865b23597087c03a4dd7017ced9e5c48e8d4479c923705cd41bd91b4246d716` |
+| `kimaten.exe` (きまぐれテンプテーション, with update 1.04) | 1.0.4.0 | 2019-12-16 04:48:49 | `36148a0286bd9d31ceaec4323f4be987319bd759e68b5961c59c992b07b54700` |
 | `nanairo.exe` (なないろリンカネーション) | 1.0.0.2 | 2014-09-09 19:27:20 | not recorded yet |
 
 `casablanca.exe` is 1,559,040 bytes. Its engine code is the same as that of `apeiria.exe`, so the differences below hold for both. The trace probe addresses are given for `apeiria.exe` and `casablanca.exe`.
+
+`kimaten.exe` is 2,039,808 bytes. Its engine calls match the table below at the points checked (`Sprite.1` on layer 5, `BackLog`, `Movie.3`, `HEffect`); its `Game` commands are described in [kimaten1.md](../games/kimaten1.md).
 
 The size of `nanairo.exe` is not recorded yet. Its engine calls that return a value match the table below; its `Game` commands are described in [nanairo.md](../games/nanairo.md).
 
@@ -96,4 +99,5 @@ The spec for this build:
 
 - [景の海のアペイリア](../games/apeiria.md)
 - [景の海のアペイリア ～カサブランカの騎士～](../games/casablanca.md)
+- [きまぐれテンプテーション](../games/kimaten1.md)
 - [なないろリンカネーション](../games/nanairo.md)
