@@ -12,6 +12,7 @@ mod chrome;
 pub(crate) mod commands;
 mod itemsel;
 pub mod screen;
+pub mod window;
 
 pub use commands::SHARED_COMMANDS;
 pub use screen::{Click, Look, Screen};

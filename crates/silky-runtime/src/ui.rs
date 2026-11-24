@@ -138,6 +138,9 @@ pub mod bar {
     /// done yet).
     pub const SCHEDULE: i32 = 23;
     pub const MAP: i32 = 24;
+    /// きまぐれテンプテーション only: the notebook button of the bar (not
+    /// done yet).
+    pub const K1_NOTEBOOK: i32 = 25;
 }
 
 /// Interface state kept by the frontend.
@@ -270,6 +273,7 @@ impl Ui {
             Button::Bar(bar::NOTEBOOK) => self.notebook,
             Button::Bar(bar::COSTUME) => self.costume,
             Button::Bar(bar::COLLECTION) => self.collection,
+            Button::Bar(bar::K1_NOTEBOOK) => self.notebook,
             Button::Choice(i) => self.choice_status.get(i).map_or(true, |s| s.clickable),
             _ => true,
         }
@@ -985,6 +989,8 @@ pub struct Layout {
     ring: Option<Ring>,
     /// 同級生 Remake's message window buttons.
     douk: Option<DoukBar>,
+    /// きまぐれテンプテーション's message window buttons.
+    k1: Option<crate::games::kimaten1::window::Bar>,
 }
 
 /// Message window buttons of 景の海のアペイリア, from the executable: the
@@ -1930,6 +1936,7 @@ impl Layout {
                 sheet_title: None,
                 ring: None,
                 douk: None,
+                k1: None,
             });
         }
         if assets.game().title == silky_format::game::Title::Apeiria {
@@ -1940,6 +1947,7 @@ impl Layout {
                 sheet_title: Some(SheetTitle::load_apeiria(assets)?),
                 ring: Some(Ring::load(assets)?),
                 douk: None,
+                k1: None,
             });
         }
         if assets.game().title == silky_format::game::Title::Doukyuusei {
@@ -1950,6 +1958,18 @@ impl Layout {
                 sheet_title: Some(SheetTitle::load_doukyuusei(assets)?),
                 ring: None,
                 douk: Some(DoukBar::load(assets)?),
+                k1: None,
+            });
+        }
+        if assets.game().title == silky_format::game::Title::Kimaten1 {
+            return Ok(Self {
+                language,
+                bar: Vec::new(),
+                kimaten2: None,
+                sheet_title: None,
+                ring: None,
+                douk: None,
+                k1: Some(crate::games::kimaten1::window::Bar::load(assets)?),
             });
         }
         let sheet_title = if assets.game().title == silky_format::game::Title::Nanairo {
@@ -1977,6 +1997,7 @@ impl Layout {
             sheet_title,
             ring: None,
             douk: None,
+            k1: None,
         })
     }
 
@@ -2201,6 +2222,9 @@ impl Layout {
         if let Some(d) = &self.douk {
             return d.hit(ui, x, y);
         }
+        if let Some(k) = &self.k1 {
+            return k.hit(ui, x, y);
+        }
         self.bar
             .iter()
             .find(|a| a.contains(x, y))
@@ -2401,6 +2425,9 @@ impl Layout {
         }
         if let Some(d) = &self.douk {
             return d.draw(canvas, assets, ui, true);
+        }
+        if let Some(k) = &self.k1 {
+            return k.draw(canvas, assets, ui);
         }
         let sheet = assets.image("message_p.akb")?;
         for a in &self.bar {

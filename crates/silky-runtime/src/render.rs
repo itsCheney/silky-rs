@@ -10,7 +10,7 @@ use std::sync::Arc;
 use silky_format::akb::Image;
 
 use crate::assets::{Assets, Language};
-use crate::games::kimaten2;
+use crate::games::{kimaten1, kimaten2};
 use crate::scene::Scene;
 use crate::text::TextRenderer;
 use crate::{screen_size, Result};
@@ -92,11 +92,7 @@ impl TextLayout {
             // letters (854 pixels; the English text under Wine).
             // 同級生 Remake draws its text in bitmap fonts instead (see
             // `games::doukyuusei::window`).
-            Title::Fuyukuru
-            | Title::Unknown
-            | Title::Doukyuusei
-            | Title::Kimaten1
-            | Title::Nanairo => Self {
+            Title::Fuyukuru | Title::Unknown | Title::Doukyuusei | Title::Nanairo => Self {
                 left: 282.0,
                 baseline: if language == Language::Japanese {
                     585.0
@@ -112,6 +108,19 @@ impl TextLayout {
                 size: 24.0,
                 wide_advance: 28.0 / 24.0,
                 edge: TextEdge::Drop,
+                cells: true,
+            },
+            // きまぐれテンプテーション: the text box starts at x = 280, 28
+            // pixel cells, lines 36 apart (the executable's box); the first
+            // line's kana rows sit at 582..602 under Wine.
+            Title::Kimaten1 => Self {
+                left: kimaten1::window::TEXT_LEFT,
+                baseline: kimaten1::window::TEXT_BASELINE,
+                width: kimaten1::window::TEXT_WIDTH,
+                line: kimaten1::window::TEXT_LINE,
+                size: 24.0,
+                wide_advance: kimaten1::window::TEXT_CELL / 24.0,
+                edge: TextEdge::Outline,
                 cells: true,
             },
             // Measured under Wine: glyphs about 24 pixels tall every 28.3
@@ -378,6 +387,17 @@ impl Renderer {
         Ok(())
     }
 
+    /// Draws one line of message text with the title's edge.
+    fn draw_edged(&self, tr: &TextRenderer, canvas: &mut Canvas, line: &str, x: f32, y: f32) {
+        let l = self.text_layout;
+        let white = [255, 255, 255, 255];
+        match l.edge {
+            TextEdge::Soft => tr.draw_line(canvas, line, x, y, l.size, white),
+            TextEdge::Drop => tr.draw_dropped(canvas, line, x, y, l.size, white),
+            TextEdge::Outline => tr.draw_bold_outlined(canvas, line, x, y, l.size, white),
+        }
+    }
+
     fn draw_text_at(
         &self,
         canvas: &mut Canvas,
@@ -416,12 +436,7 @@ impl Renderer {
             let shown: String = line.chars().take(left).collect();
             let y = l.baseline + l.line * i as f32 + shift.1 as f32;
             let x = l.left + shift.0 as f32;
-            let white = [255, 255, 255, 255];
-            match l.edge {
-                TextEdge::Soft => tr.draw_line(canvas, &shown, x, y, l.size, white),
-                TextEdge::Drop => tr.draw_dropped(canvas, &shown, x, y, l.size, white),
-                TextEdge::Outline => tr.draw_bold_outlined(canvas, &shown, x, y, l.size, white),
-            }
+            self.draw_edged(tr, canvas, &shown, x, y);
             // A ruby starts above its text, at half the size, once that
             // text is shown; the script centres it with spaces.
             for (at, ruby) in &rubies {
@@ -1230,6 +1245,21 @@ impl Renderer {
             self.kimaten2_window(&mut canvas, scene, assets)?;
             if text {
                 self.draw_text_at(&mut canvas, scene, None, (0, 0));
+            }
+        } else if scene.text.is_some() && window && self.title == Title::Kimaten1 {
+            let parts = assets.image("message_p.akb")?;
+            let (color, opacity) = self.window;
+            let alpha = (opacity.clamp(0.0, 1.0) * 255.0) as u8;
+            let rgb = color.map(|c| (c.clamp(0.0, 1.0) * 255.0) as u8);
+            kimaten1::window::draw_band(&mut canvas, &parts, rgb, alpha);
+            if text {
+                self.draw_text_at(&mut canvas, scene, None, (0, 0));
+                // The speaker's name is a line of its own above the text.
+                if let (Some(name), Some(tr)) = (&scene.speaker_name, &self.text) {
+                    let l = self.text_layout;
+                    let y = l.baseline - l.line;
+                    self.draw_edged(tr, &mut canvas, name, l.left, y);
+                }
             }
         } else if scene.text.is_some() && window {
             let parts = assets.image("message_p.akb")?;
