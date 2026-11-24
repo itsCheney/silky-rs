@@ -114,6 +114,8 @@ pub enum Title {
     Doukyuusei,
     /// なないろリンカネーション.
     Nanairo,
+    /// 先輩が私の妄想にドージンする.
+    Doujin,
     /// A game not known yet: it gets the shared engine and the common
     /// `Game` commands only.
     Unknown,
@@ -136,6 +138,7 @@ impl Title {
             ("fuyukuru.exe", Title::Fuyukuru),
             ("doukyuusei.exe", Title::Doukyuusei),
             ("nanairo.exe", Title::Nanairo),
+            ("doujin.exe", Title::Doujin),
         ] {
             if let Some(path) = find_file(root, exe) {
                 return (title, Some(path));

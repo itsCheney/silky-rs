@@ -8,6 +8,7 @@
 | --- | --- | --- |
 | ふゆから、くるる。（国际版 1.0.1.0；日文盒装版 1.0.0.0 和 1.0.1.0） | `fuyukuru.exe` | [games/fuyukuru.zh-CN.md](games/fuyukuru.zh-CN.md) |
 | きまぐれテンプテーション2（2024 年日文版，1.02 补丁） | `kimaten2.exe` | [games/kimaten2.zh-CN.md](games/kimaten2.zh-CN.md) |
+| 先輩が私の妄想にドージンする（日文版 1.0.1.0），无界面模式下剧情文本可播放到结局 | `doujin.exe` | [games/doujin.zh-CN.md](games/doujin.zh-CN.md) |
 | 景の海のアペイリア（日文版，带官方更新），剧情和鉴赏模式可用 | `apeiria.exe` | [games/apeiria.zh-CN.md](games/apeiria.zh-CN.md) |
 | 景の海のアペイリア ～カサブランカの騎士～（日文版 1.0.0.0），剧情和鉴赏模式可用 | `casablanca.exe` | [games/casablanca.zh-CN.md](games/casablanca.zh-CN.md) |
 | なないろリンカネーション（2014 年日文版），开发中：标题菜单、对话框、立绘、头像窗口和 CG 登记 | `nanairo.exe` | [games/nanairo.zh-CN.md](games/nanairo.zh-CN.md) |

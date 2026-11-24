@@ -15,6 +15,7 @@
 //! carried out.
 
 pub mod apeiria;
+pub mod doujin;
 pub mod doukyuusei;
 pub mod fuyukuru;
 pub mod kimaten1;
@@ -139,6 +140,11 @@ impl Runtime {
         }
         if title == Title::Nanairo {
             if let Some(flow) = self.nanairo_game(vm, &call) {
+                return flow;
+            }
+        }
+        if title == Title::Doujin {
+            if let Some(flow) = self.doujin_game(vm, &call) {
                 return flow;
             }
         }

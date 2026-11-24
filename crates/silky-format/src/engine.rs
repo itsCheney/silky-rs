@@ -99,6 +99,26 @@ pub const ENGINE_2024: Profile = Profile {
     ..ENGINE_2026
 };
 
+/// The engine of 先輩が私の妄想にドージンする's program (2024-08, Visual
+/// Studio 2019): the results, voice end and `HEffect` of [`ENGINE_2017`]
+/// with the movie calls and `Sprite.1` of [`ENGINE_2026`].
+pub const ENGINE_2024_08: Profile = Profile {
+    name: "engine-2024-08",
+    sprites_and_flags: true,
+    sheet_store: None,
+    backlog_voice_end: true,
+    movie_2_closes: false,
+    heffect_sounds: true,
+    results: &[
+        (22, 4, true),
+        (22, 5, true),
+        (22, 6, true),
+        (22, 7, true),
+        (24, 5, true),
+        (27, 3, true),
+    ],
+};
+
 /// One program file.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Build {
@@ -187,6 +207,17 @@ pub const BUILDS: &[Build] = &[
         size: 2039808,
         sha256: "36148a0286bd9d31ceaec4323f4be987319bd759e68b5961c59c992b07b54700",
         profile: &ENGINE_2017,
+    },
+    // 先輩が私の妄想にドージンする. Size and SHA-256 not recorded yet:
+    // the copy read was not the file as shipped. The time stamp is that of
+    // the program; the version is its version resource.
+    Build {
+        exe: "doujin.exe",
+        version: "1.0.1.0",
+        linked: 1725003615, // 2024-08-30 07:40:15
+        size: 0,
+        sha256: "",
+        profile: &ENGINE_2024_08,
     },
     Build {
         exe: "kimaten2.exe",

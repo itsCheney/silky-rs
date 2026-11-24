@@ -12,6 +12,7 @@
 | [engine-2021](engine-2021.zh-CN.md) | `fuyukuru.exe`（ふゆから、くるる。盒装版） | 1.0.0.0 | 2021-09-06 20:52:27 | Visual Studio 2019（链接器 14.29） | `9797a7cb71955c0ddb4b4865e0e592166f82386a5e642bd25072922cf9d6d9fa` |
 | [engine-2021](engine-2021.zh-CN.md) | `fuyukuru.exe`（盒装版，官方更新 1.01） | 1.0.1.0 | 2021-09-29 05:47:46 | Visual Studio 2019（链接器 14.29） | `b5b163ceb979d9825c6586401da005d51a57f4005a93cf227ca304bf9e831988` |
 | [engine-2022](engine-2022.zh-CN.md) | `doukyuusei.exe`（同級生 Remake，Steam 版） | 1.0.4.0 | 2022-03-15 07:54:45 | Visual Studio 2017（链接器 14.16） | `9c9841fbca3a422a36f7ddef696f6164b4206ff622ecdb5cc1b4f45c8b231451` |
+| [engine-2024-08](engine-2024-08.zh-CN.md) | `doujin.exe`（先輩が私の妄想にドージンする） | 1.0.1.0 | 2024-08-30 07:40:15 | Visual Studio 2019（链接器 14.29） | 未记录 |
 | [engine-2024](engine-2024.zh-CN.md) | `kimaten2.exe`（きまぐれテンプテーション2） | 1.0.0.0 | 2024-10-15 01:13:11 | Visual Studio 2019（链接器 14.29） | `5cbd99107b94befe4935bbb7b8fdd7015d715a795945b434788657dee0a50d29` |
 | [engine-2026](engine-2026.zh-CN.md) | `fuyukuru.exe`（ふゆから、くるる。下载版，日英中） | 1.0.1.0 | 2026-03-18 14:12:42 | Visual Studio 2022（链接器 14.44） | `eeaf1f25cfcc8105c0d0720a46266815c2bb3ee28696cc1374f863f8cdfdb707` |
 

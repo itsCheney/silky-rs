@@ -87,6 +87,10 @@ pub fn returns_value(title: Title, engine: &Engine, class: i32, sub: i32) -> boo
             // なないろリンカネーション: the handlers that push onto the
             // script stack.
             Title::Nanairo => matches!(sub, 18 | 30..=32 | 34),
+            // 先輩が私の妄想にドージンする: the handlers that push onto the
+            // script stack. 40 (subs 0 and 1) and 1006 (sub 0) push for
+            // those subs only; its module answers them.
+            Title::Doujin => matches!(sub, 20 | 30..=32 | 110 | 990 | 1009),
             Title::Kimaten2 => matches!(
                 sub,
                 20 | 24

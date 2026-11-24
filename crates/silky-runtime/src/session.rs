@@ -856,8 +856,16 @@ impl Session {
                 Stop::Options => {
                     let numbers: Vec<i32> =
                         self.vm.options().iter().map(|(_, v)| v.int()).collect();
+                    // A further run of options for the same selection
+                    // keeps the labels of the runs before it.
+                    let kept = if self.rt.option_count > 0 {
+                        std::mem::take(&mut self.vm.option_labels)
+                    } else {
+                        Vec::new()
+                    };
                     self.rt.begin_options(&numbers);
                     self.vm.run_all_options().map_err(vm_error)?;
+                    self.vm.option_labels = kept;
                 }
                 Stop::Ended => {
                     self.state = State::Ended;

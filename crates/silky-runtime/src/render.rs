@@ -92,7 +92,7 @@ impl TextLayout {
             // letters (854 pixels; the English text under Wine).
             // 同級生 Remake draws its text in bitmap fonts instead (see
             // `games::doukyuusei::window`).
-            Title::Fuyukuru | Title::Unknown | Title::Doukyuusei => Self {
+            Title::Fuyukuru | Title::Unknown | Title::Doukyuusei | Title::Doujin => Self {
                 left: 282.0,
                 baseline: if language == Language::Japanese {
                     585.0

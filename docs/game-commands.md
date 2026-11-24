@@ -103,3 +103,19 @@ Commands of ふゆから、くるる。 general enough to try on a game not know
 | `26` | | End of chapter: empties the message window | Read |
 | `27` | | Message window start up | Read |
 | `39`, `50`, `1001.3`, `1002.2`, `1003.2`, `1005.2`, `1006.100`, `1007` to `1009` | | Accepted, nothing drawn or started | Read |
+
+## 先輩が私の妄想にドージンする
+
+`games/doujin/`. Read from the executable; no command here is carried out yet. Those that return a value are 20, 30, 31, 32, 110, 990 and 1009 always, and 40 subs 0 and 1 and 1006 sub 0 only. The module gives 0 for the last three until they are carried out. Every other call leaves nothing on the stack.
+
+| Call | Returns | Does | Source |
+| --- | --- | --- | --- |
+| `20(a, b)` | A number | A selection: hands the two values to the game's screen object | Read |
+| `30`, `31`, `32` | A code, or -1 | CG, scene and music mode screens; -1 when the screen failed or was left | Read |
+| `110(state)` | The picked item | The title menu | Read |
+| `990(value)` | A number | The staff roll | Read |
+| `1009` | 0 or 1 | 1 when the first message window entry has bit 14 of its flags set | Read |
+| `40.0(a, b)`, `40.1(a, b)` | A number | Asks the doujinshi screen object for a result (page turn or choice, not known) | Read |
+| `1006.0(file, a, b, c, d, e)` | A handle | Creates an entry in the animation layer list from a `.brt` file | Read |
+
+The codes returned by 20, 30 to 32, 110 and 990 are not known yet.

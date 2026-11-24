@@ -472,9 +472,16 @@ impl Runtime {
     /// Notes that the option bodies of a list are about to run (see
     /// [`Vm::run_all_options`]); the selection call that follows shows
     /// one option per number, the values pushed before the options.
+    ///
+    /// Options can come in several runs before one selection, when the
+    /// script tests a flag before each (先輩が私の妄想にドージンする
+    /// hides the routes already taken so); the runs add up.
     pub fn begin_options(&mut self, numbers: &[i32]) {
-        self.option_count = numbers.len();
-        self.option_numbers = numbers.to_vec();
+        if self.option_count == 0 {
+            self.option_numbers.clear();
+        }
+        self.option_numbers.extend_from_slice(numbers);
+        self.option_count = self.option_numbers.len();
     }
 
     /// Returns the option picked (from 0) to the script; call after
@@ -482,6 +489,9 @@ impl Runtime {
     pub fn answer_choice(&mut self, vm: &mut Vm, index: usize) {
         self.choices.clear();
         self.choice_status.clear();
+        // The options are used up: the next run of options starts a new
+        // list.
+        self.option_count = 0;
         // 同級生 Remake's selection takes its status plate down again.
         self.scene.plate = false;
         // The mail forward screen answers with the mail picked.
@@ -490,6 +500,16 @@ impl Runtime {
             ms.shown = false;
             vm.push(result);
             return;
+        }
+        // 先輩が私の妄想にドージンする: the result is the option's own
+        // number plus one, so the scripts tell the options apart when some
+        // are hidden. Elsewhere the numbers run 0, 1, 2... and the place
+        // in the list is used.
+        if self.assets.game().title == silky_format::game::Title::Doujin {
+            if let Some(&n) = self.option_numbers.get(index) {
+                vm.push(n + 1);
+                return;
+            }
         }
         vm.push(index as i32 + 1);
     }
@@ -1376,8 +1396,10 @@ impl Host for Runtime {
                     }
                 }
                 if class == SAVE
-                    && (matches!(title, Title::Fuyukuru | Title::Kimaten1 | Title::Nanairo)
-                        || title.is_apeiria())
+                    && (matches!(
+                        title,
+                        Title::Fuyukuru | Title::Kimaten1 | Title::Nanairo | Title::Doujin
+                    ) || title.is_apeiria())
                 {
                     if let Some(r) = self.scene.store.call(sub, &args) {
                         if let Some(v) = r {
@@ -1394,6 +1416,7 @@ impl Host for Runtime {
                     }
                     Title::Kimaten1 => crate::games::kimaten1::commands::nothing_to_do(class, sub),
                     Title::Nanairo => crate::games::nanairo::commands::nothing_to_do(class, sub),
+                    Title::Doujin => crate::games::doujin::commands::nothing_to_do(class, sub),
                     // Select.0(-1): the engine readies the layers its
                     // selection bars are drawn on.
                     Title::Doukyuusei => class == native::SELECT && sub == 0,
