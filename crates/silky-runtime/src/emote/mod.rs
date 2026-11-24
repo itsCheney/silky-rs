@@ -437,6 +437,26 @@ impl Character {
         })
     }
 
+    /// A CG model: one file, no second one.
+    pub fn open_one(file: &[u8], key: u32, level: u32) -> Result<Self, String> {
+        Ok(Self {
+            models: vec![Model::open(file, key, level)?],
+            active: 0,
+            pose: None,
+            face: None,
+            extra: None,
+            sub: None,
+        })
+    }
+
+    /// きまぐれテンプテーション `Game.48(n, 1)`: face `n` of a CG model is
+    /// difference timeline `n`; the one before stops.
+    pub fn set_cg_face(&mut self, n: usize) {
+        let previous = self.face;
+        self.models[0].play_diff(n, previous);
+        self.face = Some(n);
+    }
+
     /// `Game.10(extra, face, 7)`: faces 0 to 7 are on the first model,
     /// 8 to 13 on the second (which lists face 0, then 8 to 13). The extra
     /// timeline is counted from the one after the faces in each model's
@@ -781,13 +801,18 @@ impl Stage {
         read: impl Fn(&str) -> Option<Vec<u8>>,
     ) -> Result<Self, String> {
         let a = read(&emote.files[0]).ok_or_else(|| format!("{} not found", emote.files[0]))?;
-        let b = read(&emote.files[1]).ok_or_else(|| format!("{} not found", emote.files[1]))?;
         let key = find_key(&a, None).ok_or("no E-mote key opens the file")?;
-        let character = Character::open([&a, &b], key, 1)?;
+        let character = if emote.cg {
+            Character::open_one(&a, key, 1)?
+        } else {
+            let b = read(&emote.files[1]).ok_or_else(|| format!("{} not found", emote.files[1]))?;
+            Character::open([&a, &b], key, 1)?
+        };
         let mut stage = Self {
             character,
             applied: crate::scene::Emote {
                 files: emote.files.clone(),
+                cg: emote.cg,
                 ..Default::default()
             },
             image: None,
@@ -817,8 +842,12 @@ impl Stage {
     pub fn apply(&mut self, emote: &crate::scene::Emote) {
         if emote.face != self.applied.face {
             if let Some((face, extra)) = emote.face {
-                self.character
-                    .set_face(face.clamp(0, 13) as usize, extra.max(0) as usize);
+                if emote.cg {
+                    self.character.set_cg_face(face.max(0) as usize);
+                } else {
+                    self.character
+                        .set_face(face.clamp(0, 13) as usize, extra.max(0) as usize);
+                }
             }
         }
         if emote.sub != self.applied.sub {

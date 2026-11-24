@@ -37,6 +37,8 @@ const MAP: i32 = 43;
 /// the strips down, `(3)` clears the queue, `(4)` returns whether strips
 /// are still up.
 const NOTICE: i32 = 44;
+/// E-mote CG models.
+const EMOTE_CG: i32 = 48;
 
 impl Runtime {
     /// The areas of one of the `.area` files, `None` if it is missing.
@@ -54,7 +56,7 @@ impl Runtime {
         args: &[Value],
     ) -> Option<silky_vm::Result<Flow>> {
         match command {
-            EMOTE if self.kimaten2_emote(args, sub) => self.done(),
+            EMOTE if self.kimaten1_emote(args, sub) => self.done(),
             ACTION => {
                 let areas = self.k1_areas("actselect.area")?;
                 let b = |i: usize| vm.var_b(i);
@@ -98,7 +100,8 @@ impl Runtime {
                 self.handled += 1;
                 Some(Ok(self.transition(t, None)))
             }
-            EMOTES if self.kimaten2_emotes(args, sub, vm) => self.done(),
+            EMOTES if self.kimaten1_emotes(args, sub, vm) => self.done(),
+            EMOTE_CG if self.kimaten1_cg(args, sub) => self.done(),
             MAP => match Map::new(&self.assets, sub == 1, |i| vm.var_b(i)) {
                 Ok(map) => {
                     self.k1 = Some(Screen::Map(map));

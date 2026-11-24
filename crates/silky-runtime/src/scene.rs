@@ -132,6 +132,10 @@ pub struct Emote {
     pub outfit: bool,
     /// None for the companion picture of command 10.
     pub place: Option<Place>,
+    /// きまぐれテンプテーション: a CG model (command 48), one file whose
+    /// timelines are numbered from 0 for faces and for the main timeline.
+    #[serde(default)]
+    pub cg: bool,
 }
 
 impl Scene {
