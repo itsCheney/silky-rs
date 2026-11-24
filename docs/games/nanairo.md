@@ -88,6 +88,7 @@ Addresses in `nanairo.exe` as linked (image base 0x400000). The code itself does
 | --- | --- |
 | `Game` dispatcher; `CFuncExec` vtable | 0x46e9a0; 0x5090a0 |
 | Game object (singleton) | 0x494510 |
+| `Wait.0` (class 28): dispatcher; wait loop | 0x4918a0; 0x473e60 |
 | Game class registration order | 0x47e480 |
 | Standing characters: handler, place and zoom | 0x46ee10, 0x443ec0 |
 | Face window: handler, crop and draw | 0x46eca0, 0x4590b0 |

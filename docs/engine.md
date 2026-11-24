@@ -46,7 +46,7 @@ A later engine, "eomaia" by EXNOA, keeps the archive format and most of the byte
 | 25 | Xml | Settings the original reads from its XML file |
 | 26 | Ui | Waits and per-frame polls |
 | 27 | Save | The store of variables the scripts rebuild the scene from after a load: `2 (table, key, default)` reads, `4 (table, key, value, 0)` writes, `5 (table, key)` and `6 (key)` delete (from one table, from all). Done in ふゆから、くるる。 and 景の海のアペイリア, kept in the scene so saves hold it; the runtime also saves the scene itself |
-| 28 | Wait | Not done yet |
+| 28 | Wait | `0 (flag, milliseconds)` waits that long; a click or skip does not cut it short. Done in なないろリンカネーション |
 | 29 | Game | Per game, see [game-commands.md](game-commands.md) |
 
 Some engine calls need nothing from this runtime in ふゆから、くるる。 (set up of the original's own message window, font and backlog, for example); they are listed in `games/fuyukuru/commands.rs` and count as carried out only there.

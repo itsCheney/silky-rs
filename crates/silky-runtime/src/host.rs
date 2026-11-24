@@ -20,6 +20,7 @@ const ANIME: i32 = 13;
 const SCREEN: i32 = 20;
 const UI: i32 = 26;
 const MOVIE: i32 = 23;
+const WAIT: i32 = 28;
 const HEFFECT: i32 = 17;
 /// Effect bus channel of HEffect channel 0.
 const HEFFECT_CHANNELS: i32 = 100;
@@ -51,6 +52,14 @@ mod ui_call {
     /// `(input)`: one frame passes; returns 1 if the input happened
     /// (256 is a click; the others are not known yet and return 0).
     pub const POLL: i32 = 1;
+}
+
+/// Wait.0 `(flag, milliseconds)` of なないろリンカネーション: how long the script waits.
+fn nanairo_wait_ms(sub: i32, args: &[Value]) -> Option<u32> {
+    match (sub, args) {
+        (0, [Value::Int(_), Value::Int(ms)]) => Some((*ms).max(0) as u32),
+        _ => None,
+    }
 }
 
 /// Frames of 1/60 s to milliseconds.
@@ -1299,9 +1308,18 @@ impl Host for Runtime {
                 // 2017 and 2021 builds: Movie.0 (file) sets up a movie,
                 // Movie.3 plays it and returns whether it played, Movie.2
                 // closes it and returns nothing (the 2017 scripts also
-                // call it after each scene change).
+                // call it after each scene change). Close takes no
+                // arguments: a value left on the stack by an earlier call
+                // whose result the script never popped (Movie.3's) comes
+                // along, and is ignored.
                 if class == MOVIE && engine.movie_2_closes {
-                    match (sub, args.as_slice()) {
+                    let movie_args: &[Value] =
+                        if sub == 2 && args.iter().all(|v| matches!(v, Value::Int(_))) {
+                            &[]
+                        } else {
+                            &args
+                        };
+                    match (sub, movie_args) {
                         (0, [Value::Str(name)]) => self.movie = Some(name.clone()),
                         // Movie.1(_, file): a moving background, played
                         // when the configuration has movies on. Not decoded
@@ -1326,7 +1344,7 @@ impl Host for Runtime {
                         (3, []) => vm.push(std::mem::take(&mut self.movie_unplayed) as i32),
                         _ => {}
                     }
-                    if matches!((sub, args.len()), (0, 1) | (1, 2) | (2, 0) | (3, 0)) {
+                    if matches!((sub, movie_args.len()), (0, 1) | (1, 2) | (2, 0) | (3, 0)) {
                         self.handled += 1;
                         return Ok(Flow::Continue);
                     }
@@ -1416,6 +1434,24 @@ impl Host for Runtime {
                         return Ok(Flow::Continue);
                     }
                 }
+                // なないろリンカネーション: Wait.0(flag, milliseconds) waits that
+                // long. A click or skip does not cut it short; the scripts
+                // always pass 0 for the flag.
+                if title == Title::Nanairo && class == WAIT {
+                    if let Some(ms) = nanairo_wait_ms(sub, &args) {
+                        self.handled += 1;
+                        if ms == 0 {
+                            return Ok(Flow::Continue);
+                        }
+                        self.pause = Some(Pause::Transition(Transition {
+                            ms,
+                            rule: None,
+                            spin: None,
+                            live: true,
+                        }));
+                        return Ok(Flow::Yield);
+                    }
+                }
                 let no_op = match title {
                     Title::Fuyukuru => crate::games::fuyukuru::commands::nothing_to_do(class, sub),
                     Title::Apeiria | Title::Casablanca => {
@@ -1501,5 +1537,24 @@ mod scene_skip_tests {
         assert!(scene_skip_set(&values));
         values.insert("/Config/SceneSkip".to_string(), 0);
         assert!(!scene_skip_set(&values));
+    }
+}
+
+#[cfg(test)]
+mod nanairo_wait_tests {
+    use super::*;
+
+    #[test]
+    fn wait_takes_flag_then_milliseconds() {
+        assert_eq!(
+            nanairo_wait_ms(0, &[Value::Int(0), Value::Int(400)]),
+            Some(400)
+        );
+        assert_eq!(
+            nanairo_wait_ms(0, &[Value::Int(0), Value::Int(-5)]),
+            Some(0)
+        );
+        assert_eq!(nanairo_wait_ms(0, &[Value::Int(400)]), None);
+        assert_eq!(nanairo_wait_ms(1, &[Value::Int(0), Value::Int(400)]), None);
     }
 }
