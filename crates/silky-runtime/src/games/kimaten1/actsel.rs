@@ -8,7 +8,8 @@
 //! kind plus one (1 look, 2 talk, 3 move, 4 present). The skip button
 //! answers 100.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::collections::HashMap;
+use std::sync::Mutex;
 
 use silky_format::area::Area;
 
@@ -39,8 +40,18 @@ const SKIP_HELP: &str = "行動選択をスキップします";
 /// Click sound of the interface.
 const CLICK: &str = "ses_001.wav";
 
-/// How many menus were opened, for the headless run's choice.
-static TURN: AtomicUsize = AtomicUsize::new(0);
+/// The story counters the scripts keep from byte 100 on (and the flags of
+/// the scene from 0 to 3); the headless run
+/// reads them to tell whether something it pressed moved the story.
+pub const PROGRESS_FIRST: usize = 100;
+pub const PROGRESS_LEN: usize = 160;
+
+/// How often the headless run pressed a kind: (counters then, kind). A
+/// kind can open a list of several entries, so it is pressed up to this
+/// many times for one state of the story.
+type Tried = HashMap<([u8; PROGRESS_LEN], u8), u8>;
+static TRIED: Mutex<Option<Tried>> = Mutex::new(None);
+const PRESSES: u8 = 3;
 
 #[derive(Debug, Clone)]
 pub struct ActSelect {
@@ -54,7 +65,7 @@ pub struct ActSelect {
     off: [bool; BAR_LEN],
     bytes: Vec<(usize, u8)>,
     sound: Option<&'static str>,
-    turn: usize,
+    progress: [u8; PROGRESS_LEN],
 }
 
 impl ActSelect {
@@ -68,6 +79,7 @@ impl ActSelect {
         unlocked: bool,
         tutorial_seen: bool,
         notebook: bool,
+        progress: [u8; PROGRESS_LEN],
     ) -> Self {
         let mut off = [false; BAR_LEN];
         // The notebook needs its flag.
@@ -80,7 +92,7 @@ impl ActSelect {
             off,
             bytes: Vec::new(),
             sound: None,
-            turn: TURN.fetch_add(1, Ordering::Relaxed),
+            progress,
         }
     }
 
@@ -106,6 +118,12 @@ impl ActSelect {
             return c;
         }
         if let Some(&kind) = usize::try_from(id).ok().and_then(|k| self.kinds.get(k)) {
+            *TRIED
+                .lock()
+                .unwrap()
+                .get_or_insert_with(HashMap::new)
+                .entry((self.progress, kind))
+                .or_default() += 1;
             self.sound = Some(CLICK);
             return Click::Result(kind as i32 + 1);
         }
@@ -168,8 +186,26 @@ impl ActSelect {
         Ok(())
     }
 
-    /// Headless run: each kind of button in turn.
+    /// Headless run: like a player who wants the story to go on. For each
+    /// state of the story counters (bytes 100 to 259) the kind of button
+    /// pressed least is pressed, lowest kind first, up to a few times each
+    /// (a kind may open a list); then the skip button, else the last kind.
     pub fn auto_pick(&self) -> Option<i32> {
-        (!self.kinds.is_empty()).then(|| (self.turn % self.kinds.len()) as i32)
+        let tried = TRIED.lock().unwrap();
+        let count = |k: usize| {
+            tried
+                .as_ref()
+                .and_then(|t| t.get(&(self.progress, self.kinds[k])))
+                .copied()
+                .unwrap_or(0)
+        };
+        let least = (0..self.kinds.len())
+            .filter(|&k| count(k) < PRESSES)
+            .min_by_key(|&k| (count(k), k));
+        match least {
+            Some(k) => Some(k as i32),
+            None if self.skip => Some(SKIP),
+            None => self.kinds.len().checked_sub(1).map(|k| k as i32),
+        }
     }
 }

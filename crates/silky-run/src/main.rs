@@ -407,6 +407,7 @@ fn snap(
     renderer.scale = (height as f32 / renderer.size().1 as f32).max(1.0);
     let st = silky_runtime::system::Settings::for_title(game.title);
     renderer.window = (st.window_color, st.window_opacity);
+    let k1_game = game.title == silky_format::game::Title::Kimaten1;
     let assets = Assets::new(game);
     let layout = Layout::load(&assets, language)?;
     let mut rt = Runtime::new(assets, config);
@@ -415,9 +416,11 @@ fn snap(
     let mut line_no = 0u64;
     let mut title_saved = false;
     let mut selections = 0usize;
+    let mut asked = std::collections::HashSet::<(String, usize)>::new();
     let mut mail_selects = 0usize;
     let mut action_menus = 0usize;
     let mut maps = 0usize;
+    let mut k1_screens = 0usize;
     let mut k1_shots: std::collections::HashMap<&'static str, usize> = Default::default();
     let mut rooms = 0usize;
     let mut trains = 0usize;
@@ -596,6 +599,24 @@ fn snap(
                             .iter()
                             .position(|&k| m.shown && vm.var_b(1050 + k) == 0)
                     });
+                    // きまぐれテンプテーション: its talk lists come back until
+                    // every entry was asked, so take the first one of this
+                    // list not picked yet.
+                    let wanted = wanted.or_else(|| {
+                        if !k1_game {
+                            return None;
+                        }
+                        let key = {
+                            use std::hash::{Hash, Hasher};
+                            let mut h = std::collections::hash_map::DefaultHasher::new();
+                            (100..260).for_each(|i| vm.var_b(i).hash(&mut h));
+                            format!("{}|{:x}", rt.choices.join("|"), h.finish())
+                        };
+                        let i = (0..rt.choices.len()).find(|i| !asked.contains(&(key.clone(), *i)));
+                        i.inspect(|&i| {
+                            asked.insert((key.clone(), i));
+                        })
+                    });
                     let choose = path.get(selections).copied().or(wanted).unwrap_or(choose);
                     selections += 1;
                     println!("select [{}] -> {}", rt.choices.join(" | "), choose);
@@ -727,6 +748,11 @@ fn snap(
                         }
                     }
                     println!("{name} -> {click:?}");
+                    k1_screens += 1;
+                    if k1_screens > 400 {
+                        println!("the screens keep coming back; stopped in {script}");
+                        break;
+                    }
                     match click {
                         Click::Result(r) => rt.answer_action(vm, r),
                         Click::Close => rt.close_k1(),

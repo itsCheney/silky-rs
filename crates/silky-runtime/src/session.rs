@@ -787,6 +787,7 @@ impl Session {
                     }
                     Some(Pause::Kimaten1) => {
                         self.ui.k1 = self.rt.k1.take();
+                        self.ui.k1_menu = None;
                         self.ui.k1_since = self.ui.clock;
                         self.ui.hover = None;
                         self.ui.waiting = false;
@@ -1614,6 +1615,10 @@ impl Session {
         if hit.is_some() && hit != pressed {
             return Ok(());
         }
+        // A system screen over the message takes every click.
+        if self.ui.k1_menu.is_some() && !matches!(hit, Some(Button::Kimaten1(_))) {
+            return Ok(());
+        }
         if self.dialog.is_some() {
             if let Some(Button::Dialog(id)) = hit {
                 self.press_dialog(id)?;
@@ -1906,12 +1911,51 @@ impl Session {
         Ok(())
     }
 
-    /// Closes the dialog or screen that is up, or ends a movie (Escape,
-    /// right click). Returns false if there was none.
+    /// Opens the notebook as a system screen over what is up (the message,
+    /// or the screen the script waits on). Closing it returns there.
+    fn open_k1_notebook(&mut self) {
+        use crate::games::kimaten1::notebook::{Notebook, BOOK_FIRST, BOOK_VARS};
+        if self.ui.k1_menu.is_some() {
+            return;
+        }
+        let vars = (BOOK_FIRST..BOOK_FIRST + BOOK_VARS)
+            .map(|i| self.vm.var_b(i))
+            .collect();
+        if let Ok(n) = Notebook::new(&self.rt.assets, vars) {
+            self.ui.k1_menu = Some(crate::games::kimaten1::Screen::Notebook(n));
+            self.ui.k1_since = self.ui.clock;
+            self.ui.hover = None;
+            self.base = None;
+            self.frame = None;
+        }
+    }
+
     /// Carries out what a press on a screen of きまぐれテンプテーション did:
     /// its sound, the bytes it changed, and its answer to the script.
     fn k1_answer(&mut self, click: crate::games::kimaten1::Click) -> Result<()> {
         use crate::games::kimaten1::Click;
+        // A system screen over the script's own takes the press; what it
+        // closes with is never an answer to the script.
+        if let Some(s) = &mut self.ui.k1_menu {
+            let sound = s.take_sound();
+            for (i, v) in s.take_bytes() {
+                self.vm.set_var_b(i, v);
+            }
+            if let Some(file) = sound {
+                let _ = self.rt.play_sound(&file);
+            }
+            self.frame = None;
+            match click {
+                Click::Close | Click::Result(_) => {
+                    self.ui.k1_menu = None;
+                    self.ui.hover = None;
+                    self.base = None;
+                }
+                Click::Bar(id) => self.press(crate::ui::Button::Bar(id))?,
+                Click::None => {}
+            }
+            return Ok(());
+        }
         let Some(s) = &mut self.ui.k1 else {
             return Ok(());
         };
@@ -1950,7 +1994,7 @@ impl Session {
             return Ok(true);
         }
         if self.screen.is_none() && self.dialog.is_none() {
-            if let Some(s) = &mut self.ui.k1 {
+            if let Some(s) = self.ui.k1_menu.as_mut().or(self.ui.k1.as_mut()) {
                 let click = s.cancel();
                 self.k1_answer(click)?;
                 return Ok(true);
@@ -2658,8 +2702,19 @@ impl Session {
     /// HOOK for the notebook screen, which is built apart from the title
     /// menu: open it here.
     fn kimaten1_notebook_hook(&mut self) {
-        self.rt
-            .note_unhandled("kimaten1 notebook (hook)".to_string());
+        use crate::games::kimaten1::notebook::{Notebook, BOOK_FIRST, EXTRAS_BASE, EXTRAS_VARS};
+        // The title menu's copy keeps its bytes 1000 higher; closing it
+        // leaves the extras page as it was.
+        let vars = (BOOK_FIRST..BOOK_FIRST + EXTRAS_VARS)
+            .map(|i| self.vm.var_b(EXTRAS_BASE + i))
+            .collect();
+        if let Ok(n) = Notebook::new_extras(&self.rt.assets, vars) {
+            self.ui.k1_menu = Some(crate::games::kimaten1::Screen::Notebook(n));
+            self.ui.k1_since = self.ui.clock;
+            self.ui.hover = None;
+            self.base = None;
+            self.frame = None;
+        }
     }
 
     fn open_archive(&mut self, book: Book) {
@@ -3792,7 +3847,7 @@ impl Session {
                 }
             }
             Button::Kimaten1(id) => {
-                let click = match &mut self.ui.k1 {
+                let click = match self.ui.k1_menu.as_mut().or(self.ui.k1.as_mut()) {
                     Some(s) => s.click(id),
                     None => return Ok(()),
                 };
@@ -3946,6 +4001,7 @@ impl Session {
                     self.flush_system();
                 }
                 bar::NOTEBOOK => self.open_archive(Book::Notebook),
+                bar::K1_NOTEBOOK => self.open_k1_notebook(),
                 bar::COLLECTION => self.open_archive(Book::Items),
                 bar::HIDE | bar::CLOSE => {
                     self.ui.window_hidden = true;
@@ -4198,6 +4254,13 @@ impl Session {
             if let Some(file) = self.rt.voice.clone() {
                 self.rt.replay_voice(&file)?;
                 self.rt.restart_lip();
+            }
+        }
+        if self.layout.is_kimaten1() {
+            let on = self.vm.var_b(899) != 0;
+            if on != self.ui.notebook {
+                self.ui.notebook = on;
+                self.frame = None;
             }
         }
         if self.layout.is_kimaten2() {
@@ -4632,6 +4695,7 @@ impl Session {
                 && self.state != State::Title
                 && self.ui.actions.is_empty()
                 && self.ui.map.is_none()
+                && self.ui.k1_menu.is_none()
                 // The "comment unlocked" pop-up goes over the window.
                 && matches!(self.ui.panel, None | Some(DoukPanel::Unlocked(_)))
                 // 同級生 Remake puts its selections up without it.

@@ -25,6 +25,8 @@ const EMOTES: i32 = 40;
 const AREA: i32 = 41;
 /// The action menu; its argument says whether the skip button may show.
 const ACTION: i32 = 42;
+/// The options of the script as a list to pick from.
+const OPTIONS: i32 = 45;
 /// Choosing a piece of evidence.
 const ITEM: i32 = 46;
 /// Bytes: the notebook is unlocked, the skip button is unlocked, and its
@@ -79,6 +81,7 @@ impl Runtime {
                     b(TUTORIAL_UNLOCKED) != 0,
                     b(TUTORIAL_SEEN) != 0,
                     b(NOTEBOOK_UNLOCKED) != 0,
+                    std::array::from_fn(|i| b(super::actsel::PROGRESS_FIRST + i)),
                 )));
                 self.wait_for(Pause::Kimaten1)
             }
@@ -92,6 +95,18 @@ impl Runtime {
                     vm.var_b(NOTEBOOK_UNLOCKED) != 0,
                 )));
                 self.wait_for(Pause::Kimaten1)
+            }
+            // The options the script registered, as a selection: answers
+            // the number of the one picked from 1. The engine draws its
+            // own list with a back button (answer 100) here; the selection
+            // bars of the other screens stand in for it.
+            OPTIONS => {
+                self.choices = std::mem::take(&mut vm.option_labels);
+                self.choice_status.clear();
+                self.option_count = 0;
+                self.pause = Some(Pause::Choice);
+                self.handled += 1;
+                Some(Ok(Flow::Yield))
             }
             ITEM => {
                 let areas = self.k1_areas("itemselect.area")?;

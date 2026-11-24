@@ -138,8 +138,7 @@ pub mod bar {
     /// done yet).
     pub const SCHEDULE: i32 = 23;
     pub const MAP: i32 = 24;
-    /// きまぐれテンプテーション only: the notebook button of the bar (not
-    /// done yet).
+    /// きまぐれテンプテーション only: the notebook button of the bar.
     pub const K1_NOTEBOOK: i32 = 25;
 }
 
@@ -204,6 +203,11 @@ pub struct Ui {
     /// The screen of きまぐれテンプテーション that is up, and the clock
     /// when it opened.
     pub k1: Option<crate::games::kimaten1::Screen>,
+    /// きまぐれテンプテーション: a system screen opened from the message
+    /// window bar or from the bar of a screen the script waits on (the
+    /// notebook). It sits over whatever is up and takes all input; closing
+    /// it answers nothing to the script.
+    pub k1_menu: Option<crate::games::kimaten1::Screen>,
     pub k1_since: u64,
     /// The notices of きまぐれテンプテーション that are up.
     pub k1_notices: Option<crate::games::kimaten1::Notices>,
@@ -2206,7 +2210,7 @@ impl Layout {
         if let Some(p) = &ui.panel {
             return p.hit(x, y).map(Button::Panel);
         }
-        if let Some(s) = &ui.k1 {
+        if let Some(s) = ui.k1_menu.as_ref().or(ui.k1.as_ref()) {
             return s
                 .hit(x, y)
                 .filter(|&id| s.enabled(id))
@@ -2371,7 +2375,7 @@ impl Layout {
         if let (Some(m), Some(k)) = (&ui.map, &self.kimaten2) {
             return k.draw_map(canvas, assets, ui, m);
         }
-        if let Some(s) = &ui.k1 {
+        if let Some(s) = ui.k1_menu.as_ref().or(ui.k1.as_ref()) {
             let id = |b: Option<Button>| match b {
                 Some(Button::Kimaten1(id)) => Some(id),
                 _ => None,

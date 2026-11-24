@@ -46,6 +46,11 @@ pub const NEXT: i32 = 0x301;
 pub const VOICE: i32 = 0x400;
 pub const UNLOCK: i32 = 0x500;
 pub const MENU: i32 = 0xf00;
+/// The title menu's copy keeps the same bytes 1000 higher, and reads on to
+/// byte 1000 (the unlock-all button writes up to there).
+pub const EXTRAS_BASE: usize = 1000;
+pub const EXTRAS_VARS: usize = 101;
+
 /// The menu button of the notebook itself (shown grey here).
 const MENU_NOTEBOOK: i32 = MENU + 5;
 
@@ -151,6 +156,8 @@ pub struct Notebook {
     playing: bool,
     writes: Vec<(usize, u8)>,
     sound: Option<String>,
+    /// The title menu's copy: bytes 1000 higher, with the unlock-all button.
+    extras: bool,
 }
 
 impl Notebook {
@@ -160,11 +167,17 @@ impl Notebook {
         Ok(Self::with_areas(areas, vars, false))
     }
 
-    /// Opens it with the areas read already. `_extras` is the title menu's
-    /// copy of the notebook, whose bytes are 1000 higher; it is not
-    /// done.
-    pub fn with_areas(areas: Vec<Area>, mut vars: Vec<u8>, _extras: bool) -> Self {
-        vars.resize(BOOK_VARS, 0);
+    /// Opens the title menu's copy: `vars` are the bytes 1900.. (900 on
+    /// from [`BOOK_FIRST`]), and what it writes goes 1000 higher.
+    pub fn new_extras(assets: &Assets, vars: Vec<u8>) -> Result<Self> {
+        let areas = area::parse(&assets.data("notebook.area")?)?;
+        Ok(Self::with_areas(areas, vars, true))
+    }
+
+    /// Opens it with the areas read already. `extras` is the title menu's
+    /// copy of the notebook, whose bytes are 1000 higher.
+    pub fn with_areas(areas: Vec<Area>, mut vars: Vec<u8>, extras: bool) -> Self {
+        vars.resize(if extras { EXTRAS_VARS } else { BOOK_VARS }, 0);
         Self {
             areas,
             vars,
@@ -175,6 +188,7 @@ impl Notebook {
             playing: false,
             writes: Vec::new(),
             sound: None,
+            extras,
         }
     }
 
@@ -206,7 +220,48 @@ impl Notebook {
         if let Some(b) = self.vars.get_mut(v - BOOK_FIRST) {
             *b = value;
         }
-        self.writes.push((v, value));
+        let base = if self.extras { EXTRAS_BASE } else { 0 };
+        self.writes.push((base + v, value));
+    }
+
+    /// The unlock-all button: every entry opens (new where it was locked),
+    /// and the story's own entries are put in the state the end of the
+    /// story leaves them.
+    fn unlock_all(&mut self) {
+        for v in ENTRY_VARS {
+            let now = if self.var(v) == 0 { 3 } else { 1 };
+            self.set_var(v, now);
+            self.set_var(v + 0x78, 1);
+        }
+        // (watched byte, value it must have, entry made new otherwise).
+        const WATCH: [(usize, u8, usize); 18] = [
+            (940, 2, 900),
+            (941, 1, 901),
+            (943, 1, 903),
+            (944, 1, 904),
+            (945, 3, 905),
+            (946, 5, 906),
+            (947, 6, 907),
+            (948, 5, 908),
+            (949, 5, 909),
+            (950, 1, 910),
+            (952, 1, 912),
+            (954, 2, 914),
+            (957, 1, 917),
+            (960, 2, 920),
+            (985, 1, 905),
+            (986, 1, 906),
+            (988, 1, 908),
+            (1000, 1, 920),
+        ];
+        for (watched, want, entry) in WATCH {
+            if self.var(watched) != want {
+                self.set_var(entry, 3);
+            }
+        }
+        for (watched, want, _) in WATCH {
+            self.set_var(watched, want);
+        }
     }
 
     fn select(&mut self, idx: usize) {
@@ -237,7 +292,8 @@ impl Notebook {
             NEXT => self.page + 1 < PAGES,
             VOICE => self.selected == Some(VOICE_ENTRY),
             // Only the title menu's copy has the button that unlocks all.
-            UNLOCK | MENU_NOTEBOOK => false,
+            UNLOCK => self.extras,
+            MENU_NOTEBOOK => false,
             _ => true,
         }
     }
@@ -275,6 +331,10 @@ impl Notebook {
             BACK => {
                 self.sound = Some(OK_SOUND.into());
                 return Click::Close;
+            }
+            UNLOCK => {
+                self.sound = Some(OK_SOUND.into());
+                self.unlock_all();
             }
             _ => {}
         }

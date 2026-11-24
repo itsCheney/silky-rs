@@ -7,8 +7,8 @@
 //! its number; the back button, right click and Escape answer 100. The
 //! number that comes first in the call is not used by the screen.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 
 use silky_format::akb::Image;
 use silky_format::area::Area;
@@ -30,8 +30,8 @@ const HOTSPOT_HELP: &str = "ここを調べる";
 const BACK_HELP: &str = "行動選択に戻る";
 const CLICK: &str = "ses_001.wav";
 
-/// How many screens were opened, for the headless run's choice.
-static TURN: AtomicUsize = AtomicUsize::new(0);
+/// The hotspots the headless run pressed: (picture of the screen, hotspot).
+static TRIED: Mutex<Option<HashSet<(u64, i32)>>> = Mutex::new(None);
 
 #[derive(Debug, Clone)]
 pub struct AreaSelect {
@@ -39,11 +39,16 @@ pub struct AreaSelect {
     map: Arc<Vec<u8>>,
     off: [bool; BAR_LEN],
     sound: Option<&'static str>,
-    turn: usize,
+    /// Identifies the picture of hotspots, for the headless run.
+    scene: u64,
 }
 
 impl AreaSelect {
     pub fn open(areas: Vec<Area>, map: Vec<u8>, notebook: bool) -> Self {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        map.hash(&mut h);
+        let scene = h.finish();
         let mut off = [false; BAR_LEN];
         off[7] = !notebook;
         Self {
@@ -51,7 +56,7 @@ impl AreaSelect {
             map: Arc::new(map),
             off,
             sound: None,
-            turn: TURN.fetch_add(1, Ordering::Relaxed),
+            scene,
         }
     }
 
@@ -94,6 +99,11 @@ impl AreaSelect {
             return Click::Result(BACK_ANSWER);
         }
         if (1..=7).contains(&id) {
+            TRIED
+                .lock()
+                .unwrap()
+                .get_or_insert_with(HashSet::new)
+                .insert((self.scene, id));
             return Click::Result(id);
         }
         Click::None
@@ -146,12 +156,14 @@ impl AreaSelect {
         Ok(())
     }
 
-    /// Headless run: each hotspot in turn, then back.
+    /// Headless run: each hotspot of the picture not looked at yet, then
+    /// back.
     pub fn auto_pick(&self) -> Option<i32> {
-        let spots = self.hotspots();
-        match spots.get(self.turn % (spots.len() + 1)) {
-            Some(&s) => Some(s),
-            None => Some(BACK),
-        }
+        let tried = TRIED.lock().unwrap();
+        let fresh = self
+            .hotspots()
+            .into_iter()
+            .find(|&s| !tried.as_ref().is_some_and(|t| t.contains(&(self.scene, s))));
+        Some(fresh.unwrap_or(BACK))
     }
 }

@@ -35,8 +35,7 @@ const HELP_POS: (i32, i32) = (716, 695);
 const HELP_SIZE: f32 = 16.0;
 
 /// What each system button does, as a message window button
-/// ([`crate::ui::bar`]); `None` for the notebook, whose screen is not
-/// carried out yet. The sound settings open the settings screen.
+/// ([`crate::ui::bar`]). The sound settings open the settings screen.
 const BAR_ACTIONS: [Option<i32>; BAR_LEN] = {
     use crate::ui::bar;
     [
@@ -47,7 +46,7 @@ const BAR_ACTIONS: [Option<i32>; BAR_LEN] = {
         Some(bar::LOAD),
         Some(bar::QUICK_SAVE),
         Some(bar::QUICK_LOAD),
-        None,
+        Some(bar::K1_NOTEBOOK),
     ]
 };
 

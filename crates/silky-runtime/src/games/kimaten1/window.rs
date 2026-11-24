@@ -60,7 +60,7 @@ const WAIT_POS: (i32, i32) = (1126, TOP + 90);
 /// What a button of the bar does, by its `mes_o.area` id, as a [`bar`]
 /// action: save, load, quick save, quick load, voice loop, jump to the
 /// next selection (the executable's scene skip), backlog, auto, skip read
-/// text, skip all text, settings, notebook (no action yet), fold the bar.
+/// text, skip all text, settings, notebook, fold the bar.
 pub fn action(id: i32) -> i32 {
     match id {
         0 => bar::SAVE,
