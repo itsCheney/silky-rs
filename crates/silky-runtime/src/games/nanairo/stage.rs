@@ -68,18 +68,18 @@ fn crop(body: &str) -> (u32, u32) {
 
 /// Window of the face window on screen and its layer's top.
 const PORTRAIT_AT: (f32, f32) = (0.0, 448.0);
-/// The name plate on the window sheet.
-const PLATE: (u32, u32, u32, u32) = (694, 492, 177, 69);
-const PLATE_AT: (i32, i32) = (246, super::window::TOP + 22);
+/// The speaker's name: white, size 22, from the text's left edge, its
+/// baseline 80 below the window top, with no plate behind it (measured
+/// under Wine).
+const NAME_AT: (f32, f32) = (super::window::TEXT_LEFT, (super::window::TOP + 80) as f32);
+const NAME_SIZE: f32 = 22.0;
 
-/// Draws the face window and the speaker's name plate.
+/// Draws the face window and the speaker's name.
 pub fn draw(
     canvas: &mut Canvas,
     assets: &mut Assets,
     scene: &Scene,
     text: Option<&TextRenderer>,
-    rgb: [u8; 3],
-    alpha: u8,
 ) -> Result<()> {
     if let (true, Some((body, face))) = (scene.portrait_visible, &scene.portrait) {
         let (l, t) = crop(body);
@@ -91,29 +91,8 @@ pub fn draw(
             canvas.draw_scaled(&cut(&img, window, 255), PORTRAIT_AT.0, PORTRAIT_AT.1, 0.5);
         }
     }
-    if let Some(name) = &scene.speaker_name {
-        let sheet = assets.image(super::window::SHEET)?;
-        let plate = cut(&sheet, PLATE, 255);
-        let mut tinted = (*plate).clone();
-        for px in tinted.rgba.chunks_exact_mut(4) {
-            px[..3].copy_from_slice(&rgb);
-        }
-        let (w, h) = (PLATE.2, PLATE.3);
-        let (x, y) = PLATE_AT;
-        canvas.draw_part(
-            &std::sync::Arc::new(tinted),
-            (0, 0, w, h),
-            x,
-            y,
-            false,
-            alpha,
-        );
-        if let Some(tr) = text {
-            let size = 22.0;
-            let width = name.chars().count() as f32 * size;
-            let tx = x as f32 + (w as f32 - width) / 2.0;
-            tr.draw_line(canvas, name, tx, (y + 44) as f32, size, [255; 4]);
-        }
+    if let (Some(name), Some(tr)) = (&scene.speaker_name, text) {
+        tr.draw_line(canvas, name, NAME_AT.0, NAME_AT.1, NAME_SIZE, [255; 4]);
     }
     Ok(())
 }

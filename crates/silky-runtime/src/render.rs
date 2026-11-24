@@ -1286,14 +1286,7 @@ impl Renderer {
             let alpha = (opacity.clamp(0.0, 1.0) * 255.0) as u8;
             let part = (0, 0, band.width, band.height);
             canvas.draw_part(&band, part, 0, window::TOP, false, alpha);
-            crate::games::nanairo::stage::draw(
-                &mut canvas,
-                assets,
-                scene,
-                self.text(),
-                rgb,
-                alpha,
-            )?;
+            crate::games::nanairo::stage::draw(&mut canvas, assets, scene, self.text())?;
             if text {
                 self.draw_text_at(&mut canvas, scene, None, (0, 0));
                 // The click-wait mark beside the buttons.

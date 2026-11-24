@@ -182,3 +182,14 @@ impl Runtime {
         self.done()
     }
 }
+
+/// Engine calls with nothing to do here, checked on the executable: the
+/// message window page (`MesWnd.1`), font sizes, the one-line message,
+/// menus and selection settings set up at the start, and its own
+/// backlog's size, clearing and entry marks, as in 景の海のアペイリア.
+pub(crate) fn nothing_to_do(class: i32, sub: i32) -> bool {
+    matches!(
+        (class, sub),
+        (2, 1) | (10, 0 | 1) | (24, 0 | 2) | (26, 2..=4) | (1, 0) | (22, 0..=2)
+    )
+}

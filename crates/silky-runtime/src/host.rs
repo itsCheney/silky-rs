@@ -1370,7 +1370,8 @@ impl Host for Runtime {
                     }
                 }
                 if class == SAVE
-                    && (matches!(title, Title::Fuyukuru | Title::Kimaten1) || title.is_apeiria())
+                    && (matches!(title, Title::Fuyukuru | Title::Kimaten1 | Title::Nanairo)
+                        || title.is_apeiria())
                 {
                     if let Some(r) = self.scene.store.call(sub, &args) {
                         if let Some(v) = r {
@@ -1386,6 +1387,7 @@ impl Host for Runtime {
                         crate::games::apeiria::commands::nothing_to_do(class, sub)
                     }
                     Title::Kimaten1 => crate::games::kimaten1::commands::nothing_to_do(class, sub),
+                    Title::Nanairo => crate::games::nanairo::commands::nothing_to_do(class, sub),
                     // Select.0(-1): the engine readies the layers its
                     // selection bars are drawn on.
                     Title::Doukyuusei => class == native::SELECT && sub == 0,
