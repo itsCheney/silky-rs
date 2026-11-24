@@ -92,7 +92,7 @@ impl TextLayout {
             // letters (854 pixels; the English text under Wine).
             // 同級生 Remake draws its text in bitmap fonts instead (see
             // `games::doukyuusei::window`).
-            Title::Fuyukuru | Title::Unknown | Title::Doukyuusei | Title::Doujin => Self {
+            Title::Fuyukuru | Title::Unknown | Title::Doukyuusei => Self {
                 left: 282.0,
                 baseline: if language == Language::Japanese {
                     585.0
@@ -100,6 +100,27 @@ impl TextLayout {
                     577.0
                 },
                 width: 61.0 * 14.0,
+                line: if language == Language::Japanese {
+                    36.0
+                } else {
+                    28.0
+                },
+                size: 24.0,
+                wide_advance: 28.0 / 24.0,
+                edge: TextEdge::Drop,
+                cells: true,
+            },
+            // 先輩が私の妄想にドージンする: measured under Wine, 28 pixel
+            // cells from x = 180, lines 36 apart, a line of 33 cells
+            // (the shared layout's rows and shadow).
+            Title::Doujin => Self {
+                left: crate::games::doujin::window::TEXT_LEFT,
+                baseline: if language == Language::Japanese {
+                    585.0
+                } else {
+                    577.0
+                },
+                width: crate::games::doujin::window::TEXT_WIDTH,
                 line: if language == Language::Japanese {
                     36.0
                 } else {
@@ -1429,7 +1450,10 @@ impl Renderer {
                 }
             } else {
                 canvas.draw_part(&parts, WINDOW_BAND, 0, WINDOW_TOP, false, alpha);
-                canvas.draw_part(&parts, WINDOW_TEXTURE, 0, WINDOW_TOP, false, 255);
+                // The doujin game's window is the shaded band alone.
+                if self.title != Title::Doujin {
+                    canvas.draw_part(&parts, WINDOW_TEXTURE, 0, WINDOW_TOP, false, 255);
+                }
             }
             if color != [0.0; 3] && !self.title.is_apeiria() {
                 let rgb = color.map(|c| (c.clamp(0.0, 1.0) * 255.0) as u8);

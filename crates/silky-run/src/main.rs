@@ -508,6 +508,7 @@ fn snap(
                             waiting: true,
                             plate: rt.plate(&vm),
                             jump_off: layout.is_kimaten2() && !rt.read_before,
+                            menu_lock: st.menu_lock,
                             ..Ui::default()
                         };
                         layout.draw(&mut frame, &mut rt.assets, &ui, true, None)?;

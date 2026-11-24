@@ -29,6 +29,10 @@ pub const TOP: i32 = 500;
 const CELL_ORIGIN: (u32, u32) = (0, 660);
 const CELL: (u32, u32) = (36, 38);
 const STEP: u32 = 41;
+/// Cell of each button by area id: the title button (11) shows the home
+/// cell and the quit button (12) the power cell, the sheet's order
+/// swapped; hide takes the cross.
+const CELLS: [u32; 15] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 11, 13, 0];
 /// The padlock: cells 37 x 39 at x = 423, rows 39 apart, from y = 812
 /// with the bar kept up and from y = 929 when it is not.
 const LOCK_X: u32 = 423;
@@ -49,9 +53,14 @@ const WAIT_FRAMES: u64 = 10;
 const WAIT_AT: (i32, i32) = (1021, TOP + 174);
 const WAIT_FRAME_MS: u64 = 80;
 
+/// Left of the text, and the width of a line (33 cells of 28 pixels and a
+/// little over).
+pub const TEXT_LEFT: f32 = 180.0;
+pub const TEXT_WIDTH: f32 = 930.0;
+
 /// The speaker's name goes on a 600 x 42 layer at the top of the window,
-/// from x = 282 (the left of the text).
-pub const NAME_LEFT: f32 = 282.0;
+/// from the left of the text.
+pub const NAME_LEFT: f32 = TEXT_LEFT;
 pub const NAME_BASELINE: f32 = TOP as f32 + 40.0;
 
 /// Portrait windows: the body picture is shrunk into a 1024 pixel layer
@@ -100,7 +109,7 @@ impl Bar {
             let Some(&id) = usize::try_from(a.id).ok().and_then(|i| IDS.get(i)) else {
                 continue;
             };
-            let cell = (CELL_ORIGIN.0 + CELL.0 * a.id as u32, CELL_ORIGIN.1);
+            let cell = (CELL_ORIGIN.0 + CELL.0 * CELLS[a.id as usize], CELL_ORIGIN.1);
             buttons.push((id, a, cell));
         }
         Ok(Self {

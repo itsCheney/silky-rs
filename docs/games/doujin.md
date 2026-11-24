@@ -14,7 +14,7 @@ All scripts decode. Headless, `silky-run snap --path 0` plays from the start to 
 - Accepted with nothing to do: 13.18 (it stops what 13.17 attaches to a standing character), 993 apart from 993.1, 1003, 961.1, 12.7, 10.4, 10.5 and 10.16.
 - Not carried out yet: the doujinshi pages (`Game.40`) and `Game.16` subs 8 and 12. `Game.40` subs 0 and 1 leave a value for the script; the module gives 0 until they are carried out. CG, scene and music modes (`Game.30` to `Game.32`) use the common screens.
 - Movies: the game's movies (`do-jin*.dat`) are ASF files (VC-1 video, WMA Pro sound). The runtime decodes MPEG-1 only, so they are not played yet.
-- Interface: the game's own title menu (`title_p.akb` cells over the areas of `title.area` and `title2.area`, extras page started by `Game.110(1)`), the message window's button bar with its click-wait mark, padlock and tooltips, the speaker name on the window's top line and the two portrait windows (`Game.10` on the left, `Game.16` on the right) are drawn. Not measured against the original yet: the name's size and baseline, the click-wait frame time and the bar's show height; the pages of the title do not fade into each other and the full-screen skip picture (`skip.akb`) is not shown.
+- Interface: the game's own title menu (`title_p.akb` cells over the areas of `title.area` and `title2.area`, extras page started by `Game.110(1)`), the message window's button bar with its click-wait mark, padlock and tooltips, the speaker name on the left of the text and the two portrait windows (`Game.10` on the left, `Game.16` on the right) are drawn. The window is the shaded band alone (the second, textured block of `message_p.akb` is not drawn), the text starts at x = 180 and the title button shows the home cell. Not measured against the original yet: the name's size and baseline, the click-wait frame time and the bar's show height; the pages of the title do not fade into each other and the full-screen skip picture (`skip.akb`) is not shown.
 
 ## Open items
 
@@ -65,10 +65,11 @@ Addresses in `doujin.exe` of the build above, as linked. The code itself does no
 | Title cell tables: places, sheet cells, sizes (11 cells) | 0x53c6c0, 0x53c668, 0x53c718 |
 | Message window layers and button cells | 0x470aa0 |
 | Message window button tooltip lines | 0x471310 |
-| Message window button states (hide 0xd, padlock 0xe) | 0x4725b0 |
+| Message window button states (hide 0xd, padlock 0xe); source column of each button (home and power cells swapped, table at 0x50f320) | 0x4725b0 |
 | Message window click-wait mark | 0x476f00 |
 | Portrait windows: second (`Game.16`), first (`Game.10`) | 0x474c90, 0x475340 |
-| Message window settings (`/Config/MesWnd/*`) | 0x424130 |
+| Message window settings (`/Config/MesWnd/*`): position, move flag | 0x424130, 0x424200 |
+| Padlock setting (`/Config/MenuLock/Enable`, 1 when not set) | 0x425830 |
 | Config flag test used by 10, 12, 16, 993, 1006 and 1007 | 0x423ee0 |
 | Message window list (singleton) | 0x49d600 |
 | Game object holder (singleton) | 0x49a5f0 |
