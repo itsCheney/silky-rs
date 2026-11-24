@@ -451,7 +451,7 @@ impl Session {
         self.rt.load_state(&mut self.vm, state)?;
         self.apply_global_bytes();
         if self.log.is_empty() {
-            if let Some(text) = &self.rt.scene.text {
+            if let Some(text) = self.rt.scene.text.as_ref().filter(|t| !t.is_empty()) {
                 self.logged += 1;
                 self.log.push(LogEntry {
                     speaker: self.rt.scene.speaker,
@@ -686,6 +686,9 @@ impl Session {
                         }
                         if let (true, Some(intro)) = (t.live, &mut self.rt.scene.intro) {
                             intro.progress(0, t.ms);
+                        }
+                        if let (true, Some(pan)) = (t.live, &mut self.rt.scene.pan) {
+                            pan.progress(0, t.ms);
                         }
                         let from = self.base.take().filter(|_| !t.live);
                         let rule = t.rule.and_then(|n| self.rule(n));
@@ -1041,6 +1044,10 @@ impl Session {
             if train.frame.take().is_some() {
                 self.base = None;
             }
+        }
+        // The pan stops at its end position as the script runs on.
+        if self.rt.scene.pan.take().is_some() {
+            self.base = None;
         }
         // The intro's picture becomes the background as the script runs on.
         if self.rt.scene.intro.is_some() {
@@ -4133,6 +4140,10 @@ impl Session {
                 }
                 if let Some(intro) = &mut self.rt.scene.intro {
                     intro.progress(b.elapsed, b.ms);
+                    self.base = None;
+                }
+                if let Some(pan) = &mut self.rt.scene.pan {
+                    pan.progress(b.elapsed, b.ms);
                     self.base = None;
                 }
                 if b.elapsed < b.ms {

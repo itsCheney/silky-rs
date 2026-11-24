@@ -23,6 +23,7 @@ pub mod menu;
 pub mod music;
 pub mod name;
 pub mod notice;
+pub mod pan;
 pub mod picker;
 pub mod plate;
 pub mod reel;

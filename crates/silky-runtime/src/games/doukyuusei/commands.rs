@@ -54,6 +54,10 @@ pub const LOCALIZE_NAME: i32 = 23;
 /// it out (the script waits), 4 puts it at its stopping place, 5 draws
 /// `y04bb.akb` into the background.
 pub const OVERLAY: i32 = 39;
+/// `Game.33(..)`: the pan over a tall picture in sprite layer 1 (see
+/// [`super::pan`]); the script waits, nothing is returned. The first value
+/// is taken as the sub command.
+pub const PAN: i32 = 33;
 /// `Game.37(n)`: the "comment unlocked" pop-up (see [`super::unlocked`]);
 /// `n` is the number of the comment picture. The script waits; nothing is
 /// returned.
@@ -297,6 +301,13 @@ impl Runtime {
                 self.done()
             }
             (SCREEN, 30) => self.done(),
+            // The text on the message window goes; the window stays.
+            (SCREEN, 10) => {
+                if let Some(text) = &mut self.scene.text {
+                    text.clear();
+                }
+                self.done()
+            }
             // The speaker's icon: 15 shows icon n (from 1), 16 takes it
             // away. Values below 10 do nothing in the program.
             (SCREEN, 15) => {
@@ -330,6 +341,38 @@ impl Runtime {
                 // The message window stays up under the pop-up.
                 self.panel = Some(Panel::Unlocked(u));
                 self.wait_for(crate::host::Pause::Panel)
+            }
+            (PAN, _) => {
+                // The first value was taken as the sub command.
+                let mut values: Vec<i32> = c.args.iter().map(silky_vm::Value::int).collect();
+                if c.sub >= 0 {
+                    values.push(c.sub);
+                }
+                let fast = self.system.settings.effect_speed != 0;
+                let layer = super::pan::LAYER;
+                let Some(mut pan) = super::pan::Pan::new(&values, fast) else {
+                    return self.done();
+                };
+                if !self.scene.layers.contains_key(&layer) {
+                    return self.done();
+                }
+                // The window ends at the end position; the wait shows it
+                // on its way.
+                self.scene.layer_view.insert(layer, pan.to);
+                let ms = pan.total_ms();
+                if ms == 0 {
+                    return self.done();
+                }
+                pan.progress(0, ms);
+                self.scene.pan = Some(pan);
+                self.pause = Some(crate::host::Pause::Transition(crate::host::Transition {
+                    ms,
+                    rule: None,
+                    spin: None,
+                    live: true,
+                }));
+                self.handled += 1;
+                Some(Ok(Flow::Yield))
             }
             (OVERLAY, 0) => {
                 self.scene.train = Some(super::train::Train::new());

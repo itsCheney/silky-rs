@@ -134,6 +134,17 @@ pub struct Emote {
     pub place: Option<Place>,
 }
 
+impl Scene {
+    /// The corner of the picture in sprite layer `layer` that is drawn at
+    /// the screen's top left.
+    pub fn layer_offset(&self, layer: i32) -> (i32, i32) {
+        match &self.pan {
+            Some(p) if layer == crate::games::doukyuusei::pan::LAYER => p.shown(),
+            _ => self.layer_view.get(&layer).copied().unwrap_or((0, 0)),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct Scene {
@@ -219,6 +230,15 @@ pub struct Scene {
     /// background.
     #[serde(default)]
     pub train: Option<crate::games::doukyuusei::train::Train>,
+    /// 同級生 Remake: where the window of a tall sprite layer's picture is
+    /// (`Game.33`, `Sprite.3`), by layer; a layer not here is drawn from
+    /// its top left corner.
+    #[serde(default)]
+    pub layer_view: BTreeMap<i32, (i32, i32)>,
+    /// 同級生 Remake: the pan over a layer's picture while the script waits
+    /// for it (`Game.33`). Not saved.
+    #[serde(skip)]
+    pub pan: Option<crate::games::doukyuusei::pan::Pan>,
     /// 同級生 Remake: the intro of the first start (`Game.31`), while the
     /// script waits for it.
     #[serde(default)]

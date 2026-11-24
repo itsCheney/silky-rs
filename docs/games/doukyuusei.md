@@ -31,6 +31,11 @@ Headless, `silky-run snap` plays the opening, looks around the hero's room, slee
   - `Game.23(name)` has no sub command (its one string value counts as sub -1) and returns the picture name in the game's language, `x.akb` to `x_en.akb`, `x_ch.akb` or `x_tw.akb`, or the name itself if that file does not exist.
   - `Game.10(11)` brings the message window back and takes the status plate down unless byte 4084 is set (the window itself is shown whenever a line is up).
   - `Game.10(n, 15)` shows the speaker's icon n (from 1; `message_icon.akb`, 144 x 144 cells, four to a row) at (78, 848); `Game.10(16)` takes it away. `Game.10` values below 10 do nothing.
+  - `Game.10(10)` (no values) wipes the text drawn on the message window; the window itself is not touched. Here the line's text is emptied while the window stays up if it was (library function 47, a scene reset, calls it).
+- Pan over a tall picture (`Game.33`; `E09.MES` and `KAORI_X.MES`; nothing returned, the first value counts as the sub command):
+  - The script loads a 1920 x 2160 picture into sprite layer 1 (`Sprite.1(1, "e09.akb")`) and pushes, in order: step in pixels (4 in E09, 16 in KAORI_X), delay of a step in ms (15), end y (0), end x (0), start y (1080), start x (0). Each step copies the 1920 x 1080 window of layer 1 at the current position onto the screen, moves the position on by distance / steps and waits the delay; the steps number the longer distance divided by the step, rounded down (E09 270, about 4 s; KAORI_X 67, about 1 s). It ends with a copy at exactly the end position.
+  - The screen speed setting, when not the first place, makes the step four times larger (a quarter of the steps). The wait can be cut short like the others (skip). The original also does nothing at all when the "skip scenes" setting is on; that setting is not in the runtime.
+  - Before it E09 copies the window at y 1080 of layer 1 onto the screen with `Sprite.3` (nine values, pushed in this order: flag, source sprite, source y, source x, target sprite, height, width, target y, target x), so the scene opens on the lower half and the pan goes up to the top. The order is read from the scripts' values (the window y 1080 matches the pan's start) and not from the engine's sprite code. Here that call sets which window of the layer's picture is drawn (a copy onto sprite 0 at (0, 0) of a layer that exists); the pan then draws its own windows, and the last one stays until the layer is loaded again. Code in `pan.rs`.
 
 ### Title, intro and name entry
 
@@ -256,6 +261,8 @@ Addresses in the program as it runs (the Steam wrapper unpacks it at its own ima
 | Speaker icon shown, taken away (`Game.10` 15, 16) | 0x4e2d11, 0x4e2e41 |
 | `Game.23` file name in the game's language, `Game.10` 11 and 14 (message window back, put away) | 0x4e2020 (case 23), 0x4e2c7d with 0x4b5540, 0x4e2c89 |
 | `Game.10` sub table (subs 10 to 30) | 0x4e2f18 with 0x4e2f3c |
+| `Game.10` 10 (text on the message window wiped): sub table entry, routine it calls | 0x4e2c71, 0x4b4dd0 |
+| `Game.33` pan over a tall picture: dispatcher case, handler | 0x4e26e9, 0x4e5350 |
 | `Game.39` train object: dispatch, sub table, subs 0 (make) and 1 (take away), 2 and 3 (moves), 4 (park), 5 (background) | 0x4e6840, 0x4e6d08, 0x4e68ae and 0x4e691f, 0x4e693b and 0x4e6a4a, 0x4e6b4f, 0x4e6b73 |
 | `Game.39` train moves: listener vtable, start, end, per-frame position steps; move record added, wait-to-the-end loop; picture object made | 0x595b4c, 0x4ba790, 0x4ba7e0, 0x4ba830; 0x4f93f0, 0x4fa300 with 0x4fa320; 0x453d60 |
 | `Game.37` comment pop-up: dispatch case, made (layers 91 and 92, dimming, picture, button), class vtable | 0x4e2020 (case 37), 0x48ca70, 0x59497c |

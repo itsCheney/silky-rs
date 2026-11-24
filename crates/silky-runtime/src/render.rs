@@ -1147,9 +1147,22 @@ impl Renderer {
         #[cfg(feature = "emote")]
         self.draw_emotes(&mut canvas, scene, assets);
 
-        for name in scene.layers.values() {
+        for (id, name) in &scene.layers {
             let img = assets.image(name)?;
-            canvas.draw(&img, 0, 0, false);
+            let (vx, vy) = scene.layer_offset(*id);
+            if (vx, vy) == (0, 0) {
+                canvas.draw(&img, 0, 0, false);
+            } else {
+                // A window of a taller or wider picture.
+                let (x, y) = ((-vx).max(0), (-vy).max(0));
+                let part = (
+                    vx.max(0) as u32,
+                    vy.max(0) as u32,
+                    canvas.width.saturating_sub(x as u32),
+                    canvas.height.saturating_sub(y as u32),
+                );
+                canvas.draw_part(&img, part, x, y, false, 255);
+            }
         }
         if let Some((c, a)) = scene.dim {
             let rgba = [(c >> 16) as u8, (c >> 8) as u8, c as u8, a];

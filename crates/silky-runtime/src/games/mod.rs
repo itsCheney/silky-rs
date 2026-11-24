@@ -265,6 +265,7 @@ impl Runtime {
                 // Provisional: the title picture sits in a sprite layer;
                 // the first background of the game replaces it.
                 scene.layers.clear();
+                scene.layer_view.clear();
             }
             // (slot, parameter, name)
             (cmd::PICTURE, 1, 3) => match c.str(2).filter(|v| !v.is_empty()) {

@@ -800,6 +800,20 @@ impl Runtime {
             // picture is drawn over sprite 6, which ends a dimming.
             (3, 9) => {
                 self.scene.dim = None;
+                // 同級生 Remake: the window of a layer's picture copied
+                // onto the screen (sprite 0) sets what the layer shows.
+                // Values: flag, source, source y, source x, target, height,
+                // width, target y, target x.
+                if self.assets.game().title == silky_format::game::Title::Doukyuusei
+                    && n(4) == 0
+                    && (n(7), n(8)) == (0, 0)
+                    && self.scene.layers.contains_key(&n(1))
+                {
+                    match (n(3), n(2)) {
+                        (0, 0) => self.scene.layer_view.remove(&n(1)),
+                        view => self.scene.layer_view.insert(n(1), view),
+                    };
+                }
                 return Some(Flow::Continue);
             }
             _ => {}
@@ -1163,6 +1177,7 @@ impl Host for Runtime {
                             self.scene.layers.remove(&layer);
                         }
                     }
+                    self.scene.layer_view.remove(&layer);
                     self.handled += 1;
                     return Ok(Flow::Continue);
                 }
