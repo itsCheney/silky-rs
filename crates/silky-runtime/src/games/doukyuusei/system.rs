@@ -581,10 +581,11 @@ impl System {
                 // an auto or quick save.
                 if let Some(font) = self.font(assets) {
                     let (cx, cy, _, _) = savenote::CARD_AREA;
+                    let (tx, ty) = savenote::CARD_TEXT;
                     let lines = savenote::card_lines(&c.slot, &c.comment);
                     for (k, line) in lines.iter().enumerate() {
-                        let y = a.top + cy + savenote::LINE_PX * k as i32;
-                        font.draw_small(canvas, line, a.left + cx, y);
+                        let y = a.top + cy + ty + savenote::LINE_PX * k as i32;
+                        font.draw_sized(canvas, line, a.left + cx + tx, y, savenote::CARD_FONT);
                     }
                 }
             }
@@ -952,7 +953,13 @@ pub fn draw_dialog(
             alpha,
         );
     }
-    for a in areas {
+    for (i, a) in areas.iter().enumerate() {
+        // The comment field's file lists the confirm id twice (the second
+        // rectangle is the clear button, drawn above); a button is drawn
+        // once, at its first rectangle.
+        if areas[..i].iter().any(|b| b.id == a.id) {
+            continue;
+        }
         let st = state(a.id);
         match a.id {
             dialog_ids::YES | dialog_ids::NO => {
@@ -982,13 +989,23 @@ pub fn draw_dialog(
         }
     }
     if d.commenting && alpha == 255 {
-        let (fx, fy, _, _) = savenote::FIELD;
+        let (fx, fy, _, fh) = savenote::FIELD;
+        let columns = savenote::width(&d.comment);
+        // The field is one line: a line break ends what shows.
+        let shown = d.comment.split('\n').next().unwrap_or_default();
         if let Some(font) = font {
-            font.draw_small(canvas, &d.comment, fx, fy + 2);
+            font.draw_small(canvas, shown, fx, fy + 2);
         }
-        if d.caret {
-            let x = fx + savenote::width(&d.comment) as i32 * savenote::UNIT_PX;
-            canvas.fill(x, fy, 2, 24, [255, 255, 255, 255]);
+        // An opaque black bar after the text, not once the text is long.
+        if d.caret && columns < savenote::CARET_BELOW {
+            let x = fx + columns as i32 * savenote::UNIT_PX;
+            canvas.fill(x, fy, 2, fh, [0, 0, 0, 255]);
+        }
+        if let Some(font) = font {
+            if !d.preedit.is_empty() && columns < savenote::COMPOSE_BELOW {
+                let x = fx + columns as i32 * savenote::UNIT_PX;
+                font.draw_composition(canvas, &d.preedit, x, fy + 2, fx + savenote::FIELD_CLIP);
+            }
         }
     }
 }

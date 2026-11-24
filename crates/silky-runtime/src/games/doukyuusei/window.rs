@@ -508,6 +508,32 @@ impl Font {
         }
     }
 
+    /// Draws the composition of an input method at half size from (x, y):
+    /// an opaque white cell behind each character, a black glyph on it
+    /// (no outline). Characters that would start at or past `right` are
+    /// left out.
+    pub fn draw_composition(&self, canvas: &mut Canvas, text: &str, x: i32, y: i32, right: i32) {
+        let mut cx = x;
+        for c in text.chars() {
+            let w = cells(c) * CELL / 2;
+            if cx >= right {
+                break;
+            }
+            canvas.fill(cx, y, w as u32, (GLYPH_H / 2) as u32, [255, 255, 255, 255]);
+            let (sheet, at) = if half(c) {
+                (&self.han_small, self.han_index.get(&c))
+            } else {
+                (&self.zen_small, self.zen_index.get(&c))
+            };
+            if let Some(&i) = at {
+                let h = GLYPH_H / 2;
+                let part = ((i % PER_ROW) * sheet.w, (i / PER_ROW) * h, sheet.w, h);
+                canvas.draw_part(&sheet.black, part, cx, y, false, 255);
+            }
+            cx += w;
+        }
+    }
+
     /// Draws a line of text from (x, y) at a font size below the glyphs'
     /// 40 (the cells scaled down), outlined like the message text.
     pub fn draw_sized(&self, canvas: &mut Canvas, text: &str, x: i32, y: i32, size: u32) {

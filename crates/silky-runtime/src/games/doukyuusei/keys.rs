@@ -163,9 +163,52 @@ pub const MENU_POINTS: [(i32, i32); 7] = [
     (1821, 616),
 ];
 
+/// Arrow keys on a plain yes/no dialog: the focus after `key` from `from`
+/// (-1 for none), or `None` when it stays. 0 is yes, 1 no and 256 the
+/// "don't ask again" box, which exists only when `toggle` is set. Left
+/// always goes to yes; nothing wraps.
+pub fn dialog_arrow(from: i32, key: Arrow, toggle: bool) -> Option<i32> {
+    use Arrow::*;
+    match (from, key) {
+        (-1, _) => Some(0),
+        (_, Left) => Some(0),
+        (0 | 1, Right) => Some(1),
+        (0 | 1, Down) => toggle.then_some(0x100),
+        (0x100, Up) => Some(1),
+        _ => None,
+    }
+}
+
+/// Arrow keys on a dialog with one button (id 0): all go to it.
+pub fn single_arrow(_from: i32, _key: Arrow) -> Option<i32> {
+    Some(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plain_dialog_arrows() {
+        use Arrow::*;
+        for k in [Up, Down, Left, Right] {
+            assert_eq!(dialog_arrow(-1, k, true), Some(0));
+            assert_eq!(single_arrow(-1, k), Some(0));
+        }
+        assert_eq!(dialog_arrow(0, Right, true), Some(1));
+        assert_eq!(dialog_arrow(1, Right, true), Some(1));
+        assert_eq!(dialog_arrow(1, Left, true), Some(0));
+        assert_eq!(dialog_arrow(0, Left, true), Some(0));
+        assert_eq!(dialog_arrow(0x100, Left, true), Some(0));
+        assert_eq!(dialog_arrow(0, Up, true), None);
+        assert_eq!(dialog_arrow(0, Down, true), Some(0x100));
+        assert_eq!(dialog_arrow(1, Down, true), Some(0x100));
+        assert_eq!(dialog_arrow(1, Down, false), None);
+        assert_eq!(dialog_arrow(0x100, Up, true), Some(1));
+        assert_eq!(dialog_arrow(0x100, Down, true), None);
+        assert_eq!(dialog_arrow(0x100, Right, true), None);
+    }
+
     use Arrow::*;
 
     fn st(focus: i32, hover: Hover) -> State {

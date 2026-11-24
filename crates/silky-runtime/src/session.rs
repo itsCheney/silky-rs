@@ -1150,20 +1150,76 @@ impl Session {
             || self.dialog.as_ref().is_some_and(|d| d.commenting)
     }
 
+    /// Whether the screen takes input method text: the same screens, in
+    /// a language with an input method (Chinese). English types on the
+    /// keyboard and has none.
+    pub fn wants_ime(&self) -> bool {
+        self.wants_text() && self.rt.config.language != Language::English
+    }
+
     /// Typed or committed text (an input method's result); Backspace
-    /// comes as `\u{8}`.
+    /// comes as `\u{8}`. In the save dialog English takes digits, `@` and
+    /// letters to 20 columns, Chinese anything to 40.
     pub fn text_input(&mut self, text: &str) {
+        use crate::games::doukyuusei::savenote;
+        let english = self.rt.config.language == Language::English;
         if let Some(d) = self.dialog.as_mut().filter(|d| d.commenting) {
-            if crate::games::doukyuusei::savenote::type_text(&mut d.comment, text) {
-                self.frame = None;
+            d.preedit.clear();
+            if english {
+                savenote::type_ascii(&mut d.comment, text);
+            } else {
+                savenote::commit(&mut d.comment, text);
             }
+            self.frame = None;
             return;
         }
         if self.screen.is_some() || self.dialog.is_some() || self.menu_sliding() {
             return;
         }
         if let Some(DoukPanel::Name(n)) = &mut self.ui.panel {
+            n.preedit.clear();
             if n.type_text(text) {
+                self.frame = None;
+            }
+        }
+    }
+
+    /// The input method's composition changed (empty when it ended): it
+    /// is drawn after the text.
+    pub fn preedit(&mut self, text: &str) {
+        if let Some(d) = self.dialog.as_mut().filter(|d| d.commenting) {
+            if d.preedit != text {
+                d.preedit = text.to_string();
+                self.frame = None;
+            }
+            return;
+        }
+        if self.screen.is_some() || self.dialog.is_some() {
+            return;
+        }
+        if let Some(DoukPanel::Name(n)) = &mut self.ui.panel {
+            if n.preedit != text {
+                n.preedit = text.to_string();
+                self.frame = None;
+            }
+        }
+    }
+
+    /// Ctrl+V with the clipboard's text (the frontend reads it). In the
+    /// save dialog it replaces the whole comment; on the name entry it
+    /// goes in as the program does.
+    pub fn paste(&mut self, text: &str) {
+        use crate::games::doukyuusei::savenote;
+        if let Some(d) = self.dialog.as_mut().filter(|d| d.commenting) {
+            savenote::paste(&mut d.comment, text);
+            self.frame = None;
+            return;
+        }
+        if self.screen.is_some() || self.dialog.is_some() || self.menu_sliding() {
+            return;
+        }
+        if let Some(DoukPanel::Name(n)) = &mut self.ui.panel {
+            if n.paste(text) {
                 self.frame = None;
             }
         }
@@ -1226,6 +1282,12 @@ impl Session {
             self.ui.hover = hover;
             self.frame = None;
             self.apeiria_preview();
+            if let Some(DoukPanel::Name(n)) = &mut self.ui.panel {
+                n.set_focus(match hover {
+                    Some(Button::Panel(id)) => Some(id),
+                    _ => None,
+                });
+            }
         }
     }
 
@@ -1641,6 +1703,9 @@ impl Session {
     /// Escape: ends the walk on the map, closes what is up, or on the
     /// mail forward screen does what a secondary click does.
     pub fn escape(&mut self) -> Result<()> {
+        if self.douk_cancel_key()? {
+            return Ok(());
+        }
         if self.cancel_walk() || self.back()? {
             return Ok(());
         }
@@ -1653,10 +1718,125 @@ impl Session {
         Ok(())
     }
 
+    /// 同級生 Remake: Escape, Delete and keypad 0 close a dialog or a
+    /// notice as a cancel, with the cancel sound (the save dialog's
+    /// result is a cancel). Returns whether one was up.
+    fn douk_cancel_key(&mut self) -> Result<bool> {
+        if self.douk_system.is_none() || self.veil.is_some() || self.menu_sliding() {
+            return Ok(false);
+        }
+        if self.dialog.take().is_some() {
+            let _ = self
+                .rt
+                .play_sound(crate::games::doukyuusei::name::CANCEL_SOUND);
+            self.frame = None;
+            return Ok(true);
+        }
+        let notice = match &self.ui.panel {
+            Some(DoukPanel::Notice(_) | DoukPanel::Unlocked(_)) => true,
+            Some(DoukPanel::Name(n)) => n.notice,
+            _ => false,
+        };
+        if notice && self.screen.is_none() {
+            return self.back();
+        }
+        Ok(false)
+    }
+
+    /// Keypad 0: a cancel on a dialog or notice of 同級生 Remake, as
+    /// Escape and Delete are; nothing else.
+    pub fn numpad0(&mut self) -> Result<()> {
+        self.douk_cancel_key().map(|_| ())
+    }
+
+    /// Enter and keypad Enter. On 同級生 Remake's dialogs and name entry
+    /// they activate the focused button (the one the arrow keys or the
+    /// pointer are on) and nothing else; otherwise they go on, as
+    /// [`Session::proceed`].
+    pub fn enter(&mut self) -> Result<()> {
+        if self.douk_system.is_some() && self.veil.is_none() && !self.menu_sliding() {
+            if self.dialog.is_some() {
+                if let Some(Button::Dialog(id)) = self.ui.hover {
+                    self.press_dialog(id)?;
+                }
+                return Ok(());
+            }
+            if self.screen.is_none()
+                && matches!(
+                    self.ui.panel,
+                    Some(DoukPanel::Name(_) | DoukPanel::Notice(_))
+                )
+            {
+                if let Some(Button::Panel(id)) = self.ui.hover {
+                    self.press(Button::Panel(id))?;
+                }
+                return Ok(());
+            }
+        }
+        self.proceed()
+    }
+
+    /// Arrow keys on 同級生 Remake's dialogs, name entry and notices: the
+    /// focus (the hovered item) moves as the program's tables say, with
+    /// no sound and no wrapping. Returns whether one of them is up.
+    fn focus_arrow(&mut self, key: crate::games::apeiria::keys::Arrow) -> bool {
+        use crate::games::doukyuusei::{keys, savenote};
+        if self.douk_system.is_none()
+            || self.veil.is_some()
+            || self.menu_sliding()
+            || self.hmode.is_some()
+        {
+            return false;
+        }
+        let from = match self.ui.hover {
+            Some(Button::Dialog(id) | Button::Panel(id)) => id,
+            _ => -1,
+        };
+        if let Some(d) = &self.dialog {
+            let areas = self.screens.dialog_areas(d);
+            let toggle = !matches!(d.action, Action::Unlock(_));
+            let to = if d.commenting {
+                savenote::arrow(from, key)
+            } else {
+                keys::dialog_arrow(from, key, toggle)
+            };
+            // A target the area list lacks does nothing.
+            let to = to.filter(|t| {
+                areas.iter().any(|a| a.id == *t) && (toggle || *t != dialog_ids::DONT_ASK)
+            });
+            if let Some(t) = to {
+                self.ui.hover = Some(Button::Dialog(t));
+                self.frame = None;
+            }
+            return true;
+        }
+        if self.screen.is_some() {
+            return false;
+        }
+        match &mut self.ui.panel {
+            Some(DoukPanel::Name(n)) => {
+                if let Some(t) = n.arrow(from, key) {
+                    n.set_focus(Some(t));
+                    self.ui.hover = Some(Button::Panel(t));
+                    self.frame = None;
+                }
+                true
+            }
+            Some(DoukPanel::Notice(_)) => {
+                if let Some(t) = keys::single_arrow(from, key) {
+                    self.ui.hover = Some(Button::Panel(t));
+                    self.frame = None;
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Delete: ends the walk on the map, or on the mail forward screen
     /// does what a secondary click does.
     pub fn delete_key(&mut self) -> Result<()> {
-        if self.cancel_walk() {
+        if self.douk_cancel_key()? || self.cancel_walk() {
             return Ok(());
         }
         if self.replaying() {
@@ -1985,6 +2165,9 @@ impl Session {
     pub fn arrow(&mut self, key: crate::games::apeiria::keys::Arrow) -> Result<Option<(i32, i32)>> {
         use crate::games::apeiria::keys::{self, Move};
         use crate::games::apeiria::omake;
+        if self.focus_arrow(key) {
+            return Ok(None);
+        }
         if let Some(r) = self.douk_arrow(key) {
             return Ok(r);
         }
@@ -2866,6 +3049,7 @@ impl Session {
             opener: self.clicked.take().or(self.ui.hover),
             commenting,
             comment,
+            preedit: String::new(),
             opened: self.ui.clock,
             fade,
             caret: true,
@@ -2877,6 +3061,19 @@ impl Session {
 
     fn press_dialog(&mut self, id: i32) -> Result<()> {
         self.frame = None;
+        // 同級生 Remake's buttons play the click sound; the no button the
+        // cancel sound.
+        if self.douk_system.is_some() {
+            use crate::games::doukyuusei::name::{CANCEL_SOUND, OK_SOUND};
+            let sound = match id {
+                dialog_ids::YES | dialog_ids::DONT_ASK | dialog_ids::CLEAR => Some(OK_SOUND),
+                dialog_ids::NO => Some(CANCEL_SOUND),
+                _ => None,
+            };
+            if let Some(file) = sound {
+                let _ = self.rt.play_sound(file);
+            }
+        }
         match id {
             dialog_ids::YES => {
                 if let Some(d) = self.dialog.take() {
@@ -3474,6 +3671,12 @@ impl Session {
 
     /// Key that goes on (Enter, Space).
     pub fn proceed(&mut self) -> Result<()> {
+        // Space does nothing on 同級生 Remake's dialogs and name entry.
+        if self.douk_system.is_some()
+            && (self.dialog.is_some() || matches!(self.ui.panel, Some(DoukPanel::Name(_))))
+        {
+            return Ok(());
+        }
         // 景の海のアペイリア's extras: Enter clicks where the arrow keys
         // put the pointer.
         if self.menus.is_apeiria() && matches!(self.screen, Some(Screen::Extras(_))) {

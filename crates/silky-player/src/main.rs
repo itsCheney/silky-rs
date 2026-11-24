@@ -24,7 +24,7 @@ use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition};
 use winit::event::{ElementState, Ime, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::keyboard::{Key, NamedKey};
+use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
 use winit::window::{Window, WindowId};
 
 #[derive(Parser)]
@@ -168,6 +168,7 @@ fn main() -> Result<()> {
         wheel: 0.0,
         held: 0,
         fast: false,
+        ctrl: false,
         ime: false,
         error: None,
     };
@@ -271,6 +272,8 @@ struct App {
     /// Arrow keys held (同級生 Remake's walking map) and Shift or Ctrl.
     held: u8,
     fast: bool,
+    /// Ctrl is held (Ctrl+V pastes).
+    ctrl: bool,
     /// The input method is on (the name entry).
     ime: bool,
     error: Option<anyhow::Error>,
@@ -342,7 +345,9 @@ impl App {
             event_loop.exit();
         }
         if let Some(v) = &self.view {
-            let wants = self.session.wants_text();
+            // English types on the keyboard; only the other languages
+            // use the input method.
+            let wants = self.session.wants_ime();
             if wants != self.ime {
                 self.ime = wants;
                 v.window.set_ime_allowed(wants);
@@ -456,10 +461,20 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::Ime(Ime::Commit(text)) => {
+                self.session.preedit("");
                 self.session.text_input(&text);
                 self.after_input(event_loop, Ok(()));
             }
+            WindowEvent::Ime(Ime::Preedit(text, _)) => {
+                self.session.preedit(&text);
+                self.after_input(event_loop, Ok(()));
+            }
+            WindowEvent::Ime(Ime::Disabled) => {
+                self.session.preedit("");
+                self.after_input(event_loop, Ok(()));
+            }
             WindowEvent::ModifiersChanged(m) => {
+                self.ctrl = m.state().control_key();
                 self.fast = m.state().shift_key() || m.state().control_key();
                 self.session.set_held_keys(self.held, self.fast);
             }
@@ -474,8 +489,31 @@ impl ApplicationHandler for App {
                     self.held |= arrow_bit(k);
                     self.session.set_held_keys(self.held, self.fast);
                 }
+                // Ctrl+V pastes on the screens that take text, once per
+                // press; the runtime has no clipboard code.
+                if self.ctrl
+                    && !event.repeat
+                    && event.physical_key == PhysicalKey::Code(KeyCode::KeyV)
+                {
+                    if self.session.wants_text() {
+                        if let Some(text) = clipboard_text() {
+                            self.session.paste(&text);
+                        }
+                    }
+                    self.after_input(event_loop, Ok(()));
+                    return;
+                }
+                // Keypad 0 cancels a dialog, as Escape does; its digit
+                // still goes on to the text path.
+                if event.physical_key == PhysicalKey::Code(KeyCode::Numpad0) && !event.repeat {
+                    let r = self.session.numpad0();
+                    if r.is_err() {
+                        return self.after_input(event_loop, r);
+                    }
+                }
                 let r = match event.logical_key {
-                    Key::Named(NamedKey::Enter | NamedKey::Space) => self.session.proceed(),
+                    Key::Named(NamedKey::Enter) => self.session.enter(),
+                    Key::Named(NamedKey::Space) => self.session.proceed(),
                     Key::Named(NamedKey::Escape) => self.session.escape(),
                     Key::Named(NamedKey::Delete) => self.session.delete_key(),
                     Key::Named(
@@ -526,6 +564,11 @@ impl ApplicationHandler for App {
         }
         event_loop.set_control_flow(ControlFlow::WaitUntil(self.last_tick + FRAME));
     }
+}
+
+/// The clipboard's text, if it holds any.
+fn clipboard_text() -> Option<String> {
+    arboard::Clipboard::new().ok()?.get_text().ok()
 }
 
 /// The largest 16:9 rectangle centred in a window.

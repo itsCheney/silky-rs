@@ -1,29 +1,43 @@
 //! The comment of a manual save in 同級生 Remake: typed in the save
 //! dialog, shown on the card, and the fixed labels of auto and quick
-//! saves. Widths count half-width characters as one unit and all others as
-//! two.
+//! saves. Widths count half-width characters as one column and all others
+//! as two; a wide character is never split.
+//!
+//! Typing on the keyboard (English) takes `0-9`, `@`, `A-Z` and `a-z` up
+//! to [`TYPED_COLUMNS`]; committed input method text (Chinese) and a
+//! paste go up to [`LIMIT_UNITS`]. The caret is always at the end.
 
-/// The most width units a comment takes.
+/// The most columns a comment takes (committed text and paste).
 pub const LIMIT_UNITS: usize = 40;
-/// The most UTF-16 units a stored comment takes (one is kept for the
-/// terminator).
-pub const LIMIT_UTF16: usize = 39;
-/// Width units after which a comment wraps on a card.
+/// The most columns typed on the keyboard (English) take.
+pub const TYPED_COLUMNS: usize = 20;
+/// Columns after which a comment wraps on a card.
 pub const WRAP_UNITS: usize = 20;
-/// Pixels a width unit takes in the field and on cards (size 20 text).
+/// The most columns the card's text takes before it is cut (a line break
+/// counts one).
+pub const CARD_COLUMNS: usize = 41;
+/// Pixels a column takes in the field (size 20 text).
 pub const UNIT_PX: i32 = 10;
-/// Height of a line of the comment on a card (a guess; the original's
-/// spacing is not settled).
-pub const LINE_PX: i32 = 23;
+/// Size of the text on a card, and so the height of a line.
+pub const CARD_FONT: u32 = 26;
+pub const LINE_PX: i32 = 26;
 /// The comment area of a card, relative to the card: left, top, width,
 /// height.
 pub const CARD_AREA: (i32, i32, i32, i32) = (7, 267, 300, 71);
+/// Where the text starts inside the comment area.
+pub const CARD_TEXT: (i32, i32) = (20, 9);
 /// The text field of the save dialog: left, top, width, height.
 pub const FIELD: (i32, i32, u32, u32) = (717, 495, 460, 24);
+/// The right end of what the field shows, from its left.
+pub const FIELD_CLIP: i32 = 440;
 /// The clear button of the dialog: left, top, size.
 pub const CLEAR: (i32, i32, i32) = (1159, 483, 48);
 /// Milliseconds the caret stays on or off.
 pub const BLINK_MS: u64 = 300;
+/// The caret is drawn only below this many columns.
+pub const CARET_BELOW: usize = 22;
+/// An input method's composition is drawn only below this many columns.
+pub const COMPOSE_BELOW: usize = 39;
 
 /// Width units of a character.
 pub fn units(c: char) -> usize {
@@ -39,28 +53,71 @@ pub fn width(text: &str) -> usize {
     text.chars().map(units).sum()
 }
 
-fn utf16(text: &str) -> usize {
-    text.chars().map(char::len_utf16).sum()
+/// The start of `text` that fits `max` columns: a wide character that
+/// would stand over the end is left out, and so is all after it.
+pub fn truncate(text: &str, max: usize) -> String {
+    let mut used = 0;
+    let mut out = String::new();
+    for c in text.chars() {
+        used += units(c);
+        if used > max {
+            break;
+        }
+        out.push(c);
+    }
+    out
 }
 
-/// Types `input` at the end of `text`: Backspace (`\u{8}`) deletes the
-/// last character, other control characters are ignored, and a character
-/// that would take the width over [`LIMIT_UNITS`] (or the stored length
-/// over [`LIMIT_UTF16`]) is dropped. Returns whether `text` changed.
-pub fn type_text(text: &mut String, input: &str) -> bool {
+/// Whether the keyboard types `c` (English): digits, `@` and letters.
+pub fn typable(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '@'
+}
+
+/// Types `input` on the keyboard (English): Backspace (`\u{8}`) takes off
+/// the last character, a character of [`typable`] goes to the end if the
+/// text stays within [`TYPED_COLUMNS`], others are ignored. Returns
+/// whether `text` changed.
+pub fn type_ascii(text: &mut String, input: &str) -> bool {
     let mut changed = false;
     for c in input.chars() {
         if c == '\u{8}' {
             changed |= text.pop().is_some();
-        } else if !c.is_control()
-            && width(text) + units(c) <= LIMIT_UNITS
-            && utf16(text) + c.len_utf16() <= LIMIT_UTF16
-        {
+        } else if typable(c) && width(text) < TYPED_COLUMNS {
             text.push(c);
             changed = true;
         }
     }
     changed
+}
+
+/// Adds committed input method text (Chinese) to the end, cut to
+/// [`LIMIT_UNITS`]; Backspace takes off the last character and control
+/// characters are ignored. Returns whether `text` changed.
+pub fn commit(text: &mut String, input: &str) -> bool {
+    let before = text.clone();
+    for c in input.chars() {
+        if c == '\u{8}' {
+            text.pop();
+        } else if !c.is_control() {
+            text.push(c);
+        }
+    }
+    *text = truncate(text, LIMIT_UNITS);
+    *text != before
+}
+
+/// Ctrl+V: the clipboard's text replaces the whole comment, cut to
+/// [`LIMIT_UNITS`] and not filtered. Returns whether `text` changed.
+pub fn paste(text: &mut String, clip: &str) -> bool {
+    let new = truncate(clip, LIMIT_UNITS);
+    let changed = *text != new;
+    *text = new;
+    changed
+}
+
+/// Backspace: takes off the last character. Returns whether there was one.
+pub fn backspace(text: &mut String) -> bool {
+    text.pop().is_some()
 }
 
 /// Breaks a comment into the lines of a card: a line ends once its width
@@ -98,13 +155,21 @@ pub fn label(slot: &str) -> Option<String> {
 }
 
 /// The lines drawn in a card's comment area: the label of an auto or quick
-/// save, else the comment wrapped, as many lines as fit.
+/// save, else the comment wrapped, its first [`CARD_COLUMNS`] columns (the
+/// line breaks counted), as many lines as fit under the text's top.
 pub fn card_lines(slot: &str, comment: &str) -> Vec<String> {
     let mut lines = match label(slot) {
         Some(l) => vec![l],
-        None => wrap(comment),
+        None => {
+            let wrapped = wrap(comment).join("\n");
+            truncate(&wrapped, CARD_COLUMNS)
+                .split('\n')
+                .map(str::to_string)
+                .collect()
+        }
     };
-    lines.truncate((CARD_AREA.3 / LINE_PX) as usize);
+    lines.retain(|l| !l.is_empty());
+    lines.truncate(((CARD_AREA.3 - CARD_TEXT.1) / LINE_PX) as usize);
     lines
 }
 
@@ -113,8 +178,32 @@ pub fn caret_on(ms: u64) -> bool {
     (ms / BLINK_MS) % 2 == 0
 }
 
+/// The arrow keys of the save dialog: the focus after `key` from `from`
+/// (`-1` for none), or `None` when it stays. Ids of `SAVENOTE.AREA`: 0
+/// confirm, 1 cancel, [`DONT_ASK`] and [`CLEAR_ID`]. The target must still
+/// be in the area list to take the focus.
+pub fn arrow(from: i32, key: super::keys::Arrow) -> Option<i32> {
+    use super::keys::Arrow::*;
+    match (from, key) {
+        (-1, _) => Some(0),
+        (0, Up) | (1, Up) => Some(CLEAR_ID),
+        (0, Down) | (1, Down) => Some(DONT_ASK),
+        (0, Right) => Some(1),
+        (1, Left) => Some(0),
+        (DONT_ASK, Up) => Some(1),
+        (CLEAR_ID, Down) => Some(1),
+        _ => None,
+    }
+}
+
+/// The id the program's code expects for the check box and for the clear
+/// button.
+pub const DONT_ASK: i32 = 0x100;
+pub const CLEAR_ID: i32 = 0x200;
+
 #[cfg(test)]
 mod tests {
+    use super::super::keys::Arrow;
     use super::*;
 
     #[test]
@@ -125,35 +214,64 @@ mod tests {
     }
 
     #[test]
-    fn typing_stops_at_forty_units() {
+    fn truncation_never_splits_a_wide_character() {
+        assert_eq!(truncate("abc", 2), "ab");
+        assert_eq!(truncate("aあい", 4), "aあ");
+        assert_eq!(truncate("aあい", 3), "aあ");
+        assert_eq!(truncate("aあb", 2), "a");
+        assert_eq!(truncate("", 5), "");
+    }
+
+    #[test]
+    fn the_keyboard_takes_digits_at_and_letters_to_twenty_columns() {
         let mut t = String::new();
-        assert!(type_text(&mut t, &"あ".repeat(25)));
+        assert!(type_ascii(&mut t, "a@Z9 -_!あ"));
+        assert_eq!(t, "a@Z9");
+        assert!(type_ascii(&mut t, &"b".repeat(30)));
+        assert_eq!(width(&t), TYPED_COLUMNS);
+        assert!(!type_ascii(&mut t, "c"));
+        assert!(type_ascii(&mut t, "\u{8}"));
+        assert_eq!(width(&t), TYPED_COLUMNS - 1);
+        let mut e = String::new();
+        assert!(!type_ascii(&mut e, "\u{8}"));
+    }
+
+    #[test]
+    fn committed_text_goes_to_forty_columns() {
+        let mut t = String::new();
+        assert!(commit(&mut t, &"あ".repeat(25)));
         assert_eq!(t.chars().count(), 20);
         assert_eq!(width(&t), 40);
-        assert!(!type_text(&mut t, "a"));
-        let mut t = String::new();
-        type_text(&mut t, &"a".repeat(60));
-        assert_eq!(t.len(), 39);
-    }
-
-    #[test]
-    fn a_wide_character_that_does_not_fit_is_refused_but_a_narrow_one_is_not() {
+        assert!(!commit(&mut t, "a"));
         let mut t = "a".repeat(39);
-        type_text(&mut t, "あb");
-        assert_eq!(t.len(), 39);
-        let mut t = "a".repeat(37);
-        type_text(&mut t, "あb");
-        assert_eq!(width(&t), 40);
+        commit(&mut t, "あb");
+        assert_eq!(t, "a".repeat(39));
+        let mut t = "ab".to_string();
+        assert!(commit(&mut t, "\n\u{8}c"));
+        assert_eq!(t, "ac");
     }
 
     #[test]
-    fn backspace_and_control_characters() {
-        let mut t = String::from("ab");
-        assert!(type_text(&mut t, "\u{8}c\n\t"));
-        assert_eq!(t, "ac");
-        assert!(type_text(&mut t, "\u{8}\u{8}"));
-        assert!(!type_text(&mut t, "\u{8}"));
+    fn paste_replaces_everything_and_does_not_filter() {
+        let mut t = String::from("old comment");
+        assert!(paste(&mut t, "a_b\nc"));
+        assert_eq!(t, "a_b\nc");
+        assert!(!paste(&mut t, "a_b\nc"));
+        assert!(paste(&mut t, &"a".repeat(60)));
+        assert_eq!(t.len(), 40);
+        assert!(paste(&mut t, &"あ".repeat(30)));
+        assert_eq!(width(&t), 40);
+        assert!(paste(&mut t, ""));
         assert_eq!(t, "");
+    }
+
+    #[test]
+    fn backspace_takes_the_last_character() {
+        let mut t = String::from("aあ");
+        assert!(backspace(&mut t));
+        assert_eq!(t, "a");
+        assert!(backspace(&mut t));
+        assert!(!backspace(&mut t));
     }
 
     #[test]
@@ -175,7 +293,21 @@ mod tests {
         assert_eq!(label("save001"), None);
         assert_eq!(card_lines("auto07", "x"), vec!["AUTO SAVE 07"]);
         assert_eq!(card_lines("save001", "hi"), vec!["hi"]);
-        assert_eq!(card_lines("save001", &"a".repeat(100)).len(), 3);
+    }
+
+    #[test]
+    fn a_card_shows_two_lines_of_the_first_forty_one_columns() {
+        // Two lines fit under the top of the text (9 + 2 * 26 < 71).
+        let lines = card_lines("save001", &"a".repeat(100));
+        assert_eq!(lines, vec!["a".repeat(20), "a".repeat(20)]);
+        // The break counts a column: 20 + 1 + 20 = 41.
+        let lines = card_lines("save001", &"a".repeat(41));
+        assert_eq!(lines, vec!["a".repeat(20), "a".repeat(20)]);
+        // A wide character that starts at column 19 makes a line of 21.
+        let text = format!("{}あb", "a".repeat(19));
+        let lines = card_lines("save001", &text);
+        assert_eq!(lines[0], format!("{}あ", "a".repeat(19)));
+        assert_eq!(lines[1], "b");
     }
 
     #[test]
@@ -184,5 +316,27 @@ mod tests {
         assert!(caret_on(299));
         assert!(!caret_on(300));
         assert!(caret_on(600));
+    }
+
+    #[test]
+    fn arrows_move_the_focus_without_wrapping() {
+        use Arrow::*;
+        for k in [Up, Down, Left, Right] {
+            assert_eq!(arrow(-1, k), Some(0));
+        }
+        assert_eq!(arrow(0, Up), Some(CLEAR_ID));
+        assert_eq!(arrow(0, Down), Some(DONT_ASK));
+        assert_eq!(arrow(0, Left), None);
+        assert_eq!(arrow(0, Right), Some(1));
+        assert_eq!(arrow(1, Up), Some(CLEAR_ID));
+        assert_eq!(arrow(1, Down), Some(DONT_ASK));
+        assert_eq!(arrow(1, Left), Some(0));
+        assert_eq!(arrow(1, Right), None);
+        assert_eq!(arrow(DONT_ASK, Up), Some(1));
+        assert_eq!(arrow(DONT_ASK, Down), None);
+        assert_eq!(arrow(DONT_ASK, Left), None);
+        assert_eq!(arrow(CLEAR_ID, Down), Some(1));
+        assert_eq!(arrow(CLEAR_ID, Up), None);
+        assert_eq!(arrow(CLEAR_ID, Right), None);
     }
 }

@@ -63,8 +63,9 @@ pub mod dialog_ids {
     pub const NO: i32 = 1;
     /// "Do not ask again".
     pub const DONT_ASK: i32 = 256;
-    /// 同級生 Remake: the save comment's clear button.
-    pub const CLEAR: i32 = 2;
+    /// 同級生 Remake: the save comment's clear button (the program's
+    /// id; no rectangle of the shipped data carries it).
+    pub const CLEAR: i32 = 0x200;
 }
 
 /// Questions of the dialog sheet, top to bottom.
@@ -577,6 +578,8 @@ pub struct Dialog {
     pub commenting: bool,
     /// The comment typed so far.
     pub comment: String,
+    /// The input method's composition, shown after the comment.
+    pub preedit: String,
     /// The session clock (ms) when the dialog came up.
     pub opened: u64,
     /// Passes of its fade-in (0 for none).
@@ -624,6 +627,9 @@ pub struct Screens {
     save_load: Vec<Area>,
     backlog: Vec<Area>,
     dialog: Vec<Area>,
+    /// 同級生 Remake: `savenote.area`, the save dialog with its comment
+    /// field.
+    savenote: Vec<Area>,
     help: Option<HelpLines>,
     /// きまぐれテンプテーション2: its own backlog look.
     kimaten2: bool,
@@ -687,6 +693,11 @@ impl Screens {
             save_load: area_file(assets, "saveload.area"),
             backlog,
             dialog: area_file(assets, "dialog.area"),
+            savenote: if douk {
+                area_file(assets, "savenote.area")
+            } else {
+                Vec::new()
+            },
             kimaten2: assets.game().title == silky_format::game::Title::Kimaten2,
             stars: assets.game().title == silky_format::game::Title::Fuyukuru,
             douk,
@@ -1242,17 +1253,23 @@ impl Screens {
 
     pub fn hit_dialog(&self, d: &Dialog, x: i32, y: i32) -> Option<Button> {
         let unlock = matches!(d.action, Action::Unlock(_));
-        if self.douk && d.commenting {
-            let (cx, cy, n) = crate::games::doukyuusei::savenote::CLEAR;
-            if (cx..cx + n).contains(&x) && (cy..cy + n).contains(&y) {
-                return Some(Button::Dialog(dialog_ids::CLEAR));
-            }
-        }
-        self.dialog
+        self.dialog_areas(d)
             .iter()
             .filter(|a| !(unlock && a.id == dialog_ids::DONT_ASK))
             .find(|a| a.contains(x, y))
             .map(|a| Button::Dialog(a.id))
+    }
+
+    /// The hot spots of a dialog, in the order the program tests them. The
+    /// save dialog's comment field has its own file, whose fourth
+    /// rectangle (the clear button) carries the id of the confirm button
+    /// in the game's data, so a click there confirms.
+    pub fn dialog_areas(&self, d: &Dialog) -> &[Area] {
+        if self.douk && d.commenting && !self.savenote.is_empty() {
+            &self.savenote
+        } else {
+            &self.dialog
+        }
     }
 
     pub fn draw_dialog(
@@ -1271,7 +1288,7 @@ impl Screens {
                 canvas,
                 &sheet,
                 d,
-                &self.dialog,
+                self.dialog_areas(d),
                 state,
                 (d.alpha(ui.clock), font),
             );
@@ -1577,6 +1594,65 @@ fn format_time(secs: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_comment_dialog_follows_the_area_ids_of_its_data() {
+        let a = |id, left, top, right, bottom| Area {
+            id,
+            left,
+            top,
+            right,
+            bottom,
+        };
+        // SAVENOTE.AREA as shipped: the clear button's rectangle has the
+        // confirm button's id.
+        let savenote = vec![
+            a(0, 718, 545, 940, 618),
+            a(1, 979, 545, 1201, 618),
+            a(256, 1025, 622, 1073, 670),
+            a(0, 1159, 483, 1207, 531),
+        ];
+        let s = Screens {
+            language: Language::English,
+            save_load: Vec::new(),
+            backlog: Vec::new(),
+            dialog: vec![a(0, 718, 545, 940, 618), a(1, 979, 545, 1201, 618)],
+            savenote,
+            help: None,
+            kimaten2: false,
+            stars: false,
+            douk: true,
+            apeiria: false,
+        };
+        let d = |commenting| Dialog {
+            action: Action::Save(None),
+            fresh: true,
+            dont_ask: false,
+            opener: None,
+            commenting,
+            comment: String::new(),
+            preedit: String::new(),
+            opened: 0,
+            fade: 0,
+            caret: true,
+        };
+        // A click on the clear rectangle confirms; no rectangle has 0x200.
+        assert_eq!(
+            s.hit_dialog(&d(true), 1180, 500),
+            Some(Button::Dialog(dialog_ids::YES))
+        );
+        assert!(!s
+            .dialog_areas(&d(true))
+            .iter()
+            .any(|a| a.id == dialog_ids::CLEAR));
+        assert_eq!(
+            s.hit_dialog(&d(true), 1030, 630),
+            Some(Button::Dialog(dialog_ids::DONT_ASK))
+        );
+        // Other dialogs use `dialog.area`.
+        assert_eq!(s.hit_dialog(&d(false), 1180, 500), None);
+        assert_eq!(s.hit_dialog(&d(false), 1030, 630), None);
+    }
 
     #[test]
     fn help_numbers() {

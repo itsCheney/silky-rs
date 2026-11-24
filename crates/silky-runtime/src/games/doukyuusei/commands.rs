@@ -208,7 +208,11 @@ impl Runtime {
                 self.wait_for(crate::host::Pause::Panel)
             }
             (NAME, _) => {
-                self.panel = Some(Panel::Name(super::name::Name::new(self.config.language)));
+                let areas = crate::screens::area_file(&self.assets, "nameinput.area");
+                self.panel = Some(Panel::Name(super::name::Name::new(
+                    self.config.language,
+                    areas,
+                )));
                 // The page shows the background the script put up; the
                 // screen stays covered under it, as the scripts find
                 // afterwards.
