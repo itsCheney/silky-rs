@@ -516,6 +516,9 @@ impl ApplicationHandler for App {
                     Key::Named(NamedKey::Space) => self.session.proceed(),
                     Key::Named(NamedKey::Escape) => self.session.escape(),
                     Key::Named(NamedKey::Delete) => self.session.delete_key(),
+                    Key::Named(NamedKey::Backspace) if !self.session.wants_text() => {
+                        self.session.backspace_key()
+                    }
                     Key::Named(
                         k @ (NamedKey::ArrowUp
                         | NamedKey::ArrowDown

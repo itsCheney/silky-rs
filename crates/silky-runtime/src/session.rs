@@ -2009,6 +2009,20 @@ impl Session {
         Ok(())
     }
 
+    /// Backspace: on 同級生 Remake's room and place screens with their
+    /// buttons up, opens the backlog as the menu's backlog button does.
+    pub fn backspace_key(&mut self) -> Result<()> {
+        let room_up = self.douk_system.is_some()
+            && self.screen.is_none()
+            && self.dialog.is_none()
+            && !self.menu_sliding()
+            && matches!(self.ui.panel, Some(DoukPanel::Room(ref r)) if !r.look);
+        if room_up {
+            self.open_backlog();
+        }
+        Ok(())
+    }
+
     /// 景の海のアペイリア: a scene of the scene list is being replayed
     /// (variable H 69, set by the scene list) and its text waits, so a
     /// secondary click, Escape or Delete asks about going back to the list.
