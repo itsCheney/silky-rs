@@ -167,10 +167,6 @@ struct Busy {
     ui_fade: Option<bool>,
 }
 
-/// How long the status plate takes to fade out when the flag list's jump
-/// leaves the walking map.
-const PLATE_FADE_MS: u32 = 800;
-
 /// Length of one frame for input polls.
 const FRAME_MS: u32 = 16;
 
@@ -605,19 +601,6 @@ impl Session {
             false,
         )?);
         self.frame = None;
-        // The status plate fades out before the script runs.
-        if self.plate_hold.is_some() {
-            self.busy = Some(Busy {
-                from: None,
-                rule: None,
-                ms: PLATE_FADE_MS,
-                elapsed: 0,
-                frame: false,
-                spin: None,
-                ui_fade: Some(true),
-            });
-            return Ok(());
-        }
         self.run()
     }
 
@@ -1178,8 +1161,9 @@ impl Session {
         }
         if let Some(Screen::DoukFlag(s)) = &mut self.screen {
             if s.dragging {
-                s.drag(y);
-                self.frame = None;
+                if s.drag(y) {
+                    self.frame = None;
+                }
                 return;
             }
         }
@@ -1343,8 +1327,7 @@ impl Session {
         {
             use crate::games::doukyuusei::flaglist::{ids, Page};
             if id == ids::TRACK && s.page == Page::Calendar && !s.notice {
-                s.dragging = true;
-                s.drag(y);
+                s.press_track(y);
             }
         }
         if let (Some(Screen::DoukConfig(s)), Some(Button::Screen(id))) =
@@ -2753,6 +2736,17 @@ impl Session {
             dialog_ids::DONT_ASK => {
                 if let Some(d) = &mut self.dialog {
                     d.dont_ask = !d.dont_ask;
+                    // 同級生 Remake writes the setting when the box is
+                    // ticked, whatever the answer.
+                    if self.rt.assets.game().title == silky_format::game::Title::Doukyuusei {
+                        let s = &mut self.rt.system.settings;
+                        if d.action == Action::FlagJump {
+                            s.confirm_event = !d.dont_ask;
+                        } else if let Some(c) = s.confirm.get_mut(d.action.question()) {
+                            *c = !d.dont_ask;
+                        }
+                        self.rt.system_changed = true;
+                    }
                 }
             }
             _ => {}
@@ -3747,6 +3741,13 @@ impl Session {
         if plate != self.ui.plate {
             self.ui.plate = plate;
             self.frame = None;
+        }
+        // The held track of the flag list steps on while the pointer
+        // stays off the thumb.
+        if let Some(Screen::DoukFlag(s)) = &mut self.screen {
+            if s.dragging && s.drag(self.ui.pointer.1) {
+                self.frame = None;
+            }
         }
         if let Some(DoukPanel::Name(n)) = &mut self.ui.panel {
             if n.tick(ms) {

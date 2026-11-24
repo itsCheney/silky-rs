@@ -191,6 +191,16 @@ const LAST_STORY_DAY: i32 = 830;
 /// The girl who has a conditional extra event, the byte that adds it and
 /// the byte that marks it done (its day and time are words 330 and 331).
 const EXTRA_GIRL: usize = 4;
+/// The order of her events between the second and the last.
+const KURUMI_ORDER: [&str; 7] = [
+    "kouens8.mes",
+    "myhous9.mes",
+    "yabuki8.mes",
+    "timtim.mes",
+    "okujyo4.mes",
+    "kouens7.mes",
+    "eiga6.mes",
+];
 const EXTRA_BYTE: u16 = 235;
 const EXTRA_DONE: u16 = 480;
 const EXTRA_DATE_WORD: u16 = 330;
@@ -329,11 +339,25 @@ pub fn records(girl: usize, env: &Env) -> Vec<Record> {
             done.insert(e + 1 + k, true);
         }
     }
+    if girl == EXTRA_GIRL {
+        // Her events done and waiting come in the original's fixed order,
+        // not in the order their bytes were found.
+        let at: Vec<usize> = (0..out.len())
+            .filter(|&i| KURUMI_ORDER.contains(&out[i].script))
+            .collect();
+        let mut moved: Vec<(Record, bool)> =
+            at.iter().map(|&i| (out[i].clone(), done[i])).collect();
+        moved.sort_by_key(|(r, _)| KURUMI_ORDER.iter().position(|&s| s == r.script));
+        for (&i, (r, d)) in at.iter().zip(moved) {
+            out[i] = r;
+            done[i] = d;
+        }
+    }
     if girl == EXTRA_GIRL && byte(EXTRA_BYTE) == 1 {
         let is_done = byte(EXTRA_DONE) == 1;
         let rec = extra_event(&out, is_done, word(EXTRA_DATE_WORD), word(EXTRA_TIME_WORD));
-        // Placed by its day, after the ones on the same day.
-        let at = out.iter().position(|r| r.d0 > rec.d0).unwrap_or(out.len());
+        // Placed right after her first event, whatever the days.
+        let at = out.len().min(1);
         out.insert(at, rec);
         done.insert(at, is_done);
     }
@@ -406,28 +430,17 @@ pub fn start_event(rec: &Record, vm: &mut Vm) {
     vm.set_var_b(JUMPED_AT, 1);
 }
 
-/// The record shown in the cell of `day`: one that starts that day, waiting
-/// before out of reach before done; among equals the one the jump goes
-/// to (the original lets that cell be clicked when two events share the
-/// day), else the later one.
+/// The record shown in the cell of `day`: of the events that start that
+/// day, the first not done (waiting or out of reach alike), else the last
+/// done.
 pub fn cell_record(records: &[Record], day: i32) -> Option<usize> {
-    // Under Wine a done event shows under the others of its day.
-    let rank = |s: u8| match s {
-        0 => 0,
-        2 => 1,
-        _ => 2,
-    };
     let mut best: Option<usize> = None;
-    for (i, r) in records
+    for (i, _) in records
         .iter()
         .enumerate()
         .filter(|(_, r)| r.d0 % 100 == day)
     {
-        let better = best.is_none_or(|b| {
-            let (new, old) = (rank(r.state), rank(records[b].state));
-            new < old || (new == old && !records[b].jump)
-        });
-        if better {
+        if best.is_none_or(|b| records[b].state == 1) {
             best = Some(i);
         }
     }
@@ -470,6 +483,8 @@ pub struct FlagScreen {
     pub notice: bool,
     /// The scroll thumb is held.
     pub dragging: bool,
+    /// Height of the pointer when the thumb last moved with it.
+    drag_from: i32,
     records: Vec<Vec<Record>>,
     /// The event a click asked to jump to.
     target: Option<Record>,
@@ -531,6 +546,7 @@ impl FlagScreen {
             week: 0,
             notice,
             dragging: false,
+            drag_from: 0,
             records: (0..GIRLS_COUNT).map(|g| records(g, env)).collect(),
             target: None,
             date: env.date,
@@ -744,10 +760,33 @@ impl FlagScreen {
         std::mem::replace(&mut self.scroll, to) != to
     }
 
-    /// The scroll thumb follows the pointer at height `y`.
-    pub fn drag(&mut self, y: i32) {
-        let centre = TRACK_AT.1 + THUMB.1 as i32 / 2;
-        self.scroll = ((y - centre + 5).div_euclid(10)).clamp(0, MAX_SCROLL as i32) as usize;
+    /// The track is pressed with the pointer at height `y`.
+    pub fn press_track(&mut self, y: i32) {
+        self.dragging = true;
+        self.drag_from = y;
+        self.drag(y);
+    }
+
+    /// One pass of the held track with the pointer at height `y`: above or
+    /// below the thumb it steps four rows; on the thumb it follows the
+    /// pointer by whole steps of ten pixels from where it last moved.
+    /// Whether the rows moved.
+    pub fn drag(&mut self, y: i32) -> bool {
+        let top = TRACK_AT.1 + 10 * self.scroll as i32;
+        let to = if y < top {
+            self.scroll as i32 - 4
+        } else if y > top + THUMB.1 as i32 {
+            self.scroll as i32 + 4
+        } else {
+            let delta = (y - self.drag_from) / 10;
+            if delta == 0 {
+                return false;
+            }
+            self.drag_from = y;
+            self.scroll as i32 + delta
+        };
+        let to = to.clamp(0, MAX_SCROLL as i32) as usize;
+        std::mem::replace(&mut self.scroll, to) != to
     }
 
     /// The line of `SYSTEM_<lang>.MAP` for the hint bar.
@@ -1014,10 +1053,7 @@ impl FlagScreen {
             1504
         };
         let y = 273 + 188 * row as i32;
-        let body = balloon_body(sheet);
-        canvas.draw(&body, x + BODY_AT.0, y + BODY_AT.1, false);
-        let tail_x = if col < 6 { 190 } else { 248 };
-        canvas.draw_part(sheet, TAIL, x + tail_x, y + TAIL_AT_Y, false, 255);
+        canvas.draw(&Arc::new(balloon(sheet, col == 6)), x, y, false);
         if let Some(font) = sys.font(assets) {
             for (i, line) in lines.iter().enumerate() {
                 font.draw_small(canvas, line, x + TEXT_AT.0, y + TEXT_AT.1 + 20 * i as i32);
@@ -1049,48 +1085,70 @@ impl FlagScreen {
     }
 }
 
-/// The balloon's body on the sheet (without the spikes' openings): the
-/// first 32 columns, the last 46 and a 16-column tile between, rows 473 to
-/// 567; its size on screen and where it sits in the 376 x 176 layer. The
-/// tail is the left half of the sheet's top spike.
-const BODY_ROWS: (u32, u32) = (473, 94);
-const BODY_LEFT: (u32, u32) = (1684, 32);
-const BODY_RIGHT: (u32, u32) = (2079, 46);
-const BODY_TILE: (u32, u32) = (1700, 16);
-const BODY_SIZE: (u32, u32) = (375, 93);
-const BODY_AT: (i32, i32) = (2, 41);
-const TAIL: (u32, u32, u32, u32) = (1788, 432, 80, 47);
-const TAIL_AT_Y: i32 = 1;
+/// The balloon's layer: three rows of the sheet (top, middle, bottom) cut
+/// into a left edge, four middle tiles and a right edge, then the spike
+/// over the top row: the one pointing left, or for the last column (whose
+/// balloon sits further left) the one pointing right.
+const BALLOON_SIZE: (u32, u32) = (376, 176);
+/// Each row: where it is on the sheet, its height, where it goes, and the
+/// sheet column of its middle tiles.
+const BALLOON_ROWS: [(u32, u32, u32, u32); 3] = [
+    (432, 58, 0, 1953),
+    (490, 55, 58, 1953),
+    (545, 63, 113, 1870),
+];
+const BALLOON_LEFT: u32 = 1682;
+const BALLOON_RIGHT: u32 = 2058;
+const BALLOON_EDGE: u32 = 22;
+const BALLOON_TILE: u32 = 83;
+const SPIKE: (u32, u32, u32, u32) = (1787, 432, 83, 58);
+const SPIKE_LAST_X: u32 = 1870;
+const SPIKE_AT: u32 = 188;
 const TEXT_AT: (i32, i32) = (28, 55);
 
-fn balloon_body(sheet: &Arc<Image>) -> Arc<Image> {
-    let (w, rows) = (BODY_SIZE.0, BODY_ROWS.1);
-    let mut rgba = vec![0u8; (w * rows * 4) as usize];
-    for x in 0..w {
-        let src = if x < BODY_LEFT.1 {
-            BODY_LEFT.0 + x
-        } else if x + BODY_RIGHT.1 >= w {
-            BODY_RIGHT.0 - (w - 1 - x)
-        } else {
-            BODY_TILE.0 + (x - BODY_LEFT.1) % BODY_TILE.1
-        };
-        for y in 0..rows {
-            let from = (((BODY_ROWS.0 + y) * sheet.width + src) * 4) as usize;
-            let to = ((y * w + x) * 4) as usize;
-            rgba[to..to + 4].copy_from_slice(&sheet.rgba[from..from + 4]);
+fn balloon(sheet: &Image, last: bool) -> Image {
+    let (w, h) = BALLOON_SIZE;
+    let mut rgba = vec![0u8; (w * h * 4) as usize];
+    let mut copy = |sx: u32, sy: u32, cw: u32, ch: u32, dx: u32, dy: u32| {
+        for j in 0..ch {
+            let from = (((sy + j) * sheet.width + sx) * 4) as usize;
+            let to = (((dy + j) * w + dx) * 4) as usize;
+            let n = (cw * 4) as usize;
+            if let (Some(src), Some(dst)) =
+                (sheet.rgba.get(from..from + n), rgba.get_mut(to..to + n))
+            {
+                dst.copy_from_slice(src);
+            }
         }
-    }
-    let tall = Image {
-        width: w,
-        height: rows,
-        rgba,
     };
-    Arc::new(super::window::resized(
-        &tall,
-        (0, 0, w, rows),
-        w,
-        BODY_SIZE.1,
-    ))
+    for (sy, rh, dy, tile) in BALLOON_ROWS {
+        copy(BALLOON_LEFT, sy, BALLOON_EDGE, rh, 0, dy);
+        for k in 0..4 {
+            copy(
+                tile,
+                sy,
+                BALLOON_TILE,
+                rh,
+                BALLOON_EDGE + k * BALLOON_TILE,
+                dy,
+            );
+        }
+        copy(BALLOON_RIGHT, sy, BALLOON_EDGE, rh, w - BALLOON_EDGE, dy);
+    }
+    let (sx, sy, sw, sh) = SPIKE;
+    copy(
+        if last { SPIKE_LAST_X } else { sx },
+        sy,
+        sw,
+        sh,
+        SPIKE_AT,
+        0,
+    );
+    Image {
+        width: w,
+        height: h,
+        rgba,
+    }
 }
 
 /// A label and its value; the Chinese tables' labels end in a colon and
@@ -1208,8 +1266,8 @@ mod tests {
         // Without the day word they stay where they are.
         let r = states(1, &[223], &[]);
         assert_eq!((r[1].d0, r[2].d0, r[3].d0), (814, 818, 826));
-        // Girl 4: bytes 250, 481, 483 and 484 mark four events done; the
-        // rest are those not done, as they are by day.
+        // Girl 4: bytes 250, 481, 483 and 484 mark four events done; all
+        // come in her fixed order.
         let w = [(574, 811), (576, 812), (582, 813), (586, 815)];
         let r = states(4, &[250, 481, 483, 484], &w);
         let list: Vec<(&str, u8, i32)> = r.iter().map(|r| (r.script, r.state, r.d0)).collect();
@@ -1218,11 +1276,11 @@ mod tests {
             [
                 ("timtim1.mes", 1, 811),
                 ("sakima4.mes", 1, 812),
-                ("myhous9.mes", 1, 813),
-                ("okujyo4.mes", 1, 815),
                 ("kouens8.mes", 0, 818),
+                ("myhous9.mes", 1, 813),
                 ("yabuki8.mes", 0, 819),
                 ("timtim.mes", 0, 819),
+                ("okujyo4.mes", 1, 815),
                 ("kouens7.mes", 0, 821),
                 ("eiga6.mes", 0, 822),
                 ("myhou11.mes", 0, 825),
@@ -1276,12 +1334,16 @@ mod tests {
         assert_eq!(cell_record(&r, 10), Some(0));
         assert_eq!(cell_record(&r, 12), Some(2));
         assert_eq!(cell_record(&r, 14), None);
-        // Satomi's two locked events on day 20.
+        // Satomi's two locked events on day 20: the first.
         let r = states(2, &[], &[]);
-        assert_eq!(cell_record(&r, 20), Some(4));
-        // A waiting event is shown rather than a locked one the same day.
+        assert_eq!(cell_record(&r, 20), Some(3));
+        // Four events on day 14, the last out of reach: the first.
         let r = states(3, &[], &[]);
-        assert_eq!(cell_record(&r, 14), Some(3));
+        assert_eq!(cell_record(&r, 14), Some(1));
+        // A done event gives way to a later one not done.
+        let mut r = r;
+        r[1].state = 1;
+        assert_eq!(cell_record(&r, 14), Some(2));
     }
 
     #[test]
@@ -1307,8 +1369,19 @@ mod tests {
         s.open_calendar(13);
         assert_eq!(s.scroll, 10);
         assert!(!s.wheel(false) && s.wheel(true) && s.scroll == 9);
-        s.drag(174 + 318 + 30);
+        // Below the thumb: four rows a pass.
+        s.scroll = 3;
+        s.press_track(174 + 30 + 636 + 50);
+        assert_eq!(s.scroll, 7);
+        assert!(s.drag(900) && s.scroll == 10);
+        // On the thumb: whole steps of ten pixels from where it moved.
+        s.scroll = 3;
+        s.press_track(300);
         assert_eq!(s.scroll, 3);
+        assert!(!s.drag(309));
+        assert!(s.drag(321) && s.scroll == 5);
+        assert!(!s.drag(325));
+        assert!(s.drag(305) && s.scroll == 4);
         // Girl 1 is in the second row; her first event (day 10) is the one
         // to jump to, and so is girl 0's on the same day.
         s.open_calendar(1);
@@ -1374,6 +1447,8 @@ mod tests {
             (e.d0, e.d1, e.t0, e.t1, e.place, e.state, e.f0),
             (817, 830, 1000, 1855, 282, 0, 8002)
         );
+        // Right after the first event, before one on the same day.
+        assert_eq!(r[1].script, "butick.mes");
         // After the first event is done late, it follows that day.
         bytes[250] = 1;
         w[574] = 820;
