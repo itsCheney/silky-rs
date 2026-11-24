@@ -3,6 +3,7 @@
 //! See `docs/games/apeiria.md`.
 
 pub mod anim;
+mod casablanca;
 pub mod characters;
 pub(crate) mod commands;
 pub mod effects;

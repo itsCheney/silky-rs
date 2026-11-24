@@ -106,6 +106,10 @@ pub enum Title {
     Kimaten2,
     /// 景の海のアペイリア.
     Apeiria,
+    /// 景の海のアペイリア ～カサブランカの騎士～, its fan disc. Its program
+    /// is built from the same code as Apeiria's, so it runs on Apeiria's
+    /// module with its own extras tables.
+    Casablanca,
     /// 同級生 Remake.
     Doukyuusei,
     /// なないろリンカネーション.
@@ -116,12 +120,19 @@ pub enum Title {
 }
 
 impl Title {
+    /// 景の海のアペイリア or its fan disc: the games that share Apeiria's
+    /// `Game` commands and screens.
+    pub fn is_apeiria(self) -> bool {
+        matches!(self, Title::Apeiria | Title::Casablanca)
+    }
+
     /// From the name of the program file in the folder, with that file.
     fn detect(root: &Path) -> (Self, Option<PathBuf>) {
         for (exe, title) in [
             ("kimaten2.exe", Title::Kimaten2),
             ("kimaten.exe", Title::Kimaten1),
             ("apeiria.exe", Title::Apeiria),
+            ("casablanca.exe", Title::Casablanca),
             ("fuyukuru.exe", Title::Fuyukuru),
             ("doukyuusei.exe", Title::Doukyuusei),
             ("nanairo.exe", Title::Nanairo),

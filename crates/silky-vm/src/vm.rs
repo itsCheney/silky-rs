@@ -187,6 +187,10 @@ pub struct Vm {
     stack: Vec<Value>,
     /// Stack depth at the last statement boundary (debug opcode).
     statement_base: usize,
+    /// Where the message text pushed since the last engine call starts on
+    /// the stack. Scripts built with debug lines put the text on the line
+    /// before the call that shows it; the text stays part of that call.
+    text_base: Option<usize>,
     pub bytes: Vec<u8>,
     pub words: Vec<u16>,
     /// Raw area, read as 8, 16 or 32 bit elements.
@@ -226,6 +230,7 @@ impl Vm {
             pc: 0,
             stack: Vec::new(),
             statement_base: 0,
+            text_base: None,
             bytes: Vec::new(),
             words: Vec::new(),
             raw: Vec::new(),
@@ -328,6 +333,7 @@ impl Vm {
     pub fn restart_at(&mut self, name: &str, script: Script) {
         self.stack.clear();
         self.statement_base = 0;
+        self.text_base = None;
         self.locals.clear();
         self.contexts.clear();
         self.line_break = false;
@@ -433,6 +439,7 @@ impl Vm {
         self.pc = snap.pc;
         self.stack = snap.stack;
         self.statement_base = snap.statement_base;
+        self.text_base = None;
         self.bytes = snap.bytes;
         self.words = snap.words;
         self.raw = snap.raw;
@@ -613,7 +620,12 @@ impl Vm {
                 let mark = format!("{RUBY_START}{ruby}{RUBY_END}");
                 match self.stack.last_mut() {
                     Some(Value::Str(top)) => top.push_str(&mark),
-                    _ => self.stack.push(Value::Str(mark)),
+                    _ => {
+                        if self.text_base.is_none() {
+                            self.text_base = Some(self.stack.len());
+                        }
+                        self.stack.push(Value::Str(mark));
+                    }
                 }
                 self.join = true;
             }
@@ -641,7 +653,12 @@ impl Vm {
                         top.push_str(&text);
                     }
                     (_, true, Some(Value::Str(top))) => top.push_str(&text),
-                    _ => self.stack.push(Value::Str(text)),
+                    _ => {
+                        if op == 0x0a && self.text_base.is_none() {
+                            self.text_base = Some(self.stack.len());
+                        }
+                        self.stack.push(Value::Str(text));
+                    }
                 }
                 self.line_break = false;
                 self.join = false;
@@ -707,6 +724,7 @@ impl Vm {
                 } else {
                     None
                 };
+                self.text_base = None;
                 let flow = host.native(self, class)?;
                 // A value left where the statement was is the call's result.
                 if let Some((i, base)) = traced {
@@ -794,16 +812,28 @@ impl Vm {
                     module.as_str().unwrap_or_default().to_string(),
                     line,
                 ));
-                self.statement_base = self.stack.len();
+                self.statement_base = self.statement_start();
             }
             0xff => {
                 self.source.line = self.pop_int()?;
                 self.source.call = None;
-                self.statement_base = self.stack.len();
+                self.statement_base = self.statement_start();
             }
             _ => return Err(Error::Unsupported(op)),
         }
         Ok(None)
+    }
+
+    /// Where a statement starts at a debug opcode: here, or at message text
+    /// still waiting for its engine call.
+    fn statement_start(&mut self) -> usize {
+        match self.text_base {
+            Some(b) if b < self.stack.len() => b,
+            _ => {
+                self.text_base = None;
+                self.stack.len()
+            }
+        }
     }
 
     /// `ret` / `fret`: back to the last saved context.
@@ -823,6 +853,7 @@ impl Vm {
         let top = self.stack.pop();
         self.stack.clear();
         self.statement_base = 0;
+        self.text_base = None;
         self.options.clear();
         match self.contexts.pop() {
             Some(ctx) => {

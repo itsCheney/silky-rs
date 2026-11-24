@@ -10,7 +10,7 @@
 
 use silky_format::area::Area;
 
-use super::omake::{self, ids, Omake};
+use super::omake::{self, ids, Omake, PageKeys};
 use crate::Extras;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,16 +53,21 @@ pub fn arrow(kind: Extras, o: &Omake, at: i32, key: Arrow, on: &dyn Fn(i32) -> b
         return grid(at, key, on).map_or(Move::Stay, |to| Move::To(from_view(to)));
     }
     let to = match kind {
-        Extras::Gallery => cg(at, key, on, 7, true),
-        Extras::Scenes => cg(at, key, on, 5, false),
+        Extras::Gallery => cg(at, key, on, &o.t.cg.keys, true),
+        Extras::Scenes => cg(at, key, on, &o.t.scene.keys, false),
         Extras::Music => return music(at, key),
     };
     to.map_or(Move::Stay, Move::To)
 }
 
-/// CG mode (pages 0..=7) and scene mode (0..=5): a grid of three columns
-/// and four rows, the pages and arrows to its right, the tabs to its left.
-fn cg(at: i32, key: Arrow, on: &dyn Fn(i32) -> bool, last_page: i32, gallery: bool) -> Option<i32> {
+/// CG mode and scene mode: a grid of three columns and up to four rows, the pages and arrows to its right, the tabs to its left.
+fn cg(
+    at: i32,
+    key: Arrow,
+    on: &dyn Fn(i32) -> bool,
+    keys: &PageKeys,
+    gallery: bool,
+) -> Option<i32> {
     if at == -1 {
         return Some(0);
     }
@@ -71,7 +76,8 @@ fn cg(at: i32, key: Arrow, on: &dyn Fn(i32) -> bool, last_page: i32, gallery: bo
     match key {
         Arrow::Up => match g {
             0 => (k > 2).then_some(k - 3),
-            1 => (k == 1).then_some(id(2, last_page)),
+            1 if k == 1 => keys.up_from_next.map(|p| id(2, p)),
+            1 => None,
             2 => Some(if k == 0 { 0x100 } else { id(2, k - 1) }),
             3 => Some(0xa02),
             10 if gallery => (k != 1).then_some(0xa01),
@@ -79,9 +85,13 @@ fn cg(at: i32, key: Arrow, on: &dyn Fn(i32) -> bool, last_page: i32, gallery: bo
             _ => None,
         },
         Arrow::Down => match g {
-            0 => (k < 12 && on(k + 3)).then_some(k + 3),
+            0 => (k < keys.down_cells && on(k + 3)).then_some(k + 3),
             1 => (k == 0).then_some(0x200),
-            2 => Some(if k == last_page { 0x101 } else { id(2, k + 1) }),
+            2 => Some(if k == keys.last_page {
+                0x101
+            } else {
+                id(2, k + 1)
+            }),
             10 => Some(if k == 2 { 0x300 } else { 0xa02 }),
             _ => None,
         },
@@ -196,7 +206,7 @@ pub fn to_view(id: i32) -> i32 {
 /// Middle of a button.
 pub fn centre(areas: &[Area], o: &Omake, id: i32) -> Option<(i32, i32)> {
     if let Some(v) = &o.view {
-        let (l, t, r, b) = omake::view_rect(v, id)?;
+        let (l, t, r, b) = omake::view_rect(o.t, v, id)?;
         return Some(((l + r) / 2, (t + b) / 2));
     }
     let a = areas.iter().find(|a| a.id == id)?;
@@ -218,6 +228,19 @@ mod tests {
         assert_eq!(k(5, Arrow::Right), Move::To(0x200));
         assert_eq!(k(0x207, Arrow::Down), Move::To(0x101));
         assert_eq!(k(0x101, Arrow::Up), Move::To(0x207));
+        // Casablanca has 3x3 cells and five pages; up from the next arrow
+        // goes nowhere there, in scene mode it goes to the last page.
+        let c = Omake::new(&omake::CASABLANCA);
+        let kc = |at, key| arrow(Extras::Gallery, &c, at, key, &all);
+        assert_eq!(kc(0x101, Arrow::Up), Move::Stay);
+        assert_eq!(kc(0x204, Arrow::Down), Move::To(0x101));
+        assert_eq!(kc(5, Arrow::Down), Move::To(8));
+        assert_eq!(kc(6, Arrow::Down), Move::Stay);
+        let sc = |at, key| arrow(Extras::Scenes, &c, at, key, &all);
+        assert_eq!(sc(0x101, Arrow::Up), Move::To(0x202));
+        assert_eq!(sc(0x202, Arrow::Down), Move::To(0x101));
+        assert_eq!(sc(2, Arrow::Down), Move::To(5));
+        assert_eq!(sc(3, Arrow::Down), Move::Stay);
         assert_eq!(k(0xa02, Arrow::Down), Move::To(0x300));
         let s = |at, key| arrow(Extras::Scenes, &o, at, key, &all);
         assert_eq!(s(0x205, Arrow::Down), Move::To(0x101));

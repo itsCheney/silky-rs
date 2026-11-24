@@ -98,6 +98,7 @@ impl Runtime {
                     face: None,
                     scale: size,
                     cheeks: None,
+                    alpha: 255,
                 };
                 scene.characters.insert(slot, character);
             }

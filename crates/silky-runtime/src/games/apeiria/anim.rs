@@ -325,6 +325,8 @@ pub struct Stage {
     painted: Vec<super::panels::Paint>,
     /// Random numbers for the effects that scatter things.
     pub rng: u32,
+    /// Casablanca's effects: they wipe in where Apeiria's fade.
+    pub casablanca: bool,
     /// Counts the changes, so that two stages compare equal while
     /// nothing changed.
     version: u64,

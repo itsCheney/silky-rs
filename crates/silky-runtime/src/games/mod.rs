@@ -132,7 +132,7 @@ impl Runtime {
                 return flow;
             }
         }
-        if title == Title::Apeiria {
+        if title.is_apeiria() {
             if let Some(flow) = self.apeiria_game(vm, &call) {
                 return flow;
             }
@@ -197,6 +197,9 @@ impl Runtime {
         }
         if command == cmd::CHARACTER && sub == 14 {
             self.character_time = self.character_time.max(c.int(2));
+        }
+        if command == cmd::CHARACTER && sub == 12 {
+            self.character_time = self.character_time.max(c.int(1));
         }
         let scene = &mut self.scene;
         match (command, sub, c.args.len()) {
@@ -309,8 +312,25 @@ impl Runtime {
                     scale: c.int(1),
                     offset: (0, 0),
                     cheeks: None,
+                    alpha: 255,
                 };
                 scene.characters.insert(c.int(3), character);
+            }
+            // (alpha, time, size, name, slot): a character put up at an
+            // opacity of 0 to 255.
+            (cmd::CHARACTER, 12, 5) => {
+                let Some(body) = c.str(3) else {
+                    return Some(Err(host_error("character load without a name")));
+                };
+                let character = Character {
+                    body,
+                    face: None,
+                    scale: c.int(2),
+                    offset: (0, 0),
+                    cheeks: None,
+                    alpha: c.int(0).clamp(0, 255),
+                };
+                scene.characters.insert(c.int(4), character);
             }
             // (x, y, time, size, name, slot): a character shifted from its
             // slot position.
@@ -324,6 +344,7 @@ impl Runtime {
                     scale: c.int(3),
                     offset: (c.int(0), c.int(1)),
                     cheeks: None,
+                    alpha: 255,
                 };
                 scene.characters.insert(c.int(5), character);
             }

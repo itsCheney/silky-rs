@@ -135,6 +135,14 @@ pub const BUILDS: &[Build] = &[
         sha256: "dba4857ac6adb02b453a73694737124725bd4c91a9a7ecd60816fa7266e6317e",
         profile: &ENGINE_2017,
     },
+    Build {
+        exe: "casablanca.exe",
+        version: "1.0.0.0",
+        linked: 1512917527, // 2017-12-10 14:52:07
+        size: 1559040,
+        sha256: "4865b23597087c03a4dd7017ced9e5c48e8d4479c923705cd41bd91b4246d716",
+        profile: &ENGINE_2017,
+    },
     // Package, as installed.
     Build {
         exe: "fuyukuru.exe",

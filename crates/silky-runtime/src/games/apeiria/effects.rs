@@ -667,6 +667,7 @@ mod slot {
 pub fn screen_effect(st: &mut Stage, sub: i32, ints: &[i32], strs: &[String]) {
     const O: u32 = SCREEN_EFFECT;
     let mut b = Build::new(st, O);
+    let casa = b.st.casablanca;
     match sub {
         // A red light pulses over the screen: up to half over 32 frames,
         // 12 frames held, down over 32, for ever.
@@ -726,18 +727,20 @@ pub fn screen_effect(st: &mut Stage, sub: i32, ints: &[i32], strs: &[String]) {
                 fading: None,
                 mixing: None,
             });
-            b.play(
-                vec![(white, vec![Key::new(64).show(true).fade(0, 255)])],
-                true,
-            );
+            // Casablanca wipes the white in through rule 8 and out through
+            // rule 26 where Apeiria fades it.
+            let (up, down) = (Key::new(64).show(true), Key::new(32).show(false));
+            let (up, down) = if casa {
+                (up.wiping(8, true), down.wiping(26, false))
+            } else {
+                (up.fade(0, 255), down.fade(255, 0))
+            };
+            b.play(vec![(white, vec![up])], true);
             let line = b.play(
                 vec![(sky, vec![Key::new(2).show(true).user(u), Key::jump(0)])],
                 false,
             );
-            b.play(
-                vec![(white, vec![Key::new(32).show(false).fade(255, 0)])],
-                true,
-            );
+            b.play(vec![(white, vec![down])], true);
             b.remove(&[white]);
             b.st.slots.insert((O, slot::COSMOS), sky);
             b.st.slots.insert((O, slot::COSMOS_STEP), u);
@@ -933,7 +936,8 @@ pub fn screen_effect(st: &mut Stage, sub: i32, ints: &[i32], strs: &[String]) {
             );
         }
         // A pale green light comes up over 12 frames and stays (15: the
-        // same light again).
+        // same light again; Casablanca wipes it in through rule 18, and
+        // the second time wipes it out).
         14 | 15 => {
             let s = match b.st.slots.get(&(O, slot::SPRITE)).copied() {
                 Some(s) if sub == 15 => s,
@@ -944,7 +948,13 @@ pub fn screen_effect(st: &mut Stage, sub: i32, ints: &[i32], strs: &[String]) {
                     s
                 }
             };
-            b.play(vec![(s, vec![Key::new(12).show(true).fade(0, 255)])], true);
+            let key = Key::new(12).show(true);
+            let key = match (casa, sub) {
+                (false, _) => key.fade(0, 255),
+                (true, 14) => key.wiping(18, true),
+                (true, _) => key.wiping(18, false),
+            };
+            b.play(vec![(s, vec![key])], true);
         }
         // A sky picture (attack_14_01, 1480 x 920 from (-100, -100))
         // fades in over 12 frames wavering 30 pixels row by row, until
@@ -984,20 +994,18 @@ pub fn screen_effect(st: &mut Stage, sub: i32, ints: &[i32], strs: &[String]) {
             }
             Some(s) => b.remove(&[s]),
         },
-        // A white flash: up over 128 frames, down over 128.
+        // A white flash: up over 128 frames (Casablanca wipes it in through
+        // rule 8), down over 128.
         20 => {
             let s = b.sprite(fill(0xffffffff), 5);
             b.adding(s);
-            b.play(
-                vec![(
-                    s,
-                    vec![
-                        Key::new(128).show(true).fade(0, 255),
-                        Key::new(128).fade(255, 0),
-                    ],
-                )],
-                true,
-            );
+            let up = Key::new(128).show(true);
+            let up = if casa {
+                up.wiping(8, true)
+            } else {
+                up.fade(0, 255)
+            };
+            b.play(vec![(s, vec![up, Key::new(128).fade(255, 0)])], true);
         }
         // Everything of this command goes.
         255 => {
@@ -1117,7 +1125,11 @@ pub fn spell(st: &mut Stage, sub: i32, ints: &[i32], strs: &[String]) -> Option<
         // painted so.
         4 => {
             let s = b.sprite(fill(0xff3b010c), 8);
-            b.play(vec![(s, vec![Key::new(128).show(true).fade(0, 255)])], true);
+            let mut key = Key::new(128).show(true).fade(0, 255);
+            if b.st.casablanca {
+                key = key.wiping(0, true);
+            }
+            b.play(vec![(s, vec![key])], true);
             b.st.to_background.push((s, Paint::Fill(0x3b010c)));
         }
         // (frames, colour), 10 (picture, frames): a light up over the
@@ -1193,6 +1205,15 @@ pub fn spell(st: &mut Stage, sub: i32, ints: &[i32], strs: &[String]) -> Option<
             let s0 = b.sprite(Look::picture("attack_14_04.akb"), 8);
             let s1 = b.sprite(Look::picture(a), 8);
             let s2 = b.sprite(Look::picture(c), 9);
+            // Casablanca wipes the two pictures in (rule 0, or 18 for the
+            // second pair); other values just put them up.
+            let casa = b.st.casablanca;
+            let wipe = |key: Key| match (casa, arg(0)) {
+                (false, _) => key.fade(0, 255),
+                (true, 0) => key.wiping(0, true),
+                (true, 1) => key.wiping(18, true),
+                (true, _) => key,
+            };
             b.play(
                 vec![
                     (
@@ -1203,8 +1224,8 @@ pub fn spell(st: &mut Stage, sub: i32, ints: &[i32], strs: &[String]) -> Option<
                             mid,
                         )],
                     ),
-                    (s1, vec![Key::new(32).wait(32).show(true).fade(0, 255)]),
-                    (s2, vec![Key::new(32).wait(64).show(true).fade(0, 255)]),
+                    (s1, vec![wipe(Key::new(32).wait(32).show(true))]),
+                    (s2, vec![wipe(Key::new(32).wait(64).show(true))]),
                 ],
                 true,
             );
@@ -1336,11 +1357,28 @@ fn build_attack(b: &mut Build, kind: i32, a: &[i32], kept: bool) -> Vec<(u32, Ve
     let arg = |k: usize| a.get(k).copied().unwrap_or(0);
     // Two fades in from nothing, one after the other (the executable
     // gives most attack pictures these two keyframes).
-    let twice = |frames: i32| {
+    let fades = |frames: i32| {
         vec![
             Key::new(frames).show(true).fade(0, 255),
             Key::new(frames).show(true).fade(0, 255),
         ]
+    };
+    // Casablanca wipes its pictures in and out where Apeiria fades them
+    // in: shown at the end of the first keyframe, hidden at the end of
+    // the second.
+    let casa = b.st.casablanca;
+    let wipes = |frames: i32, rule: u32| {
+        vec![
+            Key::new(frames).show(true).wiping(rule, true),
+            Key::new(frames).show(false).wiping(rule, false),
+        ]
+    };
+    let twice = |frames: i32| {
+        if casa {
+            wipes(frames, 0)
+        } else {
+            fades(frames)
+        }
     };
     let mid = (640.0, 360.0);
     match kind {
@@ -1416,25 +1454,40 @@ fn build_attack(b: &mut Build, kind: i32, a: &[i32], kept: bool) -> Vec<(u32, Ve
             b.adding(s);
             let keys = match k {
                 9 | 10 => vec![
-                    Key::new(6)
-                        .show(true)
-                        .fade(0, 255)
-                        .scaling((1.0, 1.0), (1.0, 1.0), mid),
+                    if casa {
+                        Key::new(6)
+                            .show(true)
+                            .wiping(0, true)
+                            .scaling((1.0, 1.0), (1.0, 1.0), mid)
+                    } else {
+                        Key::new(6)
+                            .show(true)
+                            .fade(0, 255)
+                            .scaling((1.0, 1.0), (1.0, 1.0), mid)
+                    },
                     Key::new(6)
                         .show(true)
                         .fade(255, 0)
                         .scaling((1.0, 1.0), (2.0, 2.0), mid),
                 ],
                 11 | 12 => vec![
-                    Key::new(4)
-                        .show(true)
-                        .fade(0, 255)
-                        .scaling((0.0, 0.0), (1.0, 1.0), mid),
+                    if casa {
+                        Key::new(4)
+                            .show(true)
+                            .wiping(0, true)
+                            .scaling((0.0, 0.0), (1.0, 1.0), mid)
+                    } else {
+                        Key::new(4)
+                            .show(true)
+                            .fade(0, 255)
+                            .scaling((0.0, 0.0), (1.0, 1.0), mid)
+                    },
                     Key::new(4)
                         .show(true)
                         .fade(255, 0)
                         .scaling((1.0, 1.0), (2.0, 2.0), mid),
                 ],
+                0 | 4 if casa => wipes(6, 1),
                 _ => twice(6),
             };
             vec![(s, keys)]
@@ -1461,7 +1514,11 @@ fn build_attack(b: &mut Build, kind: i32, a: &[i32], kept: bool) -> Vec<(u32, Ve
             vec![(
                 s,
                 vec![
-                    Key::new(6).show(true).fade(0, 255),
+                    if casa {
+                        Key::new(6).show(true).wiping(8, true)
+                    } else {
+                        Key::new(6).show(true).fade(0, 255)
+                    },
                     Key::new(6).show(true).fade(255, 0),
                 ],
             )]
@@ -1476,7 +1533,24 @@ fn build_attack(b: &mut Build, kind: i32, a: &[i32], kept: bool) -> Vec<(u32, Ve
                 _ => 0.0,
             };
             b.edit(s, |s| s.x = dx);
+            if casa {
+                let rule = if arg(0) == 1 { 0 } else { 18 };
+                return vec![(s, wipes(6, rule))];
+            }
             vec![(s, twice(6))]
+        }
+        // Casablanca: a pillar of fire drops in from above over 12 frames,
+        // then wipes out after 4 more.
+        18 if casa => {
+            let s = b.sprite(Look::picture("attack_17_00.akb"), 0);
+            b.adding(s);
+            vec![(
+                s,
+                vec![
+                    Key::new(12).show(true).moving((0, -1480), (0, 0)),
+                    Key::new(24).wait(4).show(false).wiping(0, false),
+                ],
+            )]
         }
         // A blessing flying to (x, y) over 64 frames (shrinking when the
         // third argument is not 0).
@@ -1668,16 +1742,27 @@ fn build_attack(b: &mut Build, kind: i32, a: &[i32], kept: bool) -> Vec<(u32, Ve
             ];
             let s = b.sprite(Look::picture(name[arg(0).clamp(0, 4) as usize]), 2);
             b.adding(s);
+            if casa {
+                return vec![(s, wipes(8, 18))];
+            }
             vec![(s, twice(8))]
         }
         // An event picture changing nine times, each over 48 frames. Each
         // is drawn into the background as it ends, so they stay when the
-        // attack is taken off.
+        // attack is taken off. Casablanca: 0 shows all ten pictures, 1 the
+        // first five, 2 the last five.
         14 => {
             let mut out = vec![];
-            let names = (1..10)
+            let all = (1..10)
                 .map(|k| format!("ev1701_h{k:02}.akb"))
                 .chain(std::iter::once("ev1701.akb".to_string()));
+            let (skip, count) = match arg(0) {
+                _ if !casa => (0, 10),
+                1 => (0, 5),
+                2 => (5, 5),
+                _ => (0, 10),
+            };
+            let names = all.skip(skip).take(count);
             for (k, name) in names.enumerate() {
                 let s = b.sprite(Look::picture(&name), 12 + k as i32);
                 let mut key = Key::new(48).show(true).fade(0, 255);
@@ -1688,7 +1773,8 @@ fn build_attack(b: &mut Build, kind: i32, a: &[i32], kept: bool) -> Vec<(u32, Ve
                 b.st.to_background.push((s, Paint::Picture(name)));
             }
             let holder = b.sprite(Look::Nothing, 0);
-            out.push((holder, vec![Key::new(624).show(true)]));
+            let hold = if count == 10 { 624 } else { 312 };
+            out.push((holder, vec![Key::new(hold).show(true)]));
             out
         }
         // A red light after 18 frames, up over 8 frames twice (looping
@@ -1701,6 +1787,10 @@ fn build_attack(b: &mut Build, kind: i32, a: &[i32], kept: bool) -> Vec<(u32, Ve
                 Key::new(8).show(true).fade(0, 255),
                 Key::new(8).show(true).fade(0, 255),
             ];
+            if casa {
+                keys.truncate(1);
+                keys.extend(wipes(8, 18));
+            }
             if kept {
                 keys.push(Key::jump(0));
             }
@@ -1782,7 +1872,7 @@ impl Drawn {
             color[3] = ((color[3] as u32 * alpha as u32 + 127) / 255) as u8;
             let corners = corners(s, part.2 as f32, part.3 as f32);
             match s.wipe {
-                Some((rule, t, _)) => {
+                Some((rule, t, shown)) => {
                     let from = canvas.clone();
                     canvas.draw_sprite(image.as_ref(), part, corners, color, s.add);
                     let rule = self
@@ -1792,7 +1882,13 @@ impl Drawn {
                             assets.data(&format!("{rule:02}.bin")).ok().map(Arc::new)
                         })
                         .clone();
-                    *canvas = Canvas::blend_shared(&from, canvas, t, rule);
+                    // Wiping out takes the sprite away in the order a
+                    // wipe in would show it.
+                    *canvas = if shown {
+                        Canvas::blend_shared(&from, canvas, t, rule)
+                    } else {
+                        Canvas::blend_shared(canvas, &from, t, rule)
+                    };
                 }
                 None => canvas.draw_sprite(image.as_ref(), part, corners, color, s.add),
             }
@@ -2065,5 +2161,96 @@ mod paint_tests {
         attack(&mut st, 4, &[]);
         st.settle();
         assert!(st.take_painted().is_empty());
+    }
+
+    #[test]
+    fn casablanca_kind_fourteen_takes_its_half() {
+        let mut st = Stage::default();
+        st.casablanca = true;
+        attack(&mut st, 1, &[1, 14, 2]);
+        attack(&mut st, 2, &[1]);
+        st.advance(1000 * TICK_MS);
+        let all = st.take_painted();
+        assert_eq!(all.len(), 5);
+        assert_eq!(all[0], Paint::Picture("ev1701_h06.akb".into()));
+        assert_eq!(all[4], Paint::Picture("ev1701.akb".into()));
+    }
+
+    #[test]
+    fn casablanca_pillar_of_fire_drops_in_and_wipes_out() {
+        let mut st = Stage::default();
+        st.casablanca = true;
+        attack(&mut st, 1, &[1, 18]);
+        attack(&mut st, 2, &[1]);
+        st.advance(6 * TICK_MS);
+        let s = &st.sprites[0];
+        assert!(s.y < 0.0 && s.shown);
+        st.advance(20 * TICK_MS);
+        assert!(st.sprites[0].wipe.is_some());
+        st.advance(100 * TICK_MS);
+        assert!(!st.sprites[0].shown);
+    }
+
+    #[test]
+    fn only_casablanca_wipes_a_slash() {
+        let mut st = Stage::default();
+        attack(&mut st, 1, &[1, 1, 0]);
+        assert!(st.sets[&(ATTACK, 1)][0].1[0].flags & super::super::anim::flag::WIPE == 0);
+        let mut st = Stage::default();
+        st.casablanca = true;
+        attack(&mut st, 1, &[1, 1, 0]);
+        assert!(st.sets[&(ATTACK, 1)][0].1[0].flags & super::super::anim::flag::WIPE != 0);
+    }
+
+    fn wipes_now(st: &Stage) -> Vec<(u32, bool)> {
+        st.sprites
+            .iter()
+            .filter_map(|s| s.wipe.map(|(rule, _, shown)| (rule, shown)))
+            .collect()
+    }
+
+    #[test]
+    fn casablanca_screen_effects_wipe_where_apeiria_fades() {
+        // The green light: in through rule 18, out through it the second
+        // time.
+        let mut st = Stage::default();
+        st.casablanca = true;
+        screen_effect(&mut st, 14, &[], &[]);
+        st.advance(6 * TICK_MS);
+        assert_eq!(wipes_now(&st), vec![(18, true)]);
+        st.advance(20 * TICK_MS);
+        assert!(wipes_now(&st).is_empty() && st.sprites[0].shown);
+        screen_effect(&mut st, 15, &[], &[]);
+        st.advance(6 * TICK_MS);
+        assert_eq!(wipes_now(&st), vec![(18, false)]);
+        st.advance(20 * TICK_MS);
+        assert!(!st.sprites[0].shown);
+
+        let mut st = Stage::default();
+        screen_effect(&mut st, 14, &[], &[]);
+        st.advance(6 * TICK_MS);
+        assert!(wipes_now(&st).is_empty());
+
+        // The white flash wipes in through rule 8, then fades out.
+        let mut st = Stage::default();
+        st.casablanca = true;
+        screen_effect(&mut st, 20, &[], &[]);
+        st.advance(10 * TICK_MS);
+        assert_eq!(wipes_now(&st), vec![(8, true)]);
+        st.advance(200 * TICK_MS);
+        assert!(wipes_now(&st).is_empty());
+
+        // The white of the starry sky: in through rule 8, out through 26.
+        let mut st = Stage::default();
+        st.casablanca = true;
+        screen_effect(&mut st, 1, &[], &[]);
+        st.advance(10 * TICK_MS);
+        assert_eq!(wipes_now(&st), vec![(8, true)]);
+        st.advance(70 * TICK_MS);
+        assert_eq!(wipes_now(&st), vec![(26, false)]);
+        let mut st = Stage::default();
+        screen_effect(&mut st, 1, &[], &[]);
+        st.advance(10 * TICK_MS);
+        assert!(wipes_now(&st).is_empty());
     }
 }

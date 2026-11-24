@@ -701,7 +701,7 @@ impl Screens {
             kimaten2: assets.game().title == silky_format::game::Title::Kimaten2,
             stars: assets.game().title == silky_format::game::Title::Fuyukuru,
             douk,
-            apeiria: assets.game().title == silky_format::game::Title::Apeiria,
+            apeiria: assets.game().title.is_apeiria(),
             help: HelpLines::load(assets, "saveloadhelp"),
         }
     }

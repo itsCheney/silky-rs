@@ -1,5 +1,5 @@
-//! The extras of 景の海のアペイリア (CG, scene and music modes, `Game.30`
-//! to `Game.32`), read from its executable. They use the area files
+//! The extras of 景の海のアペイリア and of its fan disc (CG, scene and
+//! music modes, `Game.30` to `Game.32`), read from their executables. They use the area files
 //! `cgmode.area`, `scmode.area` and `soundmode.area`, one sheet for each
 //! mode, and keep what was seen in the byte variables from 3000 (kept
 //! across games):
@@ -12,6 +12,9 @@
 //! - Music: bytes 3050..=3090 (one each per track, the last two swapped),
 //!   set by the scripts; 3004 opens the mode.
 //!
+//! What differs between the two games (cells, pages, tables) is in
+//! [`Tables`]; [`APEIRIA`] and [`CASABLANCA`] hold it.
+//!
 //! CG entries open a grid of their pictures over the dimmed page; a seen
 //! picture there shows over the whole screen, and clicks walk on through
 //! every seen picture to the last, then back to the grid. Scene cells play
@@ -19,9 +22,11 @@
 
 use silky_format::akb::Image;
 use silky_format::area::Area;
+use silky_format::game::Title;
 use silky_vm::Vm;
 use std::sync::Arc;
 
+use super::casablanca;
 use crate::assets::Assets;
 use crate::render::Canvas;
 use crate::ui::{Button, Ui};
@@ -35,22 +40,123 @@ pub const CG_CHANGED: usize = 3001;
 pub const SCENE_ANY: usize = 3003;
 pub const MUSIC_ANY: usize = 3004;
 pub const SCENE_FIRST: usize = 3101;
-pub const SCENES: usize = 66;
 pub const MUSIC_FIRST: usize = 3050;
-pub const TRACKS: usize = 41;
 
-/// Cells per page, three by four.
-const CELLS: usize = 12;
-pub const CG_PAGES: usize = 8;
-pub const SCENE_PAGES: usize = 6;
-const CELL: (i32, i32, i32, i32) = (315, 18, 280, 170);
+/// Cells of the grid of a CG entry, three rows of four.
+const GRID_CELLS: usize = 12;
 const CARD: (u32, u32) = (276, 158);
 const THUMB: (u32, u32) = (270, 152);
 /// Music rows shown at once, and the last first row.
 const ROWS: usize = 8;
-pub const MAX_SCROLL: usize = TRACKS - ROWS;
 /// Black over the page under a CG entry's grid.
 const VIEW_DIM: [u8; 4] = [0, 0, 0, 204];
+
+/// Keys of a page of cells: what the arrow keys reach.
+#[derive(Debug, Clone, Copy)]
+pub struct PageKeys {
+    /// Cells before this one may go down to the cell below.
+    pub down_cells: i32,
+    /// Last page button.
+    pub last_page: i32,
+    /// Page button that up from the next arrow goes to, if any.
+    pub up_from_next: Option<i32>,
+}
+
+/// Where a page of cells is and its page arrows and buttons.
+#[derive(Debug, Clone, Copy)]
+pub struct PageLayout {
+    pub cells: usize,
+    pub pages: usize,
+    /// First cell: x, y, and the steps between cells.
+    pub cell: (i32, i32, i32, i32),
+    /// Previous arrow y, next arrow y and y of the first page button.
+    pub arrows: (i32, i32, i32),
+    pub keys: PageKeys,
+}
+
+/// Everything that differs between the games: the layout of the pages and
+/// the tables of pictures, scenes and tracks.
+#[derive(Debug)]
+pub struct Tables {
+    pub cg: PageLayout,
+    pub scene: PageLayout,
+    pub cg_entries: &'static [(usize, usize, &'static str)],
+    pub cg_images: &'static [&'static [&'static str]],
+    /// Seen bit of each row of `cg_images`; none when it is the row.
+    pub cg_bits: Option<&'static [u16]>,
+    /// Backgrounds with these names (lower case) are kept by the tracker.
+    pub cg_prefixes: &'static [&'static str],
+    pub scenes: usize,
+    pub scene_frames: &'static [u8],
+    pub tracks: usize,
+    pub track_files: &'static [&'static str],
+    /// Byte variable of each track.
+    pub track_bytes: &'static [usize],
+    pub extras_music: &'static str,
+    /// The scroll bar maps its height to this many tenths of a row.
+    pub scroll_tenths: usize,
+}
+
+impl Tables {
+    pub fn max_scroll(&self) -> usize {
+        self.tracks - ROWS
+    }
+
+    /// The seen bit of row `row` of the CG pictures.
+    pub fn cg_bit(&self, row: usize) -> usize {
+        self.cg_bits.map_or(row, |b| b[row] as usize)
+    }
+
+    pub fn row_seen(&self, bytes: &[u8], row: usize) -> bool {
+        cg_seen(bytes, self.cg_bit(row))
+    }
+}
+
+pub static APEIRIA: Tables = Tables {
+    cg: PageLayout {
+        cells: 12,
+        pages: 8,
+        cell: (315, 18, 280, 170),
+        arrows: (66, 527, 117),
+        keys: PageKeys {
+            down_cells: 12,
+            last_page: 7,
+            up_from_next: Some(7),
+        },
+    },
+    scene: PageLayout {
+        cells: 12,
+        pages: 6,
+        cell: (315, 18, 280, 170),
+        arrows: (66, 429, 117),
+        keys: PageKeys {
+            down_cells: 12,
+            last_page: 5,
+            up_from_next: Some(5),
+        },
+    },
+    cg_entries: &CG_ENTRIES,
+    cg_images: &CG_IMAGES,
+    cg_bits: None,
+    cg_prefixes: &["ev"],
+    scenes: 66,
+    scene_frames: &SCENE_FRAMES,
+    tracks: 41,
+    track_files: &TRACK_FILES,
+    track_bytes: &TRACK_BYTES,
+    extras_music: "ape_27.ogg",
+    scroll_tenths: 330,
+};
+
+pub static CASABLANCA: Tables = casablanca::TABLES;
+
+/// The tables of a game's extras.
+pub fn tables(title: Title) -> &'static Tables {
+    match title {
+        Title::Casablanca => &CASABLANCA,
+        _ => &APEIRIA,
+    }
+}
 
 /// Ids of the area files, as in [`crate::menus::extras_ids`].
 pub mod ids {
@@ -82,13 +188,32 @@ pub struct View {
 }
 
 /// The screens as the session keeps them.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Omake {
+    pub t: &'static Tables,
     pub view: Option<View>,
     pub dragging_volume: bool,
     pub dragging_scroll: bool,
     /// Scene under the pointer and the clock when it got there.
     pub preview: Option<(usize, u64)>,
+}
+
+impl Default for Omake {
+    fn default() -> Self {
+        Self::new(&APEIRIA)
+    }
+}
+
+impl Omake {
+    pub fn new(t: &'static Tables) -> Self {
+        Self {
+            t,
+            view: None,
+            dragging_volume: false,
+            dragging_scroll: false,
+            preview: None,
+        }
+    }
 }
 
 /// Byte variables as the VM holds them.
@@ -100,21 +225,27 @@ pub fn cg_seen(bytes: &[u8], picture: usize) -> bool {
     byte(bytes, CG_SEEN + picture / 8) & (1 << (picture % 8)) != 0
 }
 
-pub fn scene_seen(bytes: &[u8], scene: usize) -> bool {
-    scene < SCENES && byte(bytes, SCENE_FIRST + scene) != 0
+pub fn scene_seen(t: &Tables, bytes: &[u8], scene: usize) -> bool {
+    scene < t.scenes && byte(bytes, SCENE_FIRST + scene) != 0
 }
 
-/// Byte of a track; the last two are swapped.
-fn track_byte(track: usize) -> usize {
-    match track {
-        39 => MUSIC_FIRST + 40,
-        40 => MUSIC_FIRST + 39,
-        t => MUSIC_FIRST + t,
+/// Bytes of the tracks: in order, the last two swapped.
+const fn apeiria_track_bytes() -> [usize; 41] {
+    let mut a = [0; 41];
+    let mut t = 0;
+    while t < 41 {
+        a[t] = MUSIC_FIRST + t;
+        t += 1;
     }
+    a[39] = MUSIC_FIRST + 40;
+    a[40] = MUSIC_FIRST + 39;
+    a
 }
 
-pub fn track_heard(bytes: &[u8], track: usize) -> bool {
-    track < TRACKS && byte(bytes, track_byte(track)) == 1
+const TRACK_BYTES: [usize; 41] = apeiria_track_bytes();
+
+pub fn track_heard(t: &Tables, bytes: &[u8], track: usize) -> bool {
+    track < t.tracks && byte(bytes, t.track_bytes[track]) == 1
 }
 
 /// Whether the button of a mode opens it.
@@ -127,31 +258,41 @@ pub fn mode_open(bytes: &[u8], kind: Extras) -> bool {
     byte(bytes, at) != 0
 }
 
-/// Pictures of a CG entry, as indices of [`CG_IMAGES`].
-fn entry_pictures(entry: usize) -> std::ops::Range<usize> {
-    let (first, count, _) = CG_ENTRIES[entry];
+/// Pictures of a CG entry, as rows of the pictures table.
+fn entry_pictures(t: &Tables, entry: usize) -> std::ops::Range<usize> {
+    let (first, count, _) = t.cg_entries[entry];
     first..first + count
 }
 
 /// First picture of an entry that was seen, by its place in the entry.
-fn first_seen(bytes: &[u8], entry: usize) -> Option<usize> {
-    entry_pictures(entry).position(|p| cg_seen(bytes, p))
+fn first_seen(t: &Tables, bytes: &[u8], entry: usize) -> Option<usize> {
+    entry_pictures(t, entry).position(|p| t.row_seen(bytes, p))
 }
 
-/// The seen picture after (entry, picture), through the later entries.
-pub fn next_seen(bytes: &[u8], entry: usize, picture: usize) -> Option<(usize, usize)> {
-    let at = CG_ENTRIES[entry].0 + picture + 1;
-    let p = (at..CG_IMAGES.len()).find(|&p| cg_seen(bytes, p))?;
-    let e = CG_ENTRIES.iter().rposition(|&(first, _, _)| first <= p)?;
-    Some((e, p - CG_ENTRIES[e].0))
+/// The seen picture after (entry, picture), through the later entries in
+/// table order.
+pub fn next_seen(t: &Tables, bytes: &[u8], entry: usize, picture: usize) -> Option<(usize, usize)> {
+    (entry..t.cg_entries.len()).find_map(|e| {
+        let from = if e == entry { picture + 1 } else { 0 };
+        let rows = entry_pictures(t, e);
+        let k = (from..rows.len()).find(|&k| t.row_seen(bytes, rows.start + k))?;
+        Some((e, k))
+    })
 }
 
 /// The seen picture before (entry, picture), through the earlier entries.
-pub fn previous_seen(bytes: &[u8], entry: usize, picture: usize) -> Option<(usize, usize)> {
-    let at = CG_ENTRIES[entry].0 + picture;
-    let p = (0..at).rev().find(|&p| cg_seen(bytes, p))?;
-    let e = CG_ENTRIES.iter().rposition(|&(first, _, _)| first <= p)?;
-    Some((e, p - CG_ENTRIES[e].0))
+pub fn previous_seen(
+    t: &Tables,
+    bytes: &[u8],
+    entry: usize,
+    picture: usize,
+) -> Option<(usize, usize)> {
+    (0..=entry).rev().find_map(|e| {
+        let rows = entry_pictures(t, e);
+        let to = if e == entry { picture } else { rows.len() };
+        let k = (0..to).rev().find(|&k| t.row_seen(bytes, rows.start + k))?;
+        Some((e, k))
+    })
 }
 
 /// Completion in per cent, at least 1 once anything was seen.
@@ -162,29 +303,30 @@ fn percent(seen: usize, total: usize) -> u32 {
     }
 }
 
-fn cg_percent(bytes: &[u8]) -> u32 {
-    let n = CG_IMAGES.len();
-    percent((0..n).filter(|&p| cg_seen(bytes, p)).count(), n)
+fn cg_percent(t: &Tables, bytes: &[u8]) -> u32 {
+    let n = t.cg_images.len();
+    percent((0..n).filter(|&p| t.row_seen(bytes, p)).count(), n)
 }
 
-fn scene_percent(bytes: &[u8]) -> u32 {
+fn scene_percent(t: &Tables, bytes: &[u8]) -> u32 {
     percent(
-        (0..SCENES).filter(|&s| scene_seen(bytes, s)).count(),
-        SCENES,
+        (0..t.scenes).filter(|&s| scene_seen(t, bytes, s)).count(),
+        t.scenes,
     )
 }
 
-fn music_percent(bytes: &[u8]) -> u32 {
+fn music_percent(t: &Tables, bytes: &[u8]) -> u32 {
     percent(
-        (0..TRACKS).filter(|&t| track_heard(bytes, t)).count(),
-        TRACKS,
+        (0..t.tracks).filter(|&k| track_heard(t, bytes, k)).count(),
+        t.tracks,
     )
 }
 
 /// What `Game.12` has shown, matched against [`CG_IMAGES`] whenever it is
-/// put on screen. Only backgrounds named `ev...` count.
-#[derive(Debug, Clone, Default)]
+/// put on screen. Only backgrounds with the game's names count.
+#[derive(Debug, Clone)]
 pub struct CgTrack {
+    t: &'static Tables,
     background: String,
     layers: [String; 7],
 }
@@ -194,11 +336,25 @@ fn norm(name: &str) -> String {
     s.strip_suffix(".akb").map(str::to_string).unwrap_or(s)
 }
 
+impl Default for CgTrack {
+    fn default() -> Self {
+        Self::new(&APEIRIA)
+    }
+}
+
 impl CgTrack {
+    pub fn new(t: &'static Tables) -> Self {
+        Self {
+            t,
+            background: String::new(),
+            layers: Default::default(),
+        }
+    }
+
     /// A new background; its layers go.
     pub fn set_background(&mut self, name: &str) {
         let n = norm(name);
-        self.background = if n.starts_with("ev") {
+        self.background = if self.t.cg_prefixes.iter().any(|p| n.starts_with(p)) {
             n
         } else {
             String::new()
@@ -230,18 +386,18 @@ impl CgTrack {
         if self.layers.iter().skip(layers.len()).any(|l| !l.is_empty()) {
             return;
         }
-        let Some(i) = CG_IMAGES.iter().position(|row| {
+        let Some(i) = self.t.cg_images.iter().position(|row| {
             row[0] == self.background
                 && row.len() == layers.len() + 1
                 && row[1..].iter().zip(&layers).all(|(a, b)| a == b)
         }) else {
             return;
         };
-        mark(vm, i);
+        mark(vm, self.t.cg_bit(i));
     }
 }
 
-/// Sets the seen bit of picture `i`.
+/// Sets the seen bit `i`.
 pub fn mark(vm: &mut Vm, i: usize) {
     let at = CG_SEEN + i / 8;
     vm.set_var_b(at, vm.var_b(at) | 1 << (i % 8));
@@ -250,18 +406,18 @@ pub fn mark(vm: &mut Vm, i: usize) {
 }
 
 /// Cell `i` of a page on screen.
-fn cell(i: usize) -> (i32, i32) {
-    let (x, y, dx, dy) = CELL;
+fn cell(l: &PageLayout, i: usize) -> (i32, i32) {
+    let (x, y, dx, dy) = l.cell;
     (x + dx * (i % 3) as i32, y + dy * (i / 3) as i32)
 }
 
 /// Pictures of an entry's grid page.
-fn view_count(v: &View) -> usize {
-    (CG_ENTRIES[v.entry].1 - v.page * CELLS).min(CELLS)
+fn view_count(t: &Tables, v: &View) -> usize {
+    (t.cg_entries[v.entry].1 - v.page * GRID_CELLS).min(GRID_CELLS)
 }
 
-pub fn view_pages(entry: usize) -> usize {
-    CG_ENTRIES[entry].1.div_ceil(CELLS)
+pub fn view_pages(t: &Tables, entry: usize) -> usize {
+    t.cg_entries[entry].1.div_ceil(GRID_CELLS)
 }
 
 /// Grid of an entry: where cell `i` of `n` goes.
@@ -282,13 +438,13 @@ const VIEW_NEXT_AT: (i32, i32, i32, i32) = (716, 647, 746, 703);
 const VIEW_BACK_AT: (i32, i32, i32, i32) = (1055, 640, 1270, 713);
 
 /// Place of a button on a CG entry's grid (left, top, right, bottom).
-pub fn view_rect(v: &View, id: i32) -> Option<(i32, i32, i32, i32)> {
+pub fn view_rect(t: &Tables, v: &View, id: i32) -> Option<(i32, i32, i32, i32)> {
     match id {
         ids::VIEW_PREVIOUS => Some(VIEW_PREVIOUS_AT),
         ids::VIEW_NEXT => Some(VIEW_NEXT_AT),
         ids::VIEW_BACK => Some(VIEW_BACK_AT),
-        i if (ids::VIEW_CELL..ids::VIEW_CELL + CELLS as i32).contains(&i) => {
-            let n = view_count(v);
+        i if (ids::VIEW_CELL..ids::VIEW_CELL + GRID_CELLS as i32).contains(&i) => {
+            let n = view_count(t, v);
             let i = (i - ids::VIEW_CELL) as usize;
             let (x, y) = view_cell(i, n);
             (i < n).then_some((x, y, x + CARD.0 as i32, y + CARD.1 as i32))
@@ -298,8 +454,8 @@ pub fn view_rect(v: &View, id: i32) -> Option<(i32, i32, i32, i32)> {
 }
 
 /// Whether cell `i` of the grid of `v` holds a seen picture.
-pub fn view_on(v: &View, bytes: &[u8], i: usize) -> bool {
-    i < view_count(v) && cg_seen(bytes, CG_ENTRIES[v.entry].0 + v.page * CELLS + i)
+pub fn view_on(t: &Tables, v: &View, bytes: &[u8], i: usize) -> bool {
+    i < view_count(t, v) && t.row_seen(bytes, t.cg_entries[v.entry].0 + v.page * GRID_CELLS + i)
 }
 
 fn inside(r: (i32, i32, i32, i32), x: i32, y: i32) -> bool {
@@ -307,20 +463,20 @@ fn inside(r: (i32, i32, i32, i32), x: i32, y: i32) -> bool {
 }
 
 /// The item behind cell or row `i`: CG entry, scene, track.
-pub fn item(kind: Extras, page: usize, scroll: usize, i: usize) -> Option<usize> {
-    let (k, n) = match kind {
-        Extras::Gallery => (page * CELLS + i, CG_ENTRIES.len()),
-        Extras::Scenes => (page * CELLS + i, SCENES),
-        Extras::Music => (scroll + i, TRACKS),
+pub fn item(t: &Tables, kind: Extras, page: usize, scroll: usize, i: usize) -> Option<usize> {
+    let (k, n, cells) = match kind {
+        Extras::Gallery => (page * t.cg.cells + i, t.cg_entries.len(), t.cg.cells),
+        Extras::Scenes => (page * t.scene.cells + i, t.scenes, t.scene.cells),
+        Extras::Music => (scroll + i, t.tracks, ROWS),
     };
-    (i < if kind == Extras::Music { ROWS } else { CELLS } && k < n).then_some(k)
+    (i < cells && k < n).then_some(k)
 }
 
-pub fn open(kind: Extras, bytes: &[u8], item: usize) -> bool {
+pub fn open(t: &Tables, kind: Extras, bytes: &[u8], item: usize) -> bool {
     match kind {
-        Extras::Gallery => first_seen(bytes, item).is_some(),
-        Extras::Scenes => scene_seen(bytes, item),
-        Extras::Music => track_heard(bytes, item),
+        Extras::Gallery => first_seen(t, bytes, item).is_some(),
+        Extras::Scenes => scene_seen(t, bytes, item),
+        Extras::Music => track_heard(t, bytes, item),
     }
 }
 
@@ -336,19 +492,22 @@ pub fn hit(
     x: i32,
     y: i32,
 ) -> Option<Button> {
+    let t = o.t;
     if let Some(v) = &o.view {
         if v.picture.is_some() {
             return Some(Button::Screen(ids::PICTURE));
         }
-        let n = view_count(v);
+        let n = view_count(t, v);
         if let Some(i) = (0..n).find(|&i| {
             let (cx, cy) = view_cell(i, n);
             x >= cx && x < cx + CARD.0 as i32 && y >= cy && y < cy + CARD.1 as i32
         }) {
-            let p = CG_ENTRIES[v.entry].0 + v.page * CELLS + i;
-            return cg_seen(bytes, p).then_some(Button::Screen(ids::VIEW_CELL + i as i32));
+            let p = t.cg_entries[v.entry].0 + v.page * GRID_CELLS + i;
+            return t
+                .row_seen(bytes, p)
+                .then_some(Button::Screen(ids::VIEW_CELL + i as i32));
         }
-        let pages = view_pages(v.entry);
+        let pages = view_pages(t, v.entry);
         let id = if pages > 1 && inside(VIEW_PREVIOUS_AT, x, y) {
             ids::VIEW_PREVIOUS
         } else if pages > 1 && inside(VIEW_NEXT_AT, x, y) {
@@ -363,8 +522,8 @@ pub fn hit(
     let a = areas.iter().find(|a| a.contains(x, y))?;
     let id = a.id;
     if (0..0x100).contains(&id) {
-        let it = item(kind, page, scroll, id as usize)?;
-        if !open(kind, bytes, it) {
+        let it = item(t, kind, page, scroll, id as usize)?;
+        if !open(t, kind, bytes, it) {
             return None;
         }
     }
@@ -409,7 +568,7 @@ pub fn draw(canvas: &mut Canvas, assets: &mut Assets, ui: &Ui, d: &Draw) -> Resu
         ..
     }) = d.omake.view
     {
-        return draw_picture(canvas, assets, CG_ENTRIES[entry].0 + p);
+        return draw_picture(canvas, assets, d.omake.t, d.omake.t.cg_entries[entry].0 + p);
     }
     let (bg, sheet) = match d.kind {
         Extras::Gallery => ("cgmode_bg.akb", "cgmode_p.akb"),
@@ -424,7 +583,7 @@ pub fn draw(canvas: &mut Canvas, assets: &mut Assets, ui: &Ui, d: &Draw) -> Resu
         Extras::Music => draw_music(canvas, assets, &sheet, ui, d)?,
     }
     if let Some(v) = &d.omake.view {
-        draw_view(canvas, assets, &sheet, ui, v, d.bytes)?;
+        draw_view(canvas, assets, &sheet, ui, d.omake.t, v, d.bytes)?;
     }
     Ok(())
 }
@@ -466,9 +625,9 @@ fn draw_frame(canvas: &mut Canvas, sheet: &Arc<Image>, ui: &Ui, d: &Draw) {
         (215, 73),
     );
     for (x, value) in [
-        (55, cg_percent(d.bytes)),
-        (157, scene_percent(d.bytes)),
-        (265, music_percent(d.bytes)),
+        (55, cg_percent(d.omake.t, d.bytes)),
+        (157, scene_percent(d.omake.t, d.bytes)),
+        (265, music_percent(d.omake.t, d.bytes)),
     ] {
         draw_percent(canvas, sheet, digits, x, value);
     }
@@ -517,21 +676,21 @@ fn draw_cell_state(canvas: &mut Canvas, sheet: &Arc<Image>, ui: &Ui, id: i32, at
     part(canvas, sheet, (659, y), at, CARD);
 }
 
-/// Page arrows and page buttons on the right (`next_y` differs).
-fn draw_pages(
-    canvas: &mut Canvas,
-    sheet: &Arc<Image>,
-    ui: &Ui,
-    page: usize,
-    pages: usize,
-    next_y: i32,
-) {
+/// Page arrows and page buttons on the right.
+fn draw_pages(canvas: &mut Canvas, sheet: &Arc<Image>, ui: &Ui, page: usize, l: &PageLayout) {
+    let (pages, (prev_y, next_y, first_y)) = (l.pages, l.arrows);
     let prev = if page == 0 {
         3
     } else {
         st(ui, ids::PREVIOUS, true)
     };
-    part(canvas, sheet, (1445, 97 + 30 * prev), (1185, 66), (56, 30));
+    part(
+        canvas,
+        sheet,
+        (1445, 97 + 30 * prev),
+        (1185, prev_y),
+        (56, 30),
+    );
     let next = if page + 1 == pages {
         3
     } else {
@@ -551,7 +710,7 @@ fn draw_pages(
             canvas,
             sheet,
             (935 + 51 * p as u32, y),
-            (1187, 117 + 49 * p as i32),
+            (1187, first_y + 49 * p as i32),
             (51, 46),
         );
     }
@@ -565,13 +724,14 @@ fn draw_cg(
     d: &Draw,
 ) -> Result<()> {
     draw_frame(canvas, sheet, ui, d);
+    let t = d.omake.t;
     let thumbs = assets.image(&format!("cgmode_thm{:02}.akb", d.page)).ok();
-    for i in 0..CELLS {
-        let Some(entry) = item(Extras::Gallery, d.page, 0, i) else {
+    for i in 0..t.cg.cells {
+        let Some(entry) = item(t, Extras::Gallery, d.page, 0, i) else {
             continue;
         };
-        let (x, y) = cell(i);
-        let Some(first) = first_seen(d.bytes, entry) else {
+        let (x, y) = cell(&t.cg, i);
+        let Some(first) = first_seen(t, d.bytes, entry) else {
             part(canvas, sheet, (659, 474), (x, y), CARD);
             continue;
         };
@@ -582,16 +742,16 @@ fn draw_cg(
                 let src = ((i % 3) as u32 * tw, (i / 3) as u32 * th);
                 part(canvas, t, src, (x + 3, y + 3), THUMB);
             }
-        } else if let Ok(t) = assets.image(&format!("{}.akb", CG_ENTRIES[entry].2)) {
+        } else if let Ok(t) = assets.image(&format!("{}.akb", t.cg_entries[entry].2)) {
             // The engine takes this cell of the strip three a row,
             // though the strips hold four a row.
             let src = ((first % 3) as u32 * tw, (first / 3) as u32 * th);
             part(canvas, &t, src, (x + 3, y + 3), THUMB);
         }
-        let count = CG_ENTRIES[entry].1;
+        let count = t.cg_entries[entry].1;
         if count != 1 {
-            let seen = entry_pictures(entry)
-                .filter(|&p| cg_seen(d.bytes, p))
+            let seen = entry_pictures(t, entry)
+                .filter(|&p| t.row_seen(d.bytes, p))
                 .count();
             number(canvas, sheet, seen, x + 153, x + 176, y + 116);
             part(canvas, sheet, (1195, 201), (x + 199, y + 116), (26, 36));
@@ -601,7 +761,7 @@ fn draw_cg(
             draw_cell_state(canvas, sheet, ui, i as i32, (x, y));
         }
     }
-    draw_pages(canvas, sheet, ui, d.page, CG_PAGES, 527);
+    draw_pages(canvas, sheet, ui, d.page, &t.cg);
     Ok(())
 }
 
@@ -613,25 +773,32 @@ fn draw_scenes(
     d: &Draw,
 ) -> Result<()> {
     draw_frame(canvas, sheet, ui, d);
+    let t = d.omake.t;
     let thumbs = assets.image("scene_thumb.akb").ok();
-    for i in 0..CELLS {
-        let Some(scene) = item(Extras::Scenes, d.page, 0, i) else {
+    for i in 0..t.scene.cells {
+        let Some(scene) = item(t, Extras::Scenes, d.page, 0, i) else {
             continue;
         };
-        let (x, y) = cell(i);
-        if !scene_seen(d.bytes, scene) {
+        let (x, y) = cell(&t.scene, i);
+        if !scene_seen(t, d.bytes, scene) {
             part(canvas, sheet, (659, 474), (x, y), CARD);
             continue;
         }
         part(canvas, sheet, (659, 0), (x, y), CARD);
         let (tw, th) = THUMB;
         match d.omake.preview.filter(|p| p.0 == scene) {
-            Some((_, since)) => {
-                draw_preview(canvas, assets, scene, d.clock.saturating_sub(since), (x, y))?
-            }
+            Some((_, since)) => draw_preview(
+                t,
+                canvas,
+                assets,
+                scene,
+                d.clock.saturating_sub(since),
+                (x, y),
+            )?,
             None => {
                 if let Some(t) = &thumbs {
-                    let row = (i / 3 + d.page * 4) as u32;
+                    // Three scenes a row of the sheet.
+                    let row = (scene / 3) as u32;
                     part(
                         canvas,
                         t,
@@ -644,7 +811,7 @@ fn draw_scenes(
         }
         draw_cell_state(canvas, sheet, ui, i as i32, (x, y));
     }
-    draw_pages(canvas, sheet, ui, d.page, SCENE_PAGES, 429);
+    draw_pages(canvas, sheet, ui, d.page, &t.scene);
     Ok(())
 }
 
@@ -652,6 +819,7 @@ fn draw_scenes(
 /// `scene_thumbNN` holds a second, then fades into the next over a
 /// second; the first fade starts half a second in.
 fn draw_preview(
+    t: &Tables,
     canvas: &mut Canvas,
     assets: &mut Assets,
     scene: usize,
@@ -659,7 +827,7 @@ fn draw_preview(
     at: (i32, i32),
 ) -> Result<()> {
     let strip = assets.image(&format!("scene_thumb{scene:02}.akb"))?;
-    let n = SCENE_FRAMES[scene].max(1) as u64;
+    let n = t.scene_frames[scene].max(1) as u64;
     let t = ms + 500;
     let (k, r) = (t / 2000, t % 2000);
     let cur = (k % n) as u32;
@@ -675,8 +843,8 @@ fn draw_preview(
 }
 
 /// Whether the slide show of `scene` is running (it needs redrawing).
-pub fn animates(scene: usize) -> bool {
-    SCENE_FRAMES.get(scene).is_some_and(|&n| n > 1)
+pub fn animates(t: &Tables, scene: usize) -> bool {
+    t.scene_frames.get(scene).is_some_and(|&n| n > 1)
 }
 
 /// Music volume bar: the bar, its filled part and the knob.
@@ -690,14 +858,14 @@ pub fn volume_at(x: i32) -> f32 {
 }
 
 /// Music scroll for a pointer at `y` over the scroll bar.
-pub fn scroll_at(y: i32) -> usize {
+pub fn scroll_at(t: &Tables, y: i32) -> usize {
     let y = (y - 114).clamp(0, 462) as usize;
-    (y * 330 / 462 + 5) / 10
+    (y * t.scroll_tenths / 462 + 5) / 10
 }
 
 /// Top of the scroll thumb for a scroll.
-fn thumb_top(scroll: usize) -> i32 {
-    66 + (scroll as i32 * 462) / MAX_SCROLL as i32
+fn thumb_top(t: &Tables, scroll: usize) -> i32 {
+    66 + (scroll as i32 * 462) / t.max_scroll() as i32
 }
 
 fn draw_music(
@@ -710,11 +878,12 @@ fn draw_music(
     draw_frame(canvas, sheet, ui, d);
     part(canvas, sheet, (1280, 0), (1183, 63), (55, 565));
     let list = assets.image("music_title.akb")?;
+    let tb = d.omake.t;
     for i in 0..ROWS {
-        let Some(t) = item(Extras::Music, 0, d.scroll, i) else {
+        let Some(t) = item(tb, Extras::Music, 0, d.scroll, i) else {
             continue;
         };
-        let row = if !track_heard(d.bytes, t) {
+        let row = if !track_heard(tb, d.bytes, t) {
             3
         } else if d.playing == Some(t) {
             2
@@ -736,7 +905,7 @@ fn draw_music(
         st(ui, ids::PREVIOUS, true)
     };
     part(canvas, sheet, (659, 97 + 30 * up), (1183, 31), (56, 30));
-    let down = if d.scroll == MAX_SCROLL {
+    let down = if d.scroll == tb.max_scroll() {
         3
     } else {
         st(ui, ids::NEXT, true)
@@ -751,7 +920,7 @@ fn draw_music(
         canvas,
         sheet,
         (659 + 47 * thumb, 0),
-        (1187, thumb_top(d.scroll)),
+        (1187, thumb_top(tb, d.scroll)),
         (47, 97),
     );
     part(canvas, sheet, (800, 0), VOLUME_BAR, (480, 28));
@@ -786,19 +955,20 @@ fn draw_view(
     assets: &mut Assets,
     sheet: &Arc<Image>,
     ui: &Ui,
+    t: &Tables,
     v: &View,
     bytes: &[u8],
 ) -> Result<()> {
     canvas.fill(0, 0, 1280, 720, VIEW_DIM);
     part(canvas, sheet, (0, 632), (0, 630), (1280, 90));
-    let (first, _, name) = CG_ENTRIES[v.entry];
+    let (first, _, name) = t.cg_entries[v.entry];
     let strip = assets.image(&format!("{name}.akb")).ok();
-    let n = view_count(v);
+    let n = view_count(t, v);
     let (tw, th) = THUMB;
     for i in 0..n {
-        let k = v.page * CELLS + i;
+        let k = v.page * GRID_CELLS + i;
         let (x, y) = view_cell(i, n);
-        if !cg_seen(bytes, first + k) {
+        if !t.row_seen(bytes, first + k) {
             part(canvas, sheet, (659, 474), (x, y), CARD);
             continue;
         }
@@ -809,7 +979,7 @@ fn draw_view(
         }
         draw_cell_state(canvas, sheet, ui, ids::VIEW_CELL + i as i32, (x, y));
     }
-    let pages = view_pages(v.entry);
+    let pages = view_pages(t, v.entry);
     if pages > 1 {
         let prev = if v.page == 0 {
             3
@@ -839,9 +1009,14 @@ fn draw_view(
 
 /// A CG picture over the whole screen: the background, then its layers
 /// with pure green as transparency.
-fn draw_picture(canvas: &mut Canvas, assets: &mut Assets, picture: usize) -> Result<()> {
+fn draw_picture(
+    canvas: &mut Canvas,
+    assets: &mut Assets,
+    t: &Tables,
+    picture: usize,
+) -> Result<()> {
     canvas.fill(0, 0, 1280, 720, [0, 0, 0, 255]);
-    for (k, layer) in CG_IMAGES[picture].iter().enumerate() {
+    for (k, layer) in t.cg_images[picture].iter().enumerate() {
         let img = assets.image(&format!("{layer}.akb"))?;
         canvas.draw(&img, 0, 0, k > 0);
     }
@@ -849,7 +1024,7 @@ fn draw_picture(canvas: &mut Canvas, assets: &mut Assets, picture: usize) -> Res
 }
 
 /// Music room tracks, from the executable.
-pub const TRACK_FILES: [&str; TRACKS] = [
+const TRACK_FILES: [&str; 41] = [
     "ape_01.ogg",
     "ape_01_02.ogg",
     "ape_02.ogg",
@@ -893,11 +1068,8 @@ pub const TRACK_FILES: [&str; TRACKS] = [
     "shinjirareruyo_short_44-16.ogg",
 ];
 
-/// Music while the CG and scene modes are open and nothing else plays.
-pub const EXTRAS_MUSIC: &str = "ape_27.ogg";
-
 /// Pictures in each scene's `scene_thumbNN` strip, from the executable.
-const SCENE_FRAMES: [u8; SCENES] = [
+const SCENE_FRAMES: [u8; 66] = [
     3, 1, 3, 3, 3, 3, 1, 3, 3, 3, 3, 3, 3, 3, 1, 1, 2, 3, 3, 3, 3, 3, 3, 3, 1, 3, 1, 3, 3, 3, 3, 3,
     3, 3, 1, 2, 2, 3, 2, 3, 3, 1, 3, 3, 3, 1, 1, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1, 3, 1, 2, 2, 3, 3,
     3, 1,
@@ -909,12 +1081,33 @@ mod tests {
 
     #[test]
     fn tables_line_up() {
+        // Apeiria's entries run in row order.
         let mut next = 0;
         for &(first, count, _) in &CG_ENTRIES {
             assert_eq!(first, next);
             next += count;
         }
         assert_eq!(next, CG_IMAGES.len());
+        for t in [&APEIRIA, &CASABLANCA] {
+            // Every row is in exactly one entry, and has one seen bit.
+            let mut rows = vec![0; t.cg_images.len()];
+            for &(first, count, _) in t.cg_entries {
+                for r in first..first + count {
+                    rows[r] += 1;
+                }
+            }
+            assert!(rows.iter().all(|&n| n == 1));
+            let mut bits: Vec<_> = (0..rows.len()).map(|r| t.cg_bit(r)).collect();
+            bits.sort_unstable();
+            bits.dedup();
+            assert_eq!(bits.len(), rows.len());
+            assert_eq!(t.scene_frames.len(), t.scenes);
+            assert_eq!(t.track_files.len(), t.tracks);
+            assert_eq!(t.track_bytes.len(), t.tracks);
+            let pages = |l: &PageLayout, n: usize| n.div_ceil(l.cells) == l.pages;
+            assert!(pages(&t.cg, t.cg_entries.len()));
+            assert!(pages(&t.scene, t.scenes));
+        }
     }
 
     #[test]
@@ -922,11 +1115,27 @@ mod tests {
         let mut bytes = vec![0u8; 3400];
         bytes[CG_SEEN] = 0b101;
         bytes[CG_SEEN + 1] = 1 << 4;
-        assert_eq!(next_seen(&bytes, 0, 0), Some((0, 2)));
+        let t = &APEIRIA;
+        assert_eq!(next_seen(t, &bytes, 0, 0), Some((0, 2)));
         // Picture 12 is the second of the third entry.
-        assert_eq!(next_seen(&bytes, 0, 2), Some((2, 1)));
-        assert_eq!(next_seen(&bytes, 2, 1), None);
-        assert_eq!(previous_seen(&bytes, 2, 1), Some((0, 2)));
+        assert_eq!(next_seen(t, &bytes, 0, 2), Some((2, 1)));
+        assert_eq!(next_seen(t, &bytes, 2, 1), None);
+        assert_eq!(previous_seen(t, &bytes, 2, 1), Some((0, 2)));
+    }
+
+    #[test]
+    fn walking_in_table_order() {
+        // Casablanca: the single pictures of entries 0 and 1 (rows 225,
+        // 226, bits 223, 224) come before the group that starts at row 0.
+        let t = &CASABLANCA;
+        let mut bytes = vec![0u8; 3400];
+        for bit in [223, 224, 0] {
+            bytes[CG_SEEN + bit / 8] |= 1 << (bit % 8);
+        }
+        assert_eq!(next_seen(t, &bytes, 0, 0), Some((1, 0)));
+        assert_eq!(next_seen(t, &bytes, 1, 0), Some((18, 0)));
+        assert_eq!(previous_seen(t, &bytes, 18, 0), Some((1, 0)));
+        assert_eq!(next_seen(t, &bytes, 18, 0), None);
     }
 
     #[test]
@@ -940,8 +1149,21 @@ mod tests {
     fn last_tracks_swap() {
         let mut bytes = vec![0u8; 3100];
         bytes[MUSIC_FIRST + 40] = 1;
-        assert!(track_heard(&bytes, 39));
-        assert!(!track_heard(&bytes, 40));
+        assert!(track_heard(&APEIRIA, &bytes, 39));
+        assert!(!track_heard(&APEIRIA, &bytes, 40));
+        // Casablanca's tracks are not swapped.
+        bytes[3093] = 1;
+        assert!(track_heard(&CASABLANCA, &bytes, 31));
+    }
+
+    #[test]
+    fn casablanca_seen_bits() {
+        let t = &CASABLANCA;
+        assert_eq!(t.cg_bit(22), 22);
+        assert_eq!(t.cg_bit(23), 241);
+        assert_eq!(t.cg_bit(28), 242);
+        assert_eq!(t.cg_bit(29), 27);
+        assert_eq!(t.cg_bit(242), 240);
     }
 }
 

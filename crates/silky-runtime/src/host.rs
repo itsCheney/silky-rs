@@ -364,7 +364,8 @@ pub(crate) fn host_error(msg: impl Into<String>) -> silky_vm::Error {
 impl Runtime {
     pub fn new(assets: Assets, config: Config) -> Self {
         let audio = config.audio.clone();
-        let system = crate::system::SystemData::for_title(assets.game().title);
+        let title = assets.game().title;
+        let system = crate::system::SystemData::for_title(title);
         Self {
             assets,
             scene: Scene::default(),
@@ -409,7 +410,9 @@ impl Runtime {
             quake_mode: 0,
             queued_music: BTreeMap::new(),
             auto_save: false,
-            cg_track: Default::default(),
+            cg_track: crate::games::apeiria::omake::CgTrack::new(
+                crate::games::apeiria::omake::tables(title),
+            ),
             xml: HashMap::new(),
         }
     }
@@ -1367,7 +1370,7 @@ impl Host for Runtime {
                     }
                 }
                 if class == SAVE
-                    && matches!(title, Title::Fuyukuru | Title::Apeiria | Title::Kimaten1)
+                    && (matches!(title, Title::Fuyukuru | Title::Kimaten1) || title.is_apeiria())
                 {
                     if let Some(r) = self.scene.store.call(sub, &args) {
                         if let Some(v) = r {
@@ -1379,7 +1382,9 @@ impl Host for Runtime {
                 }
                 let no_op = match title {
                     Title::Fuyukuru => crate::games::fuyukuru::commands::nothing_to_do(class, sub),
-                    Title::Apeiria => crate::games::apeiria::commands::nothing_to_do(class, sub),
+                    Title::Apeiria | Title::Casablanca => {
+                        crate::games::apeiria::commands::nothing_to_do(class, sub)
+                    }
                     Title::Kimaten1 => crate::games::kimaten1::commands::nothing_to_do(class, sub),
                     // Select.0(-1): the engine readies the layers its
                     // selection bars are drawn on.

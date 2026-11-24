@@ -77,6 +77,7 @@ impl Step {
                         scale,
                         offset,
                         cheeks,
+                        alpha: 255,
                     },
                 );
             }

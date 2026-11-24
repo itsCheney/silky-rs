@@ -19,6 +19,13 @@ pub struct Character {
     /// cheeks, command 13 sub 6).
     #[serde(default)]
     pub cheeks: Option<String>,
+    /// Opacity, 0 to 255 (command 13, sub 12 gives one).
+    #[serde(default = "opaque")]
+    pub alpha: i32,
+}
+
+fn opaque() -> i32 {
+    255
 }
 
 /// 同級生 Remake: a picture object of `Game.13`.

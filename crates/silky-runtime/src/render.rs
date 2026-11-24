@@ -140,7 +140,7 @@ impl TextLayout {
             // pixels (Font.0(28, 28) sets 28-pixel cells) from x = 152
             // (the full-width space that starts most lines ends at 180),
             // lines 41 apart. The line length is not measured yet.
-            Title::Apeiria => Self {
+            Title::Apeiria | Title::Casablanca => Self {
                 left: 152.0,
                 baseline: 601.0,
                 width: 26.0 * 28.3,
@@ -718,6 +718,12 @@ impl Renderer {
                 let sheet = assets.image(CONCLUSIONS_SHEET)?;
                 let (w, h) = CONCLUSION_CELL;
                 for (k, &v) in cells.iter().enumerate() {
+                    // Casablanca counts its cells from 1.
+                    let v = if self.title == silky_format::game::Title::Casablanca {
+                        v.saturating_sub(1)
+                    } else {
+                        v
+                    };
                     let part = (v as u32 / 100 * w, v as u32 % 100 * h, w, h);
                     let (x, y) = CONCLUSIONS_AT;
                     canvas.draw_part(&sheet, part, x, y + k as i32 * h as i32, false, 255);
@@ -792,9 +798,23 @@ impl Renderer {
         for (slot, c) in chars {
             let img =
                 self.character_with(assets, &c.body, c.face.as_deref(), c.cheeks.as_deref())?;
+            // A character put up at a lower opacity.
+            let img = if c.alpha < 255 {
+                let mut rgba = img.rgba.clone();
+                for px in rgba.chunks_exact_mut(4) {
+                    px[3] = (px[3] as i32 * c.alpha / 255) as u8;
+                }
+                Arc::new(Image {
+                    width: img.width,
+                    height: img.height,
+                    rgba,
+                })
+            } else {
+                img
+            };
             let s = c.scale as f32 / 100.0;
             let jolt = scene.jolts.get(slot).copied().unwrap_or_default();
-            let (dx, top) = if self.title == Title::Apeiria {
+            let (dx, top) = if self.title.is_apeiria() {
                 crate::games::apeiria::characters::place(*slot, &c.body, s)
             } else {
                 (slot_layout(*slot).0, 300.0 - 700.0 * s)
@@ -804,7 +824,7 @@ impl Renderer {
             let y = top + (c.offset.1 + jolt.1) as f32;
             canvas.draw_scaled(&img, x, y, s);
         }
-        if self.title == Title::Apeiria {
+        if self.title.is_apeiria() {
             self.draw_panels(&mut canvas, &scene.panels, assets)?;
         }
         Ok(canvas)
@@ -1304,7 +1324,7 @@ impl Renderer {
             let parts = assets.image("message_p.akb")?;
             let (color, opacity) = self.window;
             let alpha = (opacity.clamp(0.0, 1.0) * 255.0) as u8;
-            if self.title == Title::Apeiria {
+            if self.title.is_apeiria() {
                 // The band's alpha masks the window colour; the texture
                 // goes over it at the same opacity.
                 let top = APEIRIA_WINDOW_TOP;
@@ -1335,15 +1355,12 @@ impl Renderer {
                 canvas.draw_part(&parts, WINDOW_BAND, 0, WINDOW_TOP, false, alpha);
                 canvas.draw_part(&parts, WINDOW_TEXTURE, 0, WINDOW_TOP, false, 255);
             }
-            if color != [0.0; 3] && self.title != Title::Apeiria {
+            if color != [0.0; 3] && !self.title.is_apeiria() {
                 let rgb = color.map(|c| (c.clamp(0.0, 1.0) * 255.0) as u8);
                 let (_, _, w, h) = WINDOW_BAND;
                 canvas.fill(0, WINDOW_TOP, w, h, [rgb[0], rgb[1], rgb[2], alpha / 2]);
             }
-            let portrait = scene
-                .portrait
-                .as_ref()
-                .filter(|_| self.title != Title::Apeiria);
+            let portrait = scene.portrait.as_ref().filter(|_| !self.title.is_apeiria());
             if let (true, Some((body, face))) = (scene.portrait_visible, portrait) {
                 let img = self.character(assets, body, face.as_deref())?;
                 let (x, y) = PORTRAIT_POS;

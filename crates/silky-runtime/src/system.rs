@@ -165,7 +165,7 @@ impl Settings {
     /// transparent (`/Config/MesWnd/Alpha` reads 40 when not set).
     pub fn for_title(title: silky_format::game::Title) -> Self {
         let mut s = Self::default();
-        if title == silky_format::game::Title::Apeiria {
+        if title.is_apeiria() {
             s.window_color = [0.0, 0.25, 0.46];
             s.window_opacity = 0.7;
         } else if title == silky_format::game::Title::Doukyuusei {

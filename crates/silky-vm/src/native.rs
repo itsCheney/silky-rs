@@ -73,7 +73,9 @@ pub fn returns_value(title: Title, engine: &Engine, class: i32, sub: i32) -> boo
             Title::Unknown => matches!(sub, 20 | 30 | 31 | 32 | 110 | 223),
             // 景の海のアペイリア: provisional, from how its scripts use the
             // results.
-            Title::Apeiria => matches!(sub, 30..=32 | 110 | 960 | 990 | 1009 | 1016),
+            Title::Apeiria | Title::Casablanca => {
+                matches!(sub, 30..=32 | 110 | 960 | 990 | 1009 | 1016)
+            }
             // 同級生 Remake: the handlers that push onto the script stack
             // (17 only with its sub 1, the plain area selection; its
             // panel answers it).

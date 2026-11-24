@@ -822,7 +822,11 @@ impl Session {
                         self.ui.skip = false;
                         self.ui.auto = false;
                         self.ui.hover = None;
-                        self.screen = Some(Screen::Extras(ExtrasScreen::new(kind)));
+                        let mut screen = ExtrasScreen::new(kind);
+                        screen.ap = crate::games::apeiria::omake::Omake::new(
+                            crate::games::apeiria::omake::tables(self.rt.assets.game().title),
+                        );
+                        self.screen = Some(Screen::Extras(screen));
                         self.state = State::Extras;
                         if self.menus.is_apeiria() {
                             self.veil = Some(Veil {
@@ -1402,7 +1406,7 @@ impl Session {
                 // while held (as under Wine).
                 if id == ids::PREVIOUS || id == ids::NEXT {
                     let d = if id == ids::NEXT { 1 } else { -1 };
-                    let max = crate::games::apeiria::omake::MAX_SCROLL as isize;
+                    let max = e.ap.t.max_scroll() as isize;
                     e.scroll = (e.scroll as isize + d).clamp(0, max) as usize;
                     self.ui.pressed = None;
                     return;
@@ -1572,7 +1576,7 @@ impl Session {
                     // The next seen picture, through the later entries;
                     // after the last, the grid of the entry shown.
                     use crate::games::apeiria::omake;
-                    match omake::next_seen(&self.vm.bytes, v.entry, p) {
+                    match omake::next_seen(e.ap.t, &self.vm.bytes, v.entry, p) {
                         Some((entry, p)) => {
                             v.entry = entry;
                             v.picture = Some(p);
@@ -1853,7 +1857,7 @@ impl Session {
     /// (variable H 69, set by the scene list) and its text waits, so a
     /// secondary click, Escape or Delete asks about going back to the list.
     fn replaying(&self) -> bool {
-        self.rt.assets.game().title == silky_format::game::Title::Apeiria
+        self.rt.assets.game().title.is_apeiria()
             && self.state == State::Text
             && self.dialog.is_none()
             && self.screen.is_none()
@@ -2187,9 +2191,9 @@ impl Session {
         let on = |i: i32| {
             i >= 0
                 && match &e.ap.view {
-                    Some(v) => omake::view_on(v, bytes, i as usize),
-                    None => omake::item(e.kind, e.page, e.scroll, i as usize)
-                        .is_some_and(|it| omake::open(e.kind, bytes, it)),
+                    Some(v) => omake::view_on(e.ap.t, v, bytes, i as usize),
+                    None => omake::item(e.ap.t, e.kind, e.page, e.scroll, i as usize)
+                        .is_some_and(|it| omake::open(e.ap.t, e.kind, bytes, it)),
                 }
         };
         match keys::arrow(e.kind, &e.ap, at, key, &on) {
@@ -2255,13 +2259,14 @@ impl Session {
             }
             Some(Screen::Extras(e)) if self.menus.is_apeiria() => {
                 use crate::games::apeiria::omake;
+                let t = e.ap.t;
                 match (&mut e.ap.view, e.kind) {
                     (Some(v), _) => match v.picture {
                         Some(p) => {
                             let to = if up {
-                                omake::previous_seen(&self.vm.bytes, v.entry, p)
+                                omake::previous_seen(t, &self.vm.bytes, v.entry, p)
                             } else {
-                                omake::next_seen(&self.vm.bytes, v.entry, p)
+                                omake::next_seen(t, &self.vm.bytes, v.entry, p)
                             };
                             if let Some((entry, p)) = to {
                                 v.entry = entry;
@@ -2269,19 +2274,19 @@ impl Session {
                             }
                         }
                         None => {
-                            let max = omake::view_pages(v.entry) as isize - 1;
+                            let max = omake::view_pages(t, v.entry) as isize - 1;
                             v.page = (v.page as isize + d).clamp(0, max) as usize;
                         }
                     },
                     (None, Extras::Music) => {
                         e.scroll =
-                            (e.scroll as isize + d).clamp(0, omake::MAX_SCROLL as isize) as usize;
+                            (e.scroll as isize + d).clamp(0, t.max_scroll() as isize) as usize;
                     }
                     (None, kind) => {
                         let pages = if kind == Extras::Gallery {
-                            omake::CG_PAGES
+                            t.cg.pages
                         } else {
-                            omake::SCENE_PAGES
+                            t.scene.pages
                         };
                         e.page = (e.page as isize + d).clamp(0, pages as isize - 1) as usize;
                         e.ap.preview = None;
@@ -3547,12 +3552,13 @@ impl Session {
             return Ok(());
         };
         self.frame = None;
+        let t = s.ap.t;
         if let Some(v) = &mut s.ap.view {
             match id {
                 VIEW_PREVIOUS => v.page = v.page.saturating_sub(1),
-                VIEW_NEXT => v.page = (v.page + 1).min(omake::view_pages(v.entry) - 1),
+                VIEW_NEXT => v.page = (v.page + 1).min(omake::view_pages(t, v.entry) - 1),
                 VIEW_BACK => {
-                    s.page = v.entry / 12;
+                    s.page = v.entry / t.cg.cells;
                     s.ap.view = None;
                 }
                 _ if (VIEW_CELL..VIEW_CELL + 12).contains(&id) => {
@@ -3564,14 +3570,15 @@ impl Session {
             return Ok(());
         }
         let pages = match s.kind {
-            Extras::Gallery => omake::CG_PAGES,
-            _ => omake::SCENE_PAGES,
+            Extras::Gallery => t.cg.pages,
+            _ => t.scene.pages,
         };
         match id {
             _ if (MODE..MODE + 3).contains(&id) => {
                 let kind = [Extras::Gallery, Extras::Scenes, Extras::Music][(id - MODE) as usize];
                 if kind != s.kind {
                     *s = ExtrasScreen::new(kind);
+                    s.ap = omake::Omake::new(t);
                     self.ui.hover = None;
                     self.apeiria_extras_music(kind);
                 }
@@ -3580,17 +3587,18 @@ impl Session {
             BACK => return self.leave_extras(-1),
             _ if s.kind == Extras::Music => match id {
                 PREVIOUS => s.scroll = s.scroll.saturating_sub(1),
-                NEXT => s.scroll = (s.scroll + 1).min(omake::MAX_SCROLL),
+                NEXT => s.scroll = (s.scroll + 1).min(t.max_scroll()),
                 _ if (0..8).contains(&id) => {
-                    let Some(t) = omake::item(Extras::Music, 0, s.scroll, id as usize) else {
+                    let Some(track) = omake::item(t, Extras::Music, 0, s.scroll, id as usize)
+                    else {
                         return Ok(());
                     };
-                    if s.playing == Some(t) {
+                    if s.playing == Some(track) {
                         s.playing = None;
                         self.rt.stop_music();
                     } else {
-                        s.playing = Some(t);
-                        self.rt.play_music(omake::TRACK_FILES[t])?;
+                        s.playing = Some(track);
+                        self.rt.play_music(t.track_files[track])?;
                     }
                 }
                 _ => {}
@@ -3599,7 +3607,7 @@ impl Session {
             NEXT => s.page = (s.page + 1).min(pages - 1),
             _ if (PAGE..PAGE + pages as i32).contains(&id) => s.page = (id - PAGE) as usize,
             _ if (0..12).contains(&id) => {
-                let Some(item) = omake::item(s.kind, s.page, 0, id as usize) else {
+                let Some(item) = omake::item(t, s.kind, s.page, 0, id as usize) else {
                     return Ok(());
                 };
                 match s.kind {
@@ -3626,19 +3634,22 @@ impl Session {
     /// 景の海のアペイリア: the music of its extras. The music mode stops what
     /// plays; the others play their own track when nothing does.
     fn apeiria_extras_music(&mut self, kind: Extras) {
-        use crate::games::apeiria::omake::EXTRAS_MUSIC;
+        let extras_music = match &self.screen {
+            Some(Screen::Extras(e)) => e.ap.t.extras_music,
+            _ => return,
+        };
         if kind == Extras::Music {
             self.rt.stop_music();
         } else if !self.rt.audio.is_playing(Bus::Music, 0) {
             // A missing track only leaves the screens silent.
-            let _ = self.rt.play_music(EXTRAS_MUSIC);
+            let _ = self.rt.play_music(extras_music);
         }
     }
 
     /// The scroll bar of 景の海のアペイリア's music mode follows the pointer.
     fn drag_apeiria_scroll(&mut self, y: i32) {
         if let Some(Screen::Extras(e)) = &mut self.screen {
-            e.scroll = crate::games::apeiria::omake::scroll_at(y);
+            e.scroll = crate::games::apeiria::omake::scroll_at(e.ap.t, y);
             self.frame = None;
         }
     }
@@ -3655,7 +3666,7 @@ impl Session {
         };
         let scene = match (e.kind, self.ui.hover) {
             (Extras::Scenes, Some(Button::Screen(id))) if (0..12).contains(&id) => {
-                omake::item(Extras::Scenes, e.page, 0, id as usize)
+                omake::item(e.ap.t, Extras::Scenes, e.page, 0, id as usize)
             }
             _ => None,
         };
@@ -4300,7 +4311,7 @@ impl Session {
         }
         if let Some(Screen::Extras(e)) = &mut self.screen {
             if let Some((scene, _)) = e.ap.preview {
-                if crate::games::apeiria::omake::animates(scene)
+                if crate::games::apeiria::omake::animates(e.ap.t, scene)
                     && before / 40 != self.ui.clock / 40
                 {
                     self.frame = None;

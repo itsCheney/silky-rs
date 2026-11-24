@@ -2,7 +2,14 @@
 
 English | [简体中文](engine-2017.zh-CN.md)
 
-The engine of `apeiria.exe` 1.0.3.0 (景の海のアペイリア), linked 2017-11-09 with Visual Studio 2013, SHA-256 `dba4857ac6adb02b453a73694737124725bd4c91a9a7ecd60816fa7266e6317e`. Read from the executable unless marked.
+The engine of two programs, both linked with Visual Studio 2013. Read from the executable unless marked.
+
+| Program | Version | Linked (UTC) | SHA-256 |
+| --- | --- | --- | --- |
+| `apeiria.exe` (景の海のアペイリア) | 1.0.3.0 | 2017-11-09 07:06:49 | `dba4857ac6adb02b453a73694737124725bd4c91a9a7ecd60816fa7266e6317e` |
+| `casablanca.exe` (景の海のアペイリア ～カサブランカの騎士～) | 1.0.0.0 | 2017-12-10 14:52:07 | `4865b23597087c03a4dd7017ced9e5c48e8d4479c923705cd41bd91b4246d716` |
+
+`casablanca.exe` is 1,559,040 bytes. Its engine code is the same as that of `apeiria.exe`, so the differences below hold for both. The trace probe addresses are given for each program.
 
 ## Differences from engine-2026
 
@@ -20,7 +27,7 @@ The engine of `apeiria.exe` 1.0.3.0 (景の海のアペイリア), linked 2017-1
 
 ## Trace probe
 
-Addresses in the program as linked (image base 0x400000), for `tools/trace/probe.py` ([trace.md](../trace.md)). Checked under Wine in the first chapters.
+Addresses in `apeiria.exe` as linked (image base 0x400000), for `tools/trace/probe.py` ([trace.md](../trace.md)). Checked under Wine in the first chapters.
 
 | What | Where |
 | --- | --- |
@@ -49,8 +56,40 @@ The spec for this build:
 
 Breakpoints at the start and end of a routine time it: with `--clock`, the hologram's show (0x467eb0, ending at 0x4681ab) was timed this way ([apeiria.md](../games/apeiria.md)).
 
-The program reads `apeiria_inst.xml` from `AppData\Roaming\SilkysPlus\apeiria` and stops at once if `InstallPath` there is not set; its saves and settings go to the `Save` folder next to it. With every bit of `onemes.dat` there set, holding Ctrl skips the story to the place to trace.
+### casablanca.exe
+
+Addresses in `casablanca.exe` as linked (image base 0x400000). The functions are those above, at other addresses; the stack layout is the same.
+
+| What | Where |
+| --- | --- |
+| Script opcode switch | 0x4b4445 (byte table 0x4b47e4, jump table 0x4b4724) |
+| `native` handler | 0x49f9c0 |
+| Breakpoint at the `native` handler: class popped, statement still on the stack | 0x49fa23 (`eax` = class) |
+| Value pop | 0x4b4840 |
+| `message` handler (a breakpoint here marks each message) | 0x4b45b0 |
+
+The spec for this build:
+
+```json
+{
+  "name": "casablanca 1.0.0.0 (2017)",
+  "stack": {"vector": "esi", "size": 32, "kind": 0, "int": 4, "str": 8, "kinds": {"0": "int", "1": "str"}},
+  "breakpoints": [
+    {"at": "0x49fa23", "stack": true, "call": {"read": "eax", "names": {
+      "1": "Select", "2": "MesWnd", "3": "Shake", "10": "Font", "11": "Value", "12": "Mouse",
+      "13": "Anime", "14": "Flag", "15": "Music", "16": "Effect", "17": "HEffect", "18": "Voice",
+      "19": "Sprite", "20": "Screen", "21": "Script", "22": "BackLog", "23": "Movie", "24": "OneMes",
+      "25": "Xml", "26": "Ui", "27": "Save", "28": "Wait", "29": "Game"}}},
+    {"at": "0x4b45b0", "call": "message"}
+  ]
+}
+```
+
+## Install file and saves
+
+`apeiria.exe` reads `apeiria_inst.xml` from `AppData\Roaming\SilkysPlus\apeiria` and stops at once if `InstallPath` there is not set; its saves and settings go to the `Save` folder next to it. `casablanca.exe` reads `casablanca_inst.xml` from `AppData\Roaming\SilkysPlus\casablanca` in the same way, and its settings and saves are in the `Save` folder next to it too (settings file `Save\casablanca.xml`). With every bit of `onemes.dat` there set, holding Ctrl skips the story to the place to trace.
 
 ## Games
 
 - [景の海のアペイリア](../games/apeiria.md)
+- [景の海のアペイリア ～カサブランカの騎士～](../games/casablanca.md)

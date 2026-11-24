@@ -270,8 +270,8 @@ pub const NOTE_VIEW: (i32, i32) = (300, 272);
 
 /// The conclusions list (992): 250 x 51 cells of this sheet, column
 /// `v / 100` and row `v % 100` for a value `v` of bytes 1300 to 1306
-/// (as many as byte 1320 says, the last first), drawn from (356, 103)
-/// down. A value under 100 gets 100 added once drawn, so the next list
+/// (Casablanca: `v - 1` in place of `v`; as many as byte 1320 says, the
+/// last first), drawn from (356, 103) down. A value under 100 gets 100 added once drawn, so the next list
 /// shows it in the second column.
 pub const CONCLUSIONS_SHEET: &str = "dnapcA_mailparts.akb";
 pub const CONCLUSIONS_AT: (i32, i32) = (356, 103);

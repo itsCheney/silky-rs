@@ -87,6 +87,12 @@ impl Runtime {
         }
     }
 
+    /// Tells the effects which game they play for.
+    fn sync_title(&mut self) {
+        self.scene.effects.casablanca =
+            self.assets.game().title == silky_format::game::Title::Casablanca;
+    }
+
     /// Waits `ms` while the screen goes on changing.
     fn live_wait(&mut self, ms: u64) -> Option<silky_vm::Result<Flow>> {
         if ms == 0 {
@@ -183,10 +189,14 @@ impl Runtime {
                         None => ints.push(v.int()),
                     }
                 }
+                self.sync_title();
                 super::effects::screen_effect(&mut self.scene.effects, c.sub, &ints, &strs);
                 self.effect_wait()
             }
+            // Subs above 4 do nothing and do not wait.
+            998 if c.sub > 4 => self.done(),
             998 => {
+                self.sync_title();
                 // The executable takes the arguments last pushed first.
                 let ints: Vec<i32> = c.args.iter().rev().map(|v| v.int()).collect();
                 super::effects::attack(&mut self.scene.effects, c.sub, &ints);
@@ -197,6 +207,7 @@ impl Runtime {
                 self.done()
             }
             1002 => {
+                self.sync_title();
                 let mut ints = vec![];
                 let mut strs = vec![];
                 for v in c.args.iter().rev() {
@@ -586,6 +597,9 @@ impl Runtime {
         match (c.sub, c.args.len()) {
             // Leave the scene skip; nothing to do with it off.
             (4 | 5, 0) => {}
+            // Casablanca sets up the portrait window at start-up; nothing
+            // to draw.
+            (14, 0) => {}
             // (body): a new portrait; the name plate moves right.
             (6, 1) | (13, 1) => {
                 scene.portrait = Some((c.str(0)?, None));

@@ -1952,7 +1952,7 @@ impl Layout {
                 nanairo: None,
             });
         }
-        if assets.game().title == silky_format::game::Title::Apeiria {
+        if assets.game().title.is_apeiria() {
             return Ok(Self {
                 language,
                 bar: Vec::new(),

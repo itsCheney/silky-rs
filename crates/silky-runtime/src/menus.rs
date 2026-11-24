@@ -316,7 +316,7 @@ pub fn slider_value(a: &Area, x: i32) -> f32 {
 impl Menus {
     pub fn load(assets: &Assets, language: Language) -> Self {
         let kimaten2 = assets.game().title == silky_format::game::Title::Kimaten2;
-        let apeiria = assets.game().title == silky_format::game::Title::Apeiria;
+        let apeiria = assets.game().title.is_apeiria();
         let mut system = area_file(assets, "config00.area");
         let mut sound = area_file(assets, "config01.area");
         if kimaten2 {
