@@ -386,6 +386,18 @@ fn snap(
             .collect::<Result<Vec<_>>>()?;
         Some(TextRenderer::new(&files)?)
     };
+    // The screens of きまぐれテンプテーション write their own labels and
+    // help lines, so they get a renderer of their own.
+    let k1_text = match (&text, fonts.is_empty()) {
+        (Some(_), false) => {
+            let files = fonts
+                .iter()
+                .map(|f| std::fs::read(f).with_context(|| format!("reading {}", f.display())))
+                .collect::<Result<Vec<_>>>()?;
+            Some(TextRenderer::new(&files)?)
+        }
+        _ => None,
+    };
     let mut renderer = Renderer::new(text, language);
     match picks.renderer.as_str() {
         "cpu" => {}
@@ -606,12 +618,15 @@ fn snap(
                         if !k1_game {
                             return None;
                         }
-                        let key = {
-                            use std::hash::{Hash, Hasher};
-                            let mut h = std::collections::hash_map::DefaultHasher::new();
-                            (100..260).for_each(|i| vm.var_b(i).hash(&mut h));
-                            format!("{}|{:x}", rt.choices.join("|"), h.finish())
-                        };
+                        // By script and labels, so that the story played
+                        // again from the start (after an ending) takes the
+                        // next entry of each list: other branches and
+                        // endings come up.
+                        let key = format!(
+                            "{}|{}",
+                            vm.script_name().unwrap_or("?"),
+                            rt.choices.join("|")
+                        );
                         let i = (0..rt.choices.len()).find(|i| !asked.contains(&(key.clone(), *i)));
                         i.inspect(|&i| {
                             asked.insert((key.clone(), i));
@@ -724,11 +739,17 @@ fn snap(
                     let n = k1_shots.entry(name).or_default();
                     if *n < 3 {
                         let mut frame = renderer.render_scene(&rt.scene, &mut rt.assets, false)?;
+                        // K1_HOVER=x,y puts the pointer there in the saved frames.
+                        let hover = std::env::var("K1_HOVER").ok().and_then(|v| {
+                            let (x, y) = v.split_once(',')?;
+                            screen.hit(x.trim().parse().ok()?, y.trim().parse().ok()?)
+                        });
                         let ui = Ui {
                             k1: Some(screen.clone()),
+                            hover: hover.map(silky_runtime::ui::Button::Kimaten1),
                             ..Ui::default()
                         };
-                        layout.draw(&mut frame, &mut rt.assets, &ui, false, None)?;
+                        layout.draw(&mut frame, &mut rt.assets, &ui, false, k1_text.as_ref())?;
                         let path = out.join(format!("{name}{n}.png"));
                         write_png(&path, &frame)?;
                         println!("{}", path.display());
@@ -748,8 +769,12 @@ fn snap(
                         }
                     }
                     println!("{name} -> {click:?}");
+                    if std::env::var_os("K1_TRACE").is_some() {
+                        let b: Vec<u8> = (0..4).chain(100..110).map(|i| vm.var_b(i)).collect();
+                        println!("   bytes 0-3,100-109: {b:?}");
+                    }
                     k1_screens += 1;
-                    if k1_screens > 400 {
+                    if k1_screens > 4000 {
                         println!("the screens keep coming back; stopped in {script}");
                         break;
                     }
@@ -957,8 +982,16 @@ fn snap(
             },
             Stop::Options => {
                 let numbers: Vec<i32> = vm.options().iter().map(|(_, v)| v.int()).collect();
+                // A further run of options for the same selection keeps
+                // the labels of the runs before it, as the player does.
+                let kept = if rt.options_pending() {
+                    std::mem::take(&mut vm.option_labels)
+                } else {
+                    Vec::new()
+                };
                 rt.begin_options(&numbers);
                 vm.run_all_options()?;
+                vm.option_labels = kept;
             }
             Stop::Ended => {
                 println!("end of scripts in {}", vm.script_name().unwrap_or("?"));

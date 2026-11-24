@@ -499,6 +499,12 @@ impl Runtime {
         self.option_count = self.option_numbers.len();
     }
 
+    /// Whether runs of options were taken for a selection that has not
+    /// come yet, so that the next run adds to them.
+    pub fn options_pending(&self) -> bool {
+        self.option_count > 0
+    }
+
     /// Returns the option picked (from 0) to the script; call after
     /// [`Pause::Choice`].
     pub fn answer_choice(&mut self, vm: &mut Vm, index: usize) {
@@ -516,11 +522,14 @@ impl Runtime {
             vm.push(result);
             return;
         }
-        // 先輩が私の妄想にドージンする: the result is the option's own
-        // number plus one, so the scripts tell the options apart when some
-        // are hidden. Elsewhere the numbers run 0, 1, 2... and the place
-        // in the list is used.
-        if self.assets.game().title == silky_format::game::Title::Doujin {
+        // 先輩が私の妄想にドージンする and きまぐれテンプテーション: the
+        // result is the option's own number plus one, so the scripts tell
+        // the options apart when some are hidden. Elsewhere the numbers run
+        // 0, 1, 2... and the place in the list is used.
+        if matches!(
+            self.assets.game().title,
+            silky_format::game::Title::Doujin | silky_format::game::Title::Kimaten1
+        ) {
             if let Some(&n) = self.option_numbers.get(index) {
                 vm.push(n + 1);
                 return;

@@ -51,7 +51,7 @@ pub const PROGRESS_LEN: usize = 160;
 /// many times for one state of the story.
 type Tried = HashMap<([u8; PROGRESS_LEN], u8), u8>;
 static TRIED: Mutex<Option<Tried>> = Mutex::new(None);
-const PRESSES: u8 = 3;
+const PRESSES: u8 = 5;
 
 #[derive(Debug, Clone)]
 pub struct ActSelect {

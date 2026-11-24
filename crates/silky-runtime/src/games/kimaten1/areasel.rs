@@ -7,7 +7,7 @@
 //! its number; the back button, right click and Escape answer 100. The
 //! number that comes first in the call is not used by the screen.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use silky_format::akb::Image;
@@ -30,8 +30,10 @@ const HOTSPOT_HELP: &str = "ここを調べる";
 const BACK_HELP: &str = "行動選択に戻る";
 const CLICK: &str = "ses_001.wav";
 
-/// The hotspots the headless run pressed: (picture of the screen, hotspot).
-static TRIED: Mutex<Option<HashSet<(u64, i32)>>> = Mutex::new(None);
+/// How often the headless run pressed a hotspot: (picture of the screen,
+/// hotspot). A hotspot can say something new each time it is looked at.
+static TRIED: Mutex<Option<HashMap<(u64, i32), u8>>> = Mutex::new(None);
+const LOOKS: u8 = 3;
 
 #[derive(Debug, Clone)]
 pub struct AreaSelect {
@@ -99,11 +101,12 @@ impl AreaSelect {
             return Click::Result(BACK_ANSWER);
         }
         if (1..=7).contains(&id) {
-            TRIED
+            *TRIED
                 .lock()
                 .unwrap()
-                .get_or_insert_with(HashSet::new)
-                .insert((self.scene, id));
+                .get_or_insert_with(HashMap::new)
+                .entry((self.scene, id))
+                .or_default() += 1;
             return Click::Result(id);
         }
         Click::None
@@ -156,14 +159,22 @@ impl AreaSelect {
         Ok(())
     }
 
-    /// Headless run: each hotspot of the picture not looked at yet, then
-    /// back.
+    /// Headless run: the hotspot of the picture looked at least so far, the
+    /// first of them, until each was looked at a few times; then back.
     pub fn auto_pick(&self) -> Option<i32> {
         let tried = TRIED.lock().unwrap();
+        let count = |s: i32| {
+            tried
+                .as_ref()
+                .and_then(|t| t.get(&(self.scene, s)))
+                .copied()
+                .unwrap_or(0)
+        };
         let fresh = self
             .hotspots()
             .into_iter()
-            .find(|&s| !tried.as_ref().is_some_and(|t| t.contains(&(self.scene, s))));
+            .min_by_key(|&s| (count(s), s))
+            .filter(|&s| count(s) < LOOKS);
         Some(fresh.unwrap_or(BACK))
     }
 }

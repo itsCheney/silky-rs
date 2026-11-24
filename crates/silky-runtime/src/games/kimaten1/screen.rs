@@ -4,6 +4,7 @@
 
 use super::actsel::ActSelect;
 use super::areasel::AreaSelect;
+use super::exselect::ExSelect;
 use super::itemsel::ItemSelect;
 use super::map::Map;
 use super::notebook::Notebook;
@@ -45,6 +46,8 @@ pub enum Screen {
     Action(ActSelect),
     /// Investigation over the background (`Game.41`).
     Area(AreaSelect),
+    /// The option list (`Game.45`).
+    Ex(ExSelect),
     /// Choosing a piece of evidence (`Game.46`).
     Item(ItemSelect),
     /// The map of the apartment (`Game.43`).
@@ -66,6 +69,7 @@ impl Screen {
         match self {
             Screen::Action(s) => s.hit(x, y),
             Screen::Area(s) => s.hit(x, y),
+            Screen::Ex(s) => s.hit(x, y),
             Screen::Item(s) => s.hit(x, y),
             Screen::Map(m) => m.hit(x, y),
             Screen::Notebook(n) => n.hit(x, y),
@@ -80,6 +84,7 @@ impl Screen {
         match self {
             Screen::Action(s) => s.enabled(id),
             Screen::Area(s) => s.enabled(id),
+            Screen::Ex(s) => s.enabled(id),
             Screen::Item(s) => s.enabled(id),
             Screen::Map(m) => m.enabled(id),
             Screen::Notebook(n) => n.enabled(id),
@@ -94,6 +99,7 @@ impl Screen {
         match self {
             Screen::Action(s) => s.click(id),
             Screen::Area(s) => s.click(id),
+            Screen::Ex(s) => s.click(id),
             Screen::Item(s) => s.click(id),
             Screen::Map(m) => m.click(id),
             Screen::Notebook(n) => n.click(id),
@@ -108,6 +114,7 @@ impl Screen {
     pub fn cancel(&mut self) -> Click {
         match self {
             Screen::Area(s) => s.cancel(),
+            Screen::Ex(s) => s.cancel(),
             Screen::Map(m) => m.cancel(),
             Screen::Notebook(n) => n.cancel(),
             Screen::Omake(o) => o.cancel(),
@@ -134,6 +141,7 @@ impl Screen {
         match self {
             Screen::Action(s) => s.take_sound(),
             Screen::Area(s) => s.take_sound(),
+            Screen::Ex(s) => s.take_sound(),
             Screen::Item(s) => s.take_sound(),
             Screen::Map(m) => m.take_sound(),
             Screen::Notebook(n) => n.take_sound(),
@@ -148,6 +156,7 @@ impl Screen {
         match self {
             Screen::Action(s) => s.draw(canvas, assets, look),
             Screen::Area(s) => s.draw(canvas, assets, look),
+            Screen::Ex(s) => s.draw(canvas, assets, look),
             Screen::Item(s) => s.draw(canvas, assets, look),
             Screen::Map(m) => m.draw(canvas, assets, look),
             Screen::Notebook(n) => n.draw(canvas, assets, look),
@@ -163,6 +172,7 @@ impl Screen {
         match self {
             Screen::Action(s) => (s.auto_pick(), "actmenu"),
             Screen::Area(s) => (s.auto_pick(), "area"),
+            Screen::Ex(s) => (s.auto_pick(), "exselect"),
             Screen::Item(s) => (s.auto_pick(), "item"),
             Screen::Map(m) => m.auto_pick(),
             Screen::Notebook(n) => n.auto_pick(),

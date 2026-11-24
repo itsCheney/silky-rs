@@ -6,6 +6,7 @@ use silky_vm::{Flow, Value, Vm};
 use super::actsel::ActSelect;
 use super::areasel::AreaSelect;
 use super::effects;
+use super::exselect::ExSelect;
 use super::itemsel::{self, ItemSelect};
 use super::map::Map;
 use super::omake::{self, Omake, Saved};
@@ -135,16 +136,23 @@ impl Runtime {
                 self.wait_for(Pause::Kimaten1)
             }
             // The options the script registered, as a selection: answers
-            // the number of the one picked from 1. The engine draws its
-            // own list with a back button (answer 100) here; the selection
-            // bars of the other screens stand in for it.
+            // the number of the one picked plus one, 100 for back.
             OPTIONS => {
-                self.choices = std::mem::take(&mut vm.option_labels);
-                self.choice_status.clear();
+                let labels = std::mem::take(&mut vm.option_labels);
+                let numbers = std::mem::take(&mut self.option_numbers);
                 self.option_count = 0;
-                self.pause = Some(Pause::Choice);
-                self.handled += 1;
-                Some(Ok(Flow::Yield))
+                let areas = self.k1_areas("areaselect.area")?;
+                let entries = numbers
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &n)| (labels.get(i).cloned().unwrap_or_default(), n))
+                    .collect();
+                self.k1 = Some(Screen::Ex(ExSelect::open(
+                    areas,
+                    entries,
+                    vm.var_b(NOTEBOOK_UNLOCKED) != 0,
+                )));
+                self.wait_for(Pause::Kimaten1)
             }
             ITEM => {
                 let areas = self.k1_areas("itemselect.area")?;

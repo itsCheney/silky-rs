@@ -5,6 +5,9 @@
 //! first positions of `itemselect.area`; a press answers the piece's
 //! number from 1. There is no way out except the system buttons.
 
+use std::collections::HashMap;
+use std::sync::Mutex;
+
 use silky_format::area::Area;
 
 use super::chrome::{self, BAR_LEN};
@@ -25,6 +28,9 @@ const NAMES: [&str; 5] = [
     "注射器",
 ];
 const CLICK: &str = "ses_001.wav";
+
+/// How often the headless run presented each piece: (the pieces held, piece).
+static TRIED: Mutex<Option<HashMap<(u8, u8), u32>>> = Mutex::new(None);
 
 #[derive(Debug, Clone)]
 pub struct ItemSelect {
@@ -64,6 +70,12 @@ impl ItemSelect {
         }
         match usize::try_from(id).ok().and_then(|k| self.items.get(k)) {
             Some(&item) => {
+                *TRIED
+                    .lock()
+                    .unwrap()
+                    .get_or_insert_with(HashMap::new)
+                    .entry((self.held(), item))
+                    .or_default() += 1;
                 self.sound = Some(CLICK);
                 Click::Result(item as i32 + 1)
             }
@@ -80,6 +92,9 @@ impl ItemSelect {
         let sheet = chrome::draw_common(canvas, assets, look, &self.off)?;
         canvas.draw_part(&sheet, (1221, 854, 340, 80), 940, 29, false, 255);
         let mut help = chrome::bar_help(look);
+        if look.hover.and_then(chrome::bar_index) == Some(7) {
+            help = Some("アーカイブを開きます");
+        }
         for (k, &item) in self.items.iter().enumerate() {
             let Some(a) = self.areas.iter().find(|a| a.id == k as i32) else {
                 continue;
@@ -101,8 +116,24 @@ impl ItemSelect {
         Ok(())
     }
 
-    /// Headless run: the first piece.
+    /// The pieces held, as bits.
+    fn held(&self) -> u8 {
+        self.items.iter().fold(0, |b, &i| b | 1 << i)
+    }
+
+    /// Headless run: the piece presented least so far, the first of them,
+    /// so each is tried in turn when the story asks again.
     pub fn auto_pick(&self) -> Option<i32> {
-        (!self.items.is_empty()).then_some(0)
+        let tried = TRIED.lock().unwrap();
+        let count = |k: usize| {
+            tried
+                .as_ref()
+                .and_then(|t| t.get(&(self.held(), self.items[k])))
+                .copied()
+                .unwrap_or(0)
+        };
+        (0..self.items.len())
+            .min_by_key(|&k| (count(k), k))
+            .map(|k| k as i32)
     }
 }
