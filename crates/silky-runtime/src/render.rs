@@ -584,6 +584,13 @@ impl Renderer {
         }
     }
 
+    /// Whether a sprite layer lies under the standing characters:
+    /// なないろリンカネーション shows its backgrounds and pictures in sprite
+    /// 2, below the figures.
+    fn layer_under_characters(&self, id: i32) -> bool {
+        self.title == Title::Nanairo && id <= nanairo::BACKGROUND_SPRITE
+    }
+
     pub fn render(&mut self, scene: &Scene, assets: &mut Assets) -> Result<Canvas> {
         self.render_scene(scene, assets, true)
     }
@@ -775,6 +782,11 @@ impl Renderer {
         // Characters: canvas scaled by size percent, centred on the slot's
         // position; the top edge follows the engine's formula
         // 300 - 700 * scale, which keeps faces in view at larger sizes.
+        for (id, name) in &scene.layers {
+            if self.layer_under_characters(*id) {
+                draw_layer(&mut canvas, scene, assets, *id, name)?;
+            }
+        }
         let mut chars: Vec<_> = scene.characters.iter().collect();
         chars.sort_by_key(|(slot, _)| slot_layout(**slot).1);
         for (slot, c) in chars {
@@ -1176,21 +1188,10 @@ impl Renderer {
         self.draw_emotes(&mut canvas, scene, assets);
 
         for (id, name) in &scene.layers {
-            let img = assets.image(name)?;
-            let (vx, vy) = scene.layer_offset(*id);
-            if (vx, vy) == (0, 0) {
-                canvas.draw(&img, 0, 0, false);
-            } else {
-                // A window of a taller or wider picture.
-                let (x, y) = ((-vx).max(0), (-vy).max(0));
-                let part = (
-                    vx.max(0) as u32,
-                    vy.max(0) as u32,
-                    canvas.width.saturating_sub(x as u32),
-                    canvas.height.saturating_sub(y as u32),
-                );
-                canvas.draw_part(&img, part, x, y, false, 255);
+            if self.layer_under_characters(*id) {
+                continue;
             }
+            draw_layer(&mut canvas, scene, assets, *id, name)?;
         }
         if let Some((c, a)) = scene.dim {
             let rgba = [(c >> 16) as u8, (c >> 8) as u8, c as u8, a];
@@ -1265,6 +1266,14 @@ impl Renderer {
             let alpha = (opacity.clamp(0.0, 1.0) * 255.0) as u8;
             let part = (0, 0, band.width, band.height);
             canvas.draw_part(&band, part, 0, window::TOP, false, alpha);
+            crate::games::nanairo::stage::draw(
+                &mut canvas,
+                assets,
+                scene,
+                self.text(),
+                rgb,
+                alpha,
+            )?;
             if text {
                 self.draw_text_at(&mut canvas, scene, None, (0, 0));
                 // The click-wait mark beside the buttons.
@@ -1406,6 +1415,32 @@ fn emote_order(scene: &Scene) -> Vec<(i32, &crate::scene::Emote)> {
         .map(|(k, e)| (*k, e))
         .chain(scene.emote.iter().map(|e| (COMPANION, e)))
         .collect()
+}
+
+/// Draws a sprite layer, or the window of a taller or wider picture that
+/// its view shows.
+fn draw_layer(
+    canvas: &mut Canvas,
+    scene: &Scene,
+    assets: &mut Assets,
+    id: i32,
+    name: &str,
+) -> Result<()> {
+    let img = assets.image(name)?;
+    let (vx, vy) = scene.layer_offset(id);
+    if (vx, vy) == (0, 0) {
+        canvas.draw(&img, 0, 0, false);
+    } else {
+        let (x, y) = ((-vx).max(0), (-vy).max(0));
+        let part = (
+            vx.max(0) as u32,
+            vy.max(0) as u32,
+            canvas.width.saturating_sub(x as u32),
+            canvas.height.saturating_sub(y as u32),
+        );
+        canvas.draw_part(&img, part, x, y, false, 255);
+    }
+    Ok(())
 }
 
 #[cfg(test)]

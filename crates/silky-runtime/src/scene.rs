@@ -247,6 +247,9 @@ pub struct Scene {
     /// script waits for it.
     #[serde(default)]
     pub intro: Option<crate::games::doukyuusei::intro::Intro>,
+    /// なないろリンカネーション: the CG picture named so far (`Game.14`).
+    #[serde(default)]
+    pub cg: crate::games::nanairo::cg::Combo,
     /// Snow falls (ふゆから、くるる。, command 115).
     #[serde(default)]
     pub snow: bool,

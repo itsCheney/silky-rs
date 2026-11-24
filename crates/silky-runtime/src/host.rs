@@ -1173,7 +1173,12 @@ impl Host for Runtime {
                     // The 2017 build creates sprite 5 hidden and 2048
                     // pixels square: a store for button sheets
                     // (title_p.akb), which its screens draw in cells.
-                    if engine.sheet_store == Some(layer) {
+                    // なないろリンカネーション: sprite 3 holds the sheet the
+                    // calendar (Game.39) and the ending overlay (Game.50)
+                    // draw their cells from; it never shows itself.
+                    let store =
+                        title == Title::Nanairo && layer == crate::games::nanairo::SHEET_STORE;
+                    if engine.sheet_store == Some(layer) || store {
                         self.handled += 1;
                         return Ok(Flow::Continue);
                     }
