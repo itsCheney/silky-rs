@@ -156,8 +156,7 @@ impl Runtime {
                 )));
                 self.wait_for(Pause::Kimaten1)
             }
-            // The extras: CG, scene and music modes; the viewer of アンネ
-            // is not carried out, it leaves at once as its back button does.
+            // The extras: CG, scene and music modes.
             30..=32 => {
                 let Some(screen) = self.k1_omake((command - 30) as usize, vm) else {
                     vm.push(omake::LEAVE);
@@ -166,9 +165,22 @@ impl Runtime {
                 self.k1 = Some(screen);
                 self.wait_for(Pause::Kimaten1)
             }
+            // The viewer of アンネ.
             33 => {
-                vm.push(omake::LEAVE);
-                self.done()
+                let (Some(areas), Some(dialog)) = (
+                    self.k1_areas("anneviewer.area"),
+                    self.k1_areas("dialog.area"),
+                ) else {
+                    vm.push(omake::LEAVE);
+                    return self.done();
+                };
+                let mut viewer = super::viewer::Viewer::open(areas, dialog, |i| vm.var_b(i));
+                viewer.enter(&mut self.scene);
+                if !self.audio.is_playing(Bus::Music, 0) {
+                    let _ = self.play_music(super::viewer::BGM);
+                }
+                self.k1 = Some(Screen::Viewer(Box::new(viewer)));
+                self.wait_for(Pause::Kimaten1)
             }
             // Apply: crossfade over the longest time given.
             EMOTES if sub == 2 && args.len() == 1 => {

@@ -19,6 +19,7 @@ pub mod notice;
 pub mod omake;
 pub mod screen;
 pub mod title;
+pub mod viewer;
 pub mod window;
 
 pub use commands::SHARED_COMMANDS;

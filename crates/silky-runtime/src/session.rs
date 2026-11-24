@@ -1978,6 +1978,13 @@ impl Session {
         for (i, v) in s.take_bytes() {
             self.vm.set_var_b(i, v);
         }
+        // The viewer keeps its model in the scene, and gives it back.
+        if matches!(click, Click::Result(_) | Click::Close) {
+            s.leave_scene(&mut self.rt.scene);
+            self.base = None;
+        } else if s.sync_scene(&mut self.rt.scene) {
+            self.base = None;
+        }
         let (music, volume) = (s.take_music(), s.take_volume());
         match music {
             Some(crate::games::kimaten1::omake::Music::Play(file)) => {
@@ -2313,6 +2320,11 @@ impl Session {
         }
         if self.dialog.is_some() {
             return Ok(());
+        }
+        if let Some(s) = self.ui.k1.as_mut() {
+            if s.wheel(up) {
+                return self.k1_answer(crate::games::kimaten1::Click::None);
+            }
         }
         let d = if up { -1 } else { 1 };
         match &mut self.screen {

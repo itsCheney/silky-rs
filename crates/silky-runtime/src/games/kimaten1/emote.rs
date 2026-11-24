@@ -44,7 +44,7 @@ const PLACE_TOP: i32 = 258;
 
 /// A place from the game's numbers: the model's origin lands at
 /// (640 + x, [`ORIGIN_Y`] + y), `scale` in percent.
-fn place(x: i32, y: i32, scale: i32) -> Place {
+pub(super) fn place(x: i32, y: i32, scale: i32) -> Place {
     Place {
         scale,
         x: -x,

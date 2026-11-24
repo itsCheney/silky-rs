@@ -8,6 +8,7 @@ use super::itemsel::ItemSelect;
 use super::map::Map;
 use super::notebook::Notebook;
 use super::omake::{Music, Omake};
+use super::viewer::Viewer;
 use crate::assets::Assets;
 use crate::render::Canvas;
 use crate::text::TextRenderer;
@@ -51,6 +52,8 @@ pub enum Screen {
     Notebook(Notebook),
     /// The CG, scene and music modes (`Game.30` to `Game.32`).
     Omake(Box<Omake>),
+    /// The アンネViewer (`Game.33`).
+    Viewer(Box<Viewer>),
 }
 
 impl Screen {
@@ -64,6 +67,7 @@ impl Screen {
             Screen::Map(m) => m.hit(x, y),
             Screen::Notebook(n) => n.hit(x, y),
             Screen::Omake(o) => o.hit(x, y),
+            Screen::Viewer(v) => v.hit(x, y),
         }
     }
 
@@ -76,6 +80,7 @@ impl Screen {
             Screen::Map(m) => m.enabled(id),
             Screen::Notebook(n) => n.enabled(id),
             Screen::Omake(o) => o.enabled(id),
+            Screen::Viewer(v) => v.enabled(id),
         }
     }
 
@@ -88,6 +93,7 @@ impl Screen {
             Screen::Map(m) => m.click(id),
             Screen::Notebook(n) => n.click(id),
             Screen::Omake(o) => o.click(id),
+            Screen::Viewer(v) => v.click(id),
         }
     }
 
@@ -99,6 +105,7 @@ impl Screen {
             Screen::Map(m) => m.cancel(),
             Screen::Notebook(n) => n.cancel(),
             Screen::Omake(o) => o.cancel(),
+            Screen::Viewer(v) => v.cancel(),
             _ => Click::None,
         }
     }
@@ -111,6 +118,7 @@ impl Screen {
             Screen::Map(m) => m.take_bytes(),
             Screen::Notebook(n) => n.take_bytes(),
             Screen::Omake(o) => o.take_bytes(),
+            Screen::Viewer(v) => v.take_bytes(),
             _ => Vec::new(),
         }
     }
@@ -124,6 +132,7 @@ impl Screen {
             Screen::Map(m) => m.take_sound(),
             Screen::Notebook(n) => n.take_sound(),
             Screen::Omake(_) => None,
+            Screen::Viewer(v) => v.take_sound(),
         }
     }
 
@@ -136,6 +145,7 @@ impl Screen {
             Screen::Map(m) => m.draw(canvas, assets, look),
             Screen::Notebook(n) => n.draw(canvas, assets, look),
             Screen::Omake(o) => o.draw(canvas, assets, look),
+            Screen::Viewer(v) => v.draw(canvas, assets, look),
         }
     }
 
@@ -149,14 +159,42 @@ impl Screen {
             Screen::Map(m) => m.auto_pick(),
             Screen::Notebook(n) => n.auto_pick(),
             Screen::Omake(o) => (o.auto_pick(), "omake"),
+            Screen::Viewer(v) => (v.auto_pick(), "viewer"),
         }
     }
 
     /// A press or drag at (x, y) on element `id` (the bars of the music
     /// mode).
     pub fn press_at(&mut self, id: i32, x: i32, y: i32) {
-        if let Screen::Omake(o) = self {
-            o.press_at(id, x, y);
+        match self {
+            Screen::Omake(o) => o.press_at(id, x, y),
+            Screen::Viewer(v) => v.press_at(id, x, y),
+            _ => {}
+        }
+    }
+
+    /// The mouse wheel (`up` away from the player); true when the screen
+    /// has something to scroll.
+    pub fn wheel(&mut self, up: bool) -> bool {
+        match self {
+            Screen::Viewer(v) => v.wheel(up),
+            _ => false,
+        }
+    }
+
+    /// Puts the model the screen shows into the scene; true when the
+    /// scene changed.
+    pub fn sync_scene(&mut self, scene: &mut crate::scene::Scene) -> bool {
+        match self {
+            Screen::Viewer(v) => v.sync_scene(scene),
+            _ => false,
+        }
+    }
+
+    /// Gives the scene back when the screen closes.
+    pub fn leave_scene(&mut self, scene: &mut crate::scene::Scene) {
+        if let Screen::Viewer(v) = self {
+            v.leave_scene(scene);
         }
     }
 
