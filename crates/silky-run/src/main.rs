@@ -706,7 +706,7 @@ fn snap(
                         for (i, v) in screen.take_bytes() {
                             vm.set_var_b(i, v);
                         }
-                        if click != Click::None {
+                        if !matches!(click, Click::None | Click::Bar(_)) {
                             break;
                         }
                     }
@@ -714,7 +714,9 @@ fn snap(
                     match click {
                         Click::Result(r) => rt.answer_action(vm, r),
                         Click::Close => rt.close_k1(),
-                        Click::None => anyhow::bail!("the {name} screen gave no answer"),
+                        Click::None | Click::Bar(_) => {
+                            anyhow::bail!("the {name} screen gave no answer")
+                        }
                     }
                 }
                 Some(Pause::Panel)

@@ -1740,6 +1740,7 @@ impl Session {
         self.frame = None;
         match click {
             Click::None => {}
+            Click::Bar(id) => self.press(crate::ui::Button::Bar(id))?,
             Click::Result(r) => {
                 self.ui.k1 = None;
                 self.ui.hover = None;

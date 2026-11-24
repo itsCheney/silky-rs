@@ -6,7 +6,11 @@
 //!
 //! See `docs/games/kimaten1.md`.
 
+mod actsel;
+mod areasel;
+mod chrome;
 pub(crate) mod commands;
+mod itemsel;
 pub mod screen;
 
 pub use commands::SHARED_COMMANDS;
