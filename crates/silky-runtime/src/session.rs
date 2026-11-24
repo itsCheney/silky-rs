@@ -1107,7 +1107,34 @@ impl Session {
 
     /// Whether the game draws its own pointer, so the system's is hidden.
     pub fn own_cursor(&self) -> bool {
-        self.hmode.as_ref().is_some_and(|h| h.own_cursor())
+        self.hmode.as_ref().is_some_and(|h| h.own_cursor()) || self.game_cursor_shown()
+    }
+
+    /// 同級生 Remake: whether the game's own pointer (the picture of the
+    /// verb of the hot spot under the pointer) is up, so the system's is
+    /// hidden.
+    pub fn game_cursor_shown(&self) -> bool {
+        let (x, y) = self.ui.pointer;
+        self.rt.cursor.shown() && crate::games::doukyuusei::cursor::inside(x, y)
+    }
+
+    /// Sets the game's own pointer from the hover, as the program does
+    /// when the focus changes; away while a dialog, a screen or a fade is
+    /// up. Returns whether the picture changed.
+    fn sync_cursor(&mut self) -> bool {
+        use crate::games::doukyuusei::room::Room;
+        let want = match &self.ui.panel {
+            Some(DoukPanel::Room(_))
+                if self.dialog.is_none() && self.screen.is_none() && self.veil.is_none() =>
+            {
+                match self.ui.hover {
+                    Some(Button::Panel(id)) => Room::cursor_picture(Some(id)),
+                    _ => 0,
+                }
+            }
+            _ => 0,
+        };
+        self.rt.cursor.sync(want, self.ui.clock)
     }
 
     /// 同級生 Remake: the walk on the map is up.
@@ -1309,6 +1336,10 @@ impl Session {
                     _ => None,
                 });
             }
+        }
+        // The game's own pointer follows the system's.
+        if self.sync_cursor() || self.rt.cursor.shown() {
+            self.frame = None;
         }
     }
 
@@ -1765,7 +1796,44 @@ impl Session {
         if notice && self.screen.is_none() {
             return self.back();
         }
-        Ok(false)
+        self.room_cancel()
+    }
+
+    /// The cancel of the room and the plain area selection (Escape, Delete,
+    /// keypad 0, the secondary click): the cancel sound, then what
+    /// [`crate::games::doukyuusei::room::Room::cancel`] says. Returns
+    /// whether the room was up.
+    fn room_cancel(&mut self) -> Result<bool> {
+        use crate::games::doukyuusei::Click;
+        if self.screen.is_some() || self.dialog.is_some() {
+            return Ok(false);
+        }
+        let Some(DoukPanel::Room(r)) = &self.ui.panel else {
+            return Ok(false);
+        };
+        let click = r.cancel();
+        let _ = self
+            .rt
+            .play_sound(crate::games::doukyuusei::name::CANCEL_SOUND);
+        self.frame = None;
+        match click {
+            Click::Look(on) => {
+                if let Some(p) = &mut self.ui.panel {
+                    p.set_look(on);
+                }
+                self.ui.hover = None;
+                self.sync_cursor();
+            }
+            Click::Result(result) => {
+                self.ui.panel = None;
+                self.ui.hover = None;
+                self.base = None;
+                self.rt.answer_action(&mut self.vm, result);
+                self.run()?;
+            }
+            _ => {}
+        }
+        Ok(true)
     }
 
     /// Keypad 0: a cancel on a dialog or notice of 同級生 Remake, as
@@ -1783,6 +1851,16 @@ impl Session {
             if self.dialog.is_some() {
                 if let Some(Button::Dialog(id)) = self.ui.hover {
                     self.press_dialog(id)?;
+                }
+                return Ok(());
+            }
+            if self.screen.is_none() && matches!(self.ui.panel, Some(DoukPanel::Room(_))) {
+                // Enter clicks what the focus is on; nothing else.
+                match self.ui.hover {
+                    Some(b @ (Button::Panel(_) | Button::Bar(_))) if self.ui.enabled(b) => {
+                        self.press(b)?
+                    }
+                    _ => {}
                 }
                 return Ok(());
             }
@@ -1856,6 +1934,64 @@ impl Session {
             }
             _ => false,
         }
+    }
+
+    /// Arrow keys on the room and the plain area selection. With the
+    /// buttons up they move the focus along the buttons and the menu as
+    /// [`crate::games::doukyuusei::room::arrow`] says, setting the hover
+    /// where the program warps the pointer, which stays where it is. In
+    /// look mode and on the plain selection they move the pointer itself,
+    /// 15 pixels (45 with Shift), as the program does.
+    fn room_arrow(&mut self, key: crate::games::apeiria::keys::Arrow) -> Option<(i32, i32)> {
+        use crate::games::apeiria::keys::Arrow;
+        use crate::games::doukyuusei::keys::Target;
+        use crate::games::doukyuusei::menu::BUTTONS;
+        use crate::games::doukyuusei::room::{self, Focus, Go};
+        let Some(DoukPanel::Room(r)) = &self.ui.panel else {
+            return None;
+        };
+        if r.look {
+            let step = if self.town_input.fast {
+                room::STEP_FAST
+            } else {
+                room::STEP
+            };
+            let (dx, dy) = match key {
+                Arrow::Up => (0, -step),
+                Arrow::Down => (0, step),
+                Arrow::Left => (-step, 0),
+                Arrow::Right => (step, 0),
+            };
+            let (w, h) = self.screen_size();
+            let x = (self.ui.pointer.0 + dx).clamp(0, w as i32 - 1);
+            let y = (self.ui.pointer.1 + dy).clamp(0, h as i32 - 1);
+            self.pointer_move(x, y);
+            return Some((x, y));
+        }
+        let set = r.set();
+        let focus = match self.ui.hover {
+            Some(Button::Panel(id)) if (0..256).contains(&id) => Focus::Button(id as u8),
+            Some(Button::Bar(id)) => match BUTTONS.iter().position(|&b| b == id) {
+                Some(k) => Focus::Menu(k),
+                None => Focus::None,
+            },
+            _ => Focus::None,
+        };
+        let menu_point =
+            |this: &Self, k: usize| this.layout.douk_key_point(&this.ui, Target::Menu(k as i32));
+        let hidden5 = menu_point(self, 5).is_none();
+        let to = room::arrow(focus, key, self.ui.side_menu, hidden5);
+        let point = match to {
+            Some(Go::Button(k)) => room::button_point(set, k),
+            Some(Go::Menu(k)) => menu_point(self, k),
+            None => None,
+        };
+        if let Some((x, y)) = point {
+            self.ui.hover = self.hit(x, y);
+            self.sync_cursor();
+            self.frame = None;
+        }
+        None
     }
 
     /// Delete: ends the walk on the map, or on the mail forward screen
@@ -2076,6 +2212,10 @@ impl Session {
             self.frame = None;
             return Ok(true);
         }
+        // The room's menu stays open beside it; the cancel is the room's.
+        if self.room_cancel()? {
+            return Ok(true);
+        }
         if std::mem::take(&mut self.ui.side_menu) {
             self.frame = None;
             return Ok(true);
@@ -2249,6 +2389,15 @@ impl Session {
     pub fn arrow(&mut self, key: crate::games::apeiria::keys::Arrow) -> Result<Option<(i32, i32)>> {
         use crate::games::apeiria::keys::{self, Move};
         use crate::games::apeiria::omake;
+        if matches!(self.ui.panel, Some(DoukPanel::Room(_)))
+            && self.dialog.is_none()
+            && self.screen.is_none()
+            && self.veil.is_none()
+            && !self.menu_sliding()
+            && self.hmode.is_none()
+        {
+            return Ok(self.room_arrow(key));
+        }
         if self.focus_arrow(key) {
             return Ok(None);
         }
@@ -3920,6 +4069,12 @@ impl Session {
                         }
                         Vec::new()
                     }
+                    crate::games::doukyuusei::Panel::Room(r) => {
+                        if r.click_sound(id) {
+                            let _ = self.rt.play_sound(crate::games::doukyuusei::name::OK_SOUND);
+                        }
+                        Vec::new()
+                    }
                     crate::games::doukyuusei::Panel::Jump(_)
                     | crate::games::doukyuusei::Panel::Unlocked(_)
                     | crate::games::doukyuusei::Panel::Notice(_) => {
@@ -4319,6 +4474,13 @@ impl Session {
         }
         self.tick_menu_anim();
         self.tick_dialog();
+        // The game's own pointer swaps its two frames every 300 ms.
+        self.sync_cursor();
+        if self.rt.cursor.shown()
+            && self.rt.cursor.frame(before) != self.rt.cursor.frame(self.ui.clock)
+        {
+            self.frame = None;
+        }
         // きまぐれテンプテーション's notices slide over the scene.
         let moved = self.rt.k1_notices.advance(self.ui.clock);
         if moved || self.ui.k1_notices.is_some() != self.rt.k1_notices.visible() {
@@ -4723,6 +4885,19 @@ impl Session {
                     .and_then(|s| s.font(&mut self.rt.assets));
                 self.screens
                     .draw_dialog(&mut frame, &mut self.rt.assets, &self.ui, d, font)?;
+            }
+            // The game's own pointer is above everything.
+            self.sync_cursor();
+            if self.rt.cursor.shown() {
+                if let Ok(sheet) = self
+                    .rt
+                    .assets
+                    .image(crate::games::doukyuusei::cursor::SHEET)
+                {
+                    self.rt
+                        .cursor
+                        .draw(&mut frame, &sheet, self.ui.pointer, self.ui.clock);
+                }
             }
             if let Some(v) = &self.veil {
                 let (w, h) = self.renderer.size();

@@ -500,9 +500,15 @@ impl Runtime {
                 super::calendar::write(&mut vm.raw);
                 self.done()
             }
-            // The game's own mouse pointer on (0) and off (1), and the
-            // marks of scenes that the "skip scenes" setting jumps over
-            // (35: 0 marks, 1 clears); neither changes what is shown here.
+            // The game's own mouse pointer: on (0) puts up nothing by
+            // itself (only a hot spot under the pointer does), off (1)
+            // takes it away until the hover changes.
+            (POINTER, 1) => {
+                self.cursor.hide();
+                self.done()
+            }
+            // The marks of scenes that the "skip scenes" setting jumps
+            // over (35: 0 marks, 1 clears) change nothing shown here.
             (POINTER | SCENE_MARKS, _) => self.done(),
             (HERO_SPEAKS, _) => {
                 self.scene.speaker_name = Some(self.hero_name(vm));

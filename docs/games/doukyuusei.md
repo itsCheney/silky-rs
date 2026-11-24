@@ -57,12 +57,15 @@ Headless, `silky-run snap` plays the opening, looks around the hero's room, slee
 
 ### Room, selections and dialogs
 
-- Room screen (`Game.16(set)`, the program's area selection):
+- Room screen (`Game.16(set)`, the program's area selection with buttons, `CAreaBase`):
   - Buttons from `search_p.akb`: three large (168 x 171 cells, a row per state) at x = 1752, 1584, 1416, y = 909; two small (150 x 153) at (15, 927) and (165, 927). Set 0 has go out, look, sleep; other sets have a back arrow (138 x 140 from (672, 0), at (1782, 940)) in place of go out, and talk in place of sleep. The small buttons are quick save and quick load (quick load gray without a quick save).
   - `areasel_0N.carea` (a byte per screen pixel, 255 for none) says which button a pixel belongs to.
   - Look hides the buttons and shows the back arrow; hot spots come from the `.area` file the scripts name with `Game.17(file, 0)` (`42.area` for the hero's room), many rectangles per id. An id's high byte is the verb (0 look, 4 open, ...), the low byte the object.
   - Returns (verb + 1) × 256 + object for a hot spot and 255 × 256 + id for a button.
-  - `Game.17(1)` (`CAreaSelect`) is the same selection without buttons: the file's hot spots and the hint bar, returning (verb + 1) × 256 + object. Talk scenes use it.
+  - `Game.17(1)` (`CAreaSelect`) is the same selection without buttons: the file's hot spots and the hint bar, returning (verb + 1) × 256 + object. Talk scenes use it. Look mode is a nested run of the same class.
+  - Mouse pointer: the hovered element picks it. A hot spot with verb 0 to 12 shows picture verb + 1 of `curo_p.akb` (96 x 720: two 48 x 48 frames side by side that swap every 300 ms, a row per picture) with the hint line 239 + verb; a button or nothing shows picture 0, the system's pointer, and the sprite is away. Picture 1 (the magnifier) has its point 20 pixels in from the top left of the sprite, the others 24. The sprite is drawn on top of everything (above the buttons) while the pointer is inside the screen; the system's pointer is hidden while it is up. `Game.27(1)` hides it until the hover changes, `Game.27(0)` changes nothing; dialogs hide it.
+  - Keys, with the buttons up: one focus shared with the mouse. Hot spots take no key focus. From no focus every arrow goes to the menu button; from a button Up goes to the lowest menu button (the fifth, the fourth if that is left out, the menu button while the menu is shut), Down does nothing, Left and Right step along go out or back, look, sleep or talk (and not on to quick save and load; from quick load Right goes to quick save, from quick save to sleep or talk). From the menu Up and Down step along it and Down from the last goes to go out or back. The program moves the system pointer to the button's middle: go out (1836, 994) in set 0, back (1851, 1010) in sets 1 to 3, look (1668, 994) in sets 0 to 2, sleep or talk (1500, 994) in sets 0 and 2, quick save (88, 1000), quick load (240, 1000). Enter clicks the focused item. In look mode and on the plain selection the arrows move the pointer instead, 15 pixels a press, 45 with Shift held.
+  - Cancel (secondary click, Escape, Delete, keypad 0) plays the cancel sound. With the buttons up it returns 0xffff (the hero's room answers with message 87, the choice "leave my apartment" or "stay here", then message 88); in look mode it leaves look mode; on the plain selection it returns 0. Go out or back, look and sleep or talk play the OK sound when clicked; quick save, quick load, the things and the back arrow of look mode play none.
   - A quick save holds the message before the room; loading shows that message, then the room again (the original returns to the room itself).
   - Hint bar: `search_p.akb` (0, 684, 584, 68) at (658, 1005), and the `SYSTEM_<lang>.MAP` line for the element under the pointer: 232 to 238 for buttons, 239 + verb for a hot spot, 252 for back; empty on nothing. GDI text, size 20 (steps 20 and 10), from (725, 1029); one line, or wrapped at 500 pixels with the block centred on the line.
 - Hours dial (`Game.29(kind)`, `CTimeSelect`): `time_p_<lang>.akb` with the dial (750 x 756 from (0, 592)) at (586, 42), the question of the kind (403 x 76 from (1152, 76 × kind)) at (760, 456), eight hour buttons (144 x 148 cells) and back (151 x 153 from (750, 592)) placed by `TimeSelect.area`. Kind 0 asks how long to sleep, 1 how far to wind back, 2 how far to skip forward. Returns the hours, 0 for back.
@@ -191,7 +194,7 @@ The ending flags (byte variables 1720 to 1899) and the picture, scene and music 
 - Selections: no option with a mark (`b[1900 + N]`, written by the scripts through library function 58) has been seen under Wine yet. Marks show in normal play in easy mode (e.g. Satomi's phone call in `MYROOM.MES`, marks 2 and 3); the replay state of `h[69]` comes only from the memory replays, whose scripts have no selections. A save at that call is needed to compare.
 - Name entry: Japanese kana and kanji pages (not in this build). The keys, paste and focus moves are read from the program and not compared under Wine.
 - Chinese text: the exact face (the executable asks for SimHei and MS Gothic, whose ascent here comes from the frontend's face), the 700 and 900 weights (made by widening, not the real faces), the East Asian Width table (only the common wide and ambiguous ranges), a missing half-width character, the hint bars' wrapping and the name entry's grid in English (narrow letters sit at a fixed offset in the key) not compared under Wine.
-- Calls that change nothing here: `Game.10` subs 12, 13, 14 and 17 to 27 (14 puts the message window's layers away, same as no line up; the others do nothing in the program), `Select.0(-1)` (readies selection bar layers), `Game.20(24)` with a `.pal` file (not a sub command of this build), `Game.27` (game's own mouse pointer on/off), `Game.35` (marks for the "skip scenes" setting).
+- Calls that change nothing here: `Game.10` subs 12, 13, 14 and 17 to 27 (14 puts the message window's layers away, same as no line up; the others do nothing in the program), `Select.0(-1)` (readies selection bar layers), `Game.20(24)` with a `.pal` file (not a sub command of this build), `Game.27(0)` (game's own mouse pointer; `Game.27(1)` hides it until the hover changes), `Game.35` (marks for the "skip scenes" setting).
 - Other place screens and other screens; the other `Game` commands (engine classes taken from [engine-2026](../builds/engine-2026.md)).
 
 ## Where things are in the executable
@@ -207,7 +210,10 @@ Addresses in the program as it runs (the Steam wrapper unpacks it at its own ima
 | `/R18` setting read (picture tables, pages, layouts of the extras and the album) | 0x4732f9, 0x4739d6, 0x473a9d, 0x474775, 0x48d6ba, 0x48d705, 0x48db52, 0x4bc08f, 0x4bc12b, 0x4bc92b, 0x4d16fb, 0x4d1818, 0x4d1b09 |
 | `Game.22` hero speaks | 0x4e31e0 |
 | `Game.28` title menu | 0x4e5820 |
-| `Game.16` room screen (`CAreaSelect`, run) | 0x4a3500 |
+| `Game.16` room screen (`CAreaBase`, run) | 0x4a3500 |
+| Room keys: arrow target table, pointer warp points | 0x4a3830 |
+| Key dispatcher (arrows, Enter, cancel keys to slots) | 0x451070 |
+| Mouse pointer object, hover sets its picture | 0x5d1c60, 0x46e490 |
 | Room buttons placed | 0x4a2720 |
 | Room button drawn by state | 0x4a39b0 |
 | Room hint for a hot spot (verb) | 0x46e490 |

@@ -311,6 +311,9 @@ pub struct Runtime {
     pub map: Option<crate::games::kimaten2::map::Map>,
     /// The screen of 同級生 Remake that is up.
     pub panel: Option<crate::games::doukyuusei::Panel>,
+    /// The game's own mouse pointer of 同級生 Remake (`Game.27`, the hover
+    /// of the room's hot spots).
+    pub cursor: crate::games::doukyuusei::cursor::Cursor,
     /// The screen of きまぐれテンプテーション that is up.
     pub k1: Option<crate::games::kimaten1::Screen>,
     /// The notices of きまぐれテンプテーション (`Game.44`): strips over the
@@ -408,6 +411,7 @@ impl Runtime {
             actions: Vec::new(),
             map: None,
             panel: None,
+            cursor: Default::default(),
             k1: None,
             k1_notices: Default::default(),
             k1_title_extras: false,

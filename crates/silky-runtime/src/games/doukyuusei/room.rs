@@ -16,13 +16,25 @@
 //! `Game.17(1)` (the program's plain area selection) is the same without
 //! buttons: the hot spots of the file `Game.17(file, 0)` named and the
 //! hint bar, until a thing is clicked.
+//!
+//! Keys, read from the executable. With the buttons up the arrow keys
+//! move the focus (the program warps the pointer to a button's middle and
+//! the hover follows, see [`arrow`]); the hot spots take no key focus. In
+//! look mode and on the plain selection they move the pointer itself, 15
+//! pixels a press (45 with Shift). Enter clicks what the pointer is on.
+//! The secondary click, Escape, Delete and keypad 0 play the cancel
+//! sound and, with the buttons up, return 0xffff to the script (the
+//! hero's room asks there whether to leave); in look mode they leave it,
+//! on the plain selection they return 0.
 
 use std::sync::Arc;
 
 use silky_format::area::{self, Area};
 use silky_format::map::MapFile;
 
+use super::cursor;
 use super::gdi;
+use super::keys::Arrow;
 use super::window::Font;
 use crate::assets::{Assets, Language};
 use crate::render::Canvas;
@@ -68,6 +80,88 @@ pub enum Click {
     Close,
     /// Nothing happens.
     None,
+}
+
+/// What the cancel keys return from the room with the buttons up.
+pub const CANCELLED: i32 = 0xffff;
+/// Pixels an arrow key moves the pointer in look mode and on the plain
+/// selection; with Shift held.
+pub const STEP: i32 = 15;
+pub const STEP_FAST: i32 = 45;
+
+/// Where the focus is with the buttons up: nothing, a button by its
+/// `.carea` id, or one of the menu's buttons (0 the menu button, 1..=6
+/// its six).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Focus {
+    None,
+    Button(u8),
+    Menu(usize),
+}
+
+/// Where an arrow key puts the focus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Go {
+    Button(u8),
+    Menu(usize),
+}
+
+/// The target of an arrow key with the buttons up, if it goes anywhere.
+/// From nothing every key goes to the menu button. From a button, up goes
+/// to the lowest menu button (the fifth, the fourth when that one is
+/// left out; the menu button while the menu is shut), left steps along
+/// go out or back, look, sleep or talk (not on to the quick buttons) and
+/// right back, down does nothing. From the menu, up and down step along
+/// it and down from the last of them goes to go out or back; with the
+/// menu shut, down goes there too and the other keys stay on the menu
+/// button.
+pub fn arrow(focus: Focus, key: Arrow, menu_open: bool, hidden5: bool) -> Option<Go> {
+    match focus {
+        Focus::None => Some(Go::Menu(0)),
+        Focus::Button(k) => match key {
+            Arrow::Up => Some(Go::Menu(match (menu_open, hidden5) {
+                (false, _) => 0,
+                (true, true) => 4,
+                (true, false) => 5,
+            })),
+            Arrow::Down => None,
+            Arrow::Left => (k != SLEEP).then_some(Go::Button(k + 1)),
+            Arrow::Right => (k != EXIT).then(|| Go::Button(k - 1)),
+        },
+        Focus::Menu(k) => match key {
+            Arrow::Up if !menu_open => Some(Go::Menu(0)),
+            Arrow::Up => match k {
+                0 => None,
+                5 if hidden5 => Some(Go::Menu(0)),
+                k => Some(Go::Menu(k - 1)),
+            },
+            Arrow::Down if !menu_open => Some(Go::Button(EXIT)),
+            Arrow::Down => match k {
+                0..=3 => Some(Go::Menu(k + 1)),
+                4 if !hidden5 => Some(Go::Menu(5)),
+                4 => Some(Go::Button(EXIT)),
+                5 if hidden5 => Some(Go::Menu(0)),
+                5 => Some(Go::Button(EXIT)),
+                _ => None,
+            },
+            Arrow::Left | Arrow::Right => (!menu_open).then_some(Go::Menu(0)),
+        },
+    }
+}
+
+/// The middle of the button a key goes to, by set: where the program
+/// warps the pointer (go out at (1836, 994) in set 0, the back arrow at
+/// (1851, 1010) in the others). `None` for a button the set lacks.
+pub fn button_point(set: i32, id: u8) -> Option<(i32, i32)> {
+    match (set, id) {
+        (0, EXIT) => Some((1836, 994)),
+        (1..=3, EXIT) => Some((1851, 1010)),
+        (0..=2, LOOK) => Some((1668, 994)),
+        (0 | 2, SLEEP) => Some((1500, 994)),
+        (_, QUICK_SAVE) => Some((88, 1000)),
+        (_, QUICK_LOAD) => Some((240, 1000)),
+        _ => None,
+    }
 }
 
 /// Where a pointer is, as [`crate::ui::Button::Room`] ids: buttons by
@@ -242,6 +336,33 @@ impl Room {
         })
     }
 
+    /// The picture of the game's own pointer for the element under the
+    /// pointer (see [`cursor`]): by the verb of a thing, none otherwise.
+    pub fn cursor_picture(hover: Option<i32>) -> u8 {
+        match hover {
+            Some(h) if h != BACK && h >= THING => cursor::picture_for_id(h - THING),
+            _ => 0,
+        }
+    }
+
+    /// Whether a click on this element plays the OK sound: go out or back,
+    /// look and sleep or talk, in the button mode (quick save and quick
+    /// load, the back arrow of look mode and the things play none).
+    pub fn click_sound(&self, id: i32) -> bool {
+        !self.look && (0..THING).contains(&id) && matches!(id as u8, EXIT | LOOK | SLEEP)
+    }
+
+    /// The cancel keys and the secondary click: the click they make.
+    pub fn cancel(&self) -> Click {
+        if self.plain {
+            Click::Result(0)
+        } else if self.look {
+            Click::Look(false)
+        } else {
+            Click::Result(CANCELLED)
+        }
+    }
+
     pub fn click(&self, id: i32) -> Click {
         match id {
             BACK => Click::Look(false),
@@ -314,6 +435,116 @@ impl Room {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use Arrow::*;
+
+    fn room(set: i32) -> Room {
+        Room {
+            buttons: Arc::new(Vec::new()),
+            back: Arc::new(Vec::new()),
+            spots: Vec::new(),
+            set,
+            system: None,
+            look: false,
+            plain: false,
+        }
+    }
+
+    #[test]
+    fn keys_from_nothing_go_to_the_menu_button() {
+        for k in [Up, Down, Left, Right] {
+            assert_eq!(arrow(Focus::None, k, true, false), Some(Go::Menu(0)));
+            assert_eq!(arrow(Focus::None, k, false, false), Some(Go::Menu(0)));
+        }
+    }
+
+    #[test]
+    fn keys_on_the_buttons() {
+        let f = |k, key| arrow(Focus::Button(k), key, true, false);
+        assert_eq!(f(EXIT, Left), Some(Go::Button(LOOK)));
+        assert_eq!(f(LOOK, Left), Some(Go::Button(SLEEP)));
+        assert_eq!(f(SLEEP, Left), None);
+        assert_eq!(f(QUICK_SAVE, Left), Some(Go::Button(QUICK_LOAD)));
+        assert_eq!(f(EXIT, Right), None);
+        assert_eq!(f(LOOK, Right), Some(Go::Button(EXIT)));
+        assert_eq!(f(QUICK_SAVE, Right), Some(Go::Button(SLEEP)));
+        assert_eq!(f(QUICK_LOAD, Right), Some(Go::Button(QUICK_SAVE)));
+        assert_eq!(f(LOOK, Down), None);
+        assert_eq!(f(LOOK, Up), Some(Go::Menu(5)));
+        assert_eq!(
+            arrow(Focus::Button(LOOK), Up, true, true),
+            Some(Go::Menu(4))
+        );
+        assert_eq!(
+            arrow(Focus::Button(LOOK), Up, false, false),
+            Some(Go::Menu(0))
+        );
+    }
+
+    #[test]
+    fn keys_on_the_menu() {
+        let f = |k, key| arrow(Focus::Menu(k), key, true, false);
+        assert_eq!(f(0, Up), None);
+        assert_eq!(f(3, Up), Some(Go::Menu(2)));
+        assert_eq!(f(0, Down), Some(Go::Menu(1)));
+        assert_eq!(f(3, Down), Some(Go::Menu(4)));
+        assert_eq!(f(4, Down), Some(Go::Menu(5)));
+        assert_eq!(f(5, Down), Some(Go::Button(EXIT)));
+        assert_eq!(f(6, Down), None);
+        assert_eq!(f(6, Up), Some(Go::Menu(5)));
+        assert_eq!(f(2, Left), None);
+        assert_eq!(f(2, Right), None);
+        assert_eq!(
+            arrow(Focus::Menu(4), Down, true, true),
+            Some(Go::Button(EXIT))
+        );
+        let g = |key| arrow(Focus::Menu(0), key, false, false);
+        assert_eq!(g(Down), Some(Go::Button(EXIT)));
+        assert_eq!(g(Up), Some(Go::Menu(0)));
+        assert_eq!(g(Left), Some(Go::Menu(0)));
+        assert_eq!(g(Right), Some(Go::Menu(0)));
+    }
+
+    #[test]
+    fn points_by_set() {
+        assert_eq!(button_point(0, EXIT), Some((1836, 994)));
+        assert_eq!(button_point(1, EXIT), Some((1851, 1010)));
+        assert_eq!(button_point(2, LOOK), Some((1668, 994)));
+        assert_eq!(button_point(0, SLEEP), Some((1500, 994)));
+        assert_eq!(button_point(2, SLEEP), Some((1500, 994)));
+        assert_eq!(button_point(1, SLEEP), None);
+        assert_eq!(button_point(3, LOOK), None);
+        assert_eq!(button_point(1, QUICK_SAVE), Some((88, 1000)));
+        assert_eq!(button_point(1, QUICK_LOAD), Some((240, 1000)));
+        assert_eq!(button_point(0, 5), None);
+    }
+
+    #[test]
+    fn cancel_by_mode() {
+        let mut r = room(2);
+        assert_eq!(r.cancel(), Click::Result(0xffff));
+        r.look = true;
+        assert_eq!(r.cancel(), Click::Look(false));
+        r.plain = true;
+        assert_eq!(r.cancel(), Click::Result(0));
+    }
+
+    #[test]
+    fn sounds_and_pointer_pictures() {
+        let mut r = room(0);
+        for id in [EXIT, LOOK, SLEEP] {
+            assert!(r.click_sound(id as i32));
+        }
+        assert!(!r.click_sound(QUICK_SAVE as i32));
+        assert!(!r.click_sound(QUICK_LOAD as i32));
+        r.look = true;
+        assert!(!r.click_sound(BACK));
+        assert!(!r.click_sound(THING + 5));
+        assert_eq!(Room::cursor_picture(Some(THING + 3)), 1);
+        assert_eq!(Room::cursor_picture(Some(THING + 0x405)), 5);
+        assert_eq!(Room::cursor_picture(Some(BACK)), 0);
+        assert_eq!(Room::cursor_picture(Some(LOOK as i32)), 0);
+        assert_eq!(Room::cursor_picture(None), 0);
+    }
 
     #[test]
     fn names() {
