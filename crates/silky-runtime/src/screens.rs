@@ -492,6 +492,8 @@ pub struct LogEntry {
     pub speaker: Option<i32>,
     /// Speaker given by name (きまぐれテンプテーション2).
     pub speaker_name: Option<String>,
+    /// The speaker is the hero (同級生 Remake).
+    pub speaker_hero: bool,
     pub text: String,
     pub voice: Option<String>,
     /// Game state at this message, to go back to it.

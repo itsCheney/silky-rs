@@ -22,6 +22,7 @@ use std::sync::Arc;
 use silky_format::area::{self, Area};
 use silky_format::map::MapFile;
 
+use super::gdi;
 use super::window::Font;
 use crate::assets::{Assets, Language};
 use crate::render::Canvas;
@@ -117,6 +118,8 @@ const BACK_CELL: (u32, u32, u32) = (672, 138, 140);
 const BACK_POS: (i32, i32) = (1782, 940);
 /// Top left of the hint bar's text.
 const HINT_TEXT: (i32, i32) = (725, 1029);
+/// Width of the hint drawer's rectangle; longer lines wrap.
+const HINT_WIDTH: i32 = 500;
 
 /// Large buttons: sheet column (sleep, look, talk, go out) by id.
 fn big_column(id: u8, set: i32) -> u32 {
@@ -259,17 +262,17 @@ impl Room {
         assets: &mut Assets,
         state: impl Fn(i32) -> u32,
         hover: Option<i32>,
-        font: Option<&Font>,
+        _font: Option<&Font>,
     ) -> Result<()> {
         let sheet = assets.image("search_p.akb")?;
-        // The hint bar, and its line in the half-size font from (725,
+        // The hint bar, and its line in the GDI font (size 20) from (725,
         // 1029).
         canvas.draw_part(&sheet, (0, 684, 584, 68), 658, 1005, false, 255);
         let line = hover
             .and_then(|h| self.hint(h))
             .and_then(|id| self.system.as_ref()?.get(0, id));
-        if let (Some(line), Some(font)) = (line, font) {
-            font.draw_small(canvas, line, HINT_TEXT.0, HINT_TEXT.1);
+        if let Some(line) = line {
+            gdi::draw_hint(canvas, line, HINT_TEXT.0, HINT_TEXT.1, 20, HINT_WIDTH);
         }
         let back = |canvas: &mut Canvas, s: u32| {
             let (x, w, h) = BACK_CELL;

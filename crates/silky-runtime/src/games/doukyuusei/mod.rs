@@ -13,6 +13,7 @@ pub mod config;
 mod flag_build;
 mod flag_clock;
 pub mod flaglist;
+pub mod gdi;
 pub mod hours;
 pub mod intro;
 mod intro_data;

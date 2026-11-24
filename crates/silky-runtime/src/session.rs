@@ -456,6 +456,7 @@ impl Session {
                 self.log.push(LogEntry {
                     speaker: self.rt.scene.speaker,
                     speaker_name: self.rt.scene.speaker_name.clone(),
+                    speaker_hero: self.rt.scene.speaker_hero,
                     text: text.clone(),
                     voice: None,
                     state: kept,
@@ -645,6 +646,7 @@ impl Session {
                             self.log.push(LogEntry {
                                 speaker: self.rt.scene.speaker,
                                 speaker_name: self.rt.scene.speaker_name.clone(),
+                                speaker_hero: self.rt.scene.speaker_hero,
                                 text: text.clone(),
                                 voice: self.rt.voice.clone(),
                                 state: self.rt.save_state(&self.vm),

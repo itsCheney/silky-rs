@@ -1281,6 +1281,7 @@ impl Renderer {
                 font,
                 (&band, alpha),
                 speaker,
+                scene.speaker_hero,
                 scene.speaker_icon,
             )?;
             if text {

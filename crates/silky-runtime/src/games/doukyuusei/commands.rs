@@ -165,6 +165,7 @@ impl Runtime {
             (TEXT, 1) => {
                 let id = c.int(0);
                 let name = format!("names_{}.map", self.config.language.suffix());
+                self.scene.speaker_hero = false;
                 self.scene.speaker_name = self
                     .assets
                     .data(&name)
@@ -254,6 +255,7 @@ impl Runtime {
             }
             (NAME_PLATE, _) => {
                 self.scene.speaker_name = Some(self.hero_name(vm));
+                self.scene.speaker_hero = true;
                 self.done()
             }
             (TOWN, sub) => self.doukyuusei_town(vm, c, sub),
@@ -504,6 +506,7 @@ impl Runtime {
             (POINTER | SCENE_MARKS, _) => self.done(),
             (HERO_SPEAKS, _) => {
                 self.scene.speaker_name = Some(self.hero_name(vm));
+                self.scene.speaker_hero = true;
                 self.done()
             }
             (TEXT, 2) => {

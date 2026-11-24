@@ -203,6 +203,9 @@ pub struct Scene {
     /// Speaker given by name (Japanese builds: `Game.11("name")`).
     #[serde(default)]
     pub speaker_name: Option<String>,
+    /// 同級生 Remake: the speaker is the hero (his name is the player's).
+    #[serde(default)]
+    pub speaker_hero: bool,
     /// Music playing, by channel, so a loaded save can start it again.
     pub music: BTreeMap<i32, String>,
     /// Screen covered by a colour (0xRRGGBB) after a fade out.

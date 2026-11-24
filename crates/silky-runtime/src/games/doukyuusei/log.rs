@@ -17,6 +17,7 @@ use std::sync::Arc;
 use silky_format::akb::Image;
 use silky_format::area::Area;
 
+use super::gdi;
 use super::system::System;
 use super::window;
 use crate::assets::Assets;
@@ -64,6 +65,8 @@ const HINT_TEXT: (i32, i32) = (977, 996);
 const HINT_RAISE: i32 = 15;
 const HINT_LINE: i32 = 25;
 const HINT_SIZE: u32 = 24;
+/// Pen move of the hint (wide, narrow): 26 and 13 at size 24.
+const HINT_ADVANCE: (i32, i32) = (26, 13);
 
 /// The thumb: top and length.
 pub fn thumb(top: usize, len: usize) -> (i32, i32) {
@@ -136,7 +139,7 @@ impl System {
             canvas.draw_part(&sheet, RULE, RULE_POS.0, RULE_POS.1 + dy, false, 255);
             if let Some(font) = font {
                 if let Some(name) = &e.speaker_name {
-                    font.draw_name(canvas, name, NAME_POS.0, NAME_POS.1 + dy);
+                    font.draw_name(canvas, name, NAME_POS.0, NAME_POS.1 + dy, e.speaker_hero);
                 }
                 for (_, p) in window::layout(&e.text) {
                     if p.y >= TEXT_LINES * window::LINE {
@@ -168,11 +171,21 @@ impl System {
             let (y, length) = thumb(b.top, log.len());
             draw_thumb(canvas, &sheet, column, y, length);
         }
-        if let (Some(text), Some(font)) = (hover.and_then(|id| self.log_hint(id)), font) {
+        if let Some(text) = hover.and_then(|id| self.log_hint(id)) {
             let n = text.lines().count() as i32;
             for (k, line) in text.lines().enumerate() {
                 let y = HINT_TEXT.1 - HINT_RAISE * (n - 1) + k as i32 * HINT_LINE;
-                font.draw_sized(canvas, line, HINT_TEXT.0, y, HINT_SIZE);
+                let style = gdi::Style::OUTLINED;
+                gdi::draw_line(
+                    canvas,
+                    line,
+                    HINT_TEXT.0,
+                    y,
+                    HINT_SIZE,
+                    HINT_ADVANCE,
+                    style,
+                    None,
+                );
             }
         }
         Ok(())

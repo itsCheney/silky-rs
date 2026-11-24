@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 use silky_format::akb::Image;
 
+use super::gdi;
 use super::plate::{DATE, MONEY, TIME};
 use super::system::{ids as sys_ids, side, System};
 use crate::assets::{Assets, Language};
@@ -560,7 +561,7 @@ impl FlagScreen {
             Page::Calendar => {
                 self.draw_calendar(canvas, &sheet, &state);
                 if let (Some(id), false) = (hover, self.notice) {
-                    self.draw_balloon(sys, canvas, assets, &sheet, language, id)?;
+                    self.draw_balloon(sys, canvas, &sheet, language, id)?;
                 }
             }
         }
@@ -737,7 +738,6 @@ impl FlagScreen {
         &self,
         sys: &System,
         canvas: &mut Canvas,
-        assets: &mut Assets,
         sheet: &Arc<Image>,
         language: Language,
         id: i32,
@@ -764,10 +764,18 @@ impl FlagScreen {
         };
         let y = 273 + 188 * row as i32;
         canvas.draw(&Arc::new(balloon(sheet, col == 6)), x, y, false);
-        if let Some(font) = sys.font(assets) {
-            for (i, line) in lines.iter().enumerate() {
-                font.draw_small(canvas, line, x + TEXT_AT.0, y + TEXT_AT.1 + 20 * i as i32);
-            }
+        for (i, line) in lines.iter().enumerate() {
+            let (lx, ly) = (x + TEXT_AT.0, y + TEXT_AT.1 + 20 * i as i32);
+            gdi::draw_line(
+                canvas,
+                line,
+                lx,
+                ly,
+                20,
+                (20, 10),
+                gdi::Style::OUTLINED,
+                None,
+            );
         }
         Ok(())
     }

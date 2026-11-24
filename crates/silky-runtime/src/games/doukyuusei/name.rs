@@ -15,6 +15,7 @@
 
 use silky_format::area::Area;
 
+use super::gdi;
 use super::keys::Arrow;
 use super::room::Click;
 use super::window::Font;
@@ -779,9 +780,16 @@ impl Name {
                 );
                 // The bitmap font lacks most full-width letters, so English
                 // draws the letter it inserts, centred in the cell.
-                if let (Some(font), Some(g)) = (font, self.cell_char(id)) {
+                if let Some(g) = self.cell_char(id) {
                     let dx = if g.is_ascii() { GLYPH.0 + 10 } else { GLYPH.0 };
-                    font.draw_char(canvas, g, at.0 + dx, at.1 + GLYPH.1, false, 255);
+                    gdi::draw_char(
+                        canvas,
+                        g,
+                        at.0 + dx,
+                        at.1 + GLYPH.1,
+                        40,
+                        gdi::Style::OUTLINED,
+                    );
                 }
             }
         }
@@ -801,8 +809,8 @@ impl Name {
         if let Some(font) = font {
             let mut x = NAME_POS.0;
             for &c in &self.name {
-                font.draw_char(canvas, c, x, NAME_POS.1, false, 255);
-                x += if c.is_ascii() { 30 } else { 60 };
+                gdi::draw_char(canvas, c, x, NAME_POS.1, 40, gdi::Style::OUTLINED);
+                x += gdi::advance(c, (60, 30));
             }
             // The composition of an input method goes in the bar, while
             // the name has room.

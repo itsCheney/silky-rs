@@ -1284,6 +1284,7 @@ impl Host for Runtime {
                             self.scene.text = None;
                             self.scene.speaker = None;
                             self.scene.speaker_name = None;
+                            self.scene.speaker_hero = false;
                         }
                         self.handled += 1;
                         return Ok(Flow::Continue);
@@ -1465,6 +1466,7 @@ impl Host for Runtime {
         self.message_script = vm.script_name().unwrap_or("").to_ascii_lowercase();
         self.scene.speaker = None;
         self.scene.speaker_name = None;
+        self.scene.speaker_hero = false;
         self.voice = None;
         self.lip_track = None;
         // A new message cuts the voice of the last one, unless the player

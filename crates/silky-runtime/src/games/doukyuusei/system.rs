@@ -33,6 +33,7 @@ use crate::render::Canvas;
 use crate::save::{SaveFile, Saves, QUICK};
 use crate::Result;
 
+use super::gdi;
 use super::savenote;
 use super::window::Font;
 
@@ -98,6 +99,7 @@ const STRIP_POS: (i32, i32) = (162, 994);
 const HINT: (u32, u32, u32, u32) = (0, 742, 582, 66);
 const HINT_POS: (i32, i32) = (1271, 1005);
 const HINT_TEXT: (i32, i32) = (1338, 1029);
+const HINT_WIDTH: i32 = 500;
 /// `SYSTEM_<lang>.MAP` lines of the side buttons, from settings to back.
 const SIDE_HINT: u32 = 79;
 
@@ -499,8 +501,8 @@ impl System {
         let sheet = assets.image("menu_p.akb")?;
         canvas.draw_part(&sheet, STRIP, STRIP_POS.0, STRIP_POS.1, false, 255);
         canvas.draw_part(&sheet, HINT, HINT_POS.0, HINT_POS.1, false, 255);
-        if let (Some(text), Some(font)) = (hint, self.font(assets)) {
-            font.draw_small(canvas, text, HINT_TEXT.0, HINT_TEXT.1);
+        if let Some(text) = hint {
+            gdi::draw_hint(canvas, text, HINT_TEXT.0, HINT_TEXT.1, 20, HINT_WIDTH);
         }
         Ok(())
     }
@@ -579,13 +581,16 @@ impl System {
                 draw_info(canvas, &sheet, c, a.left, a.top, &CARD_PLACES);
                 // The black field below holds the comment, or the label of
                 // an auto or quick save.
-                if let Some(font) = self.font(assets) {
+                {
                     let (cx, cy, _, _) = savenote::CARD_AREA;
                     let (tx, ty) = savenote::CARD_TEXT;
                     let lines = savenote::card_lines(&c.slot, &c.comment);
+                    let (size, step) = (savenote::CARD_FONT, savenote::CARD_FONT as i32);
                     for (k, line) in lines.iter().enumerate() {
                         let y = a.top + cy + ty + savenote::LINE_PX * k as i32;
-                        font.draw_sized(canvas, line, a.left + cx + tx, y, savenote::CARD_FONT);
+                        let at = a.left + cx + tx;
+                        let style = gdi::Style::OUTLINED;
+                        gdi::draw_line(canvas, line, at, y, size, (step, step / 2), style, None);
                     }
                 }
             }
@@ -993,9 +998,10 @@ pub fn draw_dialog(
         let columns = savenote::width(&d.comment);
         // The field is one line: a line break ends what shows.
         let shown = d.comment.split('\n').next().unwrap_or_default();
-        if let Some(font) = font {
-            font.draw_small(canvas, shown, fx, fy + 2);
-        }
+        // Size 20, plain black, from the field's corner, cut at its clip.
+        let style = gdi::Style::PLAIN_BLACK;
+        let clip = Some(fx + savenote::FIELD_CLIP);
+        gdi::draw_line(canvas, shown, fx, fy, 20, (20, 10), style, clip);
         // An opaque black bar after the text, not once the text is long.
         if d.caret && columns < savenote::CARET_BELOW {
             let x = fx + columns as i32 * savenote::UNIT_PX;

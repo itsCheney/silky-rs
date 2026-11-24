@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use silky_format::akb::Image;
 
+use super::gdi;
 use crate::assets::Assets;
 use crate::render::Canvas;
 use crate::Result;
@@ -199,48 +200,6 @@ fn halve(img: &Image) -> Image {
     }
 }
 
-/// A part of an image resized to `w` x `h`, each pixel the area-weighted
-/// average of the pixels it covers (straight alpha).
-pub(super) fn resized(img: &Image, part: (u32, u32, u32, u32), w: u32, h: u32) -> Image {
-    let (px, py, pw, ph) = part;
-    let mut rgba = vec![0u8; (w * h * 4) as usize];
-    // Weights in 1/(w*h) source pixels: output pixel (x, y) covers source
-    // [x*pw/w, (x+1)*pw/w).
-    for y in 0..h {
-        for x in 0..w {
-            let mut acc = [0u64; 4];
-            let mut total = 0u64;
-            let (sx0, sx1) = (x * pw, (x + 1) * pw);
-            let (sy0, sy1) = (y * ph, (y + 1) * ph);
-            for sy in sy0 / h..sy1.div_ceil(h) {
-                let wy = ((sy + 1) * h).min(sy1).saturating_sub((sy * h).max(sy0)) as u64;
-                for sx in sx0 / w..sx1.div_ceil(w) {
-                    let wx = ((sx + 1) * w).min(sx1).saturating_sub((sx * w).max(sx0)) as u64;
-                    let i = (((py + sy) * img.width + px + sx) * 4) as usize;
-                    let a = img.rgba[i + 3] as u64 * wx * wy;
-                    for k in 0..3 {
-                        acc[k] += img.rgba[i + k] as u64 * a;
-                    }
-                    acc[3] += a;
-                    total += wx * wy;
-                }
-            }
-            let o = ((y * w + x) * 4) as usize;
-            if acc[3] > 0 {
-                for k in 0..3 {
-                    rgba[o + k] = (acc[k] / acc[3]) as u8;
-                }
-                rgba[o + 3] = ((acc[3] + total / 2) / total) as u8;
-            }
-        }
-    }
-    Image {
-        width: w,
-        height: h,
-        rgba,
-    }
-}
-
 impl Sheet {
     fn new(img: Arc<Image>, w: u32) -> Self {
         // Same glyph with its colour replaced, the alpha kept.
@@ -274,8 +233,8 @@ pub struct Font {
     han: Sheet,
     han_i: Sheet,
     zen: Sheet,
-    /// Half-size sheets, for the room's hint bar (size 20 in the
-    /// executable).
+    /// Half-size sheets, for the input method's composition (size 20 in
+    /// the executable).
     han_small: Sheet,
     zen_small: Sheet,
     han_index: HashMap<char, u32>,
@@ -288,6 +247,11 @@ pub struct Font {
 /// The TrueType faces the frontend gave, for characters missing from
 /// `font_zen.map`.
 static FALLBACK: OnceLock<Vec<fontdue::Font>> = OnceLock::new();
+
+/// The faces the frontend gave, if any.
+pub(super) fn faces() -> Option<&'static [fontdue::Font]> {
+    FALLBACK.get().map(Vec::as_slice)
+}
 
 /// Sets the faces used for characters the bitmap font lacks (the first
 /// call wins). Without it such characters are skipped.
@@ -347,12 +311,6 @@ impl Font {
             zen_index: index(&assets.data("font_zen.map")?),
             extra: Default::default(),
         })
-    }
-
-    /// Whether the bitmap font has no glyph for a full-width character
-    /// that the fallback face can draw.
-    fn lacks(&self, c: char) -> bool {
-        !half(c) && !self.zen_index.contains_key(&c) && self.extra_cell(c).is_some()
     }
 
     /// The 40 x 40 cell of `c` in the fallback face (black, white, gray).
@@ -486,28 +444,6 @@ impl Font {
         }
     }
 
-    /// Draws a line of text at half size from (x, y), outlined like the
-    /// message text.
-    pub fn draw_small(&self, canvas: &mut Canvas, text: &str, x: i32, y: i32) {
-        let mut cx = x;
-        for c in text.chars() {
-            let (sheet, at) = if half(c) {
-                (&self.han_small, self.han_index.get(&c))
-            } else {
-                (&self.zen_small, self.zen_index.get(&c))
-            };
-            if let Some(&i) = at {
-                let h = GLYPH_H / 2;
-                let part = ((i % PER_ROW) * sheet.w, (i / PER_ROW) * h, sheet.w, h);
-                for (dx, dy) in OUTLINE {
-                    canvas.draw_part(&sheet.black, part, cx + dx, y + dy, false, 255);
-                }
-                canvas.draw_part(&sheet.white, part, cx, y, false, 255);
-            }
-            cx += cells(c) * CELL / 2;
-        }
-    }
-
     /// Draws the composition of an input method at half size from (x, y):
     /// an opaque white cell behind each character, a black glyph on it
     /// (no outline). Characters that would start at or past `right` are
@@ -534,50 +470,15 @@ impl Font {
         }
     }
 
-    /// Draws a line of text from (x, y) at a font size below the glyphs'
-    /// 40 (the cells scaled down), outlined like the message text.
-    pub fn draw_sized(&self, canvas: &mut Canvas, text: &str, x: i32, y: i32, size: u32) {
-        let mut cx = x;
-        for c in text.chars() {
-            let (sheet, at) = if half(c) {
-                (&self.han, self.han_index.get(&c))
-            } else {
-                (&self.zen, self.zen_index.get(&c))
-            };
-            if let Some(&i) = at {
-                let part = (
-                    (i % PER_ROW) * sheet.w,
-                    (i / PER_ROW) * GLYPH_H,
-                    sheet.w,
-                    GLYPH_H,
-                );
-                let (w, h) = (sheet.w * size / GLYPH_H, size);
-                let white = Arc::new(resized(&sheet.white, part, w, h));
-                let black = Arc::new(resized(&sheet.black, part, w, h));
-                for (dx, dy) in OUTLINE {
-                    canvas.draw(&black, cx + dx, y + dy, false);
-                }
-                canvas.draw(&white, cx, y, false);
-            }
-            cx += cells(c) * CELL * size as i32 / GLYPH_H as i32;
-        }
-    }
-
-    /// Draws a name from (x, y). One with a full-width character the
-    /// bitmap font lacks is drawn whole with the fallback face, as the
-    /// executable draws such names with a GDI font.
-    pub fn draw_name(&self, canvas: &mut Canvas, text: &str, x: i32, y: i32) {
-        if !text.chars().any(|c| self.lacks(c)) {
-            return self.draw_line(canvas, text, x, y);
-        }
-        let mut cx = x;
-        for c in text.chars() {
-            if half(c) {
-                self.glyph(canvas, c, cx, y, false, 255, false);
-            } else {
-                self.fallback_glyph(canvas, c, cx, y, 255, false);
-            }
-            cx += cells(c) * CELL;
+    /// Draws a name from (x, y). The hero's name with a wide character
+    /// (East Asian Width) is drawn whole with the GDI font, 40 high, as the
+    /// executable does; any other name, and a hero's of narrow characters,
+    /// is drawn with the bitmap font.
+    pub fn draw_name(&self, canvas: &mut Canvas, text: &str, x: i32, y: i32, hero: bool) {
+        if hero && text.chars().any(gdi::is_wide) {
+            gdi::draw_line(canvas, text, x, y, 40, (40, 20), gdi::Style::OUTLINED, None);
+        } else {
+            self.draw_line(canvas, text, x, y);
         }
     }
 
@@ -608,6 +509,7 @@ pub fn draw_window(
     font: &Font,
     (band, opacity): (&Arc<Image>, u8),
     speaker: Option<&str>,
+    hero: bool,
     icon: Option<u32>,
 ) -> Result<()> {
     let parts = assets.image("message_p.akb")?;
@@ -628,7 +530,7 @@ pub fn draw_window(
     if let Some(name) = speaker {
         let (x, y) = NAME_PART_POS;
         canvas.draw_part(&parts, NAME_PART, x, y, false, 255);
-        font.draw_name(canvas, name, NAME_TEXT.0, NAME_TEXT.1);
+        font.draw_name(canvas, name, NAME_TEXT.0, NAME_TEXT.1, hero);
     }
     Ok(())
 }
@@ -679,8 +581,6 @@ mod tests {
             zen_index: HashMap::new(),
             extra: Default::default(),
         };
-        assert!(font.lacks('拓'));
-        assert!(!font.lacks('a'));
         let cell = font.extra_cell('拓').unwrap();
         assert!(cell[1].rgba.chunks_exact(4).any(|p| p[3] > 200));
         assert!(cell[0].rgba.chunks_exact(4).all(|p| p[0] == 0));
