@@ -142,6 +142,10 @@ pub enum Pause {
     /// A screen of 同級生 Remake is up ([`Runtime::panel`]); answer
     /// with [`Runtime::answer_action`].
     Panel,
+    /// A screen of きまぐれテンプテーション is up ([`Runtime::k1`]); answer
+    /// with [`Runtime::answer_action`], or [`Runtime::close_k1`] when it
+    /// returns nothing.
+    Kimaten1,
     /// きまぐれテンプテーション2's costume screen from アンネの部屋
     /// (`Game.51`, with its mode); answer with [`Runtime::answer_action`].
     Costume(i32),
@@ -298,6 +302,8 @@ pub struct Runtime {
     pub map: Option<crate::games::kimaten2::map::Map>,
     /// The screen of 同級生 Remake that is up.
     pub panel: Option<crate::games::doukyuusei::Panel>,
+    /// The screen of きまぐれテンプテーション that is up.
+    pub k1: Option<crate::games::kimaten1::Screen>,
     /// The colour covering the screen when 同級生 Remake's name entry
     /// opened: the page shows the background, and the cover comes back
     /// when it is done.
@@ -386,6 +392,7 @@ impl Runtime {
             actions: Vec::new(),
             map: None,
             panel: None,
+            k1: None,
             cover_under_name: None,
             town: None,
             sprites: Default::default(),
@@ -751,6 +758,7 @@ impl Runtime {
     pub fn answer_action(&mut self, vm: &mut Vm, result: i32) {
         self.actions.clear();
         self.map = None;
+        self.k1 = None;
         // 同級生 Remake's room takes its status plate down; the walking
         // maps leave it up.
         if let Some(crate::games::doukyuusei::Panel::Room(r)) = self.panel.take() {
@@ -759,6 +767,12 @@ impl Runtime {
             }
         }
         vm.push(result);
+    }
+
+    /// Closes a screen of きまぐれテンプテーション whose call returns
+    /// nothing.
+    pub fn close_k1(&mut self) {
+        self.k1 = None;
     }
 
     /// Sprite calls of ふゆから、くるる。 besides loading the title
@@ -1324,7 +1338,9 @@ impl Host for Runtime {
                         return Ok(Flow::Continue);
                     }
                 }
-                if class == SAVE && matches!(title, Title::Fuyukuru | Title::Apeiria) {
+                if class == SAVE
+                    && matches!(title, Title::Fuyukuru | Title::Apeiria | Title::Kimaten1)
+                {
                     if let Some(r) = self.scene.store.call(sub, &args) {
                         if let Some(v) = r {
                             vm.push(v);
@@ -1336,6 +1352,7 @@ impl Host for Runtime {
                 let no_op = match title {
                     Title::Fuyukuru => crate::games::fuyukuru::commands::nothing_to_do(class, sub),
                     Title::Apeiria => crate::games::apeiria::commands::nothing_to_do(class, sub),
+                    Title::Kimaten1 => crate::games::kimaten1::commands::nothing_to_do(class, sub),
                     // Select.0(-1): the engine readies the layers its
                     // selection bars are drawn on.
                     Title::Doukyuusei => class == native::SELECT && sub == 0,

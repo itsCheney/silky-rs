@@ -34,6 +34,9 @@ pub enum Button {
     /// Element of a screen of 同級生 Remake, by the id its
     /// [`crate::games::doukyuusei::Panel`] gives.
     Panel(i32),
+    /// Element of a screen of きまぐれテンプテーション, by the id its
+    /// [`crate::games::kimaten1::Screen`] gives.
+    Kimaten1(i32),
     /// Element of an engine screen (save/load, backlog), by area id.
     Screen(i32),
     /// Yes, no or "do not ask again" of a dialog, by `dialog.area` id.
@@ -185,6 +188,10 @@ pub struct Ui {
     pub map: Option<crate::games::kimaten2::map::Map>,
     /// A screen of 同級生 Remake (room, hours dial), while it is up.
     pub panel: Option<crate::games::doukyuusei::Panel>,
+    /// The screen of きまぐれテンプテーション that is up, and the clock
+    /// when it opened.
+    pub k1: Option<crate::games::kimaten1::Screen>,
+    pub k1_since: u64,
     /// 同級生 Remake's status plate, while it is up.
     pub plate: Option<crate::games::doukyuusei::plate::Plate>,
     /// The backlog has entries (同級生 Remake's menu leaves its button out
@@ -1990,6 +1997,12 @@ impl Layout {
         if let Some(p) = &ui.panel {
             return p.hit(x, y).map(Button::Panel);
         }
+        if let Some(s) = &ui.k1 {
+            return s
+                .hit(x, y)
+                .filter(|&id| s.enabled(id))
+                .map(Button::Kimaten1);
+        }
         if let (false, Some(k)) = (ui.actions.is_empty(), &self.kimaten2) {
             return k.hit_actions(ui, x, y);
         }
@@ -2135,6 +2148,19 @@ impl Layout {
         }
         if let (Some(m), Some(k)) = (&ui.map, &self.kimaten2) {
             return k.draw_map(canvas, assets, ui, m);
+        }
+        if let Some(s) = &ui.k1 {
+            let id = |b: Option<Button>| match b {
+                Some(Button::Kimaten1(id)) => Some(id),
+                _ => None,
+            };
+            let look = crate::games::kimaten1::Look {
+                hover: id(ui.hover),
+                pressed: id(ui.pressed),
+                ms: ui.clock.saturating_sub(ui.k1_since),
+                text,
+            };
+            return s.draw(canvas, assets, &look);
         }
         if let Some(p) = &ui.panel {
             let hover = match ui.hover {

@@ -100,6 +100,8 @@ impl ArchiveSet {
 pub enum Title {
     /// ふゆから、くるる。
     Fuyukuru,
+    /// きまぐれテンプテーション.
+    Kimaten1,
     /// きまぐれテンプテーション2.
     Kimaten2,
     /// 景の海のアペイリア.
@@ -116,6 +118,7 @@ impl Title {
     fn detect(root: &Path) -> (Self, Option<PathBuf>) {
         for (exe, title) in [
             ("kimaten2.exe", Title::Kimaten2),
+            ("kimaten.exe", Title::Kimaten1),
             ("apeiria.exe", Title::Apeiria),
             ("fuyukuru.exe", Title::Fuyukuru),
             ("doukyuusei.exe", Title::Doukyuusei),

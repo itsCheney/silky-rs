@@ -17,6 +17,7 @@
 pub mod apeiria;
 pub mod doukyuusei;
 pub mod fuyukuru;
+pub mod kimaten1;
 pub mod kimaten2;
 
 use silky_format::game::{Kind, Title};
@@ -91,6 +92,15 @@ impl Runtime {
             }
             if !kimaten2::SHARED_COMMANDS.contains(&command) {
                 self.skip(format!("Game.{command}"), vm, GAME, command);
+                return Ok(Flow::Continue);
+            }
+        }
+        if title == Title::Kimaten1 {
+            if let Some(flow) = self.kimaten1_game(vm, command, sub, &args) {
+                return flow;
+            }
+            if !kimaten1::SHARED_COMMANDS.contains(&command) {
+                self.skip(format!("Game.{command}.{sub}"), vm, GAME, command);
                 return Ok(Flow::Continue);
             }
         }

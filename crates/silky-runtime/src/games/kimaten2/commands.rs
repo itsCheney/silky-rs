@@ -97,8 +97,9 @@ impl Runtime {
     /// E-mote model in the message window (command 10): 6 load the two
     /// files of a costume, 7 face, 9 show, 11 hide, 12 and 13 pose, 16 `a`
     /// timeline, 17 a number kept on each model that this runtime does not
-    /// use. False for the others.
-    fn kimaten2_emote(&mut self, args: &[Value], sub: i32) -> bool {
+    /// use. False for the others. きまぐれテンプテーション's companion takes
+    /// the same calls.
+    pub(crate) fn kimaten2_emote(&mut self, args: &[Value], sub: i32) -> bool {
         let args = &args[..args.len().saturating_sub(1)];
         let n = |i: usize| args.get(i).map(Value::int).unwrap_or(0);
         let emote = &mut self.scene.emote;
@@ -146,7 +147,7 @@ impl Runtime {
     /// are kept for sub 2, which crossfades like command 13. False for the
     /// others. An H scene model starts in the second outfit's picture
     /// when byte 708 is 1.
-    fn kimaten2_emotes(&mut self, args: &[Value], sub: i32, vm: &Vm) -> bool {
+    pub(crate) fn kimaten2_emotes(&mut self, args: &[Value], sub: i32, vm: &Vm) -> bool {
         let args = &args[..args.len().saturating_sub(1)];
         let n = |i: usize| args.get(i).map(Value::int).unwrap_or(0);
         let last = n(args.len().saturating_sub(1));

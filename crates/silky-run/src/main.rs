@@ -418,6 +418,7 @@ fn snap(
     let mut mail_selects = 0usize;
     let mut action_menus = 0usize;
     let mut maps = 0usize;
+    let mut k1_shots: std::collections::HashMap<&'static str, usize> = Default::default();
     let mut rooms = 0usize;
     let mut trains = 0usize;
     let mut towns = 0;
@@ -675,6 +676,46 @@ fn snap(
                     println!("map {} -> {pick}", if m.second { 2 } else { 1 });
                     maps += 1;
                     rt.answer_action(vm, pick);
+                }
+                Some(Pause::Kimaten1) => {
+                    // A screen of きまぐれテンプテーション: the first three
+                    // frames of each kind, then the screen's own presses
+                    // until it answers.
+                    use silky_runtime::games::kimaten1::Click;
+                    let mut screen = rt.k1.take().unwrap();
+                    let (_, name) = screen.auto_pick();
+                    let n = k1_shots.entry(name).or_default();
+                    if *n < 3 {
+                        let mut frame = renderer.render_scene(&rt.scene, &mut rt.assets, false)?;
+                        let ui = Ui {
+                            k1: Some(screen.clone()),
+                            ..Ui::default()
+                        };
+                        layout.draw(&mut frame, &mut rt.assets, &ui, false, None)?;
+                        let path = out.join(format!("{name}{n}.png"));
+                        write_png(&path, &frame)?;
+                        println!("{}", path.display());
+                    }
+                    *n += 1;
+                    let mut click = Click::None;
+                    for _ in 0..64 {
+                        click = match screen.auto_pick().0 {
+                            Some(id) => screen.click(id),
+                            None => screen.cancel(),
+                        };
+                        for (i, v) in screen.take_bytes() {
+                            vm.set_var_b(i, v);
+                        }
+                        if click != Click::None {
+                            break;
+                        }
+                    }
+                    println!("{name} -> {click:?}");
+                    match click {
+                        Click::Result(r) => rt.answer_action(vm, r),
+                        Click::Close => rt.close_k1(),
+                        Click::None => anyhow::bail!("the {name} screen gave no answer"),
+                    }
                 }
                 Some(Pause::Panel)
                     if matches!(

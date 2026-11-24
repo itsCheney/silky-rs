@@ -781,6 +781,18 @@ impl Session {
                         self.base = None;
                         break;
                     }
+                    Some(Pause::Kimaten1) => {
+                        self.ui.k1 = self.rt.k1.take();
+                        self.ui.k1_since = self.ui.clock;
+                        self.ui.hover = None;
+                        self.ui.waiting = false;
+                        self.ui.skip = false;
+                        self.ui.auto = false;
+                        self.skip_to_choice = false;
+                        self.state = State::Choice;
+                        self.base = None;
+                        break;
+                    }
                     Some(Pause::HMode) => {
                         self.open_hmode();
                         break;
@@ -1704,10 +1716,52 @@ impl Session {
 
     /// Closes the dialog or screen that is up, or ends a movie (Escape,
     /// right click). Returns false if there was none.
+    /// Carries out what a press on a screen of きまぐれテンプテーション did:
+    /// its sound, the bytes it changed, and its answer to the script.
+    fn k1_answer(&mut self, click: crate::games::kimaten1::Click) -> Result<()> {
+        use crate::games::kimaten1::Click;
+        let Some(s) = &mut self.ui.k1 else {
+            return Ok(());
+        };
+        let sound = s.take_sound();
+        for (i, v) in s.take_bytes() {
+            self.vm.set_var_b(i, v);
+        }
+        if let Some(file) = sound {
+            let _ = self.rt.play_sound(&file);
+        }
+        self.frame = None;
+        match click {
+            Click::None => {}
+            Click::Result(r) => {
+                self.ui.k1 = None;
+                self.ui.hover = None;
+                self.base = None;
+                self.rt.answer_action(&mut self.vm, r);
+                self.run()?;
+            }
+            Click::Close => {
+                self.ui.k1 = None;
+                self.ui.hover = None;
+                self.base = None;
+                self.rt.close_k1();
+                self.run()?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn back(&mut self) -> Result<bool> {
         // H mode ends only with its own finish button.
         if self.hmode.is_some() || self.veil.is_some() || self.menu_sliding() {
             return Ok(true);
+        }
+        if self.screen.is_none() && self.dialog.is_none() {
+            if let Some(s) = &mut self.ui.k1 {
+                let click = s.cancel();
+                self.k1_answer(click)?;
+                return Ok(true);
+            }
         }
         if self.dialog.take().is_some() {
             self.frame = None;
@@ -3504,6 +3558,13 @@ impl Session {
                     Some(Click::ClosePanel) => m.panel = None,
                     None => {}
                 }
+            }
+            Button::Kimaten1(id) => {
+                let click = match &mut self.ui.k1 {
+                    Some(s) => s.click(id),
+                    None => return Ok(()),
+                };
+                self.k1_answer(click)?;
             }
             Button::Panel(id) => {
                 use crate::games::doukyuusei::Click;

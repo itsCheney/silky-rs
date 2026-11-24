@@ -161,6 +161,15 @@ pub const BUILDS: &[Build] = &[
         sha256: "9c9841fbca3a422a36f7ddef696f6164b4206ff622ecdb5cc1b4f45c8b231451",
         profile: &ENGINE_2022,
     },
+    // Package with the official update 1.04.
+    Build {
+        exe: "kimaten.exe",
+        version: "1.0.4.0",
+        linked: 1576471729, // 2019-12-16 04:48:49
+        size: 2039808,
+        sha256: "36148a0286bd9d31ceaec4323f4be987319bd759e68b5961c59c992b07b54700",
+        profile: &ENGINE_2017,
+    },
     Build {
         exe: "kimaten2.exe",
         version: "1.0.0.0",

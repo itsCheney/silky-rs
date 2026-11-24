@@ -78,6 +78,10 @@ pub fn returns_value(title: Title, engine: &Engine, class: i32, sub: i32) -> boo
             // (17 only with its sub 1, the plain area selection; its
             // panel answers it).
             Title::Doukyuusei => matches!(sub, 10 | 16 | 23 | 28 | 29 | 33 | 36 | 50..=53),
+            // きまぐれテンプテーション: the handlers that push onto the
+            // script stack. 44 (sub 4) and 1006 (sub 0) push for one sub
+            // only; its module answers those.
+            Title::Kimaten1 => matches!(sub, 30..=33 | 41..=43 | 45 | 46 | 110 | 990 | 1009),
             Title::Kimaten2 => matches!(
                 sub,
                 20 | 24
