@@ -214,6 +214,8 @@ const BACK_POS: (i32, i32) = (1782, 940);
 const HINT_TEXT: (i32, i32) = (725, 1029);
 /// Width of the hint drawer's rectangle; longer lines wrap.
 const HINT_WIDTH: i32 = 500;
+/// Line of the system text for the look mode with nothing under the pointer.
+const HINT_NOTHING: u32 = 259;
 
 /// Large buttons: sheet column (sleep, look, talk, go out) by id.
 fn big_column(id: u8, set: i32) -> u32 {
@@ -318,8 +320,12 @@ impl Room {
     /// The hint bar's line of `SYSTEM_<lang>.MAP` for the element under
     /// the pointer: what a button does, the verb of a thing (239 + the
     /// high byte of its id: look, talk, hit, push, open and so on), back.
-    /// Nothing while the pointer is on none.
-    pub fn hint(&self, hover: i32) -> Option<u32> {
+    /// Over none, the look mode and the plain selection say so (259); the
+    /// room with its buttons shows nothing.
+    pub fn hint(&self, hover: Option<i32>) -> Option<u32> {
+        let Some(hover) = hover else {
+            return self.look.then_some(HINT_NOTHING);
+        };
         Some(match hover {
             BACK => 252,
             i if i >= THING => 239 + ((i - THING) >> 8) as u32,
@@ -389,8 +395,8 @@ impl Room {
         // The hint bar, and its line in the GDI font (size 20) from (725,
         // 1029).
         canvas.draw_part(&sheet, (0, 684, 584, 68), 658, 1005, false, 255);
-        let line = hover
-            .and_then(|h| self.hint(h))
+        let line = self
+            .hint(hover)
             .and_then(|id| self.system.as_ref()?.get(0, id));
         if let Some(line) = line {
             gdi::draw_hint(canvas, line, HINT_TEXT.0, HINT_TEXT.1, 20, HINT_WIDTH);
@@ -502,6 +508,18 @@ mod tests {
         assert_eq!(g(Up), Some(Go::Menu(0)));
         assert_eq!(g(Left), Some(Go::Menu(0)));
         assert_eq!(g(Right), Some(Go::Menu(0)));
+    }
+
+    #[test]
+    fn hint_over_nothing_is_the_look_line_only_in_look_mode() {
+        let mut r = room(0);
+        assert_eq!(r.hint(None), None);
+        assert_eq!(r.hint(Some(BACK)), Some(252));
+        r.look = true;
+        assert_eq!(r.hint(None), Some(259));
+        assert_eq!(r.hint(Some(THING + 0x200)), Some(241));
+        r.plain = true;
+        assert_eq!(r.hint(None), Some(259));
     }
 
     #[test]
