@@ -77,3 +77,29 @@ Commands of ふゆから、くるる。 general enough to try on a game not know
 | `42` | button, or -1 | Action menu from bytes 0 to 6 | Compared |
 | `43(voice set, back, which map)` | place | Map | Compared |
 | `49` | | H mode screen | Read |
+
+## なないろリンカネーション
+
+`games/nanairo/commands.rs`. The commands not listed here or in the common set are reported. Those that return a value were read from the executable: 18, 30 to 32 and 34. 34 is not carried out yet. See [games/nanairo.md](games/nanairo.md).
+
+| Call | Returns | Does | Source |
+| --- | --- | --- | --- |
+| `10` | | Start up of the game's library; nothing to do | Read |
+| `12.4(face, body)` | | Face window: the body picture, with the face drawn over it when it differs | Read |
+| `12.5`, `12.6`, `12.7`, `12.8(picture)` | | Show, hide, empty the face window; show a whole picture | Read |
+| `13.0(time, size, name, slot)` | | Standing character | Read |
+| `13.1(time, slot)`, `13.7(time)` | | Remove one, remove all | Read |
+| `13.5(flag, slot, name)` | | Expression layer; what the flag changes is not known | Read |
+| `13.9(size, slot)` | | Zoom to a size, here at once | Read |
+| `13.2` | | Crossfade every change over the longest time given | Read |
+| `13.6`, `13.8`, `13.11` to `13.15` | | Side, effects, flags, motion: accepted, not drawn | Read |
+| `14.10(name)`, `14.1(slot, name)` | | CG registry: the picture, a layer of it | Read |
+| `14.11`, `14.5`, `14.7(time)` | | Register the combination | Read |
+| `14.4`, `14.2`, `14.3` | | Start of a scene picture, clearing name tables: nothing to keep | Read |
+| `15(name)` | | Speaker name | Read |
+| `18` | item picked | Title menu: 1 new game, 5 quit, 257, 258, 259 CG, scene, music | Read |
+| `19(value, end, start)` | | Fill byte flags `start` up to `end` | Scripts |
+| `22.0` | | Register the picture shown | Read |
+| `26` | | End of chapter: empties the message window | Read |
+| `27` | | Message window start up | Read |
+| `39`, `50`, `1001.3`, `1002.2`, `1003.2`, `1005.2`, `1006.100`, `1007` to `1009` | | Accepted, nothing drawn or started | Read |

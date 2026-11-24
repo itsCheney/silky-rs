@@ -2,14 +2,17 @@
 
 English | [简体中文](engine-2017.zh-CN.md)
 
-The engine of two programs, both linked with Visual Studio 2013. Read from the executable unless marked.
+The engine of three programs, all linked with Visual Studio 2013. Read from the executable unless marked.
 
 | Program | Version | Linked (UTC) | SHA-256 |
 | --- | --- | --- | --- |
 | `apeiria.exe` (景の海のアペイリア) | 1.0.3.0 | 2017-11-09 07:06:49 | `dba4857ac6adb02b453a73694737124725bd4c91a9a7ecd60816fa7266e6317e` |
 | `casablanca.exe` (景の海のアペイリア ～カサブランカの騎士～) | 1.0.0.0 | 2017-12-10 14:52:07 | `4865b23597087c03a4dd7017ced9e5c48e8d4479c923705cd41bd91b4246d716` |
+| `nanairo.exe` (なないろリンカネーション) | 1.0.0.2 | 2014-09-09 19:27:20 | not recorded yet |
 
-`casablanca.exe` is 1,559,040 bytes. Its engine code is the same as that of `apeiria.exe`, so the differences below hold for both. The trace probe addresses are given for each program.
+`casablanca.exe` is 1,559,040 bytes. Its engine code is the same as that of `apeiria.exe`, so the differences below hold for both. The trace probe addresses are given for `apeiria.exe` and `casablanca.exe`.
+
+The size of `nanairo.exe` is not recorded yet. Its engine calls that return a value match the table below; its `Game` commands are described in [nanairo.md](../games/nanairo.md).
 
 ## Differences from engine-2026
 
@@ -93,3 +96,4 @@ The spec for this build:
 
 - [景の海のアペイリア](../games/apeiria.md)
 - [景の海のアペイリア ～カサブランカの騎士～](../games/casablanca.md)
+- [なないろリンカネーション](../games/nanairo.md)
