@@ -333,6 +333,9 @@ pub struct Runtime {
     /// きまぐれテンプテーション: the pause being started blinks the notebook
     /// button of the message window (`Game.10` sub 15).
     pub k1_blink: bool,
+    /// きまぐれテンプテーション: the pause being started is a wait that
+    /// Enter, Ctrl or a click ends at once (`Game.1000`).
+    pub k1_keywait: bool,
     /// The colour covering the screen when 同級生 Remake's name entry
     /// opened: the page shows the background, and the cover comes back
     /// when it is done.
@@ -438,6 +441,7 @@ impl Runtime {
             k1_notices: Default::default(),
             k1_title_extras: false,
             k1_blink: false,
+            k1_keywait: false,
             cover_under_name: None,
             town: None,
             sprites: Default::default(),
@@ -1569,6 +1573,13 @@ impl Host for Runtime {
                     self.pause = Some(Pause::Frame);
                     self.handled += 1;
                     return Ok(Flow::Yield);
+                }
+                // (mode): readies the pointer for the click poll above;
+                // a click from before it does not count.
+                if base && class == MOUSE && sub == 5 && args.len() == 1 {
+                    self.clicked = false;
+                    self.handled += 1;
+                    return Ok(Flow::Continue);
                 }
                 // Select.2(): the engine's own selection, over the options
                 // whose bodies left their labels; returns the option

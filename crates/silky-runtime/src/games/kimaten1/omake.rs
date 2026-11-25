@@ -65,6 +65,9 @@ const NEXT: i32 = 0x101;
 const SCROLLBAR: i32 = 0x102;
 const VOLUME: i32 = 0x200;
 
+/// The script variable that makes the first press on a picture cell silent.
+const QUIET_VAR: usize = 16;
+
 /// The sounds of a press and of leaving by a right click.
 const OK_SOUND: &str = "ses_001.wav";
 const CANCEL_SOUND: &str = "ses_002.wav";
@@ -84,6 +87,8 @@ pub struct Saved {
     pub tracks: [u8; TRACKS],
     pub tabs: [u8; MODES],
     pub volume: f32,
+    /// Script variable 16 was 1 when the screen opened.
+    pub quiet_cell: bool,
 }
 
 /// An entry of the CG mode opened as a grid or a picture.
@@ -111,6 +116,10 @@ pub struct Omake {
     music: Option<Music>,
     new_volume: Option<f32>,
     sound: Option<&'static str>,
+    /// While script variable 16 is 1 the first press on a picture cell
+    /// makes no sound and sets the variable back to 0.
+    quiet_cell: bool,
+    globals: Vec<(usize, i32)>,
     /// The cell under the pointer on the scene page and since when.
     hover_since: Cell<(Option<i32>, u64)>,
 }
@@ -184,6 +193,7 @@ fn seen_in(bits: &[u8], e: usize) -> usize {
 impl Omake {
     pub fn open(mode: usize, areas: [Vec<Area>; MODES], dialog: Vec<Area>, saved: Saved) -> Self {
         let volume = saved.volume;
+        let saved_quiet = saved.quiet_cell;
         Self {
             mode: mode.min(MODES - 1),
             areas,
@@ -199,8 +209,15 @@ impl Omake {
             music: None,
             new_volume: None,
             sound: None,
+            quiet_cell: saved_quiet,
+            globals: Vec::new(),
             hover_since: Cell::new((None, 0)),
         }
+    }
+
+    /// Script variables (index, value) the screen set (taken once).
+    pub fn take_globals(&mut self) -> Vec<(usize, i32)> {
+        std::mem::take(&mut self.globals)
     }
 
     /// The names of the area files, in the order of the modes.
@@ -407,7 +424,11 @@ impl Omake {
             0 => match id {
                 0..=11 => {
                     if let Some(e) = self.cell_entry(id) {
-                        self.sound = Some(OK_SOUND);
+                        if std::mem::take(&mut self.quiet_cell) {
+                            self.globals.push((QUIET_VAR, 0));
+                        } else {
+                            self.sound = Some(OK_SOUND);
+                        }
                         self.view = Some(View {
                             entry: e,
                             page: 0,
@@ -1137,8 +1158,23 @@ mod tests {
             tracks: [1; TRACKS],
             tabs: [1; MODES],
             volume: 1.0,
+            quiet_cell: false,
         };
         Omake::open(mode, [vec![], vec![], vec![]], vec![], saved)
+    }
+
+    #[test]
+    fn the_first_cell_press_is_quiet_while_variable_16_is_set() {
+        let mut o = screen(0);
+        o.quiet_cell = true;
+        o.click(0);
+        assert_eq!(o.take_sound(), None);
+        assert_eq!(o.take_globals(), vec![(16, 0)]);
+        // The press after it sounds as usual.
+        o.view = None;
+        o.click(1);
+        assert_eq!(o.take_sound().as_deref(), Some(OK_SOUND));
+        assert!(o.take_globals().is_empty());
     }
 
     #[test]

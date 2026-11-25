@@ -175,6 +175,8 @@ struct Busy {
     /// fade out to a colour (`Some(true)`) and come back with the fade
     /// in (`Some(false)`).
     ui_fade: Option<bool>,
+    /// A wait that Enter ends too (きまぐれテンプテーション's text strip).
+    key_wait: bool,
 }
 
 /// Length of one frame for input polls.
@@ -721,6 +723,7 @@ impl Session {
                             frame: false,
                             spin: t.spin,
                             ui_fade,
+                            key_wait: std::mem::take(&mut self.rt.k1_keywait),
                         });
                         self.state = State::Busy;
                         break;
@@ -734,6 +737,7 @@ impl Session {
                             frame: true,
                             spin: None,
                             ui_fade: None,
+                            key_wait: false,
                         });
                         self.state = State::Busy;
                         break;
@@ -2179,6 +2183,7 @@ impl Session {
             .map(|n| n.from_bar(self.ui.notebook, !self.ui.has_log, !self.ui.has_saves));
         if let Ok(n) = book {
             self.ui.k1_menu = Some(crate::games::kimaten1::Screen::Notebook(n));
+            self.ui.k1_under_since = self.ui.k1_since;
             self.ui.k1_since = self.ui.clock;
             self.ui.hover = None;
             self.base = None;
@@ -2192,6 +2197,9 @@ impl Session {
         self.ui.k1 = self.rt.k1.take();
         if let Some(k) = &mut self.ui.k1 {
             k.set_context(self.ui.has_saves, !self.log.is_empty());
+            if self.ui.k1_replay {
+                k.set_replay();
+            }
         }
         self.ui.k1_menu = None;
         self.ui.k1_since = self.ui.clock;
@@ -2248,6 +2256,7 @@ impl Session {
             match click {
                 Click::Close | Click::Result(_) => {
                     self.ui.k1_menu = None;
+                    self.ui.k1_since = self.ui.k1_under_since;
                     self.ui.hover = None;
                     self.base = None;
                 }
@@ -2255,6 +2264,7 @@ impl Session {
                     // The notebook's own menu buttons leave it first.
                     if is_book {
                         self.ui.k1_menu = None;
+                        self.ui.k1_since = self.ui.k1_under_since;
                         self.ui.hover = None;
                         self.base = None;
                     }
@@ -2368,7 +2378,12 @@ impl Session {
             return Ok(true);
         }
         if self.screen.is_none() && self.dialog.is_none() {
+            let ms = self.ui.clock.saturating_sub(self.ui.k1_since);
             if let Some(s) = self.ui.k1_menu.as_mut().or(self.ui.k1.as_mut()) {
+                // A fade in or out takes no input.
+                if s.blocks_input(ms) {
+                    return Ok(true);
+                }
                 let click = s.cancel();
                 self.k1_answer(click)?;
                 return Ok(true);
@@ -2652,12 +2667,12 @@ impl Session {
         if self.dialog.is_some() || self.screen.is_some() || self.veil.is_some() {
             return None;
         }
-        let book = self
-            .ui
-            .k1_menu
-            .as_ref()
-            .or(self.ui.k1.as_ref())?
-            .notebook()?;
+        let screen = self.ui.k1_menu.as_ref().or(self.ui.k1.as_ref())?;
+        let book = screen.notebook()?;
+        // A fade in or out takes no key either.
+        if screen.blocks_input(self.ui.clock.saturating_sub(self.ui.k1_since)) {
+            return Some(None);
+        }
         let at = match self.ui.hover {
             Some(Button::Kimaten1(id)) => Some(id),
             _ => None,
@@ -2700,7 +2715,11 @@ impl Session {
         if self.dialog.is_some() {
             return Ok(());
         }
+        let ms = self.ui.clock.saturating_sub(self.ui.k1_since);
         if let Some(s) = self.ui.k1_menu.as_mut().or(self.ui.k1.as_mut()) {
+            if s.blocks_input(ms) {
+                return Ok(());
+            }
             if s.wheel(up) {
                 return self.k1_answer(crate::games::kimaten1::Click::None);
             }
@@ -4588,6 +4607,14 @@ impl Session {
             self.pointer_down(x, y)?;
             return self.pointer_up(x, y);
         }
+        // Enter ends a text strip's wait (the original's key wait takes
+        // Enter, Ctrl and the left button alike).
+        if self.state == State::Busy {
+            if let Some(b) = self.busy.as_mut().filter(|b| b.key_wait) {
+                b.elapsed = b.ms;
+                return Ok(());
+            }
+        }
         if self.ui.window_hidden {
             self.ui.window_hidden = false;
             self.base = None;
@@ -5125,6 +5152,11 @@ impl Session {
             let on = self.vm.var_b(899) != 0;
             if on != self.ui.notebook {
                 self.ui.notebook = on;
+                self.frame = None;
+            }
+            let replay = self.vm.var_h(crate::games::apeiria::REPLAY_VAR).int() != 0;
+            if replay != self.ui.k1_replay {
+                self.ui.k1_replay = replay;
                 self.frame = None;
             }
         }

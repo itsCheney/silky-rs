@@ -15,6 +15,7 @@ use std::sync::Mutex;
 use silky_format::area::Area;
 
 use super::chrome::{self, BAR_LEN};
+use super::fade::Fade;
 use super::screen::{Click, Look};
 use crate::assets::Assets;
 use crate::render::Canvas;
@@ -43,10 +44,13 @@ const CANCEL: &str = "ses_002.wav";
 /// Played when the skip tutorial opens. Its OK button makes no sound of
 /// its own.
 const TUTORIAL_SOUND: &str = "ses_009.wav";
-/// The tutorial fades in and out over 8 frames of 1/60 s, and takes no
-/// press while it does.
+/// The tutorial fades in and out over 8 frames of 1/60 s, the question
+/// fades in over 12 (it goes away at once). Both are waited for inside
+/// the original's own calls, so neither takes a press meanwhile.
 const FADE_FRAMES: u64 = 8;
 const FADE_MS: u64 = FADE_FRAMES * 1000 / 60;
+const CONFIRM_FRAMES: u64 = 12;
+const CONFIRM_MS: u64 = CONFIRM_FRAMES * 1000 / 60;
 
 /// The story counters the scripts keep from byte 100 on (and the flags of
 /// the scene from 0 to 3); the headless run
@@ -78,6 +82,17 @@ enum Phase {
     Out,
 }
 
+/// Row of the tutorial's OK button picture. The original shows the pressed
+/// row while the button is held and draws the resting row again before
+/// the page fades out, whatever the pointer does then.
+fn ok_row(phase: Phase, look: &Look) -> u32 {
+    if phase == Phase::Out {
+        0
+    } else {
+        chrome::state(look, TUTORIAL_OK)
+    }
+}
+
 /// Draws with `draw` and mixes the result over what was there at `alpha`.
 fn faded(
     canvas: &mut Canvas,
@@ -93,11 +108,11 @@ fn faded(
     Ok(())
 }
 
-/// Opacity of a fade `age` ms in: it gains (or loses) an eighth of the
-/// range each frame.
-fn fade_alpha(age: u64, out: bool) -> u8 {
-    let frames = (age * 60 / 1000 + 1).min(FADE_FRAMES);
-    let a = (255 * frames / FADE_FRAMES) as u8;
+/// Opacity of a fade of `total` frames, `age` ms in: it gains (or loses)
+/// an equal step each frame.
+fn fade_alpha(age: u64, out: bool, total: u64) -> u8 {
+    let frames = (age * 60 / 1000 + 1).min(total);
+    let a = (255 * frames / total) as u8;
     if out {
         255 - a
     } else {
@@ -120,9 +135,10 @@ pub struct ActSelect {
     skip: bool,
     tutorial_seen: bool,
     /// The system buttons that are grey.
-    off: [bool; BAR_LEN],
+    pub(super) off: [bool; BAR_LEN],
     bytes: Vec<(usize, u8)>,
     sound: Option<&'static str>,
+    pub(super) fade: Fade,
     progress: [u8; PROGRESS_LEN],
 }
 
@@ -155,6 +171,7 @@ impl ActSelect {
             off,
             bytes: Vec::new(),
             sound: None,
+            fade: Fade::default(),
             progress,
         }
     }
@@ -183,6 +200,9 @@ impl ActSelect {
                     .map(|_| TUTORIAL_OK);
             }
             Popup::Confirm => {
+                if self.phase != Phase::Shown {
+                    return None;
+                }
                 return self
                     .dialog_areas
                     .iter()
@@ -242,13 +262,13 @@ impl ActSelect {
         if id == SKIP && self.skip {
             self.sound = Some(CLICK);
             // The first use shows the tutorial; the question follows it.
+            self.phase = Phase::In;
+            self.phase_at.set(None);
             self.popup = if self.tutorial_seen {
                 Popup::Confirm
             } else {
                 self.tutorial_seen = true;
                 self.bytes.push((TUTORIAL_SEEN, 1));
-                self.phase = Phase::In;
-                self.phase_at.set(None);
                 // The page's own sound takes the place of the click.
                 self.sound = Some(TUTORIAL_SOUND);
                 Popup::Tutorial
@@ -270,16 +290,25 @@ impl ActSelect {
     /// Whether the tutorial is fading in or out at `ms`.
     pub fn animating(&self, ms: u64) -> bool {
         let _ = ms;
-        self.popup == Popup::Tutorial && self.phase != Phase::Shown
+        self.popup != Popup::None && self.phase != Phase::Shown
+    }
+
+    /// How long the popup's fade in or out lasts.
+    fn fade_ms(&self) -> u64 {
+        if self.popup == Popup::Confirm {
+            CONFIRM_MS
+        } else {
+            FADE_MS
+        }
     }
 
     /// Runs the tutorial's fades: once the fade out is over the question
     /// follows.
     pub fn tick(&mut self, ms: u64) -> Option<Click> {
-        if self.popup != Popup::Tutorial || self.phase == Phase::Shown {
+        if self.popup == Popup::None || self.phase == Phase::Shown {
             return None;
         }
-        if self.age(ms) < FADE_MS {
+        if self.age(ms) < self.fade_ms() {
             return None;
         }
         self.advance()
@@ -287,7 +316,7 @@ impl ActSelect {
 
     /// For a run without time: ends the fade under way at once.
     pub fn settle(&mut self) -> Option<Click> {
-        if self.popup == Popup::Tutorial && self.phase != Phase::Shown {
+        if self.popup != Popup::None && self.phase != Phase::Shown {
             return self.advance();
         }
         None
@@ -297,7 +326,10 @@ impl ActSelect {
         self.phase_at.set(None);
         match self.phase {
             Phase::In => self.phase = Phase::Shown,
-            Phase::Out => self.popup = Popup::Confirm,
+            Phase::Out => {
+                self.popup = Popup::Confirm;
+                self.phase = Phase::In;
+            }
             Phase::Shown => return None,
         }
         Some(Click::None)
@@ -305,7 +337,7 @@ impl ActSelect {
 
     /// A right click: answers no to the question.
     pub fn cancel(&mut self) -> Click {
-        if self.popup == Popup::Confirm {
+        if self.popup == Popup::Confirm && self.phase == Phase::Shown {
             self.popup = Popup::None;
         }
         Click::None
@@ -369,15 +401,15 @@ impl ActSelect {
         let page = assets.image("moveskip_tutorial.akb")?;
         let ok = assets.image("OKbotton.akb")?;
         let alpha = match self.phase {
-            Phase::In => fade_alpha(self.age(look.ms), false),
+            Phase::In => fade_alpha(self.age(look.ms), false, FADE_FRAMES),
             Phase::Shown => 255,
-            Phase::Out => fade_alpha(self.age(look.ms), true),
+            Phase::Out => fade_alpha(self.age(look.ms), true, FADE_FRAMES),
         };
         // The button is part of the page, so both fade together.
         faded(canvas, alpha, |canvas| {
             canvas.draw_part(&page, (0, 0, 1280, 720), 0, 0, false, 255);
             if let Some(a) = self.tutorial_areas.iter().find(|a| a.id == 0) {
-                let row = chrome::state(look, TUTORIAL_OK);
+                let row = ok_row(self.phase, look);
                 canvas.draw_part(&ok, (0, 44 * row, 102, 44), a.left, a.top, false, 255);
             }
             Ok(())
@@ -387,6 +419,22 @@ impl ActSelect {
     /// The question whether to skip the action selection, with yes and no.
     fn draw_confirm(&self, canvas: &mut Canvas, assets: &mut Assets, look: &Look) -> Result<()> {
         let sheet = assets.image("dialog_p.akb")?;
+        let alpha = match self.phase {
+            Phase::In => fade_alpha(self.age(look.ms), false, CONFIRM_FRAMES),
+            _ => 255,
+        };
+        // The dim layer and the dialog fade in together.
+        faded(canvas, alpha, |canvas| {
+            self.draw_confirm_now(canvas, &sheet, look)
+        })
+    }
+
+    fn draw_confirm_now(
+        &self,
+        canvas: &mut Canvas,
+        sheet: &std::sync::Arc<silky_format::akb::Image>,
+        look: &Look,
+    ) -> Result<()> {
         canvas.fill(0, 0, 1280, 720, [0, 0, 0, 127]);
         canvas.draw_part(&sheet, (0, 0, 605, 276), 338, 115, false, 255);
         canvas.draw_part(&sheet, (206, 248, 123, 19), 683, 352, false, 255);
@@ -484,6 +532,14 @@ mod tests {
         assert_eq!(m.hit(500, 300), None);
         assert_eq!(m.tick(FADE_MS + 10), None);
         assert_eq!(m.tick(2 * FADE_MS + 10), Some(Click::None));
+        // The question fades in over 12 frames and takes no press meanwhile.
+        assert!(m.animating(0));
+        assert_eq!(m.hit(500, 300), None);
+        let t = 2 * FADE_MS + 20;
+        assert_eq!(m.tick(t), None);
+        assert_eq!(m.tick(t + CONFIRM_MS - 1), None);
+        assert_eq!(m.tick(t + CONFIRM_MS), Some(Click::None));
+        assert!(!m.animating(0));
         assert_eq!(m.hit(500, 300), Some(YES));
         assert_eq!(m.click(YES), Click::Result(SKIP_ANSWER));
     }
@@ -493,11 +549,41 @@ mod tests {
         let mut m = menu(true);
         assert_eq!(m.click(SKIP), Click::None);
         assert!(m.take_bytes().is_empty());
+        assert_eq!(m.hit(700, 300), None);
+        // Escape does not answer while it fades in either.
+        m.cancel();
+        assert!(m.animating(0));
+        m.settle();
         assert_eq!(m.hit(700, 300), Some(NO));
         assert_eq!(m.click(NO), Click::None);
         assert_eq!(m.hit(30, 30), Some(SKIP));
         m.click(SKIP);
+        m.settle();
         m.cancel();
         assert_eq!(m.hit(30, 30), Some(SKIP));
+    }
+
+    #[test]
+    fn the_ok_button_rests_while_the_page_fades_out() {
+        let look = |hover, pressed| Look {
+            hover,
+            pressed,
+            ms: 0,
+            text: None,
+        };
+        assert_eq!(ok_row(Phase::Shown, &look(None, None)), 0);
+        assert_eq!(ok_row(Phase::Shown, &look(Some(TUTORIAL_OK), None)), 1);
+        assert_eq!(
+            ok_row(Phase::Shown, &look(Some(TUTORIAL_OK), Some(TUTORIAL_OK))),
+            2
+        );
+        assert_eq!(ok_row(Phase::Out, &look(Some(TUTORIAL_OK), None)), 0);
+    }
+
+    #[test]
+    fn fades_gain_an_equal_step_a_frame() {
+        assert_eq!(fade_alpha(0, false, 12), 21);
+        assert_eq!(fade_alpha(1000, false, 12), 255);
+        assert_eq!(fade_alpha(1000, true, 12), 0);
     }
 }

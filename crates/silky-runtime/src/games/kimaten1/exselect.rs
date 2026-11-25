@@ -27,6 +27,7 @@ use std::sync::Mutex;
 use silky_format::area::Area;
 
 use super::chrome::{self, BAR_LEN};
+use super::fade::Fade;
 use super::screen::{Click, Look};
 use crate::assets::Assets;
 use crate::render::Canvas;
@@ -76,8 +77,9 @@ pub struct ExSelect {
     /// Whether each option is on.
     on: Vec<bool>,
     page: usize,
-    off: [bool; BAR_LEN],
+    pub(super) off: [bool; BAR_LEN],
     sound: Option<&'static str>,
+    pub(super) fade: Fade,
     /// Identifies the list, for the headless run.
     list: u64,
 }
@@ -101,6 +103,7 @@ impl ExSelect {
             page: 0,
             off,
             sound: None,
+            fade: Fade::default(),
             list: h.finish(),
         }
     }

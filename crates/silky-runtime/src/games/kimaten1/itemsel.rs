@@ -11,6 +11,7 @@ use std::sync::Mutex;
 use silky_format::area::Area;
 
 use super::chrome::{self, BAR_LEN};
+use super::fade::Fade;
 use super::screen::{Click, Look};
 use crate::assets::Assets;
 use crate::render::Canvas;
@@ -37,8 +38,9 @@ pub struct ItemSelect {
     areas: Vec<Area>,
     /// The pieces held, in order.
     items: Vec<u8>,
-    off: [bool; BAR_LEN],
+    pub(super) off: [bool; BAR_LEN],
     sound: Option<&'static str>,
+    pub(super) fade: Fade,
 }
 
 impl ItemSelect {
@@ -50,6 +52,7 @@ impl ItemSelect {
             items: (0..5u8).filter(|&i| flags[i as usize] != 0).collect(),
             off,
             sound: None,
+            fade: Fade::default(),
         }
     }
 

@@ -3,6 +3,7 @@
 //! with a number, or closes without one.
 
 use super::actsel::ActSelect;
+use super::chrome;
 use super::areasel::AreaSelect;
 use super::exselect::ExSelect;
 use super::itemsel::ItemSelect;
@@ -32,6 +33,7 @@ pub enum Click {
 
 /// What a screen draws with: the pointer's element, the pressed one, the
 /// time in ms since the screen opened, and the text renderer if any.
+#[derive(Clone, Copy)]
 pub struct Look<'a> {
     pub hover: Option<i32>,
     pub pressed: Option<i32>,
@@ -75,10 +77,34 @@ impl Screen {
     /// [`crate::ui::Button::Kimaten1`].
     pub fn hit(&self, x: i32, y: i32) -> Option<i32> {
         match self {
-            Screen::Action(s) => s.hit(x, y),
-            Screen::Area(s) => s.hit(x, y),
-            Screen::Ex(s) => s.hit(x, y),
-            Screen::Item(s) => s.hit(x, y),
+            Screen::Action(s) => {
+                if s.fade.leaving() {
+                    None
+                } else {
+                    s.hit(x, y)
+                }
+            }
+            Screen::Area(s) => {
+                if s.fade.leaving() {
+                    None
+                } else {
+                    s.hit(x, y)
+                }
+            }
+            Screen::Ex(s) => {
+                if s.fade.leaving() {
+                    None
+                } else {
+                    s.hit(x, y)
+                }
+            }
+            Screen::Item(s) => {
+                if s.fade.leaving() {
+                    None
+                } else {
+                    s.hit(x, y)
+                }
+            }
             Screen::Map(m) => m.hit(x, y),
             Screen::Notebook(n) => n.hit(x, y),
             Screen::Omake(o) => o.hit(x, y),
@@ -113,10 +139,22 @@ impl Screen {
     /// A press on element `id`.
     pub fn click(&mut self, id: i32) -> Click {
         match self {
-            Screen::Action(s) => s.click(id),
-            Screen::Area(s) => s.click(id),
-            Screen::Ex(s) => s.click(id),
-            Screen::Item(s) => s.click(id),
+            Screen::Action(s) => {
+                let c = s.click(id);
+                s.fade.begin(c)
+            }
+            Screen::Area(s) => {
+                let c = s.click(id);
+                s.fade.begin(c)
+            }
+            Screen::Ex(s) => {
+                let c = s.click(id);
+                s.fade.begin(c)
+            }
+            Screen::Item(s) => {
+                let c = s.click(id);
+                s.fade.begin(c)
+            }
             Screen::Map(m) => m.click(id),
             Screen::Notebook(n) => n.click(id),
             Screen::Omake(o) => o.click(id),
@@ -133,9 +171,18 @@ impl Screen {
     /// ignore it).
     pub fn cancel(&mut self) -> Click {
         match self {
-            Screen::Action(s) => s.cancel(),
-            Screen::Area(s) => s.cancel(),
-            Screen::Ex(s) => s.cancel(),
+            Screen::Action(s) if !s.fade.leaving() => {
+                let c = s.cancel();
+                s.fade.begin(c)
+            }
+            Screen::Area(s) if !s.fade.leaving() => {
+                let c = s.cancel();
+                s.fade.begin(c)
+            }
+            Screen::Ex(s) if !s.fade.leaving() => {
+                let c = s.cancel();
+                s.fade.begin(c)
+            }
             Screen::Map(m) => m.cancel(),
             Screen::Notebook(n) => n.cancel(),
             Screen::Omake(o) => o.cancel(),
@@ -184,10 +231,10 @@ impl Screen {
     /// Draws the screen over the scene.
     pub fn draw(&self, canvas: &mut Canvas, assets: &mut Assets, look: &Look) -> Result<()> {
         match self {
-            Screen::Action(s) => s.draw(canvas, assets, look),
-            Screen::Area(s) => s.draw(canvas, assets, look),
-            Screen::Ex(s) => s.draw(canvas, assets, look),
-            Screen::Item(s) => s.draw(canvas, assets, look),
+            Screen::Action(s) => s.fade.draw(canvas, look, |c, l| s.draw(c, assets, l)),
+            Screen::Area(s) => s.fade.draw(canvas, look, |c, l| s.draw(c, assets, l)),
+            Screen::Ex(s) => s.fade.draw(canvas, look, |c, l| s.draw(c, assets, l)),
+            Screen::Item(s) => s.fade.draw(canvas, look, |c, l| s.draw(c, assets, l)),
             Screen::Map(m) => m.draw(canvas, assets, look),
             Screen::Notebook(n) => n.draw(canvas, assets, look),
             Screen::Omake(o) => o.draw(canvas, assets, look),
@@ -284,6 +331,7 @@ impl Screen {
     pub fn take_globals(&mut self) -> Vec<(usize, i32)> {
         match self {
             Screen::NanairoCg(o) => o.take_globals(),
+            Screen::Omake(o) => o.take_globals(),
             _ => Vec::new(),
         }
     }
@@ -336,6 +384,18 @@ impl Screen {
         }
     }
 
+    /// A scene of the scene list is being replayed: the save and load
+    /// buttons of the screen's bar are grey.
+    pub fn set_replay(&mut self) {
+        match self {
+            Screen::Action(s) => chrome::grey_replay(&mut s.off),
+            Screen::Area(s) => chrome::grey_replay(&mut s.off),
+            Screen::Ex(s) => chrome::grey_replay(&mut s.off),
+            Screen::Item(s) => chrome::grey_replay(&mut s.off),
+            _ => {}
+        }
+    }
+
     /// Whether the screen runs on the clock by itself (it is redrawn each
     /// frame) and the milliseconds since it opened at which it ends.
     pub fn timed(&self) -> bool {
@@ -354,7 +414,10 @@ impl Screen {
     /// is redrawn each frame then, and [`Self::tick`] runs it).
     pub fn animating(&self, ms: u64) -> bool {
         match self {
-            Screen::Action(s) => s.animating(ms),
+            Screen::Action(s) => s.fade.animating(ms) || s.animating(ms),
+            Screen::Area(s) => s.fade.animating(ms),
+            Screen::Ex(s) => s.fade.animating(ms),
+            Screen::Item(s) => s.fade.animating(ms),
             Screen::Map(m) => m.animating(ms),
             Screen::Notebook(n) => n.animating(ms),
             Screen::NanairoMusic(o) => o.animating(ms),
@@ -364,11 +427,33 @@ impl Screen {
         }
     }
 
+    /// Whether the screen takes no input at `ms` since it opened: its fade
+    /// in or out is waited for inside the original's own call, so what the
+    /// player does then is lost.
+    pub fn blocks_input(&self, ms: u64) -> bool {
+        matches!(
+            self,
+            Screen::Action(_)
+                | Screen::Area(_)
+                | Screen::Ex(_)
+                | Screen::Item(_)
+                | Screen::Map(_)
+                | Screen::Notebook(_)
+        ) && self.animating(ms)
+    }
+
     /// Runs the screen's own clock: a screen that fades out after its
     /// answer gives the answer here once the fade is over.
     pub fn tick(&mut self, ms: u64) -> Option<Click> {
         match self {
-            Screen::Action(s) => s.tick(ms),
+            Screen::Action(s) => {
+                let leave = s.fade.tick(ms);
+                let popup = s.tick(ms);
+                leave.or(popup)
+            }
+            Screen::Area(s) => s.fade.tick(ms),
+            Screen::Ex(s) => s.fade.tick(ms),
+            Screen::Item(s) => s.fade.tick(ms),
             Screen::Map(m) => m.tick(ms),
             Screen::Notebook(n) => n.tick(ms),
             Screen::NanairoMusic(o) => o.tick(ms),
@@ -382,7 +467,10 @@ impl Screen {
     /// is holding back, now.
     pub fn settle(&mut self) -> Option<Click> {
         match self {
-            Screen::Action(s) => s.settle(),
+            Screen::Action(s) => s.fade.settle().or_else(|| s.settle()),
+            Screen::Area(s) => s.fade.settle(),
+            Screen::Ex(s) => s.fade.settle(),
+            Screen::Item(s) => s.fade.settle(),
             Screen::Map(m) => m.settle(),
             Screen::Notebook(n) => n.settle(),
             Screen::NanairoMusic(o) => o.settle(),

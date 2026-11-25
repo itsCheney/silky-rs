@@ -918,6 +918,10 @@ fn snap(
                         let fades = matches!(
                             screen,
                             silky_runtime::games::kimaten1::Screen::Map(_)
+                                | silky_runtime::games::kimaten1::Screen::Action(_)
+                                | silky_runtime::games::kimaten1::Screen::Area(_)
+                                | silky_runtime::games::kimaten1::Screen::Ex(_)
+                                | silky_runtime::games::kimaten1::Screen::Item(_)
                                 | silky_runtime::games::kimaten1::Screen::Notebook(_)
                                 | silky_runtime::games::kimaten1::Screen::NanairoMusic(_)
                                 | silky_runtime::games::kimaten1::Screen::NanairoCg(_)
@@ -943,8 +947,13 @@ fn snap(
                             .next(name, vm.script_name().unwrap_or(""))
                             .and_then(|want| {
                                 (-2..400).find(|&id| {
-                                matches!(screen.clone().click(id), Click::Result(r) if r == want)
-                            })
+                                    let mut s = screen.clone();
+                                    let mut c = s.click(id);
+                                    if c == Click::None {
+                                        c = s.settle().unwrap_or(c);
+                                    }
+                                    matches!(c, Click::Result(r) if r == want)
+                                })
                             });
                     for _ in 0..64 {
                         let id = forced.take().or_else(|| screen.auto_pick().0);

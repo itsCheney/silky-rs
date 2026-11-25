@@ -68,6 +68,7 @@ impl Runtime {
                 .map(|i| vm.var_b(omake::CG_SEEN + i))
                 .collect(),
             volume: self.system.settings.music,
+            quiet_cell: vm.var_g(16).int() == 1,
             ..Saved::default()
         };
         for (i, s) in saved.scenes.iter_mut().enumerate() {
@@ -302,6 +303,8 @@ impl Runtime {
                 if ms == 0 {
                     return self.done();
                 }
+                // Enter, Ctrl and a click end the wait (and the wipe) at once.
+                self.k1_keywait = true;
                 self.wait_for(Pause::Transition(crate::host::Transition {
                     ms: ms as u32,
                     rule: None,

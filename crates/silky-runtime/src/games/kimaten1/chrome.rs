@@ -64,6 +64,12 @@ pub fn bar_index(id: i32) -> Option<usize> {
         .then(|| (id - BAR) as usize)
 }
 
+/// While a scene of the scene list is replayed the screens' save, load,
+/// quick save and quick load buttons are grey.
+pub fn grey_replay(off: &mut [bool; BAR_LEN]) {
+    off[3..=6].fill(true);
+}
+
 /// The area under (x, y) that `want` accepts.
 pub fn hit_area(areas: &[Area], x: i32, y: i32, want: impl Fn(i32) -> bool) -> Option<&Area> {
     areas.iter().find(|a| want(a.id) && a.contains(x, y))
@@ -136,4 +142,17 @@ pub fn draw_common(
     draw_strips(canvas, &sheet);
     draw_bar(canvas, &sheet, look, off);
     Ok(sheet)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_replay_greys_the_four_save_and_load_buttons() {
+        let mut off = [false; BAR_LEN];
+        off[7] = true;
+        grey_replay(&mut off);
+        assert_eq!(off, [false, false, false, true, true, true, true, true]);
+    }
 }

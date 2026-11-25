@@ -236,9 +236,14 @@ pub struct Ui {
     /// it answers nothing to the script.
     pub k1_menu: Option<crate::games::kimaten1::Screen>,
     pub k1_since: u64,
+    /// The clock of the screen under `k1_menu` when that opened.
+    pub k1_under_since: u64,
     /// きまぐれテンプテーション: the clock when the notebook button of the
     /// window started to blink.
     pub k1_blink: Option<u64>,
+    /// きまぐれテンプテーション: a scene of the scene list is being
+    /// replayed (variable H 69 is set).
+    pub k1_replay: bool,
     /// きまぐれテンプテーション: the bar's buttons slide down (folding) or
     /// back up (unfolding): which way and the clock when it started.
     pub k1_fold: Option<(bool, u64)>,
@@ -349,13 +354,16 @@ impl Ui {
             Button::Bar(bar::SCHEDULE) if self.plate.is_some() => self.flag_list,
             Button::Bar(bar::MAP) if self.plate.is_some() => self.map_jump,
             Button::Bar(bar::BACKLOG) if self.plate.is_some() => self.has_log,
-            Button::Bar(bar::LOAD | bar::QUICK_LOAD) => self.has_saves,
+            // きまぐれテンプテーション: while a scene of the scene list is
+            // replayed (variable H 69) nothing is saved or loaded.
+            Button::Bar(bar::SAVE | bar::QUICK_SAVE) => !self.k1_replay,
+            Button::Bar(bar::LOAD | bar::QUICK_LOAD) => self.has_saves && !self.k1_replay,
             Button::Bar(bar::PREVIOUS_CHOICE) => self.previous_choice,
             Button::Bar(bar::NEXT_CHOICE) => !self.jump_off,
             Button::Bar(bar::NOTEBOOK) => self.notebook,
             Button::Bar(bar::COSTUME) => self.costume,
             Button::Bar(bar::COLLECTION) => self.collection,
-            Button::Bar(bar::K1_NOTEBOOK) => self.notebook,
+            Button::Bar(bar::K1_NOTEBOOK) => self.notebook && !self.k1_replay,
             Button::Choice(i) => self.choice_status.get(i).map_or(true, |s| s.clickable),
             _ => true,
         }
@@ -2375,6 +2383,10 @@ impl Layout {
             return p.hit(x, y).map(Button::Panel);
         }
         if let Some(s) = ui.k1_menu.as_ref().or(ui.k1.as_ref()) {
+            // A fade in or out takes no input.
+            if s.blocks_input(ui.clock.saturating_sub(ui.k1_since)) {
+                return None;
+            }
             return s
                 .hit(x, y)
                 .filter(|&id| s.enabled(id))
@@ -2762,5 +2774,24 @@ mod tests {
         assert_eq!(title_jump_y(0), 720.0);
         assert!(title_jump_y(200) < 636.0);
         assert_eq!(title_jump_y(TITLE_JUMP_MS - 600), 636.0);
+    }
+
+    #[test]
+    fn a_replay_greys_saving_and_loading_on_the_bar() {
+        let mut ui = Ui {
+            has_saves: true,
+            notebook: true,
+            ..Ui::default()
+        };
+        for id in [bar::SAVE, bar::LOAD, bar::QUICK_SAVE, bar::QUICK_LOAD] {
+            assert!(ui.enabled(Button::Bar(id)));
+        }
+        assert!(ui.enabled(Button::Bar(bar::K1_NOTEBOOK)));
+        ui.k1_replay = true;
+        for id in [bar::SAVE, bar::LOAD, bar::QUICK_SAVE, bar::QUICK_LOAD] {
+            assert!(!ui.enabled(Button::Bar(id)));
+        }
+        assert!(!ui.enabled(Button::Bar(bar::K1_NOTEBOOK)));
+        assert!(ui.enabled(Button::Bar(bar::CONFIG)));
     }
 }

@@ -14,6 +14,7 @@ use silky_format::akb::Image;
 use silky_format::area::Area;
 
 use super::chrome::{self, BAR_LEN};
+use super::fade::Fade;
 use super::screen::{Click, Look};
 use crate::assets::Assets;
 use crate::render::Canvas;
@@ -39,8 +40,9 @@ const LOOKS: u8 = 3;
 pub struct AreaSelect {
     areas: Vec<Area>,
     map: Arc<Vec<u8>>,
-    off: [bool; BAR_LEN],
+    pub(super) off: [bool; BAR_LEN],
     sound: Option<&'static str>,
+    pub(super) fade: Fade,
     /// Identifies the picture of hotspots and the state of the story, for
     /// the headless run.
     scene: u64,
@@ -62,6 +64,7 @@ impl AreaSelect {
             map: Arc::new(map),
             off,
             sound: None,
+            fade: Fade::default(),
             scene,
         }
     }

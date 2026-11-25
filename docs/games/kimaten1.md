@@ -133,18 +133,16 @@ The notebook (opened from the action menu's bar, six entries new, the rest locke
 
 ## Not done yet
 
-- Skip tutorial: the OK button's pressed row and wait for release, and the confirm dialog's 12-frame fades.
 - Fold slide: the exe may block input during it. The stepping rate was not checked in this build.
 - `Game.10` sub 18 acts on a part of the window that nothing in the story reaches.
 - Title sparkles: the layer over the buttons is a guess.
-- Map and notebook: input is not blocked during the fades. A flag bit on the message window object at map exit is not identified.
+- Map and notebook: a flag bit on the message window object at map exit is not identified.
 - Anne viewer: the text edge and baselines are estimated. A same-outfit reselect may keep the running pose in the original. The wheel is ignored while the buttons are hidden; the original scrolls.
-- Extras: the CG cell sound is not skipped when g[16] is 1. Message bar buttons 0 and 2 do not grey while h[69] is 1.
-- Option list and bar: the flags at 0x8a4 and 0x8c4 in the option list, the quick save and load greying in the action menu and the meaning of 0x6a4 are unknown. The greying of history and load is approximate.
+- Option list and bar: the flags at 0x8a4 and 0x8c4 in the option list, the quick save and load greying in the action menu and the meaning of 0x6a4 are not wired in. The greying of history and load is approximate.
 - Flash white: the draw side of the model colour is a guess.
 - Scene skip does not cut a running wait short.
 - Effects (`Game.1001`, `1002`): the exe copies the screen once for type 7 and for `1002` subs 3 and 6; ours is live. Subs 4 and 5 bake the top picture into the background, where the exe copies the composed screen. The black fade and piece depth of sub 1, the companion model's depth, the place of the black layer of types 2 and 3 are guesses. The red room is a sprite, not the background. Random positions cannot match a run of the original. None of these effects were compared with the original under Wine.
-- `Mouse.5` is the only call reported as unhandled in a headless run.
+- `Mouse.5` (input device slot 0x40, vtable 0x53fb94) is handled as clearing the pending click; what the device does with the argument is not decoded.
 
 ## Headless routes
 
@@ -219,6 +217,12 @@ Addresses in `kimaten.exe` of the build above. The code itself does not name the
 | Skip tutorial: fade in, fade out | 0x492d80, 0x492f30 |
 | Skip tutorial: modal run, run loop, opened from the skip press | 0x444660, 0x4b1510, 0x4429b0 |
 | Confirm dialog: build, press, right click | 0x45c6d0, 0x45c9b0, 0x45ca50 |
+| Selection screens (action menu, investigation, evidence, option list): 12-frame fade in and out, blocking, no input meanwhile | 0x4cb9e0 (arg 1), 0x4b1510 |
+| Confirm dialog and tutorial: fade in 12 and 8 frames, no input meanwhile | 0x45c6d0, 0x492d80, 0x492f30 |
+| Text strip wait (`Game.1000`): ends on Enter, Ctrl or left click | 0x4b1510 |
+| Extras: CG cell sound check on g[16] (value at +0x204) | 0x49a1d0 |
+| Message bar buttons 0 and 2 grey on h[69] (+0x8a4) | 0x472350, 0x443d30 |
+| `Mouse.5`: input device vtable | 0x4b6090, 0x53fb94 |
 | Title: start, create | 0x4912d0, 0x490e10 |
 | Title: `Game.110`, tab lock check, button state | 0x497c90, 0x491470, 0x491a50 |
 | Title: source cells (main, extras, widths), destination cells | 0x570180, 0x570198, 0x570240, 0x5701e0, 0x570210 |
