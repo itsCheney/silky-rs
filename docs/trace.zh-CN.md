@@ -88,7 +88,7 @@ silky-run diff original.json run.json --ignore tick,script,pc,result \
 | `stack.kinds` | 哪些种类值是数字，哪些是字符串：`{"0": "int", "1": "str"}` |
 | `breakpoints[].only` | `{"read": 表达式, "is": [...]}`：只保留读到的值是其中之一的命中，例如脚本自身循环的返回地址，因为引擎会自己执行一些调用 |
 | `breakpoints[].sub`、`args`、`by_sub`、`script`、`pc` | 不用 `stack` 时，为每个值写表达式，参数 `type` 为 `int`、`str`、`wstr`（UTF-16）或 `string`（MSVC `std::string` 的地址） |
-| `breakpoints[].hold`、`carry`、`join` | 带 `args` 的断点上的 `hold`：把值按该名字保存，不记录调用。有 `join`（分隔符）时，值还保存着的时候再次命中会追加，字符串之间用它连接。`stack` 断点上的 `carry`，`{"hold": 名字, "calls": ["BackLog.3", ...]}`：把保存的值作为参数交给下一个这样的调用。用于引擎接收、但不放到值栈上的文本 |
+| `breakpoints[].hold`、`carry`、`join`、`drop` | 带 `args` 的断点上的 `hold`：把值按该名字保存，不记录调用。有 `join`（分隔符）时，值还保存着的时候再次命中会追加，字符串之间用它连接。`stack` 断点上的 `carry`，`{"hold": 名字, "calls": ["BackLog.3", ...]}`：把保存的值作为参数交给下一个这样的调用。用于引擎接收、但不放到值栈上的文本。任何断点上的 `drop`（`"drop": 名字`）在命中时丢弃该名字保存的值。 |
 | `encoding`（顶层，也可写在 `stack` 和参数里） | 程序内存里的字符串怎么解码：默认 `cp932`；引擎在压入脚本文本时会转换的版本用 `utf-8` |
 
 表达式由寄存器、数字、`+`、`-` 和表示该地址处 32 位值的 `[...]` 组成。只有 `call` 名字、没有参数的断点用来标记位置，例如一个函数的开头和结尾，以便计时。`--arm-after` 让启动过程全速运行，之后再下断点；`--tick` 指定每次调用时读取的帧计数器地址，`--clock` 则写入从启动起的毫秒数。`--live FILE` 还会把每个调用在发生时逐行写入文件，供驱动游戏的脚本（点击，或按住 Ctrl 快进直到某个调用出现）查看。探针在调用执行前停下，因此不写 `result`。各版本的地址和布局见 [builds/](builds/README.zh-CN.md) 中对应的页面。

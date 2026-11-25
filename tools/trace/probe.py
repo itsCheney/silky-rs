@@ -297,6 +297,10 @@ class Breakpoint:
         # still kept appends to them, the strings joined by that separator.
         self.hold = spec.get("hold")
         self.join = spec.get("join")
+        # `drop` names a hold whose kept values are thrown away when this
+        # breakpoint is hit, before anything is recorded (the engine's own
+        # rerun of the previous page's text comes before a message line).
+        self.drop = spec.get("drop")
         self.take = None
         if spec.get("carry"):
             self.take = (spec["carry"]["hold"], set(spec["carry"]["calls"]))
@@ -327,6 +331,8 @@ class Breakpoint:
         carried = []
         if self.take is not None:
             carried = held.pop(self.take[0], [])
+        if self.drop is not None:
+            held.pop(self.drop, None)
         if self.only is not None and evaluate(self.only[0], regs, proc.u32) not in self.only[1]:
             return None
         call = {}
