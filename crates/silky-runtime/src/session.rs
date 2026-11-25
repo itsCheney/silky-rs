@@ -1039,18 +1039,34 @@ impl Session {
         if !st.typewriter || self.reveal_all || self.ui.skip {
             return None;
         }
-        let per = st.char_ms();
         let mut t = 0;
         for (i, c) in text.chars().filter(|&c| c != '\n').enumerate() {
-            t += per;
-            if st.punctuation_pause && is_pause_punctuation(c) {
-                t += per * PUNCTUATION_PAUSE;
-            }
-            if t > self.shown_ms {
+            let wait = self.char_wait(c);
+            t += wait;
+            // Doujin's window shows a character, then waits; the others
+            // wait first.
+            let at = if self.own_typing() { t - wait } else { t };
+            if at > self.shown_ms {
                 return Some(i);
             }
         }
         None
+    }
+
+    /// Whether the message window of this game types at its own pace
+    /// (`games::doujin::window::char_wait`).
+    fn own_typing(&self) -> bool {
+        self.rt.assets.game().title == silky_format::game::Title::Doujin
+    }
+
+    /// Time that passes after the character `c` of a typed message.
+    fn char_wait(&self, c: char) -> u64 {
+        let st = &self.rt.system.settings;
+        if self.own_typing() {
+            return crate::games::doujin::window::char_wait(st, c);
+        }
+        let pause = st.punctuation_pause && is_pause_punctuation(c);
+        st.char_ms() * if pause { 1 + PUNCTUATION_PAUSE } else { 1 }
     }
 
     /// Time the whole message takes to appear.
@@ -1065,13 +1081,18 @@ impl Session {
         if !st.typewriter || self.reveal_all {
             return 0;
         }
-        text.chars()
+        let waits: Vec<u64> = text
+            .chars()
             .filter(|&c| c != '\n')
-            .map(|c| {
-                let pause = st.punctuation_pause && is_pause_punctuation(c);
-                st.char_ms() * if pause { 1 + PUNCTUATION_PAUSE } else { 1 }
-            })
-            .sum()
+            .map(|c| self.char_wait(c))
+            .collect();
+        let total: u64 = waits.iter().sum();
+        if self.own_typing() {
+            // The last character comes up before its own wait.
+            total - waits.last().copied().unwrap_or(0)
+        } else {
+            total
+        }
     }
 
     /// Rule mask `NN.bin`, cached; `None` if the game has none.

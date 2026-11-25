@@ -185,10 +185,10 @@ Commands of ふゆから、くるる。 general enough to try on a game not know
 | `30` to `32` (`omake.rs`) | -1 for back and right click; in the scene mode, the scene picked (0 to 18) | CG, scene and music modes: tabs of one screen | Read |
 | `40.0`, `40.1` (`comic.rs`) | 0 on a click; 2 and 3 for the two round page buttons; 1 when a scene of the scene mode is left during a replay | Doujinshi screen and its wait | Read |
 | `110(state)` | 1 for the new game; 257 to 260 for the doujinshi, CG, scene and music buttons of the extras page | Title menu. The other buttons work inside the menu and never return | Read |
-| `990` | Not recorded yet | Staff roll | Read |
+| `990` | 0 when the roll runs to its end; 1 when the player ends it early | Staff roll (never called by the scripts) | Read |
 | `1005` | | Zoom and white flash | Read |
-| `1006` sub 0 | Not recorded yet | Breath animation, from `.brt` files | Read |
+| `1006` sub 0 | The slot of the animation, always 0 (there is one slot, a new call takes it over) | Breath animation, from `.brt` files | Read |
 | `1007` | | Pictures that change with the voice line, from `.vo` files | Read |
-| `1009` | Not recorded yet | Not described on the game page yet | Read |
+| `1009` | 1 while the message window is skipping, else 0 | Only asks; changes nothing. The scene skip loop of `LIBLARY.LIB` ends on it | Read |
 
 Accepted with nothing to do: `13.18`, `993` apart from `993.1`, `1003`, `961.1`, `12.7`, `10.4`, `10.5` and `10.16`. Movies (`do-jin*.dat`) are not played yet.

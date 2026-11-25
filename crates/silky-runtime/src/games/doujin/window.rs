@@ -299,9 +299,34 @@ pub fn overlay_keep_alpha(canvas: &mut Canvas, top: &Image) {
     }
 }
 
+/// Time the message window waits after typing the character `c`: the
+/// text speed's interval, cut to whole milliseconds (150 at the slowest,
+/// none at the top, where the whole text is there at once), and 300
+/// more after a stop mark when that setting is on.
+pub fn char_wait(st: &crate::system::Settings, c: char) -> u64 {
+    if st.text_speed >= 1.0 {
+        return 0;
+    }
+    let stop = st.punctuation_pause && matches!(c, '。' | '、' | '・' | '\u{3000}');
+    ((1.0 - st.text_speed.clamp(0.0, 1.0)) * 150.0) as u64 + if stop { 300 } else { 0 }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn typing_wait() {
+        let mut st = crate::system::Settings::default();
+        st.text_speed = 0.5;
+        st.punctuation_pause = true;
+        assert_eq!(char_wait(&st, 'あ'), 75);
+        assert_eq!(char_wait(&st, '。'), 375);
+        st.punctuation_pause = false;
+        assert_eq!(char_wait(&st, '。'), 75);
+        st.text_speed = 1.0;
+        assert_eq!(char_wait(&st, 'あ'), 0);
+    }
 
     #[test]
     fn over_picture_keeps_alpha_below() {
