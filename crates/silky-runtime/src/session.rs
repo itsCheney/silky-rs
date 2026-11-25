@@ -14,6 +14,9 @@ use silky_vm::{Stop, Vm};
 
 use crate::audio::Bus;
 use crate::games::apeiria::REPLAY_VAR;
+/// きまぐれテンプテーション: the variable of a second lock on saving and
+/// loading (H 77).
+const K1_LOCK_VAR: usize = 77;
 use crate::games::doukyuusei::room;
 use crate::games::doukyuusei::town::CANCEL_VAR;
 use crate::games::doukyuusei::Panel as DoukPanel;
@@ -293,7 +296,7 @@ impl Session {
         } else {
             saves
         };
-        self.ui.has_saves = !saves.list().is_empty();
+        (self.ui.has_saves, self.ui.has_quick) = save_flags(&saves);
         let mut data = SystemData::load(saves.dir(), self.rt.assets.game().title);
         let seen = std::mem::take(&mut self.rt.system);
         data.seen.extend(seen.seen);
@@ -406,6 +409,7 @@ impl Session {
         };
         saves.write_with_comment(slot, state, thumb.as_ref(), comment)?;
         self.ui.has_saves = true;
+        self.ui.has_quick |= slot == save::QUICK;
         Ok(())
     }
 
@@ -1461,6 +1465,10 @@ impl Session {
             {
                 s.press_at(id, x, y);
             }
+            // The viewer's scroll bar starts its drag at the press.
+            if let Some(K1::Viewer(v)) = self.ui.k1_menu.as_mut().or(self.ui.k1.as_mut()) {
+                v.press_start(id, x, y);
+            }
         }
         // A click that cancels the walk is no click on the map.
         let cancelled = self.cancel_walk();
@@ -2250,16 +2258,32 @@ impl Session {
         }
     }
 
+    /// Greys the system buttons of the screens that are up by what the
+    /// engine knows now; true when a button changed.
+    fn k1_grey_bars(&mut self) -> bool {
+        let facts = crate::games::kimaten1::BarFacts {
+            replay: self.ui.k1_replay,
+            locked: self.ui.k1_locked,
+            log: !self.log.is_empty(),
+            saves: self.ui.has_saves,
+            quick: self.ui.has_quick,
+            notebook: self.ui.notebook,
+        };
+        let mut changed = false;
+        for s in [self.ui.k1.as_mut(), self.ui.k1_menu.as_mut()]
+            .into_iter()
+            .flatten()
+        {
+            changed |= s.set_bar(&facts);
+        }
+        changed
+    }
+
     /// Puts up the screen of きまぐれテンプテーション (or one of the game
     /// modes of なないろリンカネーション) the runtime has ready.
     fn show_k1(&mut self) {
         self.ui.k1 = self.rt.k1.take();
-        if let Some(k) = &mut self.ui.k1 {
-            k.set_context(self.ui.has_saves, !self.log.is_empty());
-            if self.ui.k1_replay {
-                k.set_replay();
-            }
-        }
+        self.k1_grey_bars();
         self.ui.k1_menu = None;
         self.ui.k1_since = self.ui.clock;
         self.ui.hover = None;
@@ -2784,6 +2808,9 @@ impl Session {
     }
 
     pub fn wheel(&mut self, up: bool) -> Result<()> {
+        if self.layout.is_kimaten1() {
+            self.rt.wheel.turn(up);
+        }
         // Input waits for the extras' fade.
         if self.veil.is_some() || self.menu_sliding() {
             return Ok(());
@@ -3974,7 +4001,9 @@ impl Session {
         if let (Some(Screen::DoukSave(s)), Some(saves)) = (&mut self.screen, &self.saves) {
             s.refresh(saves);
         }
-        self.ui.has_saves = self.saves.as_ref().is_some_and(|s| !s.list().is_empty());
+        if let Some(s) = &self.saves {
+            (self.ui.has_saves, self.ui.has_quick) = save_flags(s);
+        }
     }
 
     /// Asks before doing something, unless the player said not to ask.
@@ -4948,6 +4977,7 @@ impl Session {
                     self.ui.skip = true;
                     self.skip_to_choice = true;
                     self.ui.auto = false;
+                    self.rt.k1_scene_skip = self.k1_jump_running();
                 }
                 bar::PREVIOUS_CHOICE => self.previous_choice()?,
                 bar::CONFIG => self.room_system(room::Sys::Settings),
@@ -5129,9 +5159,16 @@ impl Session {
 
     /// Advances the clock by `ms`: animation, auto and skip modes. Returns
     /// whether the frame changed.
+    /// きまぐれテンプテーション: the bar's jump button is on, which the
+    /// original's script sees as the scene skip setting.
+    fn k1_jump_running(&self) -> bool {
+        self.layout.is_kimaten1() && self.ui.skip && self.skip_to_choice
+    }
+
     pub fn tick(&mut self, ms: u64) -> Result<bool> {
         let before = self.ui.clock;
         self.ui.clock += ms;
+        self.rt.k1_scene_skip = self.k1_jump_running();
         self.ui.voice = self.rt.voice_playing();
         // Calls recorded for a trace carry the session clock.
         self.vm.set_trace_tick(self.ui.clock);
@@ -5250,6 +5287,11 @@ impl Session {
             let replay = self.vm.var_h(crate::games::apeiria::REPLAY_VAR).int() != 0;
             if replay != self.ui.k1_replay {
                 self.ui.k1_replay = replay;
+                self.frame = None;
+            }
+            self.ui.k1_locked = self.vm.var_h(K1_LOCK_VAR).int() != 0;
+            self.ui.k1_no_quick = !self.ui.has_quick;
+            if self.k1_grey_bars() {
                 self.frame = None;
             }
         }
@@ -5929,6 +5971,14 @@ impl Session {
 }
 
 /// The movie picture scaled to fit the screen, on black.
+/// Whether any slot, and the quick slot, holds a save.
+fn save_flags(saves: &Saves) -> (bool, bool) {
+    (
+        !saves.list().is_empty(),
+        !saves.list_kind(save::Kind::Quick).is_empty(),
+    )
+}
+
 fn movie_frame(m: &Movie, mut c: Canvas) -> Canvas {
     c.fill(0, 0, c.width, c.height, [0, 0, 0, 255]);
     let img = Arc::new(Image {

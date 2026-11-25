@@ -27,6 +27,7 @@ pub mod viewer;
 pub mod vo;
 pub mod window;
 
+pub use chrome::BarFacts;
 pub use commands::SHARED_COMMANDS;
 pub use notice::Notices;
 pub use screen::{Click, Look, Screen};

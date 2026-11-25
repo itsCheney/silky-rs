@@ -107,8 +107,8 @@ impl Runtime {
     /// 18 act on the message window: 10 wipes its text (the window and the
     /// name stay), 14 takes the whole window away, 15 holds the script for
     /// two seconds while the window's notebook button blinks (the
-    /// notebook's unlock), 18 does a call on one of the window's parts
-    /// that nothing in the story reaches.
+    /// notebook's unlock), 18 snaps the running motions of the companion
+    /// to their ends (the driver's skip; the story never calls it).
     pub(crate) fn kimaten1_emote(&mut self, args: &[Value], sub: i32) -> bool {
         let a = &args[..args.len().saturating_sub(1)];
         let n = |i: usize| a.get(i).map(Value::int).unwrap_or(0);
@@ -133,7 +133,12 @@ impl Runtime {
                     live: true,
                 }));
             }
-            (18, 0) => {}
+            // The driver's Skip on every part of the companion: running
+            // motions jump to their ends. Not called while scene skip is on.
+            (18, 0) => {
+                let off = self.scene_skip();
+                skip_motions(self.scene.emote.as_mut(), off);
+            }
             // A model that was on screen fades out as the new one loads.
             (6, 2) => {
                 let old = self.scene.emote.clone().filter(|e| e.visible);
@@ -227,7 +232,7 @@ impl Runtime {
     /// face (slot, extra, face), 2 applies, 3 removes a slot and 4 all,
     /// 8 moves by (dy, dx, slot), 13 the main timeline to follow, 14 the
     /// `a` timeline, 15 the main timeline, 16 the mouth track of the voice,
-    /// 17 the extra timeline alone (slot, extra), 18 pauses the driver, 21
+    /// 17 the extra timeline alone (slot, extra), 18 skips the running motions, 21
     /// stops the mouth, 31 clears the mouth tracks' cache. 3 (frames, slot)
     /// and 4 (frames) fade the model or all of them out while they slide
     /// sideways. 100 (slot, frames)
@@ -297,7 +302,12 @@ impl Runtime {
                     e.face = Some((face, n(1)));
                 }
             }
-            (18, 1) | (31, 0) => {}
+            // The same Skip on the model the slot holds.
+            (18, 1) => {
+                let off = self.scene_skip();
+                skip_motions(self.scene.emotes.get_mut(&last), off);
+            }
+            (31, 0) => {}
             // (slot, frames): the model the slot had flashes white and
             // fades out as the one it has now flashes in; nothing waits.
             (100, 2) => {
@@ -383,5 +393,34 @@ impl Runtime {
             _ => return false,
         }
         true
+    }
+}
+
+/// The driver's Skip on a model: asks the stage to snap its running
+/// motions to their ends. The original does not call it with scene skip on.
+fn skip_motions(emote: Option<&mut Emote>, scene_skip: bool) {
+    if let (Some(e), false) = (emote, scene_skip) {
+        e.skip_seq = e.skip_seq.wrapping_add(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn skip_asks_the_model_once_per_call() {
+        let mut e = Emote::default();
+        skip_motions(Some(&mut e), false);
+        skip_motions(Some(&mut e), false);
+        assert_eq!(e.skip_seq, 2);
+    }
+
+    #[test]
+    fn skip_does_nothing_with_scene_skip_on_or_no_model() {
+        let mut e = Emote::default();
+        skip_motions(Some(&mut e), true);
+        assert_eq!(e.skip_seq, 0);
+        skip_motions(None, false);
     }
 }

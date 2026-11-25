@@ -79,9 +79,12 @@ const BALLOON_POINT: (u32, u32, u32, u32) = (30, 830, 30, 30);
 const HELP_GLYPH: f32 = 14.0;
 const HELP_BASELINE: f32 = 13.0;
 /// Folding the bar moves the twelve buttons down off the screen, and
-/// unfolding moves them back, over twelve passes of the engine's sprite
-/// animation (60 a second), in a straight line.
+/// unfolding moves them back, in twelve steps of the engine's sprite
+/// animation, one every 15 ms, in a straight line. The first pass shows the
+/// start, the thirteenth lands on the end. Nothing waits for it: clicks
+/// and keys work while the buttons move.
 const SLIDE_PASSES: i64 = 12;
+const SLIDE_PASS_MS: u64 = 15;
 const SCREEN_H: i32 = 720;
 
 /// Click-wait bat: four 84 x 84 frames down the sheet at (1281, 0) (a
@@ -152,13 +155,7 @@ impl Bar {
         if id >= FOLD {
             return None;
         }
-        let t = i64::from(crate::games::doukyuusei::menu::passes(start, ui.clock));
-        if t >= SLIDE_PASSES {
-            return None;
-        }
-        let way = i64::from(SCREEN_H - top);
-        let t = if opening { SLIDE_PASSES - t } else { t };
-        Some((way * t / SLIDE_PASSES) as i32)
+        slide_offset(opening, ui.clock.saturating_sub(start), SCREEN_H - top)
     }
 
     /// The tooltip balloon: above the button under the pointer when the
@@ -364,6 +361,21 @@ fn balloon(
     })
 }
 
+/// How far down a button is `elapsed` ms into the slide, `way` pixels
+/// being the whole distance; None once the slide has ended. Folding runs
+/// from the resting place to the screen's edge, unfolding back, with the
+/// position cut to whole pixels at each step.
+fn slide_offset(opening: bool, elapsed: u64, way: i32) -> Option<i32> {
+    let pass = (elapsed / SLIDE_PASS_MS) as i64;
+    if pass > SLIDE_PASSES + 1 {
+        return None;
+    }
+    let step = (pass - 1).max(0);
+    let way = i64::from(way);
+    let down = way * step / SLIDE_PASSES;
+    Some(if opening { way - down } else { down } as i32)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -387,5 +399,24 @@ mod tests {
         for id in 0..CROSS {
             assert!(HELP.iter().any(|(i, _)| *i == id));
         }
+    }
+
+    #[test]
+    fn the_slide_takes_twelve_steps_of_15_ms() {
+        let way = 215;
+        // Folding: the first pass shows the start, the thirteenth the end.
+        assert_eq!(slide_offset(false, 0, way), Some(0));
+        assert_eq!(slide_offset(false, 14, way), Some(0));
+        assert_eq!(slide_offset(false, 15, way), Some(0));
+        assert_eq!(slide_offset(false, 30, way), Some(way / 12));
+        assert_eq!(slide_offset(false, 12 * 15, way), Some(way * 11 / 12));
+        assert_eq!(slide_offset(false, 13 * 15 - 1, way), Some(way * 11 / 12));
+        assert_eq!(slide_offset(false, 13 * 15, way), Some(way));
+        assert_eq!(slide_offset(false, 14 * 15, way), None);
+        // Unfolding runs it backwards, cut from the far end.
+        assert_eq!(slide_offset(true, 0, way), Some(way));
+        assert_eq!(slide_offset(true, 30, way), Some(way - way / 12));
+        assert_eq!(slide_offset(true, 13 * 15, way), Some(0));
+        assert_eq!(slide_offset(true, 14 * 15, way), None);
     }
 }

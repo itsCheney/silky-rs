@@ -280,13 +280,17 @@ pub fn evidence(st: &mut Stage, cards: &[i32]) {
     p.done();
 }
 
-/// How the model under `key` is drawn now: its opacity and how much it
-/// is whitened, both from 0 to 255. `None` when nothing changes it.
+/// How the model under `key` is drawn now: its opacity (0 to 255) and its
+/// colour byte (0x80 leaves the model as it is, 0xff doubles its colours).
+/// `None` when nothing changes it.
 pub fn emote_fx(scene: &Scene, key: i32) -> Option<(u8, u8)> {
     let id = scene.effects.slots.get(&(FADE, key as u32))?;
     let s = scene.effects.sprites.iter().find(|s| s.id == *id)?;
-    Some((s.alpha, 255 - s.tint[0]))
+    Some((s.alpha, s.tint[0]))
 }
+
+/// The colour byte of a model that is not flashed.
+const NEUTRAL: u8 = 0x80;
 
 /// How many pixels the model under `key` is moved sideways by its tracker
 /// (a standing model that leaves slides while it fades).
@@ -345,6 +349,8 @@ pub fn fade(st: &mut Stage, key: i32, how: Fade) -> u32 {
     }
     let id = p.st.id();
     let mut s = Sprite::new(id, FADE, Look::Nothing, 0);
+    // The tracker's tint is the model's colour byte.
+    s.tint = [NEUTRAL; 3];
     let tint = |p: &mut Play, owner: u32, from: u8, to: u8| {
         p.user(User::Tint {
             owner,
@@ -372,7 +378,7 @@ pub fn fade(st: &mut Stage, key: i32, how: Fade) -> u32 {
         }
         Fade::WhiteOut(n) => {
             s = s.shown();
-            let u = tint(&mut p, FADE, 255, 0);
+            let u = tint(&mut p, FADE, NEUTRAL, 255);
             vec![
                 Key::new(n).show(true).user(u),
                 Key::new(n).show(false).fade(255, 0),
@@ -380,8 +386,8 @@ pub fn fade(st: &mut Stage, key: i32, how: Fade) -> u32 {
         }
         Fade::WhiteIn(n) => {
             s.alpha = 0;
-            s.tint = [0; 3];
-            let u = tint(&mut p, FADE, 0, 255);
+            s.tint = [255; 3];
+            let u = tint(&mut p, FADE, 255, NEUTRAL);
             vec![
                 Key::new(n).show(true).fade(0, 255),
                 Key::new(n).show(true).user(u),
@@ -576,12 +582,27 @@ mod tests {
     }
 
     #[test]
+    fn white_out_raises_the_colour_byte_from_0x80_to_0xff() {
+        let mut scene = Scene::default();
+        fade(&mut scene.effects, 0, Fade::WhiteOut(16));
+        assert_eq!(emote_fx(&scene, 0), Some((255, NEUTRAL)));
+        scene.effects.advance(frames_ms(8) as u64);
+        let (_, byte) = emote_fx(&scene, 0).unwrap();
+        assert!((185..=197).contains(&byte), "{byte}");
+        scene.effects.advance(frames_ms(8) as u64);
+        // Then it fades out, fully white.
+        let (alpha, byte) = emote_fx(&scene, 0).unwrap();
+        assert!(alpha < 255, "{alpha}");
+        assert_eq!(byte, 255);
+    }
+
+    #[test]
     fn white_flash_values() {
         let mut scene = Scene::default();
         fade(&mut scene.effects, 0, Fade::WhiteIn(16));
         assert_eq!(emote_fx(&scene, 0), Some((0, 255)));
         scene.effects.advance(2000);
-        assert_eq!(emote_fx(&scene, 0), Some((255, 0)));
+        assert_eq!(emote_fx(&scene, 0), Some((255, NEUTRAL)));
         // A model going leaves a ghost that ends with its fade.
         leave(&mut scene, 0, Emote::default());
         let gk = ghost_key(0);

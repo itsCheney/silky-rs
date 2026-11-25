@@ -422,3 +422,49 @@ pub(crate) fn nothing_to_do(class: i32, sub: i32) -> bool {
         (2, 1) | (10, 0 | 1) | (24, 0 | 2) | (26, 2..=4) | (1, 0) | (22, 0..=2)
     )
 }
+
+/// The mouse's wheel counter (`Mouse.4` reads it, `Mouse.5` sets it). Each
+/// notch of the wheel adds one away from the player or takes one off
+/// towards the player, and the count stays until a script or a wait loop
+/// of the engine clears it. A script that waits on a voice sets it to 0
+/// first, then ends the wait once it is not 0.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Wheel(i32);
+
+impl Wheel {
+    /// One notch; `up` is away from the player.
+    pub fn turn(&mut self, up: bool) {
+        self.0 += if up { 1 } else { -1 };
+    }
+
+    pub fn get(self) -> i32 {
+        self.0
+    }
+
+    /// `Mouse.5(n)`.
+    pub fn set(&mut self, n: i32) {
+        self.0 = n;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_wheel_counts_notches_until_it_is_set() {
+        let mut w = Wheel::default();
+        assert_eq!(w.get(), 0);
+        w.turn(true);
+        w.turn(true);
+        w.turn(false);
+        assert_eq!(w.get(), 1);
+        w.turn(false);
+        w.turn(false);
+        assert_eq!(w.get(), -1);
+        w.set(0);
+        assert_eq!(w.get(), 0);
+        w.set(5);
+        assert_eq!(w.get(), 5);
+    }
+}

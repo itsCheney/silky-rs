@@ -188,6 +188,8 @@ pub struct Ui {
     pub clock: u64,
     /// Whether there are saves to load (enables Continue and Load).
     pub has_saves: bool,
+    /// The quick save slot holds a save.
+    pub has_quick: bool,
     /// Options of a pending selection, as shown.
     pub choices: Vec<String>,
     /// Shown status of each option (empty when none applies).
@@ -244,6 +246,12 @@ pub struct Ui {
     /// きまぐれテンプテーション: a scene of the scene list is being
     /// replayed (variable H 69 is set).
     pub k1_replay: bool,
+    /// きまぐれテンプテーション: the quick save slot holds nothing (the
+    /// quick load buttons are grey).
+    pub k1_no_quick: bool,
+    /// きまぐれテンプテーション: variable H 77, a second lock on saving and
+    /// loading.
+    pub k1_locked: bool,
     /// きまぐれテンプテーション: the bar's buttons slide down (folding) or
     /// back up (unfolding): which way and the clock when it started.
     pub k1_fold: Option<(bool, u64)>,
@@ -357,7 +365,8 @@ impl Ui {
             // きまぐれテンプテーション: while a scene of the scene list is
             // replayed (variable H 69) nothing is saved or loaded.
             Button::Bar(bar::SAVE | bar::QUICK_SAVE) => !self.k1_replay,
-            Button::Bar(bar::LOAD | bar::QUICK_LOAD) => self.has_saves && !self.k1_replay,
+            Button::Bar(bar::LOAD) => self.has_saves && !self.k1_replay,
+            Button::Bar(bar::QUICK_LOAD) => self.has_saves && !self.k1_replay && !self.k1_no_quick,
             Button::Bar(bar::PREVIOUS_CHOICE) => self.previous_choice,
             Button::Bar(bar::NEXT_CHOICE) => !self.jump_off,
             Button::Bar(bar::NOTEBOOK) => self.notebook,
@@ -2797,5 +2806,18 @@ mod tests {
         }
         assert!(!ui.enabled(Button::Bar(bar::K1_NOTEBOOK)));
         assert!(ui.enabled(Button::Bar(bar::CONFIG)));
+    }
+
+    #[test]
+    fn the_window_quick_load_needs_a_quick_save() {
+        let mut ui = Ui {
+            has_saves: true,
+            ..Ui::default()
+        };
+        assert!(ui.enabled(Button::Bar(bar::QUICK_LOAD)));
+        ui.k1_no_quick = true;
+        assert!(!ui.enabled(Button::Bar(bar::QUICK_LOAD)));
+        // Another slot is enough for the load button.
+        assert!(ui.enabled(Button::Bar(bar::LOAD)));
     }
 }

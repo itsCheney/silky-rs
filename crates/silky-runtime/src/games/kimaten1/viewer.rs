@@ -103,14 +103,17 @@ const LIST_TOP: i32 = 162;
 const BAR_TOP: i32 = 150;
 const BAR_HEIGHT: i32 = 405;
 const BAR_X: i32 = 1229;
-/// The help line's glyph cells are 16 pixels from (648, 696); the
-/// original puts a glyph's baseline the face's ascent under the top of
-/// its cell, and the help line takes 13 of the 16 pixels.
-const HELP_POS: (f32, f32) = (648.0, 709.0);
-const HELP_SIZE: f32 = 16.0;
-/// The list's cells are 24 pixels high from the row's top.
-const ROW_SIZE: f32 = 24.0;
-const ROW_ASCENT: f32 = 20.0;
+/// The help line is written in 16 pixel cells from (648, 696), the list's
+/// rows in 24 pixel cells from the row's top; white glyphs with a black
+/// edge one pixel wide, as in the notice strips and the notebook. The
+/// executable only gives the cells: the glyph size (the cell less four
+/// pixels) and the baseline (three quarters of the cell under its top)
+/// follow what was measured on those two screens.
+const HELP_CELL: f32 = 16.0;
+const HELP_POS: (f32, f32) = (648.0, 696.0);
+const ROW_CELL: f32 = 24.0;
+const GLYPH_LESS: f32 = 4.0;
+const BASELINE: f32 = 0.75;
 
 const OUTFIT_NAMES: [&str; OUTFITS] = [
     "悪魔",
@@ -230,6 +233,8 @@ pub struct Viewer {
     phase: Phase,
     fade: Option<ButtonFade>,
     scroll: usize,
+    /// The drag that holds the scroll bar, while there is one.
+    bar: Option<BarDrag>,
     /// The slider, 0 to 1.
     zoom: f32,
     hidden: bool,
@@ -258,6 +263,24 @@ pub fn timeline(n: usize) -> i32 {
 /// The size of the model in percent for a slider value.
 pub fn size_percent(zoom: f32) -> i32 {
     SIZE_MIN + (zoom * SIZE_RANGE) as i32
+}
+
+/// A drag of the scroll bar. The original follows the pointer's travel
+/// from the press (`pos` starts at the pointer's height and cannot go
+/// above 0) and puts the list where that height maps to, but only when
+/// that differs from what the press itself mapped to (`last`).
+#[derive(Debug, Clone, Copy)]
+struct BarDrag {
+    last: usize,
+    pos: i32,
+    y: i32,
+}
+
+/// Whether (x, y) is on the knob of the bar when the list is at `scroll`
+/// (35 wide and 50 high).
+pub fn on_knob(scroll: usize, x: i32, y: i32) -> bool {
+    let top = BAR_TOP + (scroll as i32 * BAR_HEIGHT) / SCROLL_MAX as i32;
+    (BAR_X..BAR_X + 35).contains(&x) && (top..top + 50).contains(&y)
 }
 
 /// The scroll position for a pointer at height `y` on the bar.
@@ -290,6 +313,7 @@ impl Viewer {
             phase: Phase::Idle,
             fade: None,
             scroll: 0,
+            bar: None,
             zoom: ZOOM_START,
             hidden: false,
             dialog: false,
@@ -470,6 +494,7 @@ impl Viewer {
     }
 
     pub fn click(&mut self, id: i32) -> Click {
+        self.bar = None;
         // (`hit` already answers nothing while a fade runs.)
         if self.dialog {
             self.dialog = false;
@@ -619,15 +644,47 @@ impl Viewer {
                 self.zoom = v as f32 / 256.0;
                 self.dirty = true;
             }
-            SCROLLBAR => self.scroll = scroll_at(y),
+            SCROLLBAR => match &mut self.bar {
+                Some(d) => {
+                    d.pos = (d.pos + y - d.y).max(0);
+                    d.y = y;
+                    let n = scroll_at(d.pos);
+                    if n != d.last {
+                        d.last = n;
+                        self.scroll = n;
+                    }
+                }
+                None => self.scroll = scroll_at(y),
+            },
             _ => {}
         }
     }
 
+    /// The press that starts a drag of the scroll bar. A press off the
+    /// knob puts the list under the pointer at once; a press on the knob
+    /// leaves it until the pointer's height maps to another position.
+    pub fn press_start(&mut self, id: i32, x: i32, y: i32) {
+        self.bar = None;
+        if id != SCROLLBAR || self.dialog || self.hidden || self.busy() {
+            return;
+        }
+        let first = scroll_at(y);
+        if !on_knob(self.scroll, x, y) {
+            self.scroll = first;
+        }
+        self.bar = Some(BarDrag {
+            last: first,
+            pos: y,
+            y,
+        });
+    }
+
     /// The mouse wheel: up goes back by five, down forward; true when the
-    /// list was there to scroll.
+    /// list was there to scroll. The original scrolls while the buttons
+    /// are hidden too (the list is only out of sight); the question
+    /// takes the wheel while it is up.
     pub fn wheel(&mut self, up: bool) -> bool {
-        if self.dialog || self.hidden {
+        if self.dialog {
             return true;
         }
         if up {
@@ -791,22 +848,24 @@ impl Viewer {
             let top = LIST_TOP + 24 * i as i32;
             if let Some(tr) = look.text {
                 // White, red under the pointer, yellow for the motion
-                // picked; the glyphs sit under the row's top by the
-                // ascent of a 24 pixel face.
+                // picked.
                 let color = [
                     [255, 255, 255, alpha],
                     [255, 0, 0, alpha],
                     [255, 255, 0, alpha],
                 ][st as usize];
-                tr.draw_bold_edged(
-                    canvas,
-                    &format!("アクション{:03}", n + 1),
-                    LIST_LEFT as f32,
-                    top as f32 + ROW_ASCENT,
-                    ROW_SIZE,
-                    color,
-                    [0, 0, 0, alpha],
-                );
+                let glyph = ROW_CELL - GLYPH_LESS;
+                tr.with_fixed_cells(ROW_CELL / glyph, |tr| {
+                    tr.draw_outlined(
+                        canvas,
+                        &format!("アクション{:03}", n + 1),
+                        LIST_LEFT as f32,
+                        top as f32 + ROW_CELL * BASELINE,
+                        glyph,
+                        color,
+                        [0, 0, 0, alpha],
+                    )
+                });
             }
         }
         let st = self.state(look, SCROLLBAR);
@@ -826,15 +885,18 @@ impl Viewer {
         };
         part(canvas, (1154, 672 + st * 33, 34, 33), (358, 273));
         if let (Some(tr), Some(line)) = (look.text, self.help(look.hover)) {
-            tr.draw_bold_edged(
-                canvas,
-                &line,
-                HELP_POS.0,
-                HELP_POS.1,
-                HELP_SIZE,
-                [255, 255, 255, alpha],
-                [0, 0, 0, alpha],
-            );
+            let glyph = HELP_CELL - GLYPH_LESS;
+            tr.with_fixed_cells(HELP_CELL / glyph, |tr| {
+                tr.draw_outlined(
+                    canvas,
+                    &line,
+                    HELP_POS.0,
+                    HELP_POS.1 + HELP_CELL * BASELINE,
+                    glyph,
+                    [255, 255, 255, alpha],
+                    [0, 0, 0, alpha],
+                )
+            });
         }
         if self.dialog {
             self.draw_dialog(canvas, assets, look)?;
@@ -1030,6 +1092,36 @@ mod tests {
     }
 
     #[test]
+    fn a_press_off_the_knob_jumps_and_one_on_it_waits() {
+        let mut v = viewer(&[0]);
+        v.scroll = 80;
+        // The knob sits at 150 + 80 * 405 / 162 = 350, 50 high.
+        assert!(on_knob(80, 1240, 350) && on_knob(80, 1263, 399));
+        assert!(!on_knob(80, 1240, 349) && !on_knob(80, 1240, 400));
+        assert!(!on_knob(80, 1228, 360) && !on_knob(80, 1264, 360));
+        // Off the knob: the list goes where the pointer maps to.
+        v.press_start(SCROLLBAR, 1240, 500);
+        assert_eq!(v.scroll, scroll_at(500));
+        // On the knob: nothing moves with the press or a nudge that maps
+        // to the same place, then the list follows the pointer.
+        v.scroll = 80;
+        v.press_start(SCROLLBAR, 1240, 352);
+        assert_eq!(v.scroll, 80);
+        v.press_at(SCROLLBAR, 1240, 352);
+        assert_eq!(v.scroll, 80);
+        v.press_at(SCROLLBAR, 1240, 400);
+        assert_eq!(v.scroll, scroll_at(400));
+        // The tracked position cannot go above 0, so coming back from
+        // above the window is measured from there.
+        v.press_at(SCROLLBAR, 1240, -500);
+        assert_eq!(v.scroll, 0);
+        v.press_at(SCROLLBAR, 1240, 300);
+        assert_eq!(v.scroll, scroll_at(800));
+        v.click(SCROLLBAR);
+        assert!(v.bar.is_none());
+    }
+
+    #[test]
     fn locked_outfits_do_not_answer() {
         let mut v = viewer(&[0, 3]);
         assert!(v.enabled(0) && !v.enabled(1) && v.enabled(3));
@@ -1104,6 +1196,38 @@ mod tests {
         assert!(!v.hidden);
         settle(&mut v, &mut scene);
         assert_eq!(v.hit(10, 30), Some(0));
+    }
+
+    #[test]
+    fn the_wheel_scrolls_while_the_buttons_are_hidden() {
+        let mut v = viewer(&[0]);
+        v.cancel();
+        assert!(v.hidden);
+        v.wheel(false);
+        assert_eq!(v.scroll, SCROLL_STEP);
+        v.wheel(true);
+        v.wheel(true);
+        assert_eq!(v.scroll, 0);
+        // The question takes it while it is up.
+        v.hidden = false;
+        v.click(UNLOCK);
+        v.wheel(false);
+        assert_eq!(v.scroll, 0);
+    }
+
+    #[test]
+    fn picking_the_worn_outfit_loads_the_model_again() {
+        let mut scene = Scene::default();
+        let mut v = viewer(&[0]);
+        v.enter(&mut scene);
+        settle(&mut v, &mut scene);
+        v.click(ROW + 2);
+        v.click(POSE);
+        v.click(0);
+        assert!(v.reload);
+        let e = v.emote();
+        // No main timeline, as with any new model; the pose stays.
+        assert_eq!((e.pose, e.sub), (None, Some(1)));
     }
 
     #[test]

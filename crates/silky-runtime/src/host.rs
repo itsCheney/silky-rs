@@ -285,6 +285,9 @@ pub struct Runtime {
     pub choices: Vec<String>,
     /// Set by the frontend when the player clicked; read by input polls.
     pub clicked: bool,
+    /// きまぐれテンプテーション: the mouse's wheel counter, read by
+    /// `Mouse.4` and set by `Mouse.5`.
+    pub wheel: crate::games::kimaten1::commands::Wheel,
     /// Set by the frontend when the player cancelled (secondary click,
     /// Escape) while the script polls the input; read by the poll for 257.
     pub cancelled: bool,
@@ -345,6 +348,10 @@ pub struct Runtime {
     /// きまぐれテンプテーション: the pause being started is a wait that
     /// Enter, Ctrl or a click ends at once (`Game.1000`).
     pub k1_keywait: bool,
+    /// きまぐれテンプテーション: the bar's jump button is running (skip to
+    /// the next choice), which the original treats as its scene skip
+    /// setting being on.
+    pub k1_scene_skip: bool,
     /// The colour covering the screen when 同級生 Remake's name entry
     /// opened: the page shows the background, and the cover comes back
     /// when it is done.
@@ -428,6 +435,7 @@ impl Runtime {
             choice_status: Vec::new(),
             choices: Vec::new(),
             clicked: false,
+            wheel: Default::default(),
             cancelled: false,
             character_time: 0,
             jolts: Vec::new(),
@@ -451,6 +459,7 @@ impl Runtime {
             k1_title_extras: false,
             k1_blink: false,
             k1_keywait: false,
+            k1_scene_skip: false,
             cover_under_name: None,
             town: None,
             sprites: Default::default(),
@@ -546,7 +555,7 @@ impl Runtime {
     /// The original's scene skip setting (`/Config/SceneSkip`), off unless
     /// a script wrote it.
     pub(crate) fn scene_skip(&self) -> bool {
-        scene_skip_set(&self.xml)
+        scene_skip_on(&self.xml, self.k1_scene_skip)
     }
 
     /// Script the current message is in (lowercase).
@@ -1624,7 +1633,13 @@ impl Host for Runtime {
                 // (): whether the player clicked, polled once a frame while
                 // a voice plays.
                 if base && class == MOUSE && sub == 4 && args.is_empty() {
-                    vm.push(std::mem::take(&mut self.clicked) as i32);
+                    if title == Title::Kimaten1 {
+                        // The device's wheel counter; a click ends the
+                        // script's wait through its own input poll.
+                        vm.push(self.wheel.get());
+                    } else {
+                        vm.push(std::mem::take(&mut self.clicked) as i32);
+                    }
                     self.pause = Some(Pause::Frame);
                     self.handled += 1;
                     return Ok(Flow::Yield);
@@ -1632,7 +1647,12 @@ impl Host for Runtime {
                 // (mode): readies the pointer for the click poll above;
                 // a click from before it does not count.
                 if base && class == MOUSE && sub == 5 && args.len() == 1 {
-                    self.clicked = false;
+                    if title == Title::Kimaten1 {
+                        // Sets the wheel counter (the scripts pass 0).
+                        self.wheel.set(args[0].int());
+                    } else {
+                        self.clicked = false;
+                    }
                     self.handled += 1;
                     return Ok(Flow::Continue);
                 }
@@ -1676,6 +1696,12 @@ impl Host for Runtime {
     }
 }
 
+/// Whether the scene skip setting is on: written by a script, or held on
+/// by a running jump.
+fn scene_skip_on(values: &HashMap<String, i32>, jump: bool) -> bool {
+    jump || scene_skip_set(values)
+}
+
 /// Whether the configuration values hold the scene skip setting on.
 fn scene_skip_set(values: &HashMap<String, i32>) -> bool {
     values.get("/Config/SceneSkip") == Some(&1)
@@ -1693,6 +1719,13 @@ mod scene_skip_tests {
         assert!(scene_skip_set(&values));
         values.insert("/Config/SceneSkip".to_string(), 0);
         assert!(!scene_skip_set(&values));
+    }
+
+    #[test]
+    fn a_running_jump_turns_scene_skip_on() {
+        let values = HashMap::new();
+        assert!(!scene_skip_on(&values, false));
+        assert!(scene_skip_on(&values, true));
     }
 }
 

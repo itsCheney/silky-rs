@@ -64,10 +64,66 @@ pub fn bar_index(id: i32) -> Option<usize> {
         .then(|| (id - BAR) as usize)
 }
 
-/// While a scene of the scene list is replayed the screens' save, load,
-/// quick save and quick load buttons are grey.
-pub fn grey_replay(off: &mut [bool; BAR_LEN]) {
-    off[3..=6].fill(true);
+/// What the engine looks at when it decides which system buttons are grey.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BarFacts {
+    /// H 69: a scene of the scene list is replayed.
+    pub replay: bool,
+    /// H 77: a second lock that greys the same buttons. No script sets it.
+    pub locked: bool,
+    /// The backlog has lines. The window's own log switch is on whenever a
+    /// screen can be up, so it is not a separate input.
+    pub log: bool,
+    /// Some save slot, a quick save included, holds a save.
+    pub saves: bool,
+    /// The quick save slot holds a save.
+    pub quick: bool,
+    /// Byte 899: the notebook is unlocked.
+    pub notebook: bool,
+}
+
+impl Default for BarFacts {
+    /// Nothing locked, everything there to use.
+    fn default() -> Self {
+        Self {
+            replay: false,
+            locked: false,
+            log: true,
+            saves: true,
+            quick: true,
+            notebook: true,
+        }
+    }
+}
+
+/// The two rules the screens' bars follow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BarKind {
+    /// Action menu, area and item selection and the map.
+    Action,
+    /// The option list. Its rule was written for a bar of six buttons
+    /// (the notebook last), so on the eight of the sheet it greys the quick
+    /// save button for a locked notebook, and the quick load and the
+    /// notebook buttons are never grey.
+    Option,
+}
+
+/// Which of the bar's buttons are grey.
+pub fn grey(kind: BarKind, f: &BarFacts) -> [bool; BAR_LEN] {
+    let mut off = [false; BAR_LEN];
+    let scene = f.replay || f.locked;
+    off[2] = !f.log;
+    off[3] = scene;
+    off[4] = scene || !f.saves;
+    match kind {
+        BarKind::Action => {
+            off[5] = f.replay;
+            off[6] = f.replay || !f.quick;
+            off[7] = !f.notebook;
+        }
+        BarKind::Option => off[5] = !f.notebook,
+    }
+    off
 }
 
 /// The area under (x, y) that `want` accepts.
@@ -149,10 +205,78 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_replay_greys_the_four_save_and_load_buttons() {
-        let mut off = [false; BAR_LEN];
-        off[7] = true;
-        grey_replay(&mut off);
-        assert_eq!(off, [false, false, false, true, true, true, true, true]);
+    fn the_action_bar_follows_its_rule_button_by_button() {
+        let f = BarFacts::default();
+        assert_eq!(grey(BarKind::Action, &f), [false; BAR_LEN]);
+        // Nothing to load, no backlog, no quick save, notebook locked.
+        let none = BarFacts {
+            log: false,
+            saves: false,
+            quick: false,
+            notebook: false,
+            ..f
+        };
+        assert_eq!(
+            grey(BarKind::Action, &none),
+            [false, false, true, false, true, false, true, true]
+        );
+        // Quick load needs the quick slot, load any slot.
+        let some = BarFacts { quick: false, ..f };
+        assert_eq!(
+            grey(BarKind::Action, &some),
+            [false, false, false, false, false, false, true, false]
+        );
+    }
+
+    #[test]
+    fn a_replay_greys_save_load_and_the_quick_pair_but_not_the_notebook() {
+        let f = BarFacts {
+            replay: true,
+            ..BarFacts::default()
+        };
+        assert_eq!(
+            grey(BarKind::Action, &f),
+            [false, false, false, true, true, true, true, false]
+        );
+    }
+
+    #[test]
+    fn the_second_lock_greys_save_and_load_only() {
+        let f = BarFacts {
+            locked: true,
+            ..BarFacts::default()
+        };
+        assert_eq!(
+            grey(BarKind::Action, &f),
+            [false, false, false, true, true, false, false, false]
+        );
+        assert_eq!(
+            grey(BarKind::Option, &f),
+            [false, false, false, true, true, false, false, false]
+        );
+    }
+
+    #[test]
+    fn the_option_list_has_its_own_rule() {
+        let f = BarFacts {
+            replay: true,
+            log: false,
+            saves: false,
+            quick: false,
+            notebook: false,
+            ..BarFacts::default()
+        };
+        // Quick save follows the notebook byte; quick load and the
+        // notebook button are never grey; a replay does not touch the
+        // quick save button.
+        assert_eq!(
+            grey(BarKind::Option, &f),
+            [false, false, true, true, true, true, false, false]
+        );
+        let unlocked = BarFacts {
+            notebook: true,
+            ..f
+        };
+        assert!(!grey(BarKind::Option, &unlocked)[5]);
     }
 }

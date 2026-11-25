@@ -217,7 +217,12 @@ impl Soot {
     }
 }
 
+/// How dark the screen gets at the top of a lap of the darkening.
+const PEAKS: [i32; 3] = [128, 64, 24];
+
 /// The darkening that lifts again, and the waving copies of the screen.
+/// Every lap (136 frames) starts over and picks how dark it gets anew, so
+/// the laps differ in depth.
 #[derive(Debug, Clone)]
 pub struct Pulse {
     black: u32,
@@ -226,10 +231,15 @@ pub struct Pulse {
     wave: bool,
     counter: i32,
     phase: f32,
+    rng: Mt,
 }
 
 impl Pulse {
     fn tick(&mut self, sprites: &mut [Sprite], f: i32) {
+        // The first frame of a lap (the stage counts a key's frames from 1).
+        if f <= 1 {
+            self.peak = PEAKS[self.rng.below(3) as usize];
+        }
         let p = self.peak;
         let alpha = if f < 64 {
             p * f / 64
@@ -656,8 +666,7 @@ pub fn effect(st: &mut Stage, ty: i32, action: i32, bg: Option<&str>) {
             );
         }
         2 | 3 => {
-            let rng = &mut mt(p.st);
-            let peak = [128, 64, 24][rng.below(3) as usize];
+            let rng = mt(p.st);
             let black = p.add(black(), 8, 0.0, 0.0);
             let waves = [-24.0, 24.0].map(|amp| {
                 let id = p.st.id();
@@ -679,10 +688,11 @@ pub fn effect(st: &mut Stage, ty: i32, action: i32, bg: Option<&str>) {
                 Kind::Pulse(Pulse {
                     black,
                     waves,
-                    peak,
+                    peak: 0,
                     wave: ty == 3,
                     counter: 0,
                     phase: 0.0,
+                    rng,
                 }),
                 136,
             );
@@ -894,13 +904,16 @@ pub fn flash(st: &mut Stage, sub: i32, arg: i32, bg: Option<&str>) {
         .collect();
     let mut p = Play::new(st, FLASH);
     match sub {
-        // A black screen and the text strip laid piece by piece.
+        // A black screen and the text strip laid piece by piece. The black
+        // covers everything on the stage, the text strips (`Game.1000`)
+        // that are still up included, as the original's screen goes dark
+        // while they stand.
         1 => {
-            let back = p.add(black(), 0, 0.0, 0.0);
+            let back = p.add(black(), STRIP_DEPTH, 0.0, 0.0);
             let ids: Vec<u32> = (0..255)
                 .map(|_| {
                     let id = p.st.id();
-                    let mut s = Sprite::new(id, FLASH, Look::picture("st00.akb"), 0);
+                    let mut s = Sprite::new(id, FLASH, Look::picture("st00.akb"), STRIP_DEPTH + 1);
                     s.scale_at = (STRIP.0 / 2.0, STRIP.1 / 2.0);
                     s.turn_at = s.scale_at;
                     p.steps.push(Step::Add(s));
@@ -1014,6 +1027,9 @@ pub fn flash(st: &mut Stage, sub: i32, arg: i32, bg: Option<&str>) {
     p.done();
 }
 
+/// Depth of the black of sub 1: over every standing picture and text strip.
+const STRIP_DEPTH: i32 = 500;
+
 /// Frames the text strip of sub 1 takes.
 pub const PIECE_FRAMES: i32 = 255;
 
@@ -1093,6 +1109,47 @@ mod tests {
         effect(&mut st, 3, 0, None);
         run(&mut st, 10);
         assert_eq!(waves(&st), [(1, true, false), (0, true, false)]);
+    }
+
+    #[test]
+    fn every_lap_of_the_darkening_picks_its_depth_anew() {
+        let mut st = Stage::default();
+        effect(&mut st, 2, 0, None);
+        let mut peaks = Vec::new();
+        for _ in 0..12 {
+            let mut top = 0;
+            for _ in 0..136 {
+                st.advance(16);
+                if let Some(s) = st.sprites.iter().find(|s| s.z == 8) {
+                    top = top.max(s.alpha);
+                }
+            }
+            peaks.push(top);
+        }
+        assert!(peaks.iter().all(|p| [128, 64, 24].contains(p)), "{peaks:?}");
+        assert!(peaks.windows(2).any(|w| w[0] != w[1]), "{peaks:?}");
+    }
+
+    #[test]
+    fn the_black_of_the_strip_lies_over_the_standing_text_strips() {
+        let mut st = Stage::default();
+        for _ in 0..3 {
+            crate::games::kimaten1::effects::strip(&mut st, "bg.akb", [0, 4, 20, 100, 100, 0, 0]);
+        }
+        run(&mut st, 20);
+        flash(&mut st, 1, 0, None);
+        run(&mut st, 2);
+        let back = st
+            .sprites
+            .iter()
+            .find(|s| matches!(s.look, Look::Fill { .. }) && s.owner == FLASH)
+            .unwrap();
+        assert!(back.z > LOW);
+        assert!(st
+            .sprites
+            .iter()
+            .filter(|s| s.owner == 1000)
+            .all(|s| s.z < back.z));
     }
 
     #[test]
@@ -1258,7 +1315,7 @@ mod tests {
             .sprites
             .iter()
             .find(|s| matches!(s.look, Look::Fill { .. }));
-        assert_eq!(back.map(|s| s.z), Some(0));
+        assert_eq!(back.map(|s| s.z), Some(STRIP_DEPTH));
         run(&mut st, 120);
         assert_eq!(
             st.sprites

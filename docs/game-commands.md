@@ -68,7 +68,7 @@ Commands of ふゆから、くるる。 general enough to try on a game not know
 | `10.4`, `10.5` | | Scene skip point, setting off: nothing to do | Read |
 | `10.10`, `10.14` | | Wipe the message window's text; take the window away | Read |
 | `10.15` | | Hold the script two seconds and blink the bar's notebook button (the notebook's unlock) | Read |
-| `10.18` | | Acts on a part of the window nothing reaches: nothing to do | Read |
+| `10.18` | | Skip: snap the companion's running motions to their ends | Read |
 | `11`, `12`, `13` | | Speaker, picture, character: as the common set (`13` subs 5, 6, 8, 9, 11, 12 do nothing) | Read |
 | `14` | | Auto save point | Read |
 | `30`, `31`, `32` | -1, or the scene number | CG, scene and music modes; -1 when left | Read |
@@ -80,7 +80,7 @@ Commands of ふゆから、くるる。 general enough to try on a game not know
 | `40.3(frames, slot)`, `40.4(frames)` | | Remove one, remove all | Read |
 | `40.16(file)`, `40.21`, `40.31` | | Mouth track of the voice; stop the mouth; clear the cache of mouth tracks | Read |
 | `40.2` | | Crossfade to the new models over the longest time the other calls gave | Read |
-| `40.18` | | Pause the driver | Read |
+| `40.18` | | Skip | Read |
 | `40.100(slot, frames)` | | White flash: the old model fades out as the new one fades in | Read |
 | `41(number, file)` | hotspot, or 100 | Investigation over the background (`.carea`) | Read |
 | `42(skip)` | kind + 1, or 100 | Action menu from bytes 0 to 3; argument 1 allows the skip button | Read |
