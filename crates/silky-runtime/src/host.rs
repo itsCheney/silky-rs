@@ -285,6 +285,9 @@ pub struct Runtime {
     pub choices: Vec<String>,
     /// Set by the frontend when the player clicked; read by input polls.
     pub clicked: bool,
+    /// きまぐれテンプテーション: the mouse's wheel counter, read by
+    /// `Mouse.4` and set by `Mouse.5`.
+    pub wheel: crate::games::kimaten1::commands::Wheel,
     /// Set by the frontend when the player cancelled (secondary click,
     /// Escape) while the script polls the input; read by the poll for 257.
     pub cancelled: bool,
@@ -428,6 +431,7 @@ impl Runtime {
             choice_status: Vec::new(),
             choices: Vec::new(),
             clicked: false,
+            wheel: Default::default(),
             cancelled: false,
             character_time: 0,
             jolts: Vec::new(),
@@ -1624,7 +1628,13 @@ impl Host for Runtime {
                 // (): whether the player clicked, polled once a frame while
                 // a voice plays.
                 if base && class == MOUSE && sub == 4 && args.is_empty() {
-                    vm.push(std::mem::take(&mut self.clicked) as i32);
+                    if title == Title::Kimaten1 {
+                        // The device's wheel counter; a click ends the
+                        // script's wait through its own input poll.
+                        vm.push(self.wheel.get());
+                    } else {
+                        vm.push(std::mem::take(&mut self.clicked) as i32);
+                    }
                     self.pause = Some(Pause::Frame);
                     self.handled += 1;
                     return Ok(Flow::Yield);
@@ -1632,7 +1642,12 @@ impl Host for Runtime {
                 // (mode): readies the pointer for the click poll above;
                 // a click from before it does not count.
                 if base && class == MOUSE && sub == 5 && args.len() == 1 {
-                    self.clicked = false;
+                    if title == Title::Kimaten1 {
+                        // Sets the wheel counter (the scripts pass 0).
+                        self.wheel.set(args[0].int());
+                    } else {
+                        self.clicked = false;
+                    }
                     self.handled += 1;
                     return Ok(Flow::Continue);
                 }

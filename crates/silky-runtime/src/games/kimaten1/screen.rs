@@ -401,24 +401,20 @@ impl Screen {
         }
     }
 
-    /// What the window knows when the screen opens: whether there is
-    /// anything to load and whether the log has lines.
-    pub fn set_context(&mut self, has_saves: bool, has_log: bool) {
-        if let Screen::Ex(s) = self {
-            s.set_context(has_saves, has_log);
-        }
-    }
-
-    /// A scene of the scene list is being replayed: the save and load
-    /// buttons of the screen's bar are grey.
-    pub fn set_replay(&mut self) {
-        match self {
-            Screen::Action(s) => chrome::grey_replay(&mut s.off),
-            Screen::Area(s) => chrome::grey_replay(&mut s.off),
-            Screen::Ex(s) => chrome::grey_replay(&mut s.off),
-            Screen::Item(s) => chrome::grey_replay(&mut s.off),
-            _ => {}
-        }
+    /// What the engine knows about the bar's buttons (the original asks
+    /// each time the bar is drawn or pressed): greys them by the screen's
+    /// rule. Returns whether any button changed.
+    pub fn set_bar(&mut self, f: &chrome::BarFacts) -> bool {
+        use chrome::BarKind::{Action, Option};
+        let (off, now) = match self {
+            Screen::Action(s) => (&mut s.off, chrome::grey(Action, f)),
+            Screen::Area(s) => (&mut s.off, chrome::grey(Action, f)),
+            Screen::Item(s) => (&mut s.off, chrome::grey(Action, f)),
+            Screen::Map(m) => return m.set_bar(f),
+            Screen::Ex(s) => (&mut s.off, chrome::grey(Option, f)),
+            _ => return false,
+        };
+        std::mem::replace(off, now) != now
     }
 
     /// Whether the screen runs on the clock by itself (it is redrawn each

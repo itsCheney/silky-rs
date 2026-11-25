@@ -58,12 +58,6 @@ const CLICK: &str = "ses_001.wav";
 pub const FLAG_FIRST: usize = 7500;
 /// Text colour of an option that is off.
 const OFF_TEXT: [u8; 4] = [128, 128, 128, 255];
-/// The system buttons this screen can grey besides the notebook's.
-const BACKLOG_BUTTON: usize = 2;
-const LOAD_BUTTON: usize = 4;
-/// The notebook's byte greys this button on this screen (the original
-/// numbers it so; the notebook's own button is the last one).
-const NOTEBOOK_BUTTON: usize = 5;
 
 /// How often the headless run picked an option: (the list, the option's
 /// number).
@@ -91,10 +85,13 @@ impl ExSelect {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
         entries.hash(&mut h);
-        let mut off = [false; BAR_LEN];
-        // This screen greys the fifth button, not the last, when the
-        // notebook is still locked.
-        off[NOTEBOOK_BUTTON] = !notebook;
+        let off = chrome::grey(
+            chrome::BarKind::Option,
+            &chrome::BarFacts {
+                notebook,
+                ..Default::default()
+            },
+        );
         let on = vec![true; entries.len()];
         Self {
             areas,
@@ -114,13 +111,6 @@ impl ExSelect {
             self.on = on;
         }
         self
-    }
-
-    /// What the window knows: the load button is grey while there is
-    /// nothing to load, and the backlog button while the log is empty.
-    pub fn set_context(&mut self, has_saves: bool, has_log: bool) {
-        self.off[LOAD_BUTTON] = !has_saves;
-        self.off[BACKLOG_BUTTON] = !has_log;
     }
 
     /// Whether the option on bar `k` of the page is on.

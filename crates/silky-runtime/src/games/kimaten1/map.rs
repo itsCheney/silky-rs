@@ -14,6 +14,7 @@
 
 use silky_format::area::{self, Area};
 
+use super::chrome::{self, BAR_LEN};
 use super::notebook::{Notebook, Voice, BOOK_FIRST, BOOK_VARS};
 use super::screen::{Click, Look};
 use crate::assets::Assets;
@@ -27,6 +28,8 @@ pub const PLACES: usize = 6;
 /// bytes.
 pub const SHOWN_VAR: usize = 0;
 pub const VISITED_VAR: usize = 810;
+/// The byte that unlocks the notebook button.
+const NOTEBOOK_VAR: usize = 899;
 
 /// Area ids of `mapselect.area`: rooms 0..5, back, then the menu buttons.
 pub const BACK: i32 = 256;
@@ -149,6 +152,8 @@ pub struct Map {
     book_vars: Vec<u8>,
     book_areas: Vec<Area>,
     leave: Leave,
+    /// The menu buttons that are grey.
+    pub(super) off: [bool; BAR_LEN],
 }
 
 impl Map {
@@ -164,6 +169,13 @@ impl Map {
             visited[i] = var(VISITED_VAR + i) != 0;
         }
         let book_vars = (0..BOOK_VARS).map(|i| var(BOOK_FIRST + i)).collect();
+        let off = chrome::grey(
+            chrome::BarKind::Action,
+            &chrome::BarFacts {
+                notebook: var(NOTEBOOK_VAR) != 0,
+                ..Default::default()
+            },
+        );
         Ok(Self {
             back,
             shown,
@@ -175,6 +187,7 @@ impl Map {
             book_vars,
             book_areas,
             leave: Leave::No,
+            off,
         })
     }
 
@@ -200,6 +213,9 @@ impl Map {
     pub fn enabled(&self, id: i32) -> bool {
         if let Some(b) = &self.book {
             return b.enabled(id);
+        }
+        if let Some(i) = chrome::bar_index(id) {
+            return !self.off[i];
         }
         match id {
             BACK => self.back,
@@ -242,8 +258,14 @@ impl Map {
             }
             // The other menu buttons open the engine's own screens, which
             // the frontend's bar handles.
-            _ => Click::None,
+            _ => chrome::bar_click(id).unwrap_or(Click::None),
         }
+    }
+
+    /// Greys the menu buttons by what the engine knows (see
+    /// [`chrome::grey`]); true when one changed.
+    pub fn set_bar(&mut self, f: &chrome::BarFacts) -> bool {
+        std::mem::replace(&mut self.off, chrome::grey(chrome::BarKind::Action, f)) != self.off
     }
 
     pub fn cancel(&mut self) -> Click {
@@ -431,7 +453,11 @@ impl Map {
             );
         }
         for n in 0..MENU_BUTTONS {
-            let s = state(MENU + n) as u32;
+            let s = if self.off[n as usize] {
+                3
+            } else {
+                state(MENU + n) as u32
+            };
             canvas.draw_part(
                 &sheet,
                 (
@@ -503,6 +529,7 @@ mod tests {
             book_vars: vec![0; BOOK_VARS],
             book_areas: Vec::new(),
             leave: Leave::No,
+            off: [false; BAR_LEN],
         }
     }
 
@@ -551,6 +578,24 @@ mod tests {
             .map(|f| fade_alpha(f * 1000 / 60 + 1, false))
             .collect();
         assert!(a.windows(2).all(|w| w[1] > w[0]));
+    }
+
+    #[test]
+    fn grey_menu_buttons_do_nothing_and_the_others_reach_the_bar() {
+        let mut m = map([true; PLACES], [false; PLACES], true);
+        let f = chrome::BarFacts {
+            saves: false,
+            notebook: false,
+            ..Default::default()
+        };
+        assert!(m.set_bar(&f));
+        // Load (4) and the notebook (7) are grey; settings (0) is not.
+        assert!(!m.enabled(MENU + 4) && !m.enabled(MENU_NOTEBOOK) && m.enabled(MENU));
+        assert_eq!(m.click(MENU + 4), Click::None);
+        assert_eq!(m.click(MENU_NOTEBOOK), Click::None);
+        assert!(m.book().is_none());
+        assert!(matches!(m.click(MENU), Click::Bar(_)));
+        assert!(!m.set_bar(&f));
     }
 
     #[test]
