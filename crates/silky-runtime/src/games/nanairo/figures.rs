@@ -169,8 +169,10 @@ fn steps(p: &Pending) -> Vec<(i32, i32)> {
     let slide: Vec<(i32, i32)> = match p.slide {
         Some((dx, dy)) if (dx, dy) != (0, 0) => (1..=SLIDE_FRAMES)
             .map(|i| {
-                let rest = SLIDE_FRAMES - i;
-                (dx * rest / SLIDE_FRAMES, dy * rest / SLIDE_FRAMES)
+                // The figure goes from its old place by the part of the way
+                // `i` of 12, rounded towards zero, so it is that far from
+                // where it ends.
+                (dx - dx * i / SLIDE_FRAMES, dy - dy * i / SLIDE_FRAMES)
             })
             .collect(),
         _ => Vec::new(),
@@ -201,9 +203,10 @@ pub fn detach(st: &mut Stage) {
 /// 0 is a green glow behind the figure, squeezed to the figure's size;
 /// kind 1 is petals over the whole screen.
 ///
-/// Approximate: the curve of the fades is not known (linear is used). The
-/// original plays a movie for the petals when movies are on (see
-/// [`petals_movie`]).
+/// The fades are even steps. Not done: the original brings the glow
+/// picture in through a rule picture and scrolls it round; neither is
+/// read far enough to draw. The original plays a movie for the petals when
+/// movies are on (see [`petals_movie`]).
 pub fn attach(st: &mut Stage, parts: &[(i32, i32, i32)], factor: f32) {
     detach(st);
     let mut fx = Fx::new(st, FX);
@@ -344,7 +347,7 @@ mod tests {
         f.slide(0, (345, 0));
         let s = &f.start()[0].1;
         assert_eq!(s.len(), 12);
-        assert_eq!(s[0], (345 * 11 / 12, 0));
+        assert_eq!(s[0], (345 - 345 / 12, 0));
         assert_eq!(s[11], (0, 0));
     }
 

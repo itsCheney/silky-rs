@@ -192,47 +192,47 @@ pub fn kirara_flash(st: &mut Stage, factor: f32) {
     fx.run();
 }
 
-/// `Game.1001.0`: the picture on screen grows to 1.2 times about the
-/// middle over 16 frames (the script waits); then the effect picture
-/// fades in, stays 24 frames and starts again, for ever.
-///
-/// Approximate: the length of the fade in is not known (24 frames are
-/// used), nor is the middle the scene grows about (the screen's is used).
-/// The movie `movie` plays over the picture, its brightness as opacity.
-pub fn event_begin(st: &mut Stage, movie: Option<&str>, factor: f32) {
+/// `Game.1001.0`: a half clear copy of the screen starts at 1.2 times its
+/// size about the middle and shrinks to its own size over 16 frames, after
+/// a wait of two frames (the script waits); then the copy is gone.
+pub fn event_zoom(st: &mut Stage, factor: f32) {
     clear(st, EVENT);
     let mut fx = Fx::new(st, EVENT);
     let zoom = fx.sprite(0, Look::Screen, Z_ZOOM);
-    let grow = Key::new(scaled(16, factor))
+    let keys = vec![Key::new(scaled(16, factor))
+        .wait(scaled(2, factor))
         .show(true)
-        .scaling((1.0, 1.0), (1.2, 1.2), CENTRE);
-    fx.play(vec![(zoom, vec![grow])], true);
-    let effect = fx.sprite(1, Look::picture(EVENT_PICTURE), Z_EFFECT);
-    let pulse = vec![
-        Key::new(looped(24, factor)).show(true).fade(0, 255),
-        Key::new(1).wait(looped(24, factor)),
-        Key::jump(0),
-    ];
-    fx.play(vec![(effect, pulse)], false);
-    if let Some(name) = movie {
-        fx.sprite(2, video(name, GREEN_AS_OPACITY, RED), Z_SECOND);
-        if let Some(Step::Add(s)) = fx.steps.last_mut() {
-            s.shown = true;
-        }
-    }
+        .fade(128, 128)
+        .scaling((1.2, 1.2), (1.0, 1.0), CENTRE)];
+    fx.play(vec![(zoom, keys)], true);
+    fx.remove(&[zoom]);
     fx.run();
 }
 
-/// `Game.1001.1`: over 24 frames the effect and the enlarged picture fade
-/// away (the script waits), and the effect ends. The picture goes back to
-/// its size by the fade, which is approximate: the original's way back is
-/// not known.
-pub fn event_end(st: &mut Stage, factor: f32) {
+/// `Game.1001.1`: the effect picture fades in over 24 frames and stays
+/// (the script does not wait). With the movie `movie` playing, its picture
+/// comes up in place of the still one, its brightness as opacity.
+///
+/// Not done: the original also scrolls the effect picture round for ever;
+/// the way it does is not read.
+pub fn event_in(st: &mut Stage, movie: Option<&str>, factor: f32) {
     let mut fx = Fx::new(st, EVENT);
-    let ids: Vec<u32> = [0, 1, 2]
-        .iter()
-        .filter_map(|&slot| fx.alive(slot))
-        .collect();
+    let frames = scaled(24, factor);
+    let effect = fx.sprite(1, Look::picture(EVENT_PICTURE), Z_EFFECT);
+    let mut keys = vec![(effect, vec![Key::new(frames).show(true).fade(0, 255)])];
+    if let Some(name) = movie {
+        let second = fx.sprite(2, video(name, GREEN_AS_OPACITY, RED), Z_SECOND);
+        keys.push((second, vec![Key::new(frames).show(true).fade(0, 255)]));
+    }
+    fx.play(keys, false);
+    fx.run();
+}
+
+/// `Game.1001.2`: over 24 frames the effect fades away (the script waits),
+/// and it is gone.
+pub fn event_out(st: &mut Stage, factor: f32) {
+    let mut fx = Fx::new(st, EVENT);
+    let ids: Vec<u32> = [1, 2].iter().filter_map(|&slot| fx.alive(slot)).collect();
     if ids.is_empty() {
         return;
     }
@@ -312,9 +312,10 @@ fn fade_away(st: &mut Stage, owner: u32, z: i32, look: Look, frames: i32, factor
 /// in of 96 and 80 frames, which the script waits for; the pulse goes on
 /// for ever.
 ///
-/// Approximate: the picture fades down to half and not to nothing (the
-/// original's low value is not known), and its first copy being drawn into
-/// the picture is not separated from the pulsing layer.
+/// Approximate: the original crosses two layers, the picture going from
+/// full to clear over 96 frames while a second layer, whose picture is not
+/// read, comes up over 80; here one picture falls to half and returns, as
+/// a stand-in for that cross.
 pub fn pulse_begin(st: &mut Stage, factor: f32) {
     clear(st, PULSE);
     let mut fx = Fx::new(st, PULSE);
@@ -366,7 +367,7 @@ impl Runtime {
             (c.command, c.sub),
             (22, 1 | 2)
                 | (23, 0)
-                | (1001, 0 | 1)
+                | (1001, 0 | 1 | 2)
                 | (1002, 0 | 1 | 3 | 4)
                 | (1003, 0 | 1)
                 | (1005, 0 | 1)
@@ -383,12 +384,13 @@ impl Runtime {
             (22, 1) => kirara_ready(st),
             (22, _) => kirara_flash(st, f),
             (23, _) => return self.nanairo_scroll(c),
-            (1001, 0) => {
+            (1001, 0) => event_zoom(st, f),
+            (1001, 1) => {
                 let name = "HG091010_H05.mov";
                 let movie = self.movie_playable(name).then_some(name);
-                event_begin(&mut self.scene.effects, movie, f);
+                event_in(&mut self.scene.effects, movie, f);
             }
-            (1001, _) => event_end(st, f),
+            (1001, _) => event_out(st, f),
             (1002, sub @ (0 | 3)) => {
                 // The movie of `.3` supplies only the opacity of an
                 // effect, so no picture stands in for it.
@@ -445,10 +447,12 @@ impl Runtime {
     /// to `to` (a quarter of the steps at the second effect speed, none at
     /// the third); the script waits.
     ///
-    /// Approximate: the direction is assumed, from the first number to the
-    /// second as the scripts give them (0 and 820 with a 2100 pixel wide
-    /// picture, so the window moves right); only that the picture is
-    /// 820 pixels wider than the screen is certain.
+    /// The original moves from the first position to the second, a pixel a
+    /// step (the larger of the two distances in steps), and puts the window
+    /// at the second one at the end. Which of the script's numbers are the
+    /// two positions' sideways parts is read from the one call the notes
+    /// have (0 and 820 with a 2100 pixel wide picture, so the window moves
+    /// right); a call that moves the window up or down is not known.
     fn nanairo_scroll(&mut self, c: &Call) -> Option<silky_vm::Result<Flow>> {
         let layer = super::BACKGROUND_SPRITE;
         let Some(name) = self.scene.layers.get(&layer).cloned() else {
@@ -535,25 +539,30 @@ mod tests {
     }
 
     #[test]
-    fn the_event_picture_grows_then_its_effect_repeats() {
+    fn the_event_copy_shrinks_and_the_effect_fades_in_and_out() {
         let mut st = Stage::default();
-        event_begin(&mut st, None, 1.0);
+        event_zoom(&mut st, 1.0);
         let wait = st.blocking_ms().unwrap();
-        assert!(wait >= 16 * TICK_MS && wait <= 18 * TICK_MS, "{wait}");
-        // Halfway through the 16 frames the picture is 1.1 times as big.
-        play(&mut st, 8);
+        assert!(wait >= 16 * TICK_MS && wait <= 20 * TICK_MS, "{wait}");
+        // Halfway through the 16 frames the copy is 1.1 times as big and
+        // half clear.
+        play(&mut st, 2 + 8);
         let zoom = st.sprites.iter().find(|s| s.look == Look::Screen).unwrap();
-        assert!((zoom.scale.0 - 1.1).abs() < 0.02, "{:?}", zoom.scale);
+        assert!((zoom.scale.0 - 1.1).abs() < 0.03, "{:?}", zoom.scale);
+        assert_eq!(zoom.alpha, 128);
         st.settle();
-        let zoom = st.sprites.iter().find(|s| s.look == Look::Screen).unwrap();
-        assert!((zoom.scale.0 - 1.2).abs() < 1e-4);
-        // The effect picture is on the stage and keeps going.
-        assert_eq!(st.sprites.len(), 2);
+        // The copy is gone at the end.
+        assert!(st.sprites.is_empty());
+        // The effect picture fades in over 24 frames, which nobody waits for.
+        event_in(&mut st, None, 1.0);
         assert_eq!(st.blocking_ms(), Some(0));
+        play(&mut st, 12);
+        assert!((120..=135).contains(&st.sprites[0].alpha));
         play(&mut st, 500);
-        assert_eq!(st.sprites.len(), 2);
+        assert_eq!(st.sprites.len(), 1);
+        assert_eq!(st.sprites[0].alpha, 255);
         // The end takes 24 frames and leaves nothing.
-        event_end(&mut st, 1.0);
+        event_out(&mut st, 1.0);
         let wait = st.blocking_ms().unwrap();
         assert!(wait >= 24 * TICK_MS && wait <= 26 * TICK_MS, "{wait}");
         st.settle();

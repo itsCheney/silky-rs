@@ -154,10 +154,10 @@ fn bob_a(fx: &mut Fx, a: u32, factor: f32) {
 /// Sub 0 (and 10 without the fade in): A comes up at a quarter of its
 /// size, fading in while it rises 20 pixels, then bobs for ever.
 ///
-/// Unconfirmed: the original's number for the size is 0.25, read from a
-/// call that also sets the turning point; whether the figure really is a
-/// quarter of its size on screen is not known, nor is it known which
-/// layer it applies to. It is put on A as read.
+/// The original sets A's size to 0.25 about the middle of the screen
+/// (640, 360) and animates no size after; how big that is on screen
+/// depends on the picture's own size, which is not checked. It is put on A
+/// as read.
 fn bobbing(fx: &mut Fx, fade: bool, factor: f32) {
     let (a, b) = set_up(fx);
     edit(fx, a, |s| {
@@ -196,23 +196,25 @@ fn bobbing(fx: &mut Fx, fade: bool, factor: f32) {
 /// Subs 1 and 11: A pans slowly sideways and back, fading out and in
 /// over 64 frames each way.
 ///
-/// Unconfirmed: the original moves by 5 and by 100 pixels, but which of
-/// them is a sideways and which a vertical move is not known. It is read
-/// as 100 pixels sideways and 5 down, with A fading out on the way there
-/// and in on the way back.
+/// The original moves A 100 pixels to the left and 20 down while it fades
+/// out, then brings it in from 100 to the left of its place and 20 up to
+/// it; the first round is done as read, and the way the rounds after it
+/// alternate (they also move to the right) is not read far enough.
 fn pan(fx: &mut Fx, factor: f32) {
     let (a, _) = set_up(fx);
     edit(fx, a, |s| {
         s.y = 100.0;
+        s.scale = (0.25, 0.25);
+        s.scale_at = CENTRE;
         s.shown = true;
     });
     let n = looped(64, factor);
     let keys = vec![
         Key::new(n)
             .show(true)
-            .moving((0, 100), (100, 105))
+            .moving((0, 100), (-100, 120))
             .fade(255, 0),
-        Key::new(n).moving((100, 105), (0, 100)).fade(0, 255),
+        Key::new(n).moving((-100, 100), (0, 80)).fade(0, 255),
         Key::jump(0),
     ];
     fx.play(vec![(a, keys)], false);
@@ -537,7 +539,7 @@ mod tests {
         play(&mut st, 33);
         let a = slot(&mut st, A);
         assert!((120..=135).contains(&a.alpha), "{}", a.alpha);
-        assert!((45.0..=55.0).contains(&a.x), "{}", a.x);
+        assert!((-55.0..=-45.0).contains(&a.x), "{}", a.x);
         play(&mut st, 64 * 6);
         assert!(st.sprites.iter().any(|s| s.busy()));
     }
