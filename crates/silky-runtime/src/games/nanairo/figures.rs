@@ -7,7 +7,7 @@
 //! committed by `13.2`, which waits until they are over; each frame of
 //! 16 ms moves the figure to the next offset of a short table.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::games::apeiria::anim::{Key, Look, Sprite, Stage, Step};
 
@@ -31,6 +31,9 @@ const SCREEN: (u32, u32) = (1280, 720);
 /// Glow of the first kind (green light with sparks) and petals.
 const GLOW_PICTURE: &str = "teffect.akb";
 const PETALS_PICTURE: &str = "tai-effect.akb";
+/// Frames a new face takes to come in over the picture shown: the blend
+/// gains 22 of 255 at each frame, so it is whole at the twelfth.
+pub(super) const FACE_FRAMES: i32 = 12;
 /// Frames a slide to another place takes.
 const SLIDE_FRAMES: i32 = 12;
 
@@ -59,6 +62,9 @@ pub struct Figures {
     places: BTreeMap<i32, i32>,
     #[serde(skip)]
     pending: BTreeMap<i32, Pending>,
+    /// Slots whose figure was put (13.0) since the last commit.
+    #[serde(skip)]
+    placed: BTreeSet<i32>,
 }
 
 impl Figures {
@@ -93,10 +99,29 @@ impl Figures {
         self.sides.remove(&slot);
         self.places.remove(&slot);
         self.pending.remove(&slot);
+        self.placed.remove(&slot);
     }
 
     pub fn forget_all(&mut self) {
         *self = Self::default();
+    }
+
+    /// 13.0: a figure was put in the slot; its face comes in with it.
+    pub fn placed(&mut self, slot: i32) {
+        self.placed.insert(slot);
+    }
+
+    /// Frames a face set by 13.5 takes to fade in. A figure that stands
+    /// on the screen blends the new face over what it shows for 12
+    /// frames, the first face and a changed one alike. A figure put in
+    /// the same commit fades in whole with its body, and a figure with no
+    /// picture has nothing to fade.
+    pub fn face_frames(&self, slot: i32, standing: bool) -> i32 {
+        if standing && !self.placed.contains(&slot) {
+            FACE_FRAMES
+        } else {
+            0
+        }
     }
 
     /// 13.10 and 13.11.
@@ -117,6 +142,7 @@ impl Figures {
     /// The motions to play now, by slot: an offset for each frame. The
     /// last one is back at rest.
     pub fn start(&mut self) -> Vec<(i32, Vec<(i32, i32)>)> {
+        self.placed.clear();
         std::mem::take(&mut self.pending)
             .into_iter()
             .map(|(slot, p)| (slot, steps(&p)))
@@ -308,6 +334,22 @@ mod tests {
         assert_eq!(s.len(), 12);
         assert_eq!(s[0], (345 * 11 / 12, 0));
         assert_eq!(s[11], (0, 0));
+    }
+
+    #[test]
+    fn a_face_on_a_standing_figure_fades_over_twelve_frames() {
+        let mut f = Figures::default();
+        assert_eq!(f.face_frames(0, true), 12);
+        assert_eq!(f.face_frames(0, false), 0);
+        // A figure put in the same commit comes in whole with its body.
+        f.placed(0);
+        assert_eq!(f.face_frames(0, true), 0);
+        assert_eq!(f.face_frames(1, true), 12);
+        f.start();
+        assert_eq!(f.face_frames(0, true), 12);
+        f.placed(0);
+        f.forget(0);
+        assert_eq!(f.face_frames(0, true), 12);
     }
 
     #[test]

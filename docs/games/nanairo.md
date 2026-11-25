@@ -39,7 +39,7 @@ Measured under Wine: the place and pitch of the message text and the place of th
 
 - Pictures are 1600 x 1600, named `t` + two letters + digits. The two letters give the character: iy 伊予, ai アイリス, ki 桔梗, fu 芙蓉, ko 琴莉, ao 葵, az 梓, yu 由美.
 - The figure's left edge is at (1280 - 16 x size) / 2. A side slot is 345 pixels further out. Above 50 % the figure is lifted by (2 x size - 100) x K / 100, with K by character (iy 400, ai 280, ko and ao 200, ki, fu, az and yu 140, others 0).
-- `13.0` places a figure, `13.1` removes one, `13.7` removes all, `13.5` sets the expression layer (its first value is not read by the program), `13.9` zooms (at once here), `13.2` crossfades every change over the longest time given and waits until the motions below are over.
+- `13.0` places a figure, `13.1` removes one, `13.7` removes all, `13.5` sets the expression layer (its first value is not read by the program; a face put on a figure that stands on the screen blends in over 12 frames, 22 of 255 more at each frame, and the commit waits for it, while a figure put in the same commit brings its face with its body), `13.9` zooms (at once here), `13.2` crossfades every change over the longest time given and waits until the motions below are over.
 - `13.6(side, slot)` sets the order the figures overlap in: the figure's layer takes depth side + 5, so a higher side is in front. A new figure starts with side 2 in the centre, 1 on the left and 0 on the right; the scripts bring the speaker forward with 3. It is kept while the same character stands there.
 - `13.8(place, slot)` slides the figure to the place of another slot (0 centre, 1 left, 2 right; the left edge as for a slot) over 12 frames; the script uses `13.8(1, 0)` to make room for a second figure. The slide is linear (not confirmed).
 - `13.10(slot)` and `13.11(slot)` move the figure over 12 frames of 16 ms: `13.10` up 78 pixels and back, `13.11` (the one the scripts use, after a figure appears) down 78 pixels and back. Both follow a fixed table of offsets.
@@ -179,6 +179,7 @@ Addresses in `nanairo.exe` as linked (image base 0x400000). The code itself does
 | Standing characters: commit loop; offset tables of bow and hop | 0x444d60, 0x444eb0; 0x50d840, 0x50d830, 0x50d420, 0x50d580, 0x50d590, 0x50d3d0 |
 | Standing characters: glow start (`13.13`), stop, remove (`13.14`), two figures (`13.15`) | 0x444550 and 0x4422e0, 0x442cb0, 0x444710, 0x4445d0 and 0x443010, 0x443190 |
 | Standing characters: expression layer (`13.5`) | 0x444b90, 0x441ae0 |
+| Standing characters: expression fade-in step (`13.5`) | 0x445080, 0x441ca0 |
 | Glow pictures; movie name | 0x50673c, 0x506748; 0x506758 |
 | Face window: handler, crop and draw | 0x46eca0, 0x4590b0 |
 | Speaker name (`Game.15`) | 0x46f830 |

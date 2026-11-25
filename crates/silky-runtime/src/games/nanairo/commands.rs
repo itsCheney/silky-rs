@@ -275,6 +275,7 @@ impl Runtime {
                     alpha: 255,
                 };
                 scene.characters.insert(slot, character);
+                scene.figures.placed(slot);
             }
             // (time, slot)
             1 if c.args.len() == 2 => {
@@ -298,12 +299,18 @@ impl Runtime {
                 return Some(Ok(self.transition(t, None)));
             }
             // (flag, slot, name): the expression layer. The flag is not
-            // read by the original; a face that is put on a figure that
-            // stands without one fades in over 12 frames, a change of face
-            // is at once.
+            // read by the original. A face put on a figure that stands on
+            // the screen blends in over 12 frames, and the commit waits
+            // for it; a figure put in the same commit brings its face with
+            // its body.
             5 if c.args.len() == 3 => {
-                if let Some(ch) = scene.characters.get_mut(&c.int(1)) {
+                let slot = c.int(1);
+                if let Some(ch) = scene.characters.get_mut(&slot) {
                     ch.face = c.str(2).filter(|f| !f.is_empty());
+                    if !skip {
+                        let frames = scene.figures.face_frames(slot, true);
+                        self.character_time = self.character_time.max(frames);
+                    }
                 }
             }
             // (side, slot): the order the figure overlaps the others in.
