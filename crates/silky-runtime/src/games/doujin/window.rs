@@ -250,3 +250,53 @@ pub fn draw_portrait(canvas: &mut Canvas, img: &Arc<Image>, window: usize) {
     let scale = LAYER_SCALE * LAYER_SIZE / img.width.max(1) as f32;
     canvas.draw_scaled(img, PORTRAIT_LEFT[window], PORTRAIT_TOP, scale);
 }
+
+/// Lays `top` over `canvas` (same width) the way the second portrait's
+/// over-picture is laid: a pixel with no alpha leaves the pixel below, a
+/// full one replaces its colour, and in between the colours mix by the
+/// top's alpha, each part rounded down. The alpha of the pixel below
+/// stays as it was, so the picture shows only where the portrait does.
+pub fn overlay_keep_alpha(canvas: &mut Canvas, top: &Image) {
+    if top.width != canvas.width {
+        return;
+    }
+    let n = (canvas.width.min(top.width) * canvas.height.min(top.height)) as usize;
+    for i in 0..n {
+        let s = &top.rgba[i * 4..i * 4 + 4];
+        let a = s[3] as u32;
+        if a == 0 {
+            continue;
+        }
+        let d = &mut canvas.rgba[i * 4..i * 4 + 4];
+        for k in 0..3 {
+            d[k] = if a == 255 {
+                s[k]
+            } else {
+                ((s[k] as u32 * a / 255) + (d[k] as u32 * (255 - a) / 255)) as u8
+            };
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn over_picture_keeps_alpha_below() {
+        let mut c = Canvas::from_rgba(
+            3,
+            1,
+            vec![100, 100, 100, 0, 100, 100, 100, 255, 10, 20, 30, 128],
+        );
+        let top = Image {
+            width: 3,
+            height: 1,
+            rgba: vec![200, 0, 0, 255, 200, 0, 0, 128, 0, 0, 0, 0],
+        };
+        overlay_keep_alpha(&mut c, &top);
+        assert_eq!(&c.rgba[0..4], &[200, 0, 0, 0]);
+        assert_eq!(&c.rgba[4..8], &[149, 49, 49, 255]);
+        assert_eq!(&c.rgba[8..12], &[10, 20, 30, 128]);
+    }
+}

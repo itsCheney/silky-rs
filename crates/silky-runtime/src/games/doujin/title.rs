@@ -5,8 +5,9 @@
 //! page has six buttons at the places of `title.area`; the extras page has
 //! five at the places of `title2.area`, drawn over the same column. A
 //! button's click area is the whole rectangle of its area, the cell may be
-//! wider. The call returns the picked item plus one for the extras (the
-//! script takes 257 and up from them).
+//! wider. The call returns 1 for the new game and 257 to 260 for the
+//! extras buttons (the doujinshi, CG, scene and music modes); the other
+//! buttons never return.
 
 use crate::ui::title;
 

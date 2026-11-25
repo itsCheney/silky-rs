@@ -321,9 +321,14 @@ impl Renderer {
             body
         } else {
             let mut canvas = Canvas::from_rgba(body.width, body.height, body.rgba.clone());
-            for top in tops {
+            let faces = usize::from(face.is_some());
+            for (i, top) in tops.into_iter().enumerate() {
                 let top = assets.image(top)?;
-                overlay_rgba(&mut canvas, &top);
+                if i >= faces && self.title == Title::Doujin {
+                    crate::games::doujin::window::overlay_keep_alpha(&mut canvas, &top);
+                } else {
+                    overlay_rgba(&mut canvas, &top);
+                }
             }
             Arc::new(Image {
                 width: canvas.width,
