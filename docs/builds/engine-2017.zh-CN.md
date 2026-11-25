@@ -59,7 +59,7 @@
 | 弹出值 | 0x4b4840 |
 | `message` 处理函数（在这里下断点可标出每条消息） | 0x4b45b0 |
 | 类 16 `Effect`、17 `HEffect`、18 `Voice`：构造（类分支的 case）、共用的子命令分支 | 0x49fca3, 0x49fcdc, 0x49fd15；0x4adc70（跳转表 0x4add34） |
-| `Effect` 和 `HEffect`：方法表、通道列表生成函数；音量读取函数 | 0x52ea14, 0x52b758；0x4ae700, 0x4ae9c0；0x495050, 0x4950f0 |
+| `Effect` 和 `HEffect`：方法表、通道列表生成函数；音量读取函数（`HEffect`：`/Config/HEffect/Volume`，默认 90，乘 `/Config/Master/Volume`，换算为 -5000..0（1/100 dB）；小函数 0x4ae990、0x4aec50；音乐 0x494fb0 和语音 0x495190 用同一公式；运行时对 `casablanca.exe` 和 `apeiria.exe` 按增益 10^(att/2000) 处理） | 0x52ea14, 0x52b758；0x4ae700, 0x4ae9c0；0x495050, 0x4950f0 |
 
 这个版本的 spec 同样见英文页面。
 

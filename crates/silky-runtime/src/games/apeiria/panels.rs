@@ -427,6 +427,14 @@ impl BoardAnim {
         (self.ms / TICK_MS).min(self.frames()) as f32 / self.frames() as f32
     }
 
+    /// The rule wipe's level now, 0 to 512 (Casablanca's new picture,
+    /// flags 0x102 at 0x455e47: the sprite wipe step 0x4c3880, see
+    /// [`super::mail::wipe_level`]).
+    pub fn level(&self) -> f32 {
+        let n = self.frames();
+        super::mail::wipe_level((self.ms / TICK_MS).min(n), n as i32)
+    }
+
     /// Height factor of the board now (open, close).
     pub fn height(&self) -> f32 {
         match self.kind {

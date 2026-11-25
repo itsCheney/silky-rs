@@ -49,6 +49,8 @@ Phone frame (`SLD.akb`); mail list of `mail01_p.akb` with tray label (sub 0, lis
 - Sub 7 puts the Apeiria system window in the panel instead of the list, at (309, 36). Sub 14 puts a mail in the first free byte of 1400 to 1499.
 - The white list shows 447 pixels below its top; its last 42 rows fade linearly into the glass.
 - Open (sub 1): wipe in from the middle through rule 46 over 64 frames while 50 specks of `light.akb` rise into it. Close (sub 2): shrink to a tenth of its height about its middle over 16 frames. The script waits for both.
+- The open is the same code as Casablanca's (checked in `apeiria.exe`: sub 1 at 0x477db0 is instruction for instruction the same as Casablanca's 0x479720 apart from addresses). It starts one sprite wipe of the panel through rule 46 (0x2e) over 64 frames (0x40) with flags 0x2000102 (0x477f2c..0x477f34, start 0x4c2200) and waits for it. The set-up (0x4c1370) steps a level from one step up to 512 in `512 / (frames - 1)` units (the first frame already draws with one step: the set-up stores the step as the level and the draw adds it after drawing) (the float constants at 0x534654 = 512.0 and 0x53460c = 255.0 are as in Casablanca), and the rule-mask step (0x4c1a60, in the vtables at 0x5317e0, 0x532c48, 0x532f4c) gives a pixel of rule value r the opacity `min(its own opacity, level - r)`, nothing below r and no change once it is its own: a soft edge 255 levels wide. The panel is whole on the 62nd frame (63 steps), before the 64 the animation lasts (confidence high: both functions match Casablanca's 0x4c3190 and 0x4c3880 byte for byte but for data addresses).
+- The same mask step serves every rule wipe of a sprite (flag 0x100): the hologram's rule 47 wipe over 12 frames (flags 0x2000102, 0x467fba), the wipes at 0x45b854 (flags 0x102, 16 frames, rule 35) and 0x48217e (flags 0x102, rule 60, the black wipe of the random slashes), so all of them have the soft edge 255 and the level stepping above, not a narrow edge. The runtime draws the hologram's wipe (her own opacity capped by `level - r`, 12 frames, whole on the 12th), the effect sprite wipes of `effects.rs` (their level is `(frame + 1) * 512 / (frames - 1)`) and Casablanca's board change (rule 1, 24 frames, flags 0x102 at 0x455e47) this way.
 
 ### Apeiria on the hologram (`Game.1013`)
 
@@ -158,6 +160,7 @@ Addresses in `apeiria.exe` of the build above. The code itself does not name the
 | DNA PC system window: open, close | 0x452400, 0x452ae0 |
 | DNA strand: set up, fade in, fade out, frame, rows | 0x452d40, 0x452630, 0x452800, 0x4530d0, 0x453410 |
 | αMAIL light specks: set up, step, first specks, start again | 0x47a0a0, 0x47a2a0, 0x47a3b0, 0x47a5a0 |
+| Sprite wipe: start, set up of the steps (level 0 to 512), step of the rule mask (opacity `min(own, level - r)`) | 0x4c2200, 0x4c1370, 0x4c1a60 |
 | Sprite animation: start (waits when asked), wait task | 0x4c0460, vtable 0x532a60 |
 | HP gauges (`Game.1015`): handler, set up, colours and bar, queue | 0x4918b0, 0x457600, 0x458920, 0x457c80 |
 | HP gauges: slide in, slide out, HP move, step of a slide and of an HP move | 0x457890, 0x4579f0, 0x458290, 0x458390, 0x458420 |

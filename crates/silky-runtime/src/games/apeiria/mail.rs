@@ -81,8 +81,8 @@ impl MailAnim {
     }
 
     /// How far it is, 0 to 1. Opening, the wipe is stepped `frames - 1`
-    /// times by an even amount (Casablanca 0x4c3190: 512 / (frames - 1)
-    /// a step), so the picture is whole at the last frame the script
+    /// times by an even amount (Casablanca 0x4c3190, Apeiria 0x4c1370:
+    /// 512 / (frames - 1) a step), so the picture is whole at the last frame the script
     /// waits for, one before the animation is over; closing, it is
     /// `frames` steps.
     pub fn progress(&self) -> f32 {
@@ -91,11 +91,28 @@ impl MailAnim {
         (self.stepped() as f32 / steps as f32).min(1.0)
     }
 
-    /// Casablanca's wipe level, 0 to 512 in whole units: a pixel of rule
-    /// value `r` shows at opacity `level - r` up to its own (0x4c3880).
+    /// The wipe level, 0 to 512 in whole units (Casablanca 0x4c3880,
+    /// Apeiria 0x4c1a60): see [`wipe_level`].
     pub fn level(&self) -> f32 {
-        (self.stepped() as f32 * (512.0 / (self.frames() - 1) as f32)).floor()
+        wipe_level(self.stepped(), self.frames())
     }
+}
+
+/// The level of a sprite's rule wipe on frame `stepped` (0 is the first)
+/// of `frames`: a pixel of rule value `r` shows at opacity `level - r`
+/// up to its own. The level starts at one step (Casablanca 0x4c3190 and
+/// Apeiria 0x4c1370 store `512 / (frames - 1)` in the field the draw
+/// reads, and the draw, 0x4c3880 / 0x4c1a60, adds the step after it
+/// draws), so frame `n` draws with `n + 1` steps; the field is a float
+/// summed step by step and the draw truncates it. Every sprite rule wipe
+/// (flag 0x100) goes through this step.
+pub fn wipe_level(stepped: u64, frames: i32) -> f32 {
+    let step = 512.0f32 / (frames - 1).max(1) as f32;
+    let mut level = step;
+    for _ in 0..stepped {
+        level += step;
+    }
+    level.floor()
 }
 
 impl Mail {
@@ -384,9 +401,10 @@ mod tests {
         };
         assert_eq!(at(0).progress(), 0.0);
         assert_eq!(at(63).progress(), 1.0);
-        assert_eq!(at(0).level(), 0.0);
-        assert_eq!(at(63).level(), 512.0);
-        assert!(at(62).level() < 512.0 && at(62).level() > 500.0);
+        // The first frame is drawn at one step (512 / 63, truncated).
+        assert_eq!(at(0).level(), 8.0);
+        assert!(at(63).level() >= 511.0);
+        assert!(at(61).level() < 512.0 && at(61).level() > 500.0);
         assert!(!at(63).done() && at(64).done());
     }
 

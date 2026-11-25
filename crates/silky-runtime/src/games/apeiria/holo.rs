@@ -282,6 +282,12 @@ impl Fade {
         ((self.ms / TICK_MS) as i32).min(self.frames)
     }
 
+    /// The rule wipe's level now, 0 to 512 (see
+    /// [`super::mail::wipe_level`]).
+    pub fn level(&self) -> f32 {
+        super::mail::wipe_level(self.frame() as u64, self.frames)
+    }
+
     /// Opacity now, out of 255.
     pub fn alpha(&self) -> u8 {
         let (a, b) = (self.from as i32, self.to as i32);
@@ -404,10 +410,10 @@ impl Holo {
         }
     }
 
-    /// The wipe under way: rule and progress.
+    /// The wipe under way: rule and level.
     pub fn wipe(&self) -> Option<(u32, f32)> {
         let f = self.fade.as_ref()?;
-        Some((f.rule?, f.progress()))
+        Some((f.rule?, f.level()))
     }
 
     /// Middle of her picture (x) by place.

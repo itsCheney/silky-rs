@@ -23,8 +23,17 @@ const MOVIE: i32 = 23;
 const WAIT: i32 = 28;
 const HEFFECT: i32 = 17;
 /// Volume of the `HEffect` channels. The executable reads it from
-/// `/Config/HEffect/Volume` (default 90), which no screen of the game sets.
+/// `/Config/HEffect/Volume` (default 90), which no screen of the game sets;
+/// the engine scales it by the master volume (0x4950f0).
 const HEFFECT_VOLUME: f32 = 0.9;
+/// The amplitude gain of a bus volume `v` and master volume `m` (both 0..1)
+/// as casablanca.exe sets it (0x494fb0, 0x495050, 0x4950f0, 0x495190): an
+/// attenuation of `-5000 + 5000 * v * m` in 1/100 dB (cut to an integer,
+/// as DirectSound takes it), so a gain of `10^(att / 2000)`.
+fn db_gain(v: f32, m: f32) -> f32 {
+    let att = -5000 - (v * -5000.0 * m) as i32;
+    10f32.powf(att as f32 / 2000.0)
+}
 const MESWND: i32 = 2;
 const MOUSE: i32 = 12;
 const FLAG: i32 = 14;
@@ -792,11 +801,27 @@ impl Runtime {
         }
     }
 
+    /// Whether the program maps volumes the way casablanca.exe does (and
+    /// apeiria.exe, which has the same engine code): through a DirectSound
+    /// attenuation in dB, see [`db_gain`].
+    fn db_volumes(&self) -> bool {
+        let game = self.assets.game();
+        game.engine.build.is_some_and(|b| {
+            b.exe.eq_ignore_ascii_case("casablanca.exe")
+                || b.exe.eq_ignore_ascii_case("apeiria.exe")
+        })
+    }
+
     /// Applies the volume settings to the mixer.
     pub fn apply_volumes(&self) {
         let st = &self.system.settings;
         let master = if st.master_on { st.master } else { 0.0 };
-        let v = |on: bool, x: f32| if on { x * master } else { 0.0 };
+        let db = self.db_volumes();
+        let v = |on: bool, x: f32| match (on, db) {
+            (false, _) => 0.0,
+            (true, true) => db_gain(x, master),
+            (true, false) => x * master,
+        };
         self.audio.set_volume(Bus::Music, v(st.music_on, st.music));
         self.audio
             .set_volume(Bus::Effect, v(st.effects_on, st.effects));
@@ -1687,5 +1712,22 @@ mod nanairo_wait_tests {
         );
         assert_eq!(nanairo_wait_ms(0, &[Value::Int(400)]), None);
         assert_eq!(nanairo_wait_ms(1, &[Value::Int(0), Value::Int(400)]), None);
+    }
+}
+
+#[cfg(test)]
+mod db_volume_tests {
+    use super::*;
+
+    #[test]
+    fn volumes_map_through_attenuation_in_db() {
+        assert!((db_gain(1.0, 1.0) - 1.0).abs() < 1e-6);
+        // 90 of 100: -500 (1/100 dB), the HEffect default.
+        assert!((db_gain(HEFFECT_VOLUME, 1.0) - 0.5623).abs() < 1e-3);
+        // 0: -5000, which is -50 dB, not silence.
+        assert!((db_gain(0.0, 1.0) - 0.003_162).abs() < 1e-5);
+        assert!((db_gain(1.0, 0.0) - 0.003_162).abs() < 1e-5);
+        // 70 of 100 times 50 of 100: -5000 + 1750 = -3250.
+        assert!((db_gain(0.7, 0.5) - 10f32.powf(-1.625)).abs() < 1e-4);
     }
 }

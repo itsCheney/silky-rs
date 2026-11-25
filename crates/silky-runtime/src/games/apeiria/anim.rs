@@ -659,7 +659,12 @@ impl Stage {
             s.scale = ((bx - ax) * t + ax, (by - ay) * t + ay);
         }
         if s.active & flag::WIPE != 0 {
-            s.wipe = Some((k.wipe.0, f as f32 / n as f32, k.wipe.1));
+            // The sprite wipe step (Casablanca 0x4c3880, Apeiria 0x4c1a60):
+            // edge 255, level `(f + 1) * 512 / (n - 1)` (see
+            // `mail::wipe_level`), as a share of the 510 the edge-255
+            // blend spans.
+            let level = super::mail::wipe_level(f.max(0) as u64, n);
+            s.wipe = Some((k.wipe.0, level / 510.0, k.wipe.1));
         }
         let user = (s.active & flag::USER != 0).then_some(k.user);
         s.frame += 1;

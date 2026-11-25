@@ -1197,6 +1197,31 @@ impl Renderer {
         Ok(())
     }
 
+    /// The opacity a picture has of its own, one byte per pixel: what
+    /// `draw` puts on a canvas, read from drawing it over black and over
+    /// white.
+    fn own_opacity(
+        w: u32,
+        h: u32,
+        mut draw: impl FnMut(&mut Canvas) -> Result<()>,
+    ) -> Result<Vec<u8>> {
+        let mut over = |bg: u8| -> Result<Canvas> {
+            let mut c = Canvas::new(w, h);
+            c.fill(0, 0, w, h, [bg, bg, bg, 255]);
+            draw(&mut c)?;
+            Ok(c)
+        };
+        let (dark, light) = (over(0)?, over(255)?);
+        Ok((0..(w * h) as usize)
+            .map(|i| {
+                let d: i32 = (0..3)
+                    .map(|k| light.rgba[i * 4 + k] as i32 - dark.rgba[i * 4 + k] as i32)
+                    .sum();
+                (255 - d / 3).clamp(0, 255) as u8
+            })
+            .collect())
+    }
+
     /// A rule picture the size of a panel, from the top left corner of
     /// its file, laid over the panel at `at` on a screen-size mask that
     /// is 255 elsewhere.
@@ -1284,7 +1309,19 @@ impl Renderer {
                 // The rule picture covers the whole screen.
                 let size = (canvas.width, canvas.height);
                 let mask = self.rule_mask(assets, rule, (0, 0), size, canvas);
-                *canvas = Canvas::blend_shared(&from, canvas, a.progress(), mask);
+                // The sprite wipe step: the picture's own opacity capped
+                // by `level - r`.
+                let own = Self::own_opacity(canvas.width, canvas.height, |c| {
+                    c.draw(&img, bx, by, false);
+                    Ok(())
+                })?;
+                *canvas = Canvas::blend_capped(
+                    &from,
+                    canvas,
+                    a.level(),
+                    mask.as_deref().map(Vec::as_slice),
+                    &own,
+                );
             }
             BoardKind::Marker(x, y) => {
                 canvas.draw(&img, bx, by, false);
@@ -1380,7 +1417,19 @@ impl Renderer {
                 // The rule picture is the panel's size in the top left
                 // corner of a screen: it is laid over the panel.
                 let mask = self.rule_mask(assets, rule, (px, py), (w, h), canvas);
-                *canvas = Canvas::blend_shared(&from, canvas, t, mask);
+                // The sprite wipe step: her own opacity capped by
+                // `level - r`.
+                let own = Self::own_opacity(canvas.width, canvas.height, |c| {
+                    c.draw_scaled(&img, x, y, holo.factor());
+                    Ok(())
+                })?;
+                *canvas = Canvas::blend_capped(
+                    &from,
+                    canvas,
+                    t,
+                    mask.as_deref().map(Vec::as_slice),
+                    &own,
+                );
             }
             None => canvas.draw_scaled(&img, x, y, holo.factor()),
         }
@@ -1524,37 +1573,18 @@ impl Renderer {
                     mail.draw(&mut canvas, assets, self.text.as_ref())?;
                     let (at, size) = Mail::panel();
                     let mask = self.rule_mask(assets, WIPE_RULE, at, size, &canvas);
-                    canvas = if self.title == Title::Casablanca {
-                        // The panel's own opacity: its pictures drawn over
-                        // black and over white.
-                        let (w, h) = (canvas.width, canvas.height);
-                        let mut over = |bg: u8| -> Result<Canvas> {
-                            let mut c = Canvas::new(w, h);
-                            c.fill(0, 0, w, h, [bg, bg, bg, 255]);
-                            mail.draw(&mut c, assets, None)?;
-                            Ok(c)
-                        };
-                        let (dark, light) = (over(0)?, over(255)?);
-                        let own: Vec<u8> = (0..(w * h) as usize)
-                            .map(|i| {
-                                let d: i32 = (0..3)
-                                    .map(|k| {
-                                        light.rgba[i * 4 + k] as i32 - dark.rgba[i * 4 + k] as i32
-                                    })
-                                    .sum();
-                                (255 - d / 3).clamp(0, 255) as u8
-                            })
-                            .collect();
-                        Canvas::blend_capped(
-                            &from,
-                            &canvas,
-                            a.level(),
-                            mask.as_deref().map(Vec::as_slice),
-                            &own,
-                        )
-                    } else {
-                        Canvas::blend_shared(&from, &canvas, a.progress(), mask)
-                    };
+                    // The rule wipe of a sprite (0x4c3880 / 0x4c1a60): the
+                    // panel's own opacity is capped by `level - r`.
+                    let own = Self::own_opacity(canvas.width, canvas.height, |c| {
+                        mail.draw(c, assets, None)
+                    })?;
+                    canvas = Canvas::blend_capped(
+                        &from,
+                        &canvas,
+                        a.level(),
+                        mask.as_deref().map(Vec::as_slice),
+                        &own,
+                    );
                 }
                 // It shrinks about its middle as it draws itself.
                 Some(_) => mail.draw(&mut canvas, assets, self.text.as_ref())?,
