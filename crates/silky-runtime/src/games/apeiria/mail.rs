@@ -41,7 +41,8 @@ pub struct Mail {
 }
 
 /// The panel opening (sub 1): it wipes in through rule picture 46 (the
-/// panel's size, lighter outwards) over 64 frames while light specks
+/// panel's size, lighter outwards) over 64 frames (the same in
+/// Casablanca, 0x479720) while light specks
 /// rise into it; or closing (sub 2): over 16 frames its height goes to a
 /// tenth about its middle (479, 259), and it is gone. The script waits
 /// for either.
@@ -74,10 +75,26 @@ impl MailAnim {
         self.ms >= self.length_ms()
     }
 
-    /// How far it is, 0 to 1.
+    /// Frames stepped so far.
+    fn stepped(&self) -> u64 {
+        (self.ms / super::anim::TICK_MS).min(self.frames() as u64)
+    }
+
+    /// How far it is, 0 to 1. Opening, the wipe is stepped `frames - 1`
+    /// times by an even amount (Casablanca 0x4c3190: 512 / (frames - 1)
+    /// a step), so the picture is whole at the last frame the script
+    /// waits for, one before the animation is over; closing, it is
+    /// `frames` steps.
     pub fn progress(&self) -> f32 {
         let n = self.frames();
-        (self.ms / super::anim::TICK_MS).min(n as u64) as f32 / n as f32
+        let steps = if self.opening { n - 1 } else { n };
+        (self.stepped() as f32 / steps as f32).min(1.0)
+    }
+
+    /// Casablanca's wipe level, 0 to 512 in whole units: a pixel of rule
+    /// value `r` shows at opacity `level - r` up to its own (0x4c3880).
+    pub fn level(&self) -> f32 {
+        (self.stepped() as f32 * (512.0 / (self.frames() - 1) as f32)).floor()
     }
 }
 
@@ -357,6 +374,21 @@ type Squash = Option<(f32, f32)>;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn opening_wipe_is_whole_on_the_last_frame_waited_for() {
+        let t = super::super::anim::TICK_MS;
+        let at = |k: u64| MailAnim {
+            opening: true,
+            ms: k * t,
+        };
+        assert_eq!(at(0).progress(), 0.0);
+        assert_eq!(at(63).progress(), 1.0);
+        assert_eq!(at(0).level(), 0.0);
+        assert_eq!(at(63).level(), 512.0);
+        assert!(at(62).level() < 512.0 && at(62).level() > 500.0);
+        assert!(!at(63).done() && at(64).done());
+    }
 
     #[test]
     fn list_fades_out_at_its_bottom() {

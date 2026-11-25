@@ -860,17 +860,51 @@ impl Canvas {
             });
             return c;
         }
-        let (from, to) = (&from.rasterize(), &to.rasterize());
         let rule = rule.as_deref().map(Vec::as_slice);
         let t = t.clamp(0.0, 1.0);
-        let mut out = to.clone();
-        out.scale = from.scale.max(to.scale);
         let n = (to.width * to.height) as usize;
         let rule = rule.filter(|r| r.len() >= n);
         let amount = |i: usize| match rule {
             Some(r) => ((t * (255.0 + edge) - r[i] as f32) / edge).clamp(0.0, 1.0),
             None => t,
         };
+        Self::blend_with(from, to, &amount)
+    }
+
+    /// A wipe of a picture whose own opacity is `own` (one byte per
+    /// pixel): at wipe level `level` (0 to 512 in the executable) a pixel
+    /// of rule value `r` is shown at opacity `min(own, level - r)`, so
+    /// `from` turns into `to` by the fraction of that opacity reached.
+    pub fn blend_capped(
+        from: &Canvas,
+        to: &Canvas,
+        level: f32,
+        rule: Option<&[u8]>,
+        own: &[u8],
+    ) -> Canvas {
+        let n = (to.width * to.height) as usize;
+        let rule = rule.filter(|r| r.len() >= n);
+        let amount = |i: usize| {
+            let own = own.get(i).copied().unwrap_or(255) as f32;
+            if own <= 0.0 {
+                return 1.0;
+            }
+            let reached = match rule {
+                Some(r) => (level - r[i] as f32).clamp(0.0, 255.0),
+                None => 255.0,
+            };
+            (reached.min(own) / own).clamp(0.0, 1.0)
+        };
+        Self::blend_with(from, to, &amount)
+    }
+
+    /// Mixes `from` into `to` pixel by pixel: `amount(i)` is the share of
+    /// `to` at pixel `i`.
+    fn blend_with(from: &Canvas, to: &Canvas, amount: &dyn Fn(usize) -> f32) -> Canvas {
+        let (from, to) = (&from.rasterize(), &to.rasterize());
+        let mut out = to.clone();
+        out.scale = from.scale.max(to.scale);
+        let n = (to.width * to.height) as usize;
         for i in 0..n {
             let a = amount(i);
             if a >= 1.0 {

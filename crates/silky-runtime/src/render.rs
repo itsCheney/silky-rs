@@ -1515,7 +1515,37 @@ impl Renderer {
                     mail.draw(&mut canvas, assets, self.text.as_ref())?;
                     let (at, size) = Mail::panel();
                     let mask = self.rule_mask(assets, WIPE_RULE, at, size, &canvas);
-                    canvas = Canvas::blend_shared(&from, &canvas, a.progress(), mask);
+                    canvas = if self.title == Title::Casablanca {
+                        // The panel's own opacity: its pictures drawn over
+                        // black and over white.
+                        let (w, h) = (canvas.width, canvas.height);
+                        let mut over = |bg: u8| -> Result<Canvas> {
+                            let mut c = Canvas::new(w, h);
+                            c.fill(0, 0, w, h, [bg, bg, bg, 255]);
+                            mail.draw(&mut c, assets, None)?;
+                            Ok(c)
+                        };
+                        let (dark, light) = (over(0)?, over(255)?);
+                        let own: Vec<u8> = (0..(w * h) as usize)
+                            .map(|i| {
+                                let d: i32 = (0..3)
+                                    .map(|k| {
+                                        light.rgba[i * 4 + k] as i32 - dark.rgba[i * 4 + k] as i32
+                                    })
+                                    .sum();
+                                (255 - d / 3).clamp(0, 255) as u8
+                            })
+                            .collect();
+                        Canvas::blend_capped(
+                            &from,
+                            &canvas,
+                            a.level(),
+                            mask.as_deref().map(Vec::as_slice),
+                            &own,
+                        )
+                    } else {
+                        Canvas::blend_shared(&from, &canvas, a.progress(), mask)
+                    };
                 }
                 // It shrinks about its middle as it draws itself.
                 Some(_) => mail.draw(&mut canvas, assets, self.text.as_ref())?,
