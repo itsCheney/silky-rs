@@ -90,7 +90,8 @@ pub fn shifted(slot: i32, place: i32, size: i32, body: &str) -> (i32, i32) {
 }
 
 /// The rows of a face picture that cover the body: the top and bottom of
-/// the rectangle its file holds pixels for.
+/// the rectangle its file holds pixels for. A picture stored as a
+/// difference on a base picture counts as a whole: all of its rows.
 pub fn face_rows(assets: &Assets, face: &str) -> Option<(u32, u32)> {
     let data = assets
         .read(
@@ -99,7 +100,16 @@ pub fn face_rows(assets: &Assets, face: &str) -> Option<(u32, u32)> {
         )
         .ok()?;
     let h = silky_format::akb::Header::parse(&data).ok()?;
-    Some((h.top.max(0) as u32, h.bottom.max(0) as u32))
+    Some(rows_of(&h))
+}
+
+/// Rows of a face from its file header (see `face_rows`).
+fn rows_of(h: &silky_format::akb::Header) -> (u32, u32) {
+    if h.base.is_some() {
+        (0, h.height)
+    } else {
+        (h.top.max(0) as u32, h.bottom.max(0) as u32)
+    }
 }
 
 /// Puts a face on a body: the rows of the face picture's rectangle
@@ -257,6 +267,27 @@ mod tests {
         assert_eq!(&body[..8], &[1; 8]);
         assert_eq!(&body[8..16], &[9; 8]);
         assert_eq!(&body[16..], &[1; 8]);
+    }
+
+    /// A plain face covers the rows of its rectangle, a difference
+    /// picture all of its rows.
+    #[test]
+    fn face_rows_of_headers() {
+        let mut h = silky_format::akb::Header {
+            width: 1600,
+            height: 1600,
+            flags: 0,
+            background: [0; 4],
+            left: 400,
+            top: 300,
+            right: 900,
+            bottom: 700,
+            base: None,
+            data_offset: 32,
+        };
+        assert_eq!(super::rows_of(&h), (300, 700));
+        h.base = Some("tiy11.akb".into());
+        assert_eq!(super::rows_of(&h), (0, 1600));
     }
 
     #[test]
