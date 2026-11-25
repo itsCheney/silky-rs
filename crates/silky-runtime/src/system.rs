@@ -181,6 +181,13 @@ impl Settings {
             s.music = 0.55;
             s.effects = 0.7;
             s.cut_voice = false;
+        } else if title == silky_format::game::Title::Doujin {
+            // The program's own defaults for the message window: text speed
+            // 50 of 100 and the pause after stop marks on (auto speed is
+            // 50 of 100 too, as everywhere).
+            s.window_opacity = 0.6;
+            s.text_speed = 0.5;
+            s.punctuation_pause = true;
         } else if title == silky_format::game::Title::Nanairo {
             // なないろリンカネーション's own configuration: the colour and
             // transparency of a new install, each of 268.
