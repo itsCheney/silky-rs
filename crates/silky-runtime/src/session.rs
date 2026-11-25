@@ -14,6 +14,7 @@ use silky_vm::{Stop, Vm};
 
 use crate::audio::Bus;
 use crate::games::apeiria::REPLAY_VAR;
+use crate::games::doukyuusei::room;
 use crate::games::doukyuusei::town::CANCEL_VAR;
 use crate::games::doukyuusei::Panel as DoukPanel;
 use crate::games::kimaten2::archive::{
@@ -781,7 +782,9 @@ impl Session {
                         break;
                     }
                     Some(Pause::Panel) => {
+                        let had_plate = self.ui.plate.is_some();
                         self.ui.panel = self.rt.panel.clone();
+                        self.room_opens(had_plate);
                         self.ui.waiting = false;
                         self.ui.skip = false;
                         self.ui.auto = false;
@@ -1853,19 +1856,10 @@ impl Session {
         self.frame = None;
         match click {
             Click::Look(on) => {
-                if let Some(p) = &mut self.ui.panel {
-                    p.set_look(on);
-                }
-                self.ui.hover = None;
+                self.room_look(on);
                 self.sync_cursor();
             }
-            Click::Result(result) => {
-                self.ui.panel = None;
-                self.ui.hover = None;
-                self.base = None;
-                self.rt.answer_action(&mut self.vm, result);
-                self.run()?;
-            }
+            Click::Result(result) => self.room_result(result)?,
             _ => {}
         }
         Ok(true)
@@ -3274,9 +3268,126 @@ impl Session {
         self.frame = None;
     }
 
-    /// Whether the side buttons are sliding (the program takes no input).
+    /// Whether the side buttons or the room's buttons are sliding (the
+    /// program takes no input).
     fn menu_sliding(&self) -> bool {
-        self.ui.menu_anim.is_some()
+        self.ui.menu_anim.is_some() || self.ui.room_fx.is_some()
+    }
+
+    /// Starts a slide of the room (see [`crate::games::doukyuusei::room::Fx`]).
+    /// The hint bar keeps the line it shows while it slides away; `then` is
+    /// what the slide hands the script when it ends the room.
+    fn room_slide(&mut self, step: room::Step, then: Option<i32>) {
+        let mut fx = room::Fx::new(step, self.ui.clock, self.rt.system.settings.effect_scale());
+        fx.then = then;
+        if let Some(DoukPanel::Room(r)) = &self.ui.panel {
+            let hover = match self.ui.hover {
+                Some(Button::Panel(id)) => Some(id),
+                _ => None,
+            };
+            fx.hint = r.hint(hover);
+        }
+        self.ui.room_fx = Some(fx);
+        self.ui.hover = None;
+        self.frame = None;
+    }
+
+    /// The look button or the back arrow: look mode starts with the buttons
+    /// sliding out, ends with the arrow sliding out.
+    fn room_look(&mut self, on: bool) {
+        if !on {
+            self.vm.set_var_b(room::LOOK_BYTE, 0);
+        }
+        let step = if on {
+            room::Step::HideRoom
+        } else {
+            room::Step::HideBack
+        };
+        self.room_slide(step, None);
+    }
+
+    /// The room hands `result` to the script: the buttons (or in look mode
+    /// the back arrow) slide out first, and a look at a thing makes the
+    /// place's next room start in look mode.
+    fn room_result(&mut self, result: i32) -> Result<()> {
+        let looking = matches!(&self.ui.panel, Some(DoukPanel::Room(r)) if r.look && !r.is_plain());
+        let plain = matches!(&self.ui.panel, Some(DoukPanel::Room(r)) if r.is_plain());
+        if plain {
+            return self.room_answer(result);
+        }
+        if looking {
+            self.vm.set_var_b(room::LOOK_BYTE, 1);
+        }
+        let step = if looking {
+            room::Step::HideBack
+        } else {
+            room::Step::HideRoom
+        };
+        self.room_slide(step, Some(result));
+        Ok(())
+    }
+
+    /// The room is gone; the script goes on with `result`.
+    fn room_answer(&mut self, result: i32) -> Result<()> {
+        self.ui.panel = None;
+        self.ui.hover = None;
+        self.base = None;
+        self.rt.answer_action(&mut self.vm, result);
+        self.run()
+    }
+
+    /// A room has come up: it slides in, in look mode with the back arrow
+    /// when the last look at a thing left byte 8000 set.
+    fn room_opens(&mut self, had_plate: bool) {
+        let Some(DoukPanel::Room(r)) = &mut self.ui.panel else {
+            return;
+        };
+        if r.is_plain() {
+            return;
+        }
+        let looking = self.vm.var_b(room::LOOK_BYTE) != 0;
+        r.look = looking;
+        let step = if looking {
+            room::Step::ShowBack
+        } else {
+            room::Step::ShowRoom
+        };
+        self.room_slide(step, None);
+        if let Some(fx) = &mut self.ui.room_fx {
+            fx.chrome = !had_plate;
+        }
+    }
+
+    /// Ends a slide of the room when its last pass is shown: the next one
+    /// starts, or the room's answer goes to the script.
+    fn tick_room_fx(&mut self) -> Result<()> {
+        use crate::games::doukyuusei::room::Step;
+        let Some(fx) = self.ui.room_fx else {
+            return Ok(());
+        };
+        self.frame = None;
+        if !fx.done(self.ui.clock) {
+            return Ok(());
+        }
+        self.ui.room_fx = None;
+        if let Some(result) = fx.then {
+            return self.room_answer(result);
+        }
+        if let Some(step) = fx.next() {
+            // Look mode begins as the buttons are gone, and ends as the
+            // arrow is.
+            self.ui
+                .panel
+                .as_mut()
+                .map(|p| p.set_look(step == Step::ShowBack));
+            self.room_slide(step, None);
+            return Ok(());
+        }
+        // The pointer may rest on something now.
+        let (x, y) = self.ui.pointer;
+        self.ui.hover = self.hit(x, y);
+        self.sync_cursor();
+        Ok(())
     }
 
     /// Redraws the dialog while it fades in and when its caret flips.
@@ -4163,10 +4274,11 @@ impl Session {
                         }
                         // A place chosen on the map jump ends the walk.
                         self.ui.side_menu &= !matches!(self.ui.panel, Some(DoukPanel::Jump(_)));
-                        self.ui.panel = None;
-                        self.base = None;
-                        self.rt.answer_action(&mut self.vm, result);
-                        self.run()?;
+                        if matches!(self.ui.panel, Some(DoukPanel::Room(_))) {
+                            self.room_result(result)?;
+                        } else {
+                            self.room_answer(result)?;
+                        }
                     }
                     Click::Resume => {
                         self.ui.panel = Some(DoukPanel::Town);
@@ -4188,10 +4300,7 @@ impl Session {
                             .play_music_once(&crate::games::doukyuusei::music::file(t));
                     }
                     Click::Track(None) => self.rt.stop_music(),
-                    Click::Look(on) => {
-                        p.set_look(on);
-                        self.ui.hover = None;
-                    }
+                    Click::Look(on) => self.room_look(on),
                     Click::QuickSave => self.save(save::QUICK)?,
                     Click::QuickLoad => self.load(save::QUICK)?,
                     Click::Settings => {
@@ -4464,6 +4573,10 @@ impl Session {
             }
             self.frame = None;
         }
+        self.ui.plate_keep = self
+            .vm
+            .var_b(crate::games::doukyuusei::commands::PLATE_KEEP)
+            != 0;
         let plate = self.plate_hold.or_else(|| self.rt.plate(&self.vm));
         if plate != self.ui.plate {
             self.ui.plate = plate;
@@ -4556,6 +4669,7 @@ impl Session {
             self.slide_bar(before);
         }
         self.tick_menu_anim();
+        self.tick_room_fx()?;
         self.tick_dialog();
         // The game's own pointer swaps its two frames every 300 ms.
         self.sync_cursor();

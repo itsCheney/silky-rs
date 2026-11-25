@@ -197,6 +197,12 @@ pub struct Ui {
     pub side_menu: bool,
     /// 同級生 Remake: the side buttons slide out or back; input waits.
     pub menu_anim: Option<crate::games::doukyuusei::menu::MenuAnim>,
+    /// 同級生 Remake: the room's buttons, hint bar, menu button and plate
+    /// slide out or in; input waits.
+    pub room_fx: Option<crate::games::doukyuusei::room::Fx>,
+    /// 同級生 Remake: byte 4084 keeps the status plate up through the
+    /// room's look mode.
+    pub plate_keep: bool,
     /// 景の海のアペイリア: the button ring is folded away.
     pub ring_closed: bool,
     /// Buttons of きまぐれテンプテーション2's action menu, while it is up.
@@ -274,8 +280,30 @@ impl Ui {
     /// Whether a button does anything right now.
     /// 同級生 Remake: the status plate and the menu button are up.
     pub fn plate_up(&self) -> bool {
-        self.plate.is_some()
-            && !matches!(self.panel, Some(crate::games::doukyuusei::Panel::Jump(_)))
+        self.chrome().menu.is_some()
+    }
+
+    /// 同級生 Remake: how the plate (opacity) and the menu button (shift to
+    /// the right) show. The room's slides fade and move them, look mode
+    /// has no menu button and no plate unless byte 4084 keeps it.
+    pub fn chrome(&self) -> Chrome {
+        use crate::games::doukyuusei::{room::Step, Panel};
+        let up = self.plate.is_some() && !matches!(self.panel, Some(Panel::Jump(_)));
+        let kept = if self.plate_keep { 255 } else { 0 };
+        let looking = matches!(&self.panel, Some(Panel::Room(r)) if r.look && !r.is_plain());
+        let pass = self.room_fx.map(|f| f.pass(self.clock));
+        let (plate, menu) = match pass {
+            Some(p) if matches!(p.step, Step::HideRoom | Step::ShowRoom) => {
+                (p.plate_alpha().max(kept), Some(p.menu_dx()))
+            }
+            Some(_) => (kept, None),
+            None if looking => (kept, None),
+            None => (255, Some(0)),
+        };
+        Chrome {
+            plate: if up { plate } else { 0 },
+            menu: menu.filter(|_| up),
+        }
     }
 
     pub fn enabled(&self, b: Button) -> bool {
@@ -1188,6 +1216,14 @@ fn douk_menu_hidden(ui: &Ui, id: i32) -> bool {
     (id == bar::MAP && !walking)
         || (id == bar::BACKLOG && !ui.has_log)
         || (id == bar::SCHEDULE && ui.classic)
+}
+
+/// How 同級生 Remake's status plate and menu button show (see
+/// [`Ui::chrome`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Chrome {
+    pub plate: u8,
+    pub menu: Option<i32>,
 }
 
 /// Message window buttons of 同級生 Remake: `mes_o.area` ids 0..=4 (skip,
@@ -2394,12 +2430,15 @@ impl Layout {
         }
         // 同級生 Remake: its own bars, with the bottom buttons of the
         // message window.
-        if let (Some(plate), Some(d), true) = (&ui.plate, &self.douk, ui.plate_up()) {
-            plate.draw(canvas, assets, self.language)?;
-            if let Some(m) = &d.menu {
+        let chrome = ui.chrome();
+        if let (Some(plate), Some(d)) = (&ui.plate, &self.douk) {
+            if chrome.plate > 0 {
+                plate.draw(canvas, assets, self.language, chrome.plate)?;
+            }
+            if let (Some(m), Some(dx)) = (&d.menu, chrome.menu) {
                 use crate::games::doukyuusei::menu::HIDDEN;
                 let slide = ui.menu_anim.map(|a| a.slide(ui.clock));
-                m.draw(canvas, assets, ui.side_menu, slide, |id| {
+                m.draw(canvas, assets, ui.side_menu, slide, dx, |id| {
                     if douk_menu_hidden(ui, id) {
                         return HIDDEN;
                     }
@@ -2526,6 +2565,7 @@ impl Layout {
                 },
                 hover,
                 font,
+                ui.room_fx.map(|f| f.pass(ui.clock)),
             );
         }
         if let (false, Some(k)) = (ui.actions.is_empty(), &self.kimaten2) {

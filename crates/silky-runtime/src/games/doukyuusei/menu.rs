@@ -151,7 +151,8 @@ impl Menu {
     }
 
     /// `state` gives the row (0 normal, 1 hover, 2 pressed, 3 disabled) of
-    /// a button id, or [`HIDDEN`]. The program grays save and load when
+    /// a button id, or [`HIDDEN`]; `dx` shifts them all to the right (the
+    /// room's slide takes them off the screen). The program grays save and load when
     /// they cannot be used, leaves the backlog out while the log is empty
     /// (seen under Wine) and shows the map jump only on the walking maps.
     pub fn draw(
@@ -160,6 +161,7 @@ impl Menu {
         assets: &mut Assets,
         open: bool,
         slide: Option<Slide>,
+        dx: i32,
         state: impl Fn(i32) -> u32,
     ) -> Result<()> {
         let sheet = assets.image(SHEET)?;
@@ -184,7 +186,7 @@ impl Menu {
             } else {
                 (MENU_CELL.0 + CELL * (i as u32 - 1), CELL * row, CELL, CELL)
             };
-            canvas.draw_part(&sheet, part, x, y, false, alpha);
+            canvas.draw_part(&sheet, part, x + dx, y, false, alpha);
         }
         Ok(())
     }

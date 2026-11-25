@@ -64,7 +64,7 @@ pub const PAN: i32 = 33;
 pub const UNLOCKED: i32 = 37;
 /// The byte that keeps the status plate up when the message window comes
 /// back (`Game.10(11)`).
-const PLATE_KEEP: usize = 4084;
+pub(crate) const PLATE_KEEP: usize = 4084;
 
 /// `Game.18()`: the name entry (see [`super::name`]); the name is kept in
 /// the raw area, nothing is returned.

@@ -350,6 +350,95 @@ pub fn draw_hint(canvas: &mut Canvas, text: &str, x: i32, y: i32, size: u32, wid
     }
 }
 
+/// [`draw_hint`] seen through `opacity` (255 = as it is): the text is laid
+/// out as one picture first, so the outline does not darken where its
+/// passes overlap, then drawn as a whole (a sprite that fades).
+pub fn draw_hint_faded(
+    canvas: &mut Canvas,
+    text: &str,
+    pos: (i32, i32),
+    (size, width): (u32, i32),
+    opacity: u8,
+) {
+    if opacity == 255 {
+        return draw_hint(canvas, text, pos.0, pos.1, size, width);
+    }
+    if opacity == 0 {
+        return;
+    }
+    let (cells, lines) = hint_layout(text, width, size as i32);
+    let top = pos.1 - (lines - 1) * size as i32 / 2;
+    let (h, weight) = font_of(Style::OUTLINED.flags, size);
+    // Every glyph with the place of its cell, and the box around them.
+    let placed: Vec<_> = cells
+        .into_iter()
+        .filter_map(|(c, cx, line)| {
+            let r = glyph(c, h, weight)?;
+            Some((r, pos.0 + cx, top + line * size as i32))
+        })
+        .collect();
+    let at = |r: &Raster, x: i32, y: i32| (x + r.dx, y + r.dy);
+    let left = placed.iter().map(|(r, x, y)| at(r, *x, *y).0).min();
+    let up = placed.iter().map(|(r, x, y)| at(r, *x, *y).1).min();
+    let right = placed
+        .iter()
+        .map(|(r, x, y)| at(r, *x, *y).0 + r.glyph.width as i32 + 2)
+        .max();
+    let down = placed
+        .iter()
+        .map(|(r, x, y)| at(r, *x, *y).1 + r.glyph.height as i32 + 2)
+        .max();
+    let (Some(left), Some(up), Some(right), Some(down)) = (left, up, right, down) else {
+        return;
+    };
+    let (w, hgt) = ((right - left) as usize, (down - up) as usize);
+    let mut rgba = vec![0u8; w * hgt * 4];
+    // The glyph in `color` over what the picture holds (straight alpha).
+    let mut over = |r: &Raster, x: i32, y: i32, color: [u8; 3]| {
+        let g = &r.glyph;
+        for row in 0..g.height {
+            for col in 0..g.width {
+                let cov = g.mask[row * g.width + col] as u32;
+                if cov == 0 {
+                    continue;
+                }
+                let px = (x + r.dx + col as i32 - left) as usize;
+                let py = (y + r.dy + row as i32 - up) as usize;
+                let d = &mut rgba[(py * w + px) * 4..][..4];
+                let da = d[3] as u32;
+                let out = cov + da * (255 - cov) / 255;
+                for k in 0..3 {
+                    let mixed = color[k] as u32 * cov + d[k] as u32 * da * (255 - cov) / 255;
+                    d[k] = (mixed / out.max(1)) as u8;
+                }
+                d[3] = out as u8;
+            }
+        }
+    };
+    let style = Style::OUTLINED;
+    for (r, x, y) in &placed {
+        for dy in 0..3 {
+            for dx in 0..3 {
+                over(r, x + dx, y + dy, style.outline);
+            }
+        }
+        over(r, x + 1, y + 1, style.fill);
+    }
+    let image = Arc::new(silky_format::akb::Image {
+        width: w as u32,
+        height: hgt as u32,
+        rgba,
+    });
+    canvas.draw_part(
+        &image,
+        (0, 0, w as u32, hgt as u32),
+        left,
+        up,
+        false,
+        opacity,
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

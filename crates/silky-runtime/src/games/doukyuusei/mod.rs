@@ -123,7 +123,7 @@ impl Panel {
     }
 
     /// `state` gives the row (0 normal, 1 hover, 2 pressed) of an id;
-    /// `hover` is the id under the pointer.
+    /// `hover` is the id under the pointer; `fx` the room's slide.
     pub fn draw(
         &self,
         canvas: &mut Canvas,
@@ -132,9 +132,10 @@ impl Panel {
         state: impl Fn(i32) -> u32,
         hover: Option<i32>,
         font: Option<&window::Font>,
+        fx: Option<room::Pass>,
     ) -> crate::Result<()> {
         match self {
-            Panel::Room(r) => r.draw(canvas, assets, state, hover, font),
+            Panel::Room(r) => r.draw(canvas, assets, state, hover, font, fx),
             Panel::Hours(h) => h.draw(canvas, assets, language, state),
             Panel::Picker(p) => p.draw(canvas, assets, language, state),
             Panel::Album(a) => a.draw(canvas, assets, language, state),

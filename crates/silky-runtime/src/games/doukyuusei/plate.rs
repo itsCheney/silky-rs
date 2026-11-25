@@ -95,10 +95,17 @@ impl Plate {
         }
     }
 
-    pub fn draw(&self, canvas: &mut Canvas, assets: &mut Assets, language: Language) -> Result<()> {
+    /// `alpha` is how opaque it is (the room's slide fades it).
+    pub fn draw(
+        &self,
+        canvas: &mut Canvas,
+        assets: &mut Assets,
+        language: Language,
+        alpha: u8,
+    ) -> Result<()> {
         let sheet = assets.localized_image(SHEET, language)?;
         let mut part = |sx: u32, sy: u32, w: u32, h: u32, x: i32, y: i32| {
-            canvas.draw_part(&sheet, (sx, sy, w, h), x, y, false, 255);
+            canvas.draw_part(&sheet, (sx, sy, w, h), x, y, false, alpha);
         };
 
         // The leaf.

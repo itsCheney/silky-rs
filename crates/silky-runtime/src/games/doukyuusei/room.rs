@@ -13,6 +13,11 @@
 //! returns 1 × 256 + its id in the place's `.area` file. A button returns
 //! 255 × 256 + its id. See `docs/games/doukyuusei.md`.
 //!
+//! Nothing there comes or goes at once: the program slides sprites down
+//! out of the screen while they fade, or up into it, twelve passes at a
+//! time (see [`Fx`]); the look button hides the buttons, the hint bar,
+//! the menu button and the status plate that way before look mode starts.
+//!
 //! `Game.17(1)` (the program's plain area selection) is the same without
 //! buttons: the hot spots of the file `Game.17(file, 0)` named and the
 //! hint bar, until a thing is clicked.
@@ -216,6 +221,148 @@ const HINT_TEXT: (i32, i32) = (725, 1029);
 const HINT_WIDTH: i32 = 500;
 /// Line of the system text for the look mode with nothing under the pointer.
 const HINT_NOTHING: u32 = 259;
+/// Line of the hint bar for the look button.
+pub const HINT_LOOK: u32 = 234;
+/// How far the big buttons, the back arrow and the hint bar slide down
+/// out of sight, and the quick buttons.
+const SLIDE_BIG: i32 = 171;
+const SLIDE_QUICK: i32 = 153;
+/// How far the menu button (and the six with it) slides right.
+const SLIDE_MENU: i32 = 265;
+/// The hint bar's cell in the sheet.
+const HINT_BAR: (u32, u32, u32, u32) = (0, 684, 584, 68);
+/// The byte a look at a thing leaves set, so that the place's next room
+/// starts in look mode (scripts only clear it).
+pub const LOOK_BYTE: usize = 8000;
+
+/// What one of the room's slides does, from the program's two functions
+/// that hide and show the sprites: look mode starts with the buttons going
+/// and the back arrow coming, ends with the arrow going and the buttons
+/// coming; the room itself comes in when it opens and goes when it ends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Step {
+    /// Buttons, quick buttons and hint bar slide down and fade; the menu
+    /// button slides right and the plate fades.
+    HideRoom,
+    /// The back arrow and the hint bar come in.
+    ShowBack,
+    /// The back arrow and the hint bar go.
+    HideBack,
+    /// What `HideRoom` took away comes back.
+    ShowRoom,
+}
+
+/// A slide that is running. Input waits meanwhile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Fx {
+    pub step: Step,
+    /// The session clock (ms) when it started.
+    pub start: u64,
+    /// Passes it takes: twelve, fewer with a faster screen speed.
+    pub n: u32,
+    /// The hint bar's line while it leaves (what was shown when it began).
+    pub hint: Option<u32>,
+    /// What the room returns when the slide ends the room (a button or a
+    /// thing), instead of going on with the next step.
+    pub then: Option<i32>,
+    /// The menu button and the plate take part (not when the room opens
+    /// over a plate that is already up).
+    pub chrome: bool,
+}
+
+impl Fx {
+    pub fn new(step: Step, start: u64, scale: f32) -> Self {
+        Self {
+            step,
+            start,
+            n: super::menu::slide_passes(scale),
+            hint: None,
+            then: None,
+            chrome: true,
+        }
+    }
+
+    /// Where the slide is at `clock` (ms).
+    pub fn pass(&self, clock: u64) -> Pass {
+        Pass {
+            step: self.step,
+            t: super::menu::passes(self.start, clock),
+            n: self.n,
+            hint: self.hint,
+            chrome: self.chrome,
+        }
+    }
+
+    /// Whether the last pass has been shown.
+    pub fn done(&self, clock: u64) -> bool {
+        self.pass(clock).t >= self.n
+    }
+
+    /// The step that follows, for a slide that does not end the room.
+    pub fn next(&self) -> Option<Step> {
+        match (self.step, self.then) {
+            (Step::HideRoom, None) => Some(Step::ShowBack),
+            (Step::HideBack, None) => Some(Step::ShowRoom),
+            _ => None,
+        }
+    }
+}
+
+/// One frame of a slide: pass `t` of `n`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Pass {
+    pub step: Step,
+    pub t: u32,
+    pub n: u32,
+    pub hint: Option<u32>,
+    pub chrome: bool,
+}
+
+/// `a` to `b` in `n` passes, truncating like the program's integer steps.
+fn lerp(a: i32, b: i32, t: u32, n: u32) -> i32 {
+    a + (b - a) * t.min(n) as i32 / n as i32
+}
+
+impl Pass {
+    fn leaving(&self) -> bool {
+        matches!(self.step, Step::HideRoom | Step::HideBack)
+    }
+
+    /// How far down (pixels) and how opaque a sprite `h` tall is.
+    pub fn place(&self, h: i32) -> (i32, u8) {
+        let (rest, away) = if self.leaving() { (0, h) } else { (h, 0) };
+        let (a0, a1) = if self.leaving() { (255, 0) } else { (0, 255) };
+        (
+            lerp(rest, away, self.t, self.n),
+            lerp(a0, a1, self.t, self.n) as u8,
+        )
+    }
+
+    /// How far right the menu button is.
+    pub fn menu_dx(&self) -> i32 {
+        if self.chrome {
+            self.place(SLIDE_MENU).0
+        } else {
+            0
+        }
+    }
+
+    /// How opaque the status plate is while the room hides or shows it;
+    /// look mode keeps it away.
+    pub fn plate_alpha(&self) -> u8 {
+        match self.step {
+            Step::HideRoom | Step::ShowRoom if self.chrome => self.place(0).1,
+            Step::HideRoom | Step::ShowRoom => 255,
+            Step::ShowBack | Step::HideBack => 0,
+        }
+    }
+
+    /// The line on the hint bar: the one it had while it goes, none on
+    /// its way in (look mode's own line comes when it is up).
+    fn line(&self) -> Option<u32> {
+        self.leaving().then_some(self.hint).flatten()
+    }
+}
 
 /// Large buttons: sheet column (sleep, look, talk, go out) by id.
 fn big_column(id: u8, set: i32) -> u32 {
@@ -382,7 +529,8 @@ impl Room {
 
     /// Draws the buttons; `state` gives the row (0 normal, 1 hover, 2
     /// pressed, 3 gray) of an element id.
-    /// `hover` is the element under the pointer, for the hint bar.
+    /// `hover` is the element under the pointer, for the hint bar. `fx`
+    /// is the slide that is running, if one is.
     pub fn draw(
         &self,
         canvas: &mut Canvas,
@@ -390,20 +538,30 @@ impl Room {
         state: impl Fn(i32) -> u32,
         hover: Option<i32>,
         _font: Option<&Font>,
+        fx: Option<Pass>,
     ) -> Result<()> {
         let sheet = assets.image("search_p.akb")?;
+        let slide = |h: i32| fx.map_or((0, 255), |p| p.place(h));
         // The hint bar, and its line in the GDI font (size 20) from (725,
-        // 1029).
-        canvas.draw_part(&sheet, (0, 684, 584, 68), 658, 1005, false, 255);
-        let line = self
-            .hint(hover)
-            .and_then(|id| self.system.as_ref()?.get(0, id));
-        if let Some(line) = line {
-            gdi::draw_hint(canvas, line, HINT_TEXT.0, HINT_TEXT.1, 20, HINT_WIDTH);
+        // 1029); the line rides the bar.
+        let (dy, alpha) = slide(SLIDE_BIG);
+        if alpha > 0 {
+            canvas.draw_part(&sheet, HINT_BAR, 658, 1005 + dy, false, alpha);
+            let id = match fx {
+                Some(p) => p.line(),
+                None => self.hint(hover),
+            };
+            if let Some(line) = id.and_then(|id| self.system.as_ref()?.get(0, id)) {
+                let at = (HINT_TEXT.0, HINT_TEXT.1 + dy);
+                gdi::draw_hint_faded(canvas, line, at, (20, HINT_WIDTH), alpha);
+            }
         }
         let back = |canvas: &mut Canvas, s: u32| {
             let (x, w, h) = BACK_CELL;
-            canvas.draw_part(&sheet, (x, h * s, w, h), BACK_POS.0, BACK_POS.1, false, 255);
+            let part = (x, h * s, w, h);
+            if alpha > 0 {
+                canvas.draw_part(&sheet, part, BACK_POS.0, BACK_POS.1 + dy, false, alpha);
+            }
         };
         if self.plain {
             return Ok(());
@@ -424,15 +582,18 @@ impl Room {
             }
             let x = 1752 - 168 * id as i32;
             let part = (168 * big_column(id, self.set), 171 * s, 168, 171);
-            canvas.draw_part(&sheet, part, x, 909, false, 255);
+            if alpha > 0 {
+                canvas.draw_part(&sheet, part, x, 909 + dy, false, alpha);
+            }
         }
         // Quick save and quick load (gray, row 3, without a save).
+        let (dy, alpha) = slide(SLIDE_QUICK);
         for (x, sx, id) in [(15, 960, QUICK_SAVE), (165, 810, QUICK_LOAD)] {
-            if !present(id) {
+            if !present(id) || alpha == 0 {
                 continue;
             }
             let s = state(id as i32);
-            canvas.draw_part(&sheet, (sx, 153 * s, 150, 153), x, 927, false, 255);
+            canvas.draw_part(&sheet, (sx, 153 * s, 150, 153), x, 927 + dy, false, alpha);
         }
         Ok(())
     }
@@ -568,5 +729,85 @@ mod tests {
     fn names() {
         assert_eq!(area_name("42_X.akb"), "42.area");
         assert_eq!(area_name("cafe.akb"), "cafe.area");
+    }
+
+    #[test]
+    fn slides_run_twelve_passes_fewer_when_faster() {
+        let fx = Fx::new(Step::HideRoom, 1000, 1.0);
+        assert_eq!(fx.n, 12);
+        assert!(!fx.done(1199));
+        assert!(fx.done(1200));
+        assert_eq!(Fx::new(Step::HideRoom, 0, 0.5).n, 6);
+        assert_eq!(Fx::new(Step::HideRoom, 0, 0.0).n, 1);
+    }
+
+    #[test]
+    fn hiding_slides_down_and_fades() {
+        let at = |t| Pass {
+            step: Step::HideRoom,
+            t,
+            n: 12,
+            hint: None,
+            chrome: true,
+        };
+        assert_eq!(at(0).place(171), (0, 255));
+        // Truncating toward zero, as the menu's slide does.
+        assert_eq!(at(6).place(171), (85, 128));
+        assert_eq!(at(12).place(171), (171, 0));
+        assert_eq!(at(40).place(153), (153, 0));
+        assert_eq!(at(12).menu_dx(), 265);
+        assert_eq!(at(3).plate_alpha(), 192);
+    }
+
+    #[test]
+    fn showing_comes_up_from_below() {
+        let at = |t| Pass {
+            step: Step::ShowRoom,
+            t,
+            n: 12,
+            hint: Some(234),
+            chrome: true,
+        };
+        assert_eq!(at(0).place(171), (171, 0));
+        assert_eq!(at(6).place(171), (86, 127));
+        assert_eq!(at(12).place(171), (0, 255));
+        assert_eq!(at(0).menu_dx(), 265);
+        assert_eq!(at(12).plate_alpha(), 255);
+        // The line is only kept on the way out.
+        assert_eq!(at(3).line(), None);
+        let out = Pass {
+            step: Step::HideBack,
+            ..at(3)
+        };
+        assert_eq!(out.line(), Some(234));
+        // Look mode has no plate while its arrow comes or goes.
+        assert_eq!(out.plate_alpha(), 0);
+    }
+
+    #[test]
+    fn menu_and_plate_stay_when_the_room_opens_over_them() {
+        let p = Pass {
+            step: Step::ShowRoom,
+            t: 0,
+            n: 12,
+            hint: None,
+            chrome: false,
+        };
+        assert_eq!((p.menu_dx(), p.plate_alpha()), (0, 255));
+    }
+
+    #[test]
+    fn look_mode_is_two_slides_each_way() {
+        let mut fx = Fx::new(Step::HideRoom, 0, 1.0);
+        assert_eq!(fx.next(), Some(Step::ShowBack));
+        fx.step = Step::ShowBack;
+        assert_eq!(fx.next(), None);
+        fx.step = Step::HideBack;
+        assert_eq!(fx.next(), Some(Step::ShowRoom));
+        // Leaving the room for the script ends after the first.
+        fx.then = Some(0x101);
+        assert_eq!(fx.next(), None);
+        fx.step = Step::HideRoom;
+        assert_eq!(fx.next(), None);
     }
 }
