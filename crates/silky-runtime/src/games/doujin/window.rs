@@ -68,14 +68,20 @@ pub const NAME_LEFT: f32 = 178.0;
 pub const NAME_BASELINE: f32 = TOP as f32 + 51.0;
 pub const NAME_SIZE: f32 = 24.0;
 
-/// Portrait windows: the body picture is shrunk into a 1024 pixel layer
-/// that shows at 40 % (a 2048 pixel picture ends at a fifth of its size),
-/// its top 144 layer rows (57.6 pixels) below the layer's top at 320. The
-/// first window sits at x = -80, the second (`Game.16`) at 950.
+/// Portrait windows: a 1024 pixel square layer shown at 40 %, its top at
+/// y = 320. The body picture is not shrunk: a 1024 wide piece of it, taken
+/// from x = 512 of the 2048 pixel picture, is copied into the layer pixel
+/// for pixel. The first window (`Game.10`) sits at x = -80 and copies the
+/// whole 1024 rows from the picture's top; the second (`Game.16`) sits at
+/// x = 950 and copies 880 rows into the layer from row 144 down, so its
+/// picture starts 57.6 pixels lower.
 pub const LAYER_SCALE: f32 = 0.4;
-pub const LAYER_SIZE: f32 = 1024.0;
-pub const PORTRAIT_TOP: f32 = 320.0 + 144.0 * 0.4;
+pub const LAYER_TOP: f32 = 320.0;
 pub const PORTRAIT_LEFT: [f32; 2] = [-80.0, 950.0];
+const PIECE_LEFT: u32 = 512;
+const PIECE_WIDTH: u32 = 1024;
+const PIECE_ROWS: [u32; 2] = [1024, 880];
+const LAYER_ROW: [u32; 2] = [0, 144];
 
 /// Tooltip lines of `MesButtonHelp.hlg` by button id.
 const HELP: [usize; 15] = [7, 9, 8, 10, 6, 3, 5, 4, 1, 0, 2, 13, 14, 11, 12];
@@ -247,8 +253,23 @@ impl Bar {
 /// A body picture of a portrait window with its face drawn on, put at its
 /// place: `window` is 0 for `Game.10` and 1 for `Game.16`.
 pub fn draw_portrait(canvas: &mut Canvas, img: &Arc<Image>, window: usize) {
-    let scale = LAYER_SCALE * LAYER_SIZE / img.width.max(1) as f32;
-    canvas.draw_scaled(img, PORTRAIT_LEFT[window], PORTRAIT_TOP, scale);
+    let rows = PIECE_ROWS[window].min(img.height);
+    let width = PIECE_WIDTH.min(img.width.saturating_sub(PIECE_LEFT));
+    if width == 0 || rows == 0 {
+        return;
+    }
+    let mut rgba = Vec::with_capacity((width * rows * 4) as usize);
+    for y in 0..rows {
+        let start = ((y * img.width + PIECE_LEFT) * 4) as usize;
+        rgba.extend_from_slice(&img.rgba[start..start + (width * 4) as usize]);
+    }
+    let piece = Arc::new(Image {
+        width,
+        height: rows,
+        rgba,
+    });
+    let top = LAYER_TOP + LAYER_ROW[window] as f32 * LAYER_SCALE;
+    canvas.draw_scaled(&piece, PORTRAIT_LEFT[window], top, LAYER_SCALE);
 }
 
 /// Lays `top` over `canvas` (same width) the way the second portrait's
