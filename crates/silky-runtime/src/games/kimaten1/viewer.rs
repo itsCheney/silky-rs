@@ -103,14 +103,17 @@ const LIST_TOP: i32 = 162;
 const BAR_TOP: i32 = 150;
 const BAR_HEIGHT: i32 = 405;
 const BAR_X: i32 = 1229;
-/// The help line's glyph cells are 16 pixels from (648, 696); the
-/// original puts a glyph's baseline the face's ascent under the top of
-/// its cell, and the help line takes 13 of the 16 pixels.
-const HELP_POS: (f32, f32) = (648.0, 709.0);
-const HELP_SIZE: f32 = 16.0;
-/// The list's cells are 24 pixels high from the row's top.
-const ROW_SIZE: f32 = 24.0;
-const ROW_ASCENT: f32 = 20.0;
+/// The help line is written in 16 pixel cells from (648, 696), the list's
+/// rows in 24 pixel cells from the row's top; white glyphs with a black
+/// edge one pixel wide, as in the notice strips and the notebook. The
+/// executable only gives the cells: the glyph size (the cell less four
+/// pixels) and the baseline (three quarters of the cell under its top)
+/// follow what was measured on those two screens.
+const HELP_CELL: f32 = 16.0;
+const HELP_POS: (f32, f32) = (648.0, 696.0);
+const ROW_CELL: f32 = 24.0;
+const GLYPH_LESS: f32 = 4.0;
+const BASELINE: f32 = 0.75;
 
 const OUTFIT_NAMES: [&str; OUTFITS] = [
     "悪魔",
@@ -625,9 +628,11 @@ impl Viewer {
     }
 
     /// The mouse wheel: up goes back by five, down forward; true when the
-    /// list was there to scroll.
+    /// list was there to scroll. The original scrolls while the buttons
+    /// are hidden too (the list is only out of sight); the question
+    /// takes the wheel while it is up.
     pub fn wheel(&mut self, up: bool) -> bool {
-        if self.dialog || self.hidden {
+        if self.dialog {
             return true;
         }
         if up {
@@ -791,22 +796,24 @@ impl Viewer {
             let top = LIST_TOP + 24 * i as i32;
             if let Some(tr) = look.text {
                 // White, red under the pointer, yellow for the motion
-                // picked; the glyphs sit under the row's top by the
-                // ascent of a 24 pixel face.
+                // picked.
                 let color = [
                     [255, 255, 255, alpha],
                     [255, 0, 0, alpha],
                     [255, 255, 0, alpha],
                 ][st as usize];
-                tr.draw_bold_edged(
-                    canvas,
-                    &format!("アクション{:03}", n + 1),
-                    LIST_LEFT as f32,
-                    top as f32 + ROW_ASCENT,
-                    ROW_SIZE,
-                    color,
-                    [0, 0, 0, alpha],
-                );
+                let glyph = ROW_CELL - GLYPH_LESS;
+                tr.with_fixed_cells(ROW_CELL / glyph, |tr| {
+                    tr.draw_outlined(
+                        canvas,
+                        &format!("アクション{:03}", n + 1),
+                        LIST_LEFT as f32,
+                        top as f32 + ROW_CELL * BASELINE,
+                        glyph,
+                        color,
+                        [0, 0, 0, alpha],
+                    )
+                });
             }
         }
         let st = self.state(look, SCROLLBAR);
@@ -826,15 +833,18 @@ impl Viewer {
         };
         part(canvas, (1154, 672 + st * 33, 34, 33), (358, 273));
         if let (Some(tr), Some(line)) = (look.text, self.help(look.hover)) {
-            tr.draw_bold_edged(
-                canvas,
-                &line,
-                HELP_POS.0,
-                HELP_POS.1,
-                HELP_SIZE,
-                [255, 255, 255, alpha],
-                [0, 0, 0, alpha],
-            );
+            let glyph = HELP_CELL - GLYPH_LESS;
+            tr.with_fixed_cells(HELP_CELL / glyph, |tr| {
+                tr.draw_outlined(
+                    canvas,
+                    &line,
+                    HELP_POS.0,
+                    HELP_POS.1 + HELP_CELL * BASELINE,
+                    glyph,
+                    [255, 255, 255, alpha],
+                    [0, 0, 0, alpha],
+                )
+            });
         }
         if self.dialog {
             self.draw_dialog(canvas, assets, look)?;
@@ -1104,6 +1114,38 @@ mod tests {
         assert!(!v.hidden);
         settle(&mut v, &mut scene);
         assert_eq!(v.hit(10, 30), Some(0));
+    }
+
+    #[test]
+    fn the_wheel_scrolls_while_the_buttons_are_hidden() {
+        let mut v = viewer(&[0]);
+        v.cancel();
+        assert!(v.hidden);
+        v.wheel(false);
+        assert_eq!(v.scroll, SCROLL_STEP);
+        v.wheel(true);
+        v.wheel(true);
+        assert_eq!(v.scroll, 0);
+        // The question takes it while it is up.
+        v.hidden = false;
+        v.click(UNLOCK);
+        v.wheel(false);
+        assert_eq!(v.scroll, 0);
+    }
+
+    #[test]
+    fn picking_the_worn_outfit_loads_the_model_again() {
+        let mut scene = Scene::default();
+        let mut v = viewer(&[0]);
+        v.enter(&mut scene);
+        settle(&mut v, &mut scene);
+        v.click(ROW + 2);
+        v.click(POSE);
+        v.click(0);
+        assert!(v.reload);
+        let e = v.emote();
+        // No main timeline, as with any new model; the pose stays.
+        assert_eq!((e.pose, e.sub), (None, Some(1)));
     }
 
     #[test]
