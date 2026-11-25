@@ -141,6 +141,10 @@ pub struct Emote {
     /// instead of fading out under it.
     #[serde(default)]
     pub cut: bool,
+    /// Counts the driver's `Skip` calls (command 10 and 40, sub 18): each
+    /// one snaps the model's running motions to their ends.
+    #[serde(default)]
+    pub skip_seq: u32,
     pub visible: bool,
     /// The second outfit (byte 708) when the model was loaded; an H scene
     /// model then starts without its clothes.

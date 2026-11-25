@@ -4977,6 +4977,7 @@ impl Session {
                     self.ui.skip = true;
                     self.skip_to_choice = true;
                     self.ui.auto = false;
+                    self.rt.k1_scene_skip = self.k1_jump_running();
                 }
                 bar::PREVIOUS_CHOICE => self.previous_choice()?,
                 bar::CONFIG => self.room_system(room::Sys::Settings),
@@ -5158,9 +5159,16 @@ impl Session {
 
     /// Advances the clock by `ms`: animation, auto and skip modes. Returns
     /// whether the frame changed.
+    /// きまぐれテンプテーション: the bar's jump button is on, which the
+    /// original's script sees as the scene skip setting.
+    fn k1_jump_running(&self) -> bool {
+        self.layout.is_kimaten1() && self.ui.skip && self.skip_to_choice
+    }
+
     pub fn tick(&mut self, ms: u64) -> Result<bool> {
         let before = self.ui.clock;
         self.ui.clock += ms;
+        self.rt.k1_scene_skip = self.k1_jump_running();
         self.ui.voice = self.rt.voice_playing();
         // Calls recorded for a trace carry the session clock.
         self.vm.set_trace_tick(self.ui.clock);

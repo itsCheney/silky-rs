@@ -568,6 +568,13 @@ impl Character {
         }
     }
 
+    /// Snaps what runs on every model to its end (the driver's `Skip`).
+    pub fn skip_all(&mut self) {
+        for m in &mut self.models {
+            m.player.skip();
+        }
+    }
+
     /// Face 0 to 13: 0 to 6 on the first file, 7 to 13 on the
     /// second, each the difference timelines `f00` (13) down to `f06` (7).
     pub fn h_face(&mut self, face: usize) {
@@ -862,6 +869,9 @@ impl Stage {
                 }
                 self.character.set_pose(n.max(0) as usize);
             }
+        }
+        if emote.skip_seq != self.applied.skip_seq {
+            self.character.skip_all();
         }
         if emote.next_pose != self.applied.next_pose {
             self.queued = emote.next_pose.map(|n| n.max(0) as usize);

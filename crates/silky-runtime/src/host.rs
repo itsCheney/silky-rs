@@ -348,6 +348,10 @@ pub struct Runtime {
     /// きまぐれテンプテーション: the pause being started is a wait that
     /// Enter, Ctrl or a click ends at once (`Game.1000`).
     pub k1_keywait: bool,
+    /// きまぐれテンプテーション: the bar's jump button is running (skip to
+    /// the next choice), which the original treats as its scene skip
+    /// setting being on.
+    pub k1_scene_skip: bool,
     /// The colour covering the screen when 同級生 Remake's name entry
     /// opened: the page shows the background, and the cover comes back
     /// when it is done.
@@ -455,6 +459,7 @@ impl Runtime {
             k1_title_extras: false,
             k1_blink: false,
             k1_keywait: false,
+            k1_scene_skip: false,
             cover_under_name: None,
             town: None,
             sprites: Default::default(),
@@ -550,7 +555,7 @@ impl Runtime {
     /// The original's scene skip setting (`/Config/SceneSkip`), off unless
     /// a script wrote it.
     pub(crate) fn scene_skip(&self) -> bool {
-        scene_skip_set(&self.xml)
+        scene_skip_on(&self.xml, self.k1_scene_skip)
     }
 
     /// Script the current message is in (lowercase).
@@ -1691,6 +1696,12 @@ impl Host for Runtime {
     }
 }
 
+/// Whether the scene skip setting is on: written by a script, or held on
+/// by a running jump.
+fn scene_skip_on(values: &HashMap<String, i32>, jump: bool) -> bool {
+    jump || scene_skip_set(values)
+}
+
 /// Whether the configuration values hold the scene skip setting on.
 fn scene_skip_set(values: &HashMap<String, i32>) -> bool {
     values.get("/Config/SceneSkip") == Some(&1)
@@ -1708,6 +1719,13 @@ mod scene_skip_tests {
         assert!(scene_skip_set(&values));
         values.insert("/Config/SceneSkip".to_string(), 0);
         assert!(!scene_skip_set(&values));
+    }
+
+    #[test]
+    fn a_running_jump_turns_scene_skip_on() {
+        let values = HashMap::new();
+        assert!(!scene_skip_on(&values, false));
+        assert!(scene_skip_on(&values, true));
     }
 }
 
