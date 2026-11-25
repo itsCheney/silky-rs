@@ -288,6 +288,9 @@ pub struct Fx {
     /// A system screen that opens when this slide (the room going away)
     /// ends; the room slides back in once the screen is closed.
     pub open: Option<Sys>,
+    /// The room comes back after a system screen: the menu's buttons start
+    /// with no hover or press, and the pointer picks nothing until it moves.
+    pub back: bool,
 }
 
 impl Fx {
@@ -300,6 +303,7 @@ impl Fx {
             then: None,
             chrome: true,
             open: None,
+            back: false,
         }
     }
 

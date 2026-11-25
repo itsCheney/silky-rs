@@ -2659,8 +2659,15 @@ impl Session {
 
     /// Opens 同級生 Remake's settings at `page`.
     fn open_douk_settings(&mut self, page: crate::games::doukyuusei::config::Page) {
-        use crate::games::doukyuusei::config::ConfigScreen;
+        use crate::games::doukyuusei::config::{ConfigScreen, Page};
+        use crate::games::doukyuusei::menu::Next;
+        if self.open_after_fade(Next::Settings {
+            sound: page == Page::Sound,
+        }) {
+            return;
+        }
         self.screen = Some(Screen::DoukConfig(ConfigScreen::new(page, self.ui.clock)));
+        self.fade_screen_in();
         self.ui.skip = false;
         self.sync_douk_speeds();
         self.ui.hover = None;
@@ -2790,6 +2797,13 @@ impl Session {
     }
 
     fn open_save_load(&mut self, mode: Mode) {
+        if self.douk_system.is_some()
+            && self.open_after_fade(crate::games::doukyuusei::menu::Next::Save {
+                load: mode == Mode::Load,
+            })
+        {
+            return;
+        }
         // 同級生 Remake saves at its room and map screens too.
         let at_panel = self.douk_system.is_some() && self.state == State::Choice;
         let can_save = (self.state == State::Text || at_panel) && self.saves.is_some();
@@ -2806,6 +2820,7 @@ impl Session {
             let mut s = SaveScreen::new(mode == Mode::Load, can_save, self.saves.as_ref());
             s.log = !self.log.is_empty();
             self.screen = Some(Screen::DoukSave(s));
+            self.fade_screen_in();
             self.ui.auto = false;
             self.ui.skip = false;
             self.ui.hover = None;
@@ -2929,6 +2944,11 @@ impl Session {
     }
 
     fn open_backlog(&mut self) {
+        if self.douk_system.is_some()
+            && self.open_after_fade(crate::games::doukyuusei::menu::Next::Backlog)
+        {
+            return;
+        }
         // 同級生 Remake opens it at its room and map screens too.
         let at_panel = self.douk_system.is_some() && self.state == State::Choice;
         if self.log.is_empty() || !(self.state == State::Text || at_panel) {
@@ -3286,7 +3306,7 @@ impl Session {
     /// Whether the side buttons or the room's buttons are sliding (the
     /// program takes no input).
     fn menu_sliding(&self) -> bool {
-        self.ui.menu_anim.is_some() || self.ui.room_fx.is_some()
+        self.ui.menu_anim.is_some() || self.ui.room_fx.is_some() || self.ui.screen_fx.is_some()
     }
 
     /// Starts a slide of the room (see [`crate::games::doukyuusei::room::Fx`]).
@@ -3313,8 +3333,7 @@ impl Session {
     /// twelve passes as look mode's), and slides back in when the screen
     /// is closed; elsewhere the screen opens at once.
     fn room_system(&mut self, sys: room::Sys) {
-        let on_room = matches!(&self.ui.panel, Some(DoukPanel::Room(r)) if !r.look);
-        if !on_room || self.ui.room_fx.is_some() || !self.can_open(sys) {
+        if !self.room_slides(sys) {
             self.open_system(sys);
             return;
         }
@@ -3322,6 +3341,13 @@ impl Session {
         if let Some(fx) = &mut self.ui.room_fx {
             fx.open = Some(sys);
         }
+    }
+
+    /// Whether the room slides away before `sys` opens (see
+    /// [`Session::room_system`]).
+    fn room_slides(&self, sys: room::Sys) -> bool {
+        let on_room = matches!(&self.ui.panel, Some(DoukPanel::Room(r)) if !r.look);
+        on_room && self.ui.room_fx.is_none() && self.can_open(sys)
     }
 
     /// Whether `open_system` would open its screen now.
@@ -3357,6 +3383,9 @@ impl Session {
         self.ui.room_away = false;
         if matches!(&self.ui.panel, Some(DoukPanel::Room(r)) if !r.look && !r.is_plain()) {
             self.room_slide(room::Step::ShowRoom, None);
+            if let Some(fx) = &mut self.ui.room_fx {
+                fx.back = true;
+            }
         }
     }
 
@@ -3456,11 +3485,86 @@ impl Session {
             self.room_slide(step, None);
             return Ok(());
         }
-        // The pointer may rest on something now.
-        let (x, y) = self.ui.pointer;
-        self.ui.hover = self.hit(x, y);
-        self.sync_cursor();
+        // The pointer may rest on something now (not on a button of the
+        // room that comes back: its states are reset until the pointer moves).
+        if !fx.back {
+            let (x, y) = self.ui.pointer;
+            self.ui.hover = self.hit(x, y);
+            self.sync_cursor();
+        }
         Ok(())
+    }
+
+    /// Whether the open screen is one the original fades in and out
+    /// (settings, save, load and the schedule list).
+    fn screen_fades(&self) -> bool {
+        self.douk_system.is_some()
+            && matches!(
+                self.screen,
+                Some(Screen::DoukConfig(_) | Screen::DoukSave(_) | Screen::DoukFlag(_))
+            )
+    }
+
+    /// A screen has just opened: it fades in over the scene.
+    fn fade_screen_in(&mut self) {
+        if self.screen_fades() {
+            let scale = self.rt.system.settings.effect_scale();
+            self.ui.screen_fx = Some(crate::games::doukyuusei::menu::ScreenFx::new(
+                false,
+                self.ui.clock,
+                scale,
+            ));
+        }
+    }
+
+    /// A screen is being opened while the one before it fades out: it
+    /// opens when that is over. Returns whether it was put off.
+    fn open_after_fade(&mut self, next: crate::games::doukyuusei::menu::Next) -> bool {
+        if self.screen.is_none() {
+            return false;
+        }
+        match &mut self.ui.screen_fx {
+            Some(fx) if fx.out => {
+                fx.next = Some(next);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Ends a fade of a system screen when its last pass is shown.
+    fn tick_screen_fx(&mut self) {
+        use crate::games::doukyuusei::menu::Next;
+        let Some(fx) = self.ui.screen_fx else {
+            return;
+        };
+        if self.screen.is_none() {
+            self.ui.screen_fx = None;
+            return;
+        }
+        self.frame = None;
+        if !fx.done(self.ui.clock) {
+            return;
+        }
+        self.ui.screen_fx = None;
+        if !fx.out {
+            let (x, y) = self.ui.pointer;
+            self.ui.hover = self.hit(x, y);
+            self.sync_cursor();
+            return;
+        }
+        self.finish_close();
+        match fx.next {
+            Some(Next::Settings { sound }) => {
+                use crate::games::doukyuusei::config::Page;
+                self.open_douk_settings(if sound { Page::Sound } else { Page::System1 })
+            }
+            Some(Next::Save { load }) => {
+                self.open_save_load(if load { Mode::Load } else { Mode::Save })
+            }
+            Some(Next::Backlog) => self.open_backlog(),
+            None => {}
+        }
     }
 
     /// Redraws the dialog while it fades in and when its caret flips.
@@ -3505,6 +3609,24 @@ impl Session {
             }
             _ => {}
         }
+        // The original's screens fade out before they are gone.
+        if self.screen_fades() {
+            if !self.ui.screen_fx.is_some_and(|f| f.out) {
+                let scale = self.rt.system.settings.effect_scale();
+                self.ui.screen_fx = Some(crate::games::doukyuusei::menu::ScreenFx::new(
+                    true,
+                    self.ui.clock,
+                    scale,
+                ));
+            }
+            self.ui.hover = None;
+            self.frame = None;
+            return;
+        }
+        self.finish_close();
+    }
+
+    fn finish_close(&mut self) {
         self.screen = None;
         self.thumb = None;
         self.voice_queue.clear();
@@ -4221,8 +4343,18 @@ impl Session {
     }
 
     fn press(&mut self, b: Button) -> Result<()> {
-        // Any button but the side menu's own closes the side menu.
-        if b != Button::Bar(bar::MENU) {
+        // Any button but the side menu's own closes the side menu; the
+        // room's menu stays open through the screen a button opens (the
+        // room only slides away and back).
+        let keeps = match b {
+            Button::Bar(bar::CONFIG) => self.room_slides(room::Sys::Settings),
+            Button::Bar(bar::SAVE) => self.room_slides(room::Sys::Save),
+            Button::Bar(bar::LOAD) => self.room_slides(room::Sys::Load),
+            Button::Bar(bar::BACKLOG) => self.room_slides(room::Sys::Backlog),
+            Button::Bar(bar::SCHEDULE) => self.room_slides(room::Sys::Schedule),
+            _ => false,
+        };
+        if b != Button::Bar(bar::MENU) && !keeps {
             self.ui.side_menu = false;
         }
         match b {
@@ -4502,6 +4634,7 @@ impl Session {
             self.vm.set_var_b(flaglist::NOTICE_SEEN, 1);
         }
         self.screen = Some(Screen::DoukFlag(s));
+        self.fade_screen_in();
         self.ui.auto = false;
         self.ui.skip = false;
         self.ui.hover = None;
@@ -4743,6 +4876,7 @@ impl Session {
             self.slide_bar(before);
         }
         self.tick_menu_anim();
+        self.tick_screen_fx();
         self.tick_room_fx()?;
         self.room_return();
         self.tick_dialog();
@@ -5207,6 +5341,11 @@ impl Session {
                     None => self.game_frame()?,
                 },
             };
+            // A system screen fades over the scene it opened on.
+            if let Some(fx) = self.ui.screen_fx.filter(|_| self.screen.is_some()) {
+                let base = self.game_frame()?;
+                frame = Canvas::blend(&base, &frame, fx.alpha(self.ui.clock), None);
+            }
             if let Some(d) = &self.dialog {
                 let font = self
                     .douk_system

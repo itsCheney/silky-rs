@@ -68,6 +68,55 @@ pub fn passes(start: u64, clock: u64) -> u32 {
     (clock.saturating_sub(start) * PASSES_PER_SECOND / 1000).min(u32::MAX as u64) as u32
 }
 
+/// The screen to open once the one leaving has faded out, when a system
+/// screen's side button changes screens.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Next {
+    Settings { sound: bool },
+    Save { load: bool },
+    Backlog,
+}
+
+/// A system screen fading in over the scene, or out of it; input waits.
+/// Twelve passes (fewer with a faster screen speed), linear.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScreenFx {
+    /// Fading out (the screen is closing).
+    pub out: bool,
+    /// The session clock (ms) when it started.
+    pub start: u64,
+    /// Passes it takes.
+    pub n: u32,
+    /// What opens when a fade out ends.
+    pub next: Option<Next>,
+}
+
+impl ScreenFx {
+    pub fn new(out: bool, start: u64, scale: f32) -> Self {
+        Self {
+            out,
+            start,
+            n: slide_passes(scale),
+            next: None,
+        }
+    }
+
+    /// Whether the last pass has been shown.
+    pub fn done(&self, clock: u64) -> bool {
+        passes(self.start, clock) >= self.n
+    }
+
+    /// How much of the screen shows over the scene, 0 to 1.
+    pub fn alpha(&self, clock: u64) -> f32 {
+        let t = (passes(self.start, clock).min(self.n) as f32) / self.n as f32;
+        if self.out {
+            1.0 - t
+        } else {
+            t
+        }
+    }
+}
+
 /// A slide of the six buttons that is running.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MenuAnim {
@@ -201,6 +250,21 @@ impl std::fmt::Debug for Menu {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_screen_fades_in_and_out_over_its_passes() {
+        let fin = ScreenFx::new(false, 1000, 1.0);
+        assert_eq!(fin.n, 12);
+        assert_eq!(fin.alpha(1000), 0.0);
+        assert!((fin.alpha(1000 + 100) - 0.5).abs() < 0.01);
+        assert!(!fin.done(1000 + 190));
+        assert!(fin.done(1000 + 200));
+        assert_eq!(fin.alpha(5000), 1.0);
+        let out = ScreenFx::new(true, 0, 0.5);
+        assert_eq!(out.n, 6);
+        assert_eq!(out.alpha(0), 1.0);
+        assert_eq!(out.alpha(10_000), 0.0);
+    }
 
     #[test]
     fn passes_follow_the_effect_scale() {

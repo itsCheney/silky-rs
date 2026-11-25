@@ -203,6 +203,8 @@ pub struct Ui {
     /// 同級生 Remake: the room's buttons, hint bar, menu button and plate
     /// slide out or in; input waits.
     pub room_fx: Option<crate::games::doukyuusei::room::Fx>,
+    /// 同級生 Remake: a system screen fades in or out; input waits.
+    pub screen_fx: Option<crate::games::doukyuusei::menu::ScreenFx>,
     /// 同級生 Remake: a system screen opened from the room is up, the room
     /// stays slid away behind it.
     pub room_away: bool,
