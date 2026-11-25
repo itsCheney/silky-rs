@@ -19,7 +19,6 @@
 
 use crate::games::apeiria::anim::{flag, Key, Look, Sprite, Stage, Step};
 use crate::games::apeiria::effects::User;
-use crate::games::apeiria::panels::Paint;
 
 /// Owner of the sprites of `Game.1001`.
 pub const FX: u32 = 1001;
@@ -31,9 +30,24 @@ pub const FLASH: u32 = 1002;
 /// are drawn over all of them.
 pub const LOW: i32 = 3;
 
+/// Owner of the red room of type 5. It is the displayed screen in the
+/// original, so the stop of the effect leaves it and only a copy into the
+/// screen (sub 4, 5 or 6 of [`FLASH`]) takes it away.
+pub const ROOM: u32 = 1003;
+
+/// The base background picture as the original copies it once, when an
+/// effect starts: the picture only, with no overlays, models, text window
+/// or effect sprites (black when there is none).
+fn frozen(bg: Option<&str>) -> Look {
+    match bg {
+        Some(name) => Look::picture(name),
+        None => black(),
+    }
+}
+
 /// Whether an effect sprite is drawn among the models.
 pub fn is_low(s: &Sprite) -> bool {
-    (s.owner == FX || s.owner == FLASH) && s.z <= LOW
+    (s.owner == FX || s.owner == FLASH || s.owner == ROOM) && s.z <= LOW
 }
 
 /// MT19937 as the effects' generator.
@@ -234,8 +248,10 @@ impl Pulse {
             return;
         }
         let a = self.counter.min(64) as u8;
-        for id in self.waves.iter() {
-            self.phase += 1.0;
+        // One accumulator adds each wave's own step in turn (1 for the
+        // first copy, 2 for the second), so the pair advances 3 a frame.
+        for (id, step) in self.waves.iter().zip([1.0, 2.0]) {
+            self.phase += step;
             let Some(s) = sprites.iter_mut().find(|s| s.id == *id) else {
                 continue;
             };
@@ -588,7 +604,7 @@ fn wind_down(st: &mut Stage) {
 /// `Game.1001 (type, action)`: action 0 starts the effect (an effect that
 /// is running goes first, except that 3 on top of 2 only adds its
 /// copies), 1 and 2 stop it.
-pub fn effect(st: &mut Stage, ty: i32, action: i32) {
+pub fn effect(st: &mut Stage, ty: i32, action: i32, bg: Option<&str>) {
     if action == 2 {
         wind_down(st);
         return;
@@ -649,7 +665,7 @@ pub fn effect(st: &mut Stage, ty: i32, action: i32) {
                 // The first copy lies over the second.
                 let z = if amp < 0.0 { 1 } else { 0 };
                 let look = Look::Raster {
-                    source: Box::new(Look::Screen),
+                    source: Box::new(frozen(bg)),
                     amp,
                     step,
                     phase: 0.0,
@@ -674,7 +690,14 @@ pub fn effect(st: &mut Stage, ty: i32, action: i32) {
         5 => {
             // The room is put in the background in the original; it lies
             // under everything here.
-            let bg = p.add(Look::picture("bg005g.akb"), -1, 0.0, 0.0);
+            p.st.clear(ROOM);
+            let bg = p.st.id();
+            p.steps.push(Step::Add(Sprite::new(
+                bg,
+                ROOM,
+                Look::picture("bg005g.akb"),
+                -1,
+            )));
             p.steps.push(Step::Keys(bg, vec![Key::new(1).show(true)]));
             let g = p.st.id();
             p.steps.push(Step::Start(g, vec![bg]));
@@ -707,7 +730,7 @@ pub fn effect(st: &mut Stage, ty: i32, action: i32) {
         7 => {
             // The screen as it is, turned and doubled in size, with
             // streaks over it that go round.
-            let mut screen = Sprite::new(p.st.id(), FX, Look::Screen, 0);
+            let mut screen = Sprite::new(p.st.id(), FX, frozen(bg), 0);
             screen.x = -180.0;
             screen.y = 240.0;
             screen.scale = (2.0, 2.0);
@@ -823,23 +846,23 @@ fn flash_through(
     g
 }
 
-/// Two pictures wipe in together (`under` through `rule_under` over 6
-/// frames, `over` through `rule_over` over 4), the first goes, what is on
-/// the screen goes into the background, and the second fades out over 64
-/// frames.
-fn wipe_then_bake(p: &mut Play, under: (&str, u32), over: (&str, u32)) {
+/// Two pictures wipe in together (`under` through its rule over 4
+/// frames, `over` through its rule over 6), the first goes, the base
+/// background (what the script's `Game.12.0` just loaded) is copied over
+/// the screen, and the second fades out over 64 frames.
+fn wipe_then_copy(p: &mut Play, under: (&str, u32), over: (&str, u32), room: &[u32]) {
     let a = p.add_lit(Look::picture(under.0), 0, 0.0, 0.0);
     let b = p.add_lit(Look::picture(over.0), 1, 0.0, 0.0);
     let g = p.start(vec![
-        (a, vec![Key::new(6).wiping(under.1, true)]),
-        (b, vec![Key::new(4).wiping(over.1, true)]),
+        (a, vec![Key::new(4).wiping(under.1, true)]),
+        (b, vec![Key::new(6).wiping(over.1, true)]),
     ]);
     p.wait(g);
-    p.steps.push(Step::Remove(vec![a]));
-    // The original copies the composed screen; the picture that lies on
-    // top is what stands in for it.
-    p.steps
-        .push(Step::Paint(Paint::Picture(over.0.to_string())));
+    // The copy replaces the screen, the red room with it; the background
+    // is already the picture that was loaded.
+    p.steps.push(Step::Remove(
+        std::iter::once(a).chain(room.iter().copied()).collect(),
+    ));
     let g = p.start(vec![(b, vec![Key::new(64).show(false).fade(255, 0)])]);
     p.wait(g);
     p.steps.push(Step::Remove(vec![b]));
@@ -861,17 +884,23 @@ fn band(p: &mut Play) {
 
 /// `Game.1002 (arg, sub)`: the flashes and fades. The script waits for
 /// all of them.
-pub fn flash(st: &mut Stage, sub: i32, arg: i32) {
+pub fn flash(st: &mut Stage, sub: i32, arg: i32, bg: Option<&str>) {
     st.clear(FLASH);
+    let room: Vec<u32> = st
+        .sprites
+        .iter()
+        .filter(|s| s.owner == ROOM)
+        .map(|s| s.id)
+        .collect();
     let mut p = Play::new(st, FLASH);
     match sub {
         // A black screen and the text strip laid piece by piece.
         1 => {
-            let back = p.add(black(), -1, 0.0, 0.0);
+            let back = p.add(black(), 0, 0.0, 0.0);
             let ids: Vec<u32> = (0..255)
                 .map(|_| {
                     let id = p.st.id();
-                    let mut s = Sprite::new(id, FLASH, Look::picture("st00.akb"), 10);
+                    let mut s = Sprite::new(id, FLASH, Look::picture("st00.akb"), 0);
                     s.scale_at = (STRIP.0 / 2.0, STRIP.1 / 2.0);
                     s.turn_at = s.scale_at;
                     p.steps.push(Step::Add(s));
@@ -879,8 +908,8 @@ pub fn flash(st: &mut Stage, sub: i32, arg: i32) {
                 })
                 .collect();
             let driver = p.add(Look::Nothing, 0, 0.0, 0.0);
-            let pattern = mt(p.st).below(5) as i32;
-            let rng = mt(p.st);
+            let mut rng = mt(p.st);
+            let pattern = (rng.below(0xb70a7c3) % 5) as i32;
             let u = p.st.id();
             p.st.users.insert(
                 u,
@@ -899,7 +928,7 @@ pub fn flash(st: &mut Stage, sub: i32, arg: i32) {
                 })),
             );
             let g = p.start(vec![
-                (back, vec![Key::new(32).show(true).fade(0, 255)]),
+                (back, vec![Key::new(128).wait(128).show(true).fade(0, 255)]),
                 (driver, vec![Key::new(PIECE_FRAMES).show(true).user(u)]),
             ]);
             p.wait(g);
@@ -932,7 +961,7 @@ pub fn flash(st: &mut Stage, sub: i32, arg: i32) {
         },
         // The screen zooms back from a fifth too big, fading away.
         3 => {
-            let id = p.add(Look::Screen, 7, 0.0, 0.0);
+            let id = p.add(frozen(bg), 7, 0.0, 0.0);
             p.shown(id);
             let g = p.start(vec![(
                 id,
@@ -948,8 +977,8 @@ pub fn flash(st: &mut Stage, sub: i32, arg: i32) {
         // Two pictures wipe in; arguments 0 and 1 then keep the second as
         // the background.
         4 => match arg {
-            0 => wipe_then_bake(&mut p, ("eff02.akb", 35), ("HG011100_02.akb", 305)),
-            1 => wipe_then_bake(&mut p, ("eff08.akb", 34), ("HG011100_03.akb", 311)),
+            0 => wipe_then_copy(&mut p, ("eff02.akb", 305), ("HG011100_02.akb", 35), &room),
+            1 => wipe_then_copy(&mut p, ("eff08.akb", 311), ("HG011100_03.akb", 34), &room),
             _ => {
                 let id = p.add_lit(Look::picture("eff08.akb"), 0, 0.0, 0.0);
                 let g = p.start(vec![(
@@ -962,33 +991,23 @@ pub fn flash(st: &mut Stage, sub: i32, arg: i32) {
         },
         5 => {
             band(&mut p);
-            wipe_then_bake(&mut p, ("eff08.akb", 34), ("eff09.akb", 311));
+            wipe_then_copy(&mut p, ("eff08.akb", 311), ("eff09.akb", 34), &room);
         }
-        // Two pictures come in one after the other; then the screen as it
-        // was comes back over them, which takes them away.
+        // Two pictures come in one after the other; then the background
+        // copy fades in over them from frame 184 and the pictures go.
         6 => {
             let first = p.add_lit(Look::picture("HG011400_01.akb"), 0, 0.0, 0.0);
             let second = p.add_lit(Look::picture("HG011400_02.akb"), 1, 0.0, 0.0);
+            let back = p.add(frozen(bg), 2, 0.0, 0.0);
             let g = p.start(vec![
-                (
-                    first,
-                    vec![
-                        Key::new(128).show(true).fade(0, 255),
-                        Key::new(1).wait(56),
-                        Key::new(128).show(false).fade(255, 0),
-                    ],
-                ),
-                (
-                    second,
-                    vec![
-                        Key::new(12).wait(160).wiping(45, true),
-                        Key::new(1).wait(12),
-                        Key::new(128).show(false).fade(255, 0),
-                    ],
-                ),
+                (first, vec![Key::new(128).show(true).fade(0, 255)]),
+                (second, vec![Key::new(12).wait(160).wiping(45, true)]),
+                (back, vec![Key::new(128).wait(184).show(true).fade(0, 255)]),
             ]);
             p.wait(g);
-            p.steps.push(Step::Remove(vec![first, second]));
+            p.steps.push(Step::Remove(
+                [first, second, back].into_iter().chain(room).collect(),
+            ));
         }
         _ => {}
     }
@@ -1028,7 +1047,7 @@ mod tests {
     #[test]
     fn soot_rises_and_stops() {
         let mut st = Stage::default();
-        effect(&mut st, 0, 0);
+        effect(&mut st, 0, 0, None);
         run(&mut st, 400);
         let shown = st.sprites.iter().filter(|s| s.z == 2 && s.shown).count();
         assert!(shown > 0, "no soot");
@@ -1037,7 +1056,7 @@ mod tests {
             .iter()
             .filter(|s| s.z == 2 && s.shown)
             .all(|s| s.y < 720.0));
-        effect(&mut st, 0, 1);
+        effect(&mut st, 0, 1, None);
         assert!(st.sprites.is_empty());
     }
 
@@ -1045,7 +1064,7 @@ mod tests {
     fn soot_is_the_same_every_run() {
         let positions = || {
             let mut st = Stage::default();
-            effect(&mut st, 1, 0);
+            effect(&mut st, 1, 0, None);
             run(&mut st, 300);
             st.sprites
                 .iter()
@@ -1059,7 +1078,7 @@ mod tests {
     #[test]
     fn the_darkening_pulses_and_the_waves_join_later() {
         let mut st = Stage::default();
-        effect(&mut st, 2, 0);
+        effect(&mut st, 2, 0, None);
         run(&mut st, 64);
         let dark = st.sprites.iter().find(|s| s.z == 8).unwrap().alpha;
         assert!(dark > 0);
@@ -1071,7 +1090,7 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         assert_eq!(waves(&st), [(1, false, false), (0, false, false)]);
-        effect(&mut st, 3, 0);
+        effect(&mut st, 3, 0, None);
         run(&mut st, 10);
         assert_eq!(waves(&st), [(1, true, false), (0, true, false)]);
     }
@@ -1079,7 +1098,7 @@ mod tests {
     #[test]
     fn the_lights_bob_around_their_places() {
         let mut st = Stage::default();
-        effect(&mut st, 5, 0);
+        effect(&mut st, 5, 0, None);
         run(&mut st, 260);
         let l = st
             .sprites
@@ -1092,14 +1111,14 @@ mod tests {
     #[test]
     fn a_flash_blocks_the_script() {
         let mut st = Stage::default();
-        flash(&mut st, 2, 0);
+        flash(&mut st, 2, 0, None);
         assert_eq!(st.blocking_ms(), Some(12 * 16));
     }
 
     #[test]
     fn the_lights_add_and_the_room_lies_under_everything() {
         let mut st = Stage::default();
-        effect(&mut st, 5, 0);
+        effect(&mut st, 5, 0, None);
         let bg = st.sprites.iter().find(|s| s.z == -1).unwrap();
         assert!(!bg.add && is_low(bg));
         assert_eq!(st.sprites.iter().filter(|s| s.add && s.z == 0).count(), 3);
@@ -1118,9 +1137,9 @@ mod tests {
         assert_eq!(swell_keys(0, (0, 0))[0].to, (500, -100));
         assert_eq!(swell_keys(2, (0, 0))[0].to, (0, -50));
         let mut st = Stage::default();
-        effect(&mut st, 5, 0);
+        effect(&mut st, 5, 0, None);
         run(&mut st, 10);
-        effect(&mut st, 6, 0);
+        effect(&mut st, 6, 0, None);
         // The last light waits 24 frames, then swells for 24.
         assert_eq!(st.blocking_ms(), Some(48 * 16));
         run(&mut st, 60);
@@ -1130,7 +1149,7 @@ mod tests {
     #[test]
     fn the_streaks_turn_every_ten_frames() {
         let mut st = Stage::default();
-        effect(&mut st, 7, 0);
+        effect(&mut st, 7, 0, None);
         let streaks = st.sprites.iter().find(|s| s.z == 1).unwrap();
         assert_eq!(streaks.scale, (2.0, 2.0));
         assert_eq!(streaks.keys[0].frames, TURN_FRAMES);
@@ -1143,7 +1162,7 @@ mod tests {
     #[test]
     fn the_film_is_added_and_runs_twelve_frames_a_picture() {
         let mut st = Stage::default();
-        effect(&mut st, 8, 0);
+        effect(&mut st, 8, 0, None);
         let film = st.sprites.iter().find(|s| s.z == 2).unwrap();
         assert!(film.add);
     }
@@ -1158,10 +1177,15 @@ mod tests {
     #[test]
     fn the_strip_is_laid_piece_by_piece_for_255_frames() {
         let mut st = Stage::default();
-        flash(&mut st, 1, 0);
+        flash(&mut st, 1, 0, None);
         assert_eq!(st.blocking_ms(), Some(256 * 16));
         run(&mut st, 40);
-        let shown = |st: &Stage| st.sprites.iter().filter(|s| s.z == 10 && s.shown).count();
+        let shown = |st: &Stage| {
+            st.sprites
+                .iter()
+                .filter(|s| matches!(s.look, Look::Picture { .. }) && s.shown)
+                .count()
+        };
         // The first piece takes 32 frames, the second 16 more.
         assert_eq!(shown(&st), 2);
         run(&mut st, 9);
@@ -1173,42 +1197,121 @@ mod tests {
     #[test]
     fn the_flashes_add_and_sub_6_lasts_312_frames() {
         let mut st = Stage::default();
-        flash(&mut st, 6, 0);
-        assert!(st.sprites.iter().all(|s| s.add));
+        flash(&mut st, 6, 0, None);
+        assert!(st.sprites.iter().filter(|s| s.z < 2).all(|s| s.add));
         assert_eq!(st.blocking_ms(), Some(312 * 16));
         let mut st = Stage::default();
-        flash(&mut st, 3, 0);
+        flash(&mut st, 3, 0, None);
         assert!(st.sprites.iter().all(|s| !s.add && s.z == 7));
         assert_eq!(st.blocking_ms(), Some(9 * 16));
         let mut st = Stage::default();
-        flash(&mut st, 2, 2);
+        flash(&mut st, 2, 2, None);
         assert_eq!(st.blocking_ms(), Some(10 * 16));
     }
 
     #[test]
-    fn sub_4_wipes_in_bakes_the_screen_and_fades_the_picture_out() {
+    fn sub_4_wipes_in_copies_the_background_and_fades_the_picture_out() {
         let mut st = Stage::default();
-        flash(&mut st, 4, 0);
+        flash(&mut st, 4, 0, Some("HG011100_01.akb"));
         assert_eq!(st.blocking_ms(), Some(72 * 16));
+        // The under picture wipes in over 4 frames, the over one over 6.
+        let wipes = |st: &Stage| st.sprites.iter().map(|s| (s.z, s.add)).collect::<Vec<_>>();
+        assert_eq!(wipes(&st), [(0, true), (1, true)]);
         run(&mut st, 8);
-        assert_eq!(
-            st.take_painted(),
-            [Paint::Picture("HG011100_02.akb".to_string())]
-        );
+        // Nothing is baked: the loaded background is already the copy.
+        assert!(st.take_painted().is_empty());
         run(&mut st, 70);
         assert!(st.sprites.is_empty());
-        // The last argument has no background copy.
-        flash(&mut st, 4, 2);
+        flash(&mut st, 4, 2, None);
         run(&mut st, 20);
         assert!(st.take_painted().is_empty());
     }
 
     #[test]
+    fn the_screen_is_copied_once_as_the_background_picture() {
+        let mut st = Stage::default();
+        flash(&mut st, 3, 0, Some("bg1.akb"));
+        assert!(st
+            .sprites
+            .iter()
+            .all(|s| s.look == Look::picture("bg1.akb")));
+        let mut st = Stage::default();
+        effect(&mut st, 7, 0, Some("bg1.akb"));
+        assert!(st.sprites.iter().all(|s| s.look != Look::Screen));
+        let mut st = Stage::default();
+        effect(&mut st, 2, 0, Some("bg1.akb"));
+        assert!(st.sprites.iter().any(|s| matches!(
+            &s.look,
+            Look::Raster { source, .. } if **source == Look::picture("bg1.akb")
+        )));
+        let mut st = Stage::default();
+        flash(&mut st, 6, 0, None);
+        assert!(st.sprites.iter().all(|s| s.look != Look::Screen));
+        assert!(st.sprites.iter().any(|s| s.z == 2 && !s.add));
+    }
+
+    #[test]
+    fn the_strip_starts_over_a_black_that_fades_in_after_128_frames() {
+        let mut st = Stage::default();
+        flash(&mut st, 1, 0, None);
+        let back = st
+            .sprites
+            .iter()
+            .find(|s| matches!(s.look, Look::Fill { .. }));
+        assert_eq!(back.map(|s| s.z), Some(0));
+        run(&mut st, 120);
+        assert_eq!(
+            st.sprites
+                .iter()
+                .find(|s| matches!(s.look, Look::Fill { .. }))
+                .map(|s| s.alpha),
+            Some(0)
+        );
+        run(&mut st, 100);
+        assert!(
+            st.sprites
+                .iter()
+                .find(|s| matches!(s.look, Look::Fill { .. }))
+                .map(|s| s.alpha)
+                .unwrap()
+                > 0
+        );
+    }
+
+    #[test]
+    fn the_room_outlives_the_stop_and_goes_with_the_copy() {
+        let mut st = Stage::default();
+        effect(&mut st, 5, 0, None);
+        effect(&mut st, 5, 1, None);
+        assert!(st.sprites.iter().any(|s| s.owner == ROOM));
+        flash(&mut st, 4, 0, Some("bg1.akb"));
+        run(&mut st, 20);
+        assert!(!st.sprites.iter().any(|s| s.owner == ROOM));
+    }
+
+    #[test]
+    fn the_waves_advance_by_their_own_steps() {
+        let mut st = Stage::default();
+        effect(&mut st, 3, 0, Some("bg1.akb"));
+        run(&mut st, 2);
+        let phases: Vec<f32> = st
+            .sprites
+            .iter()
+            .filter_map(|s| match &s.look {
+                Look::Raster { phase, .. } => Some(*phase),
+                _ => None,
+            })
+            .collect();
+        // First frame: 0 + 1 and 1 + 2; second: 3 + 1 and 4 + 2.
+        assert_eq!(phases, [4.0, 6.0]);
+    }
+
+    #[test]
     fn action_2_finishes_the_lap_before_the_effects_go() {
         let mut st = Stage::default();
-        effect(&mut st, 2, 0);
+        effect(&mut st, 2, 0, None);
         run(&mut st, 20);
-        effect(&mut st, 2, 2);
+        effect(&mut st, 2, 2, None);
         assert!(st.blocking_ms().is_some());
         run(&mut st, 140);
         assert!(st.sprites.is_empty());

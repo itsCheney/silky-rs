@@ -325,7 +325,8 @@ impl Runtime {
             1001 => {
                 if !self.scene_skip() {
                     let ty = args.first().map(Value::int).unwrap_or(0);
-                    fx::effect(&mut self.scene.effects, ty, sub);
+                    let bg = self.scene.background.clone();
+                    fx::effect(&mut self.scene.effects, ty, sub, bg.as_deref());
                     if sub == 0 && ty == 6 {
                         let _ = self.play_sound("seg_025a.wav");
                     }
@@ -337,7 +338,8 @@ impl Runtime {
             1002 => {
                 if !self.scene_skip() {
                     let arg = args.first().map(Value::int).unwrap_or(0);
-                    fx::flash(&mut self.scene.effects, sub, arg);
+                    let bg = self.scene.background.clone();
+                    fx::flash(&mut self.scene.effects, sub, arg, bg.as_deref());
                     self.k1_block(0);
                 }
                 self.k1_done()
