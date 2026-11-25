@@ -276,6 +276,14 @@ impl Screen {
         }
     }
 
+    /// What the window knows when the screen opens: whether there is
+    /// anything to load and whether the log has lines.
+    pub fn set_context(&mut self, has_saves: bool, has_log: bool) {
+        if let Screen::Ex(s) = self {
+            s.set_context(has_saves, has_log);
+        }
+    }
+
     /// Whether the screen runs on the clock by itself (it is redrawn each
     /// frame) and the milliseconds since it opened at which it ends.
     pub fn timed(&self) -> bool {

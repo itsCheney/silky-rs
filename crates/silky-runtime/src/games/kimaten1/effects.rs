@@ -16,7 +16,7 @@ use silky_vm::Flow;
 
 use crate::games::apeiria::anim::{Key, Look, Sprite, Stage, Step};
 use crate::games::apeiria::effects::User;
-use crate::host::{frames_ms, Pause, Transition};
+use crate::host::{Pause, Transition};
 use crate::scene::{Emote, Scene};
 
 /// Owners of the sprites on the stage (the command numbers, as in the
@@ -30,10 +30,6 @@ const FRONT: u32 = 10_001;
 /// (the slot), and the timeline that fades it.
 const FADE: u32 = 4800;
 const FADE_GROUP: u32 = 4801;
-
-/// Frames a string wipe runs on beyond its own number before the script
-/// goes on (as the original's waits were measured).
-const STRING_EXTRA_FRAMES: i32 = 64;
 
 /// A model that is going: it is drawn under a key of its own while its
 /// tracker fades it, and goes with the tracker sprite.
@@ -140,8 +136,10 @@ impl<'a> Play<'a> {
 /// rule is the first `width * height` bytes of the file, a row at a time.
 /// The wipe's threshold goes up by 512 / (frames - 1) a frame, to 512, a
 /// pixel showing as much as the threshold less its rule value. What was
-/// wiped stays on the front until the next scene change. Milliseconds the
-/// script waits.
+/// wiped stays on the front until the next scene change. The script waits
+/// for the wipe and then for `hold` milliseconds (the original's wait starts
+/// that count once the wipe is over); nothing else is waited for. Returns
+/// the milliseconds the script waits.
 pub fn strip(st: &mut Stage, background: &str, a: [i32; 7]) -> u64 {
     let [hold, frames, rule, h, w, y, x] = a;
     let frames = frames.max(1);
@@ -189,7 +187,7 @@ pub fn strip(st: &mut Stage, background: &str, a: [i32; 7]) -> u64 {
     let g = p.start(vec![(id, vec![Key::new(frames).show(true).user(u)])]);
     p.wait(g);
     p.done();
-    st.blocking_ms().unwrap_or(0) + frames_ms(STRING_EXTRA_FRAMES) as u64 + hold.max(0) as u64
+    st.blocking_ms().unwrap_or(0) + hold.max(0) as u64
 }
 
 /// `Game.999`: a picture over the screen. 0 takes the picture on screen
@@ -290,6 +288,17 @@ pub fn emote_fx(scene: &Scene, key: i32) -> Option<(u8, u8)> {
     Some((s.alpha, 255 - s.tint[0]))
 }
 
+/// How many pixels the model under `key` is moved sideways by its tracker
+/// (a standing model that leaves slides while it fades).
+pub fn emote_shift(scene: &Scene, key: i32) -> i32 {
+    scene
+        .effects
+        .slots
+        .get(&(FADE, key as u32))
+        .and_then(|id| scene.effects.sprites.iter().find(|s| s.id == *id))
+        .map_or(0, |s| s.x.round() as i32)
+}
+
 /// The models that are going, with the keys they are drawn under, those
 /// whose tracker is still there.
 pub fn ghosts(scene: &Scene) -> impl Iterator<Item = (i32, &Emote)> {
@@ -322,6 +331,9 @@ pub enum Fade {
     /// Fully there for the frames, then gone (a model that stays under
     /// the one fading in over it).
     Hold(i32),
+    /// Fades out over the frames while sliding that many pixels sideways
+    /// (a standing model that leaves).
+    Leave(i32, i32),
 }
 
 /// Puts a tracker on the model drawn under `key`, replacing the one it had.
@@ -353,6 +365,10 @@ pub fn fade(st: &mut Stage, key: i32, how: Fade) -> u32 {
         Fade::Out(n) => {
             s = s.shown();
             vec![Key::new(n).show(false).fade(255, 0)]
+        }
+        Fade::Leave(n, dx) => {
+            s = s.shown();
+            vec![Key::new(n).show(false).fade(255, 0).moving((0, 0), (dx, 0))]
         }
         Fade::WhiteOut(n) => {
             s = s.shown();
@@ -489,6 +505,7 @@ impl crate::host::Runtime {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::host::frames_ms;
 
     fn threshold(st: &Stage) -> f32 {
         st.sprites
@@ -506,8 +523,9 @@ mod tests {
         let mut st = Stage::default();
         applied(&mut st, Some("front"));
         let ms = strip(&mut st, "back", [100, 33, 300, 42, 1280, 140, 0]);
-        // The wipe, the frames beyond it and the hold.
-        assert!(ms >= frames_ms(64) as u64 + 100);
+        // The wipe and then the hold, nothing more.
+        assert!(ms + 16 >= frames_ms(33) as u64 + 100, "{ms}");
+        assert!(ms < frames_ms(33) as u64 + 100 + 40, "{ms}");
         st.advance(16 * 16);
         let mid = threshold(&st);
         assert!(mid > 200.0 && mid < 300.0, "{mid}");
@@ -543,6 +561,18 @@ mod tests {
         assert_eq!(st.sprites.iter().filter(|s| s.owner == EVIDENCE).count(), 2);
         st.settle();
         assert!(st.sprites.iter().all(|s| s.owner != EVIDENCE));
+    }
+
+    #[test]
+    fn leaving_model_slides_while_it_fades() {
+        let mut scene = Scene::default();
+        let gk = ghost_key(1);
+        fade(&mut scene.effects, gk, Fade::Leave(16, -48));
+        scene.effects.advance(frames_ms(8) as u64);
+        let shift = emote_shift(&scene, gk);
+        assert!((-40..=-8).contains(&shift), "{shift}");
+        scene.effects.advance(2000);
+        assert_eq!(emote_shift(&scene, gk), -48);
     }
 
     #[test]

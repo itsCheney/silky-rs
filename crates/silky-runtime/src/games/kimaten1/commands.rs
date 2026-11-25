@@ -6,7 +6,7 @@ use silky_vm::{Flow, Value, Vm};
 use super::actsel::ActSelect;
 use super::areasel::AreaSelect;
 use super::effects;
-use super::exselect::ExSelect;
+use super::exselect::{self, ExSelect};
 use super::fx;
 use super::itemsel::{self, ItemSelect};
 use super::map::Map;
@@ -103,6 +103,24 @@ impl Runtime {
         args: &[Value],
     ) -> Option<silky_vm::Result<Flow>> {
         effects::sweep(&mut self.scene);
+        // With the scene skip setting on the original does nothing for
+        // these calls (the arguments are taken and that is all): the
+        // companion's load, face, show, fade and timelines, every standing
+        // and CG model call, the strip wipe, the shake, the voice-driven
+        // mouth list, and the notice calls that queue, show or clear the
+        // queue. The window calls of `Game.10`, the notices' take-down and
+        // busy check, and the rest run as usual.
+        if self.scene_skip() {
+            let skipped = match command {
+                EMOTE => matches!(sub, 6..=9 | 11..=13 | 15..=18),
+                EMOTES | EMOTE_CG | 1000 | 993 | 1007 => true,
+                NOTICE => matches!(sub, 0 | 1 | 3),
+                _ => false,
+            };
+            if skipped {
+                return self.k1_done();
+            }
+        }
         match command {
             // The title menu; its argument 1 opens the extras page (back
             // from one of the modes).
@@ -154,11 +172,16 @@ impl Runtime {
                     .enumerate()
                     .map(|(i, &n)| (labels.get(i).cloned().unwrap_or_default(), n))
                     .collect();
-                self.k1 = Some(Screen::Ex(ExSelect::open(
-                    areas,
-                    entries,
-                    vm.var_b(NOTEBOOK_UNLOCKED) != 0,
-                )));
+                let flags = numbers
+                    .iter()
+                    .map(|&n| {
+                        usize::try_from(n).is_ok_and(|n| vm.var_b(exselect::FLAG_FIRST + n) == 1)
+                    })
+                    .collect();
+                self.k1 = Some(Screen::Ex(
+                    ExSelect::open(areas, entries, vm.var_b(NOTEBOOK_UNLOCKED) != 0)
+                        .with_flags(flags),
+                ));
                 self.wait_for(Pause::Kimaten1)
             }
             ITEM => {

@@ -792,6 +792,9 @@ impl Session {
                     }
                     Some(Pause::Kimaten1) => {
                         self.ui.k1 = self.rt.k1.take();
+                        if let Some(k) = &mut self.ui.k1 {
+                            k.set_context(self.ui.has_saves, !self.log.is_empty());
+                        }
                         self.ui.k1_menu = None;
                         self.ui.k1_since = self.ui.clock;
                         self.ui.hover = None;

@@ -495,7 +495,8 @@ impl Renderer {
     fn draw_emotes(&mut self, canvas: &mut Canvas, scene: &Scene, assets: &Assets) {
         if canvas.ops().is_none() {
             for (key, img, x, y) in self.emote_images(scene, assets) {
-                draw_faded(canvas, &img, x, y, emote_fx(scene, key));
+                let dx = emote_shift(scene, key) as f32;
+                draw_faded(canvas, &img, x + dx, y, emote_fx(scene, key));
             }
             return;
         }
@@ -512,7 +513,8 @@ impl Renderer {
                         None => canvas.draw_model(&frame),
                         Some(fx) => {
                             if let Some((img, x, y)) = frame.rasterize() {
-                                draw_faded(canvas, &Arc::new(img), x, y, Some(fx));
+                                let dx = emote_shift(scene, key) as f32;
+                                draw_faded(canvas, &Arc::new(img), x + dx, y, Some(fx));
                             }
                         }
                     }
@@ -1717,8 +1719,16 @@ fn emote_fx(scene: &Scene, key: i32) -> Option<(u8, u8)> {
     crate::games::kimaten1::effects::emote_fx(scene, key)
 }
 
-/// Draws a model picture at `opacity`, its colours mixed towards white by
-/// `white`, both from 0 to 255 (`None`: as it is).
+/// How far the model drawn under `key` is moved sideways, in pixels.
+#[cfg(feature = "emote")]
+fn emote_shift(scene: &Scene, key: i32) -> i32 {
+    crate::games::kimaten1::effects::emote_shift(scene, key)
+}
+
+/// Draws a model picture at `opacity`, its colours raised by the model's
+/// colour setting by `white`, both from 0 to 255 (`None`: as it is). The
+/// engine's setting is a colour whose 0x80 leaves the model as it is and
+/// 0xff doubles it; so `white` 255 doubles each channel, up to white.
 #[cfg(feature = "emote")]
 fn draw_faded(canvas: &mut Canvas, img: &Arc<Image>, x: f32, y: f32, fx: Option<(u8, u8)>) {
     let (x, y) = (x.round() as i32, y.round() as i32);
@@ -1732,11 +1742,12 @@ fn draw_faded(canvas: &mut Canvas, img: &Arc<Image>, x: f32, y: f32, fx: Option<
     let img = if white == 0 {
         img.clone()
     } else {
-        let w = white as u32;
+        // The colour byte runs from 128 (as it is) to 255 over `white`.
+        let byte = 128 + white as u32 * 127 / 255;
         let mut t = (**img).clone();
         for px in t.rgba.chunks_exact_mut(4) {
             for c in &mut px[..3] {
-                *c = (*c as u32 + (255 - *c as u32) * w / 255) as u8;
+                *c = (*c as u32 * byte / 128).min(255) as u8;
             }
         }
         Arc::new(t)

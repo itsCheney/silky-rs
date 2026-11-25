@@ -13,6 +13,11 @@
 //! The labels are the strings the option bodies leave; a conditional option
 //! list comes as several runs of options before the selection, and the
 //! numbers are those of the options as written in the script.
+//!
+//! An option is on while byte 7500 plus its number is 1. One with another
+//! value is drawn in grey text and does nothing: it takes no hover, plays no
+//! click sound and answers nothing. The text of a bar is made once, so a
+//! pressed bar shows the same text in the same place as a bar at rest.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -45,6 +50,16 @@ const TEXT_SIZE: f32 = 24.0;
 const TEXT_TOP: i32 = 28;
 const TEXT_BASELINE: f32 = (TEXT_TOP + 20) as f32;
 const CLICK: &str = "ses_001.wav";
+/// First of the bytes that switch the options on, one for each number.
+pub const FLAG_FIRST: usize = 7500;
+/// Text colour of an option that is off.
+const OFF_TEXT: [u8; 4] = [128, 128, 128, 255];
+/// The system buttons this screen can grey besides the notebook's.
+const BACKLOG_BUTTON: usize = 2;
+const LOAD_BUTTON: usize = 4;
+/// The notebook's byte greys this button on this screen (the original
+/// numbers it so; the notebook's own button is the last one).
+const NOTEBOOK_BUTTON: usize = 5;
 
 /// How often the headless run picked an option: (the list, the option's
 /// number).
@@ -55,6 +70,8 @@ pub struct ExSelect {
     areas: Vec<Area>,
     /// Label and number of each option.
     entries: Vec<(String, i32)>,
+    /// Whether each option is on.
+    on: Vec<bool>,
     page: usize,
     off: [bool; BAR_LEN],
     sound: Option<&'static str>,
@@ -72,15 +89,41 @@ impl ExSelect {
         let mut off = [false; BAR_LEN];
         // This screen greys the fifth button, not the last, when the
         // notebook is still locked.
-        off[5] = !notebook;
+        off[NOTEBOOK_BUTTON] = !notebook;
+        let on = vec![true; entries.len()];
         Self {
             areas,
             entries,
+            on,
             page: 0,
             off,
             sound: None,
             list: h.finish(),
         }
+    }
+
+    /// Sets which options are on, in list order (see [`FLAG_FIRST`]).
+    pub fn with_flags(mut self, on: Vec<bool>) -> Self {
+        if on.len() == self.entries.len() {
+            self.on = on;
+        }
+        self
+    }
+
+    /// What the window knows: the load button is grey while there is
+    /// nothing to load, and the backlog button while the log is empty.
+    pub fn set_context(&mut self, has_saves: bool, has_log: bool) {
+        self.off[LOAD_BUTTON] = !has_saves;
+        self.off[BACKLOG_BUTTON] = !has_log;
+    }
+
+    /// Whether the option on bar `k` of the page is on.
+    fn option_on(&self, k: i32) -> bool {
+        usize::try_from(k)
+            .ok()
+            .and_then(|k| self.on.get(self.page * PER_PAGE + k))
+            .copied()
+            .unwrap_or(false)
     }
 
     fn last_page(&self) -> usize {
@@ -130,7 +173,13 @@ impl ExSelect {
     }
 
     pub fn enabled(&self, id: i32) -> bool {
-        chrome::bar_index(id).map_or(true, |i| !self.off[i])
+        if let Some(i) = chrome::bar_index(id) {
+            return !self.off[i];
+        }
+        match id {
+            k if (0..self.on_page() as i32).contains(&k) => self.option_on(k),
+            _ => true,
+        }
     }
 
     pub fn click(&mut self, id: i32) -> Click {
@@ -152,6 +201,7 @@ impl ExSelect {
                 self.page += 1;
                 Click::None
             }
+            k if (0..self.on_page() as i32).contains(&k) && !self.option_on(k) => Click::None,
             k if (0..self.on_page() as i32).contains(&k) => {
                 let number = self.entries[self.page * PER_PAGE + k as usize].1;
                 *TRIED
@@ -226,6 +276,10 @@ impl ExSelect {
                 DOWN => "\u{25bc}",
                 k => &self.entries[self.page * PER_PAGE + k as usize].0,
             };
+            let shade = match id {
+                k if k < UP && !self.option_on(k) => OFF_TEXT,
+                _ => [255, 255, 255, 255],
+            };
             let x = if id == UP || id == DOWN {
                 (CELL.0 - 24) / 2
             } else {
@@ -238,7 +292,7 @@ impl ExSelect {
                     (left + x + 2) as f32,
                     top as f32 + TEXT_BASELINE,
                     TEXT_SIZE,
-                    [255, 255, 255, 255],
+                    shade,
                 );
             }
         }
@@ -263,7 +317,9 @@ impl ExSelect {
                 .copied()
                 .unwrap_or(0)
         };
-        let Some(want) = (0..self.entries.len()).min_by_key(|&i| (count(self.entries[i].1), i))
+        let Some(want) = (0..self.entries.len())
+            .filter(|&i| self.on[i])
+            .min_by_key(|&i| (count(self.entries[i].1), i))
         else {
             return Some(BACK);
         };

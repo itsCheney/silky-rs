@@ -43,6 +43,11 @@ const SLOT_X: [i32; 4] = [0, -400, 400, 400];
 /// the executable tells where the driver puts its zero.
 const ORIGIN_Y: i32 = 350;
 
+/// How far a standing model slides while it leaves, in pixels: the left
+/// one to the left and the right one to the right (the other slots only
+/// fade).
+const LEAVE_SLIDE: i32 = 48;
+
 /// The top of the screen as [`Place::origin`] counts it.
 const PLACE_TOP: i32 = 258;
 
@@ -195,6 +200,26 @@ impl Runtime {
         true
     }
 
+    /// A standing model leaves: a copy of it fades out over `frames` frames
+    /// while sliding [`LEAVE_SLIDE`] pixels, the script not waiting. With no
+    /// frames it goes at once.
+    fn leave_standing(&mut self, slot: i32, frames: i32) {
+        if frames <= 0 {
+            return;
+        }
+        let Some(old) = self.scene.emotes.get(&slot).filter(|e| e.visible).cloned() else {
+            return;
+        };
+        let dx = match slot {
+            1 => -LEAVE_SLIDE,
+            2 => LEAVE_SLIDE,
+            _ => 0,
+        };
+        let gk = effects::leave(&mut self.scene, slot, old);
+        effects::fade(&mut self.scene.effects, gk, Fade::Leave(frames, dx));
+        effects::bind(&mut self.scene, gk);
+    }
+
     /// `Game.40`, the standing models by slot (the slot is the last value
     /// but for sub 1 and 17, which take it first).
     ///
@@ -203,7 +228,9 @@ impl Runtime {
     /// 8 moves by (dy, dx, slot), 13 the main timeline to follow, 14 the
     /// `a` timeline, 15 the main timeline, 16 the mouth track of the voice,
     /// 17 the extra timeline alone (slot, extra), 18 pauses the driver, 21
-    /// stops the mouth, 31 clears the mouth tracks' cache. 100 (slot, frames)
+    /// stops the mouth, 31 clears the mouth tracks' cache. 3 (frames, slot)
+    /// and 4 (frames) fade the model or all of them out while they slide
+    /// sideways. 100 (slot, frames)
     /// flashes the model the slot had white as it fades out, while the new
     /// one flashes in. False for the calls that are not.
     pub(crate) fn kimaten1_emotes(&mut self, args: &[Value], sub: i32, vm: &Vm) -> bool {
@@ -226,7 +253,17 @@ impl Runtime {
                     e.outfit = false;
                 }
             }
-            (1, 3) | (14, 2) | (3, 2) | (4, 1) | (16, 1) => {
+            (1, 3) | (14, 2) | (16, 1) => {
+                return self.kimaten2_emotes(args, sub, vm);
+            }
+            // (frames, slot) and (frames): the model leaves, fading out
+            // and sliding sideways, then goes.
+            (3, 2) | (4, 1) => {
+                let frames = n(0);
+                let slots = if sub == 3 { last..=last } else { 0..=3 };
+                for slot in slots {
+                    self.leave_standing(slot, frames);
+                }
                 return self.kimaten2_emotes(args, sub, vm);
             }
             (13, 2) => {
