@@ -328,13 +328,21 @@ impl Runtime {
                 let Some(body) = c.str(3) else {
                     return Some(Err(host_error("character load without a name")));
                 };
+                // 0x44b4e0: a slot that already holds the same character
+                // (the "chNN" part of the name; 0x44e0a0) takes the new
+                // picture and size but keeps its opacity: the alpha is
+                // only stored when the character is new.
+                let alpha = match scene.characters.get(&c.int(4)) {
+                    Some(old) if old.body.get(..4) == body.get(..4) => old.alpha,
+                    _ => c.int(0).clamp(0, 255),
+                };
                 let character = Character {
                     body,
                     face: None,
                     scale: c.int(2),
                     offset: (0, 0),
                     cheeks: None,
-                    alpha: c.int(0).clamp(0, 255),
+                    alpha,
                 };
                 scene.characters.insert(c.int(4), character);
             }

@@ -97,6 +97,8 @@ pub enum Op {
         to: Arc<Vec<Op>>,
         t: f32,
         rule: Option<Arc<Vec<u8>>>,
+        /// Width of the soft band, in rule levels.
+        edge: f32,
     },
     /// A picture part (or, without a picture, a rectangle of `part`'s
     /// size) mapped onto the parallelogram whose top left, top right and
@@ -300,12 +302,18 @@ impl Canvas {
                 } => self.draw_glyph(glyph, *x, *y, *sharp, *color),
                 #[cfg(feature = "emote")]
                 Op::Model(m) => self.draw_model(m),
-                Op::Blend { from, to, t, rule } => {
+                Op::Blend {
+                    from,
+                    to,
+                    t,
+                    rule,
+                    edge,
+                } => {
                     let mut a = Canvas::with_scale(self.width, self.height, self.scale);
                     a.replay(from);
                     let mut b = Canvas::with_scale(self.width, self.height, self.scale);
                     b.replay(to);
-                    *self = Canvas::blend(&a, &b, *t, rule.as_deref().map(Vec::as_slice));
+                    *self = Canvas::blend_edge(&a, &b, *t, rule.clone(), *edge);
                 }
                 Op::Transform {
                     ops,
@@ -830,6 +838,17 @@ impl Canvas {
 
     /// [`Canvas::blend`] with a rule mask a recording can keep.
     pub fn blend_shared(from: &Canvas, to: &Canvas, t: f32, rule: Option<Arc<Vec<u8>>>) -> Canvas {
+        Self::blend_edge(from, to, t, rule, 32.0)
+    }
+
+    /// [`Canvas::blend_shared`] with the soft band `edge` rule levels wide.
+    pub fn blend_edge(
+        from: &Canvas,
+        to: &Canvas,
+        t: f32,
+        rule: Option<Arc<Vec<u8>>>,
+        edge: f32,
+    ) -> Canvas {
         if let (Some(f), Some(g)) = (&from.ops, &to.ops) {
             let mut c = Canvas::recording(to.width, to.height, from.scale.max(to.scale));
             c.record(Op::Blend {
@@ -837,19 +856,19 @@ impl Canvas {
                 to: g.clone(),
                 t: t.clamp(0.0, 1.0),
                 rule,
+                edge,
             });
             return c;
         }
         let (from, to) = (&from.rasterize(), &to.rasterize());
         let rule = rule.as_deref().map(Vec::as_slice);
-        const EDGE: f32 = 32.0;
         let t = t.clamp(0.0, 1.0);
         let mut out = to.clone();
         out.scale = from.scale.max(to.scale);
         let n = (to.width * to.height) as usize;
         let rule = rule.filter(|r| r.len() >= n);
         let amount = |i: usize| match rule {
-            Some(r) => ((t * (255.0 + EDGE) - r[i] as f32) / EDGE).clamp(0.0, 1.0),
+            Some(r) => ((t * (255.0 + edge) - r[i] as f32) / edge).clamp(0.0, 1.0),
             None => t,
         };
         for i in 0..n {
@@ -1096,6 +1115,25 @@ impl Canvas {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn blend_edge_widens_the_soft_band() {
+        let mut from = Canvas::with_scale(4, 4, 1.0);
+        from.fill(0, 0, 4, 4, [0, 0, 0, 255]);
+        let mut to = Canvas::with_scale(4, 4, 1.0);
+        to.fill(0, 0, 4, 4, [255, 255, 255, 255]);
+        let rule = Some(Arc::new(vec![127u8; 16]));
+        let out = Canvas::blend_edge(&from, &to, 0.5, rule.clone(), 255.0);
+        // (0.5 * 510 - 127) / 255 = 0.502 of white.
+        assert!((out.rgba[0] as i32 - 128).abs() <= 1, "{}", out.rgba[0]);
+        // The default band of 32 is also half way there ((143.5 - 127) / 32).
+        let sharp = Canvas::blend_shared(&from, &to, 0.5, rule);
+        assert!((sharp.rgba[0] as i32 - 132).abs() <= 1, "{}", sharp.rgba[0]);
+        // And fully `to` where the rule is lower.
+        let low = Some(Arc::new(vec![100u8; 16]));
+        let sharp = Canvas::blend_shared(&from, &to, 0.5, low);
+        assert_eq!(sharp.rgba[0], 255);
+    }
 
     #[test]
     fn text_tiles_stay_sharp_and_ordered() {

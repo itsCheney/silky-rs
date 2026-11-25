@@ -69,7 +69,7 @@ fn vs_full(@builtin(vertex_index) i: u32) -> Full {
 }
 
 // As `Canvas::blend`: all at once by t, or pixel by pixel in the order of
-// the rule mask with a soft edge of 32 steps.
+// the rule mask with a soft edge of p.y steps.
 @fragment
 fn fs_mix(v: Full) -> @location(0) vec4<f32> {
     let p = mix_params.params;
@@ -78,7 +78,7 @@ fn fs_mix(v: Full) -> @location(0) vec4<f32> {
         let size = vec2<i32>(textureDimensions(rule_tex));
         let at = clamp(vec2<i32>(v.uv * p.zw), vec2<i32>(0), size - 1);
         let r = textureLoad(rule_tex, at, 0).r * 255.0;
-        a = clamp((p.x * (255.0 + 32.0) - r) / 32.0, 0.0, 1.0);
+        a = clamp((p.x * (255.0 + p.y) - r) / p.y, 0.0, 1.0);
     }
     let f = textureSample(from_tex, mix_samp, v.uv);
     let g = textureSample(to_tex, mix_samp, v.uv);

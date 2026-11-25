@@ -111,6 +111,11 @@ enum Command {
         /// there. The run itself goes on as without it.
         #[arg(long, default_value_t = 0)]
         settle: u64,
+        /// Also save a frame every this many milliseconds through each
+        /// timed wait (an effect playing) on the way to a chosen line, to
+        /// compare an effect's course with the original's. 0: none.
+        #[arg(long, default_value_t = 0)]
+        wait_frames: u64,
         /// How frames are drawn: `cpu` directly, `record` as the draw
         /// lists a GPU compositor gets, played back in software (to check
         /// them against `cpu`), `gpu` by that compositor (feature `gpu`).
@@ -211,6 +216,7 @@ fn main() -> Result<()> {
             actions,
             height,
             settle,
+            wait_frames,
             renderer,
             trace,
         } => {
@@ -224,6 +230,7 @@ fn main() -> Result<()> {
                 actions,
                 renderer,
                 settle,
+                wait_frames,
             };
             let mut vm = Vm::new(Profile::default());
             if trace.is_some() {
@@ -433,6 +440,8 @@ struct Picks {
     /// Milliseconds the pictures over the scene play on before a line is
     /// saved.
     settle: u64,
+    /// Milliseconds between the frames saved through a timed wait.
+    wait_frames: u64,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -523,6 +532,7 @@ fn snap(
     let mut after_movie: Option<String> = None;
     let mut script = String::new();
     let mut polls = 0u64;
+    let mut waits = 0usize;
     loop {
         // A pause a follow-up put up is answered before the scripts go on.
         let stop = if rt.pause.is_some() {
@@ -622,6 +632,23 @@ fn snap(
                 // Headless: transitions and waits end at once; input polls
                 // see a click now and then so wait-for-click loops end.
                 Some(Pause::Transition(t)) => {
+                    // The course of an effect on the way to a chosen line.
+                    if picks.wait_frames > 0
+                        && t.live
+                        && lines.iter().any(|&l| l >= line_no && l <= line_no + 3)
+                    {
+                        waits += 1;
+                        let mut ms = 0u64;
+                        while ms <= t.ms as u64 {
+                            let scene = settled(&rt.scene, ms);
+                            let frame = renderer.render_scene(&scene, &mut rt.assets, false)?;
+                            let path =
+                                out.join(format!("line{line_no:05}-wait{waits}-{ms:05}.png"));
+                            write_png(&path, &frame)?;
+                            println!("{}", path.display());
+                            ms += picks.wait_frames;
+                        }
+                    }
                     // A live wait: the pictures over the scene play to its
                     // end, as they would while the player waits.
                     if t.live {

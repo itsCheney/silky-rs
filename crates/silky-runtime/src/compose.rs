@@ -762,7 +762,13 @@ impl Compositor {
                         );
                     }
                 }
-                Op::Blend { from, to, t, rule } => {
+                Op::Blend {
+                    from,
+                    to,
+                    t,
+                    rule,
+                    edge,
+                } => {
                     let a = self.list(encoder, from, frame);
                     let b = self.list(encoder, to, frame);
                     let (gw, gh) = frame.game;
@@ -770,7 +776,8 @@ impl Compositor {
                         .as_ref()
                         .filter(|r| r.len() >= (gw * gh) as usize)
                         .map(|r| self.rule(r, gw, gh));
-                    let params = [*t, rule.is_some() as u32 as f32, gw as f32, gh as f32];
+                    let flag = if rule.is_some() { *edge } else { 0.0 };
+                    let params = [*t, flag, gw as f32, gh as f32];
                     let uniform =
                         self.device
                             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -1123,6 +1130,9 @@ mod tests {
         let rule: Vec<u8> = (0..64 * 48).map(|i| (i % 64 * 4) as u8).collect();
         let wipe = Canvas::blend_shared(&a, &b, 0.4, Some(Arc::new(rule)));
         assert!(worst(&mut c, &wipe) <= 2);
+        let rule: Vec<u8> = (0..64 * 48).map(|i| (i % 64 * 4) as u8).collect();
+        let wide = Canvas::blend_edge(&a, &b, 0.5, Some(Arc::new(rule)), 255.0);
+        assert!(worst(&mut c, &wide) <= 2);
 
         let mut shaken = a.clone();
         shaken.shift(3, -2);

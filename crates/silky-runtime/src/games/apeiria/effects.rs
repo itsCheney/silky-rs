@@ -2009,9 +2009,9 @@ impl Drawn {
                     // Wiping out takes the sprite away in the order a
                     // wipe in would show it.
                     *canvas = if shown {
-                        Canvas::blend_shared(&from, canvas, t, rule)
+                        Canvas::blend_edge(&from, canvas, t, rule, 255.0)
                     } else {
-                        Canvas::blend_shared(canvas, &from, t, rule)
+                        Canvas::blend_edge(canvas, &from, t, rule, 255.0)
                     };
                 }
                 None => canvas.draw_sprite(image.as_ref(), part, corners, color, s.add),

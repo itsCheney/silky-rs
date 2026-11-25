@@ -16,12 +16,15 @@ The story comes back to a mail choice (沙羅へメールを送る, 七海へメ
 
 Most effects look the same. Many fade-ins became wipes through rule pictures, and the fade-outs stay fades.
 
+The effects were compared frame by frame with the original under Wine at eight places in the story: `Game.1001` subs 1 and 2, the dragon and attack 18, the `Game.12` cut-ins, `Game.13` sub 12 at two opacities, and the static screen before the last chapter. They match, after two fixes: the soft edge of the sprite wipes and the opacity of a character put up again (both below).
+
 - Zoom flash (`Game.1005`): with the scene-skip setting on, the original does nothing at all (no zoom, flash or fade); with it off, the zoom and white flash of Apeiria. The setting is not offered here and reads as off unless a script writes `/Config/SceneSkip`, which the scripts do not.
 - Wipes instead of fade-ins: attack kinds 1 to 5, 13 and 15; spells sub 4 and 9; `Game.1001` subs 1, 3, 14, 15 and 20. Each uses its own rule picture, as the executable does.
+- The sprite wipes (attacks, spells, `Game.1001`) have a soft edge 255 rule levels wide: a pixel starts to show when the wipe reaches its rule value and is fully shown 255 levels later. Measured on the original's frames; the runtime's other wipes keep an edge of 32.
 - Attack kind 18 (`Game.998`): a pillar of fire (`attack_17_00.akb`) drops in from above, then wipes out. The script waits until it is gone.
 - Attack kind 14 takes an argument: 0 shows all ten pictures, 1 the first five, 2 the last five.
 - `Game.998` with a sub above 4 does nothing (two calls in the scripts).
-- `Game.13` sub 12 (alpha, time, size, name, slot): a standing character at an opacity.
+- `Game.13` sub 12 (alpha, time, size, name, slot): a standing character at an opacity, but only a new character takes it. A slot that already holds the same character (the `chNN` part of the name) gets the new picture and size and keeps the opacity it has; the alpha is not used then (0x44b4e0).
 - `Game.10` sub 14 is a start-up call with nothing to do.
 - Deduction board (`Game.994`): the same as in Apeiria (sub 2 opens it from a line in the middle, 3 closes it, 5 zooms a marker), except that sub 4 wipes the new picture in through rule 1 over 24 frames where Apeiria fades it in. The script waits for each animation (open, close and change 24 frames, marker 12), and a click does not cut it short. When `/Config/SceneSkip` is 1 the engine skips subs 0, 2, 3, 4 and 5 entirely, and the runtime does the same. The story scripts only close and drop the board at start-up.
 - `Game.991`: Casablanca never shows this panel. It is Apeiria's explanation-slide panel, left in the engine: Casablanca's data has none of its pictures (`tbg.akb`, `wbg.akb`, the `t*` and `w*` slides), its scripts only call sub 1 (destroy, with nothing to destroy) at start-up, and the load code that would rebuild it reads a save value Casablanca never writes. Its sub 3 (a wipe in through a rule picture) has no caller.
@@ -38,7 +41,7 @@ Most effects look the same. Many fade-ins became wipes through rule pictures, an
 ## Not done yet
 
 - The staff roll and the ending pictures are scripted and play as other pictures do.
-- The effects are ported from the executable's code but not compared frame by frame with the original.
+- The αMAIL panel opening at the start of the last chapter (`fd0301.mes`) was not reached under Wine and is not compared frame by frame.
 
 ## Where things are in the executable
 
@@ -47,6 +50,7 @@ Addresses in `casablanca.exe` of the build above (image base 0x400000). The code
 | What | Address |
 | --- | --- |
 | `Game` command dispatch | 0x48d7d0 |
+| `Game.13` sub 12: handler, put up a character, assign into the slot (skips the alpha for the same character), character number from the name | 0x48e2e0 (case at 0x48e7fe), 0x44c7e0, 0x44b4e0, 0x44e0a0 |
 | Attacks: dispatch by kind; kind 18 builder | 0x435d50; 0x43a0c0 |
 | Spells (`Game.1002`) builders for subs 0, 1, 3, 9 | 0x48aa90, 0x48b100, 0x48b9e0, 0x48c4f0 |
 | Zoom flash (`Game.1005`) | 0x4912e0 |
