@@ -3,8 +3,8 @@
 //! with a number, or closes without one.
 
 use super::actsel::ActSelect;
-use super::chrome;
 use super::areasel::AreaSelect;
+use super::chrome;
 use super::exselect::ExSelect;
 use super::itemsel::ItemSelect;
 use super::map::Map;
@@ -286,6 +286,31 @@ impl Screen {
         match self {
             Screen::Notebook(n) => Some(n),
             Screen::Map(m) => m.book(),
+            _ => None,
+        }
+    }
+
+    /// Whether this is one of なないろリンカネーション's own mode screens
+    /// (CG, scene, music).
+    pub fn is_nanairo_mode(&self) -> bool {
+        matches!(
+            self,
+            Screen::NanairoMusic(_) | Screen::NanairoCg(_) | Screen::NanairoScene(_)
+        )
+    }
+
+    /// An arrow key on one of those screens: where the pointer goes (the
+    /// middle of the next button), if anywhere. `at` is the button under
+    /// the pointer.
+    pub fn nanairo_arrow(
+        &self,
+        at: Option<i32>,
+        key: crate::games::apeiria::keys::Arrow,
+    ) -> Option<(i32, i32)> {
+        match self {
+            Screen::NanairoMusic(o) => o.arrow(at, key).and_then(|id| o.centre(id)),
+            Screen::NanairoCg(o) => o.arrow(at, key).and_then(|id| o.centre(id)),
+            Screen::NanairoScene(o) => o.arrow(at, key).and_then(|id| o.centre(id)),
             _ => None,
         }
     }

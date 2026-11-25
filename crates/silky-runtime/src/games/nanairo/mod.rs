@@ -12,6 +12,7 @@ pub(crate) mod dialog;
 pub(crate) mod effects;
 mod ending;
 pub(crate) mod figures;
+pub mod keys;
 pub mod mode;
 pub mod music;
 pub mod scene;

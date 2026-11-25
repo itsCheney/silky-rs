@@ -163,6 +163,19 @@ impl SceneMode {
             .find(|&id| inside(id))
     }
 
+    /// Where an arrow key puts the pointer: the button it is on is `at`.
+    pub fn arrow(&self, at: Option<i32>, key: super::keys::Arrow) -> Option<i32> {
+        if self.leave != Leave::No {
+            return None;
+        }
+        super::keys::grid(at, key, self.page, &|k| self.scene_of(k).is_some())
+    }
+
+    /// The middle of a button, where the pointer goes.
+    pub fn centre(&self, id: i32) -> Option<(i32, i32)> {
+        rect(id).map(super::keys::middle)
+    }
+
     pub fn enabled(&self, id: i32) -> bool {
         match id {
             0..=14 => self.unlocked(id as usize),

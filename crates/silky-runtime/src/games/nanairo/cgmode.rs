@@ -17,6 +17,7 @@ use std::sync::Arc;
 use silky_format::akb::Image;
 
 use super::cg::ROWS;
+use super::keys::{self, Arrow};
 use super::mode::{
     self, Frame, Mode, Phase, BACK, FRAME_MS, QUIT, SLIDE_IN_FRAMES, SLIDE_OUT_FRAMES,
 };
@@ -309,6 +310,35 @@ impl CgMode {
         (0..on_page(self.page) as i32)
             .chain([PREV, NEXT, 0xf00, 0xf01, 0xf02, BACK, QUIT])
             .find(|&id| inside(id))
+    }
+
+    /// Where an arrow key puts the pointer: the button it is on is `at`.
+    pub fn arrow(&self, at: Option<i32>, key: Arrow) -> Option<i32> {
+        if self.leave != Leave::No {
+            return None;
+        }
+        if let Some(v) = &self.view {
+            let np = self.view_cells(v);
+            let to = keys::picker(at, key, &|k| k < np)?;
+            // The arrows of the picker are there only with several pages.
+            return (to < PREV || to == OUTSIDE || self.view_pages(v.item) > 1).then_some(to);
+        }
+        keys::grid(at, key, self.page, &|k| k < on_page(self.page))
+    }
+
+    /// The middle of a button, where the pointer goes.
+    pub fn centre(&self, id: i32) -> Option<(i32, i32)> {
+        if let Some(v) = &self.view {
+            let np = self.view_cells(v);
+            if id == OUTSIDE {
+                return Some((640, 360));
+            }
+            if (0..np as i32).contains(&id) {
+                let (x, y) = view_cell(np, id as usize);
+                return Some(keys::middle((x + 2, y + 2, x + 227, y + 129)));
+            }
+        }
+        rect(id).map(keys::middle)
     }
 
     pub fn enabled(&self, id: i32) -> bool {

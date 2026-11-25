@@ -188,6 +188,24 @@ impl MusicMode {
             .find(|&id| inside(id))
     }
 
+    /// Where an arrow key puts the pointer: the button it is on is `at`.
+    pub fn arrow(&self, at: Option<i32>, key: super::keys::Arrow) -> Option<i32> {
+        if self.leave != Leave::No {
+            return None;
+        }
+        super::keys::music(at, key, self.playing.is_some(), self.music_on)
+    }
+
+    /// The middle of a button, where the pointer goes; on the volume bar it
+    /// is the knob's place.
+    pub fn centre(&self, id: i32) -> Option<(i32, i32)> {
+        if id == VOLUME {
+            let (l, t, _, _) = rect(VOLUME)?;
+            return Some((l + 14 + self.volume, t + 14));
+        }
+        rect(id).map(super::keys::middle)
+    }
+
     pub fn enabled(&self, id: i32) -> bool {
         match id {
             0..=34 => self.unlocked(id as usize) && self.playing != Some(id as usize),
@@ -484,6 +502,21 @@ mod tests {
 
     fn open_all() -> MusicMode {
         MusicMode::open([1; ROWS], [1; 3], true, 200.0 / 267.0)
+    }
+
+    #[test]
+    fn arrow_keys_move_between_buttons() {
+        use super::super::keys::Arrow;
+        let m = open_all();
+        assert_eq!(m.arrow(None, Arrow::Down), Some(0));
+        assert_eq!(m.arrow(Some(0), Arrow::Down), Some(1));
+        let (x, y) = m.centre(1).unwrap();
+        let (l, t, r, b) = rect(1).unwrap();
+        assert!((l..=r).contains(&x) && (t..=b).contains(&y));
+        // The volume bar answers with the knob.
+        let (kx, _) = m.centre(VOLUME).unwrap();
+        let (l, _, _, _) = rect(VOLUME).unwrap();
+        assert_eq!(kx, l + 14 + m.volume);
     }
 
     #[test]

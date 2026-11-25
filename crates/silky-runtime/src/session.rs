@@ -1935,6 +1935,9 @@ impl Session {
         if self.roll_cancel() {
             return Ok(());
         }
+        if self.nanairo_mode_up() {
+            return self.back().map(|_| ());
+        }
         self.douk_cancel_key().map(|_| ())
     }
 
@@ -1943,6 +1946,18 @@ impl Session {
     /// pointer are on) and nothing else; otherwise they go on, as
     /// [`Session::proceed`].
     pub fn enter(&mut self) -> Result<()> {
+        // The game's own CG, scene and music screens: Enter clicks the
+        // button under the pointer (where the arrow keys put it).
+        if self.nanairo_mode_up() {
+            if let Some(Button::Kimaten1(id)) = self.ui.hover {
+                let ms = self.ui.clock.saturating_sub(self.ui.k1_since);
+                if let Some(s) = self.ui.k1.as_mut().filter(|s| !s.blocks_input(ms)) {
+                    let click = s.click(id);
+                    self.k1_answer(click)?;
+                }
+            }
+            return Ok(());
+        }
         if self.douk_system.is_some() && self.veil.is_none() && !self.menu_sliding() {
             if self.dialog.is_some() {
                 if let Some(Button::Dialog(id)) = self.ui.hover {
@@ -2095,6 +2110,10 @@ impl Session {
     pub fn delete_key(&mut self) -> Result<()> {
         if self.roll_cancel() {
             return Ok(());
+        }
+        // Same as Escape on the game's own CG, scene and music screens.
+        if self.nanairo_mode_up() {
+            return self.back().map(|_| ());
         }
         if self.douk_cancel_key()? || self.cancel_walk() {
             return Ok(());
@@ -2702,6 +2721,18 @@ impl Session {
             return None;
         }
         let screen = self.ui.k1_menu.as_ref().or(self.ui.k1.as_ref())?;
+        // The game's own CG, scene and music screens move the pointer too.
+        if screen.is_nanairo_mode() {
+            let at = match self.ui.hover {
+                Some(Button::Kimaten1(id)) => Some(id),
+                _ => None,
+            };
+            let to = screen.nanairo_arrow(at, key);
+            if let Some((x, y)) = to {
+                self.pointer_move(x, y);
+            }
+            return Some(to);
+        }
         let book = screen.notebook()?;
         // A fade in or out takes no key either.
         if screen.blocks_input(self.ui.clock.saturating_sub(self.ui.k1_since)) {
@@ -4600,8 +4631,22 @@ impl Session {
         self.frame = None;
     }
 
+    /// One of the game's own CG, scene or music screens is up with
+    /// nothing over it.
+    fn nanairo_mode_up(&self) -> bool {
+        self.dialog.is_none()
+            && self.screen.is_none()
+            && self.veil.is_none()
+            && self.ui.k1.as_ref().is_some_and(|s| s.is_nanairo_mode())
+    }
+
     /// Key that goes on (Enter, Space).
     pub fn proceed(&mut self) -> Result<()> {
+        // Space is not bound on the game's own CG, scene and music
+        // screens.
+        if self.nanairo_mode_up() {
+            return Ok(());
+        }
         // Space does nothing on 同級生 Remake's dialogs and name entry.
         if self.douk_system.is_some()
             && (self.dialog.is_some() || matches!(self.ui.panel, Some(DoukPanel::Name(_))))
