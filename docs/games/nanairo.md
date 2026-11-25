@@ -6,7 +6,7 @@ Japanese build 2014. The runtime knows the game by `nanairo.exe` in its folder. 
 
 Work in progress. The title menu, the message window and the pictures on the stage are drawn. Several screens and effects are not.
 
-Measured under Wine: the place and pitch of the message text and the place of the speaker's name. Everything else below was read from the executable or from the scripts. The address table at the end gives where.
+Measured under Wine: the place and pitch of the message text and the place of the speaker's name. Compared with the original under Wine: the calendar's layout and dates, the standing characters' places and sizes (six scenes of the first route, same to the pixel), and the click-wait mark's place, pictures and steps. Everything else below was read from the executable or from the scripts. The address table at the end gives where.
 
 ## What works
 
@@ -81,8 +81,6 @@ The effects are sprites of the shared effect stage: keyframes of fades, zooms an
 - `Game.3`, `17` and `40` are reported.
 - `Game.30` to `32` use the shared extras screens, not the game's own sheets.
 - Standing character calls 6, 8 and 11 to 15 (side, effects, flags, motion) are accepted and not drawn. The flag of `13.5` is not understood.
-- The click-wait mark's timing is read from the program, not compared with the original on screen.
-- The figure positions are not yet compared with the original.
 
 ## Game commands
 
