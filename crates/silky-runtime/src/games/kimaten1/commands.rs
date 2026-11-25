@@ -153,10 +153,14 @@ impl Runtime {
                 let name = args.get(1).and_then(Value::as_str)?.to_string();
                 let areas = self.k1_areas("areaselect.area")?;
                 let map = self.assets.data(&name.to_ascii_uppercase()).ok()?;
+                let progress: Vec<u8> = (0..super::actsel::PROGRESS_LEN)
+                    .map(|i| vm.var_b(super::actsel::PROGRESS_FIRST + i))
+                    .collect();
                 self.k1 = Some(Screen::Area(AreaSelect::open(
                     areas,
                     map,
                     vm.var_b(NOTEBOOK_UNLOCKED) != 0,
+                    &progress,
                 )));
                 self.wait_for(Pause::Kimaten1)
             }

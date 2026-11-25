@@ -362,6 +362,66 @@ fn settled(scene: &silky_runtime::Scene, ms: u64) -> silky_runtime::Scene {
     scene
 }
 
+/// きまぐれテンプテーション's headless route, from the environment variable
+/// `K1_ROUTE`: entries separated by `;`.
+///
+/// - `sel=LABEL,LABEL`: at a talk list holding one of these labels, take it
+///   (the first of them in list order). Other lists go as before.
+/// - `KIND@SCRIPT=N,N,...`: the results the screens of KIND (`actmenu`,
+///   `area`, `exselect`, `item`, `map`) answer to the commands of SCRIPT
+///   (lower case, e.g. `05_03_1.mes`), one per screen in turn. Once they
+///   are used up the screen's own pick is made.
+#[derive(Default)]
+struct K1Route {
+    labels: Vec<String>,
+    screens: std::collections::HashMap<(String, String), std::collections::VecDeque<i32>>,
+}
+
+impl K1Route {
+    fn from_env() -> Self {
+        let mut route = Self::default();
+        let Ok(text) = std::env::var("K1_ROUTE") else {
+            return route;
+        };
+        for entry in text.split(';').map(str::trim).filter(|e| !e.is_empty()) {
+            let Some((key, values)) = entry.split_once('=') else {
+                continue;
+            };
+            if key == "sel" {
+                route
+                    .labels
+                    .extend(values.split(',').map(|v| v.trim().into()));
+            } else if let Some((kind, script)) = key.split_once('@') {
+                let queue = route
+                    .screens
+                    .entry((kind.into(), script.to_lowercase()))
+                    .or_default();
+                queue.extend(
+                    values
+                        .split(',')
+                        .filter_map(|v| v.trim().parse::<i32>().ok()),
+                );
+            }
+        }
+        route
+    }
+
+    /// The next result wanted from a screen of `kind` run by `script`.
+    fn next(&mut self, kind: &str, script: &str) -> Option<i32> {
+        self.screens
+            .get_mut(&(kind.into(), script.to_lowercase()))?
+            .pop_front()
+    }
+
+    /// The index of the first label of `choices` the route prefers.
+    fn label(&self, choices: &[String]) -> Option<usize> {
+        choices.iter().position(|c| self.labels.contains(c))
+    }
+}
+
+/// Playthroughs of きまぐれテンプテーション a `snap` without --path makes.
+const K1_PLAYS: usize = 30;
+
 /// What `snap` answers at selections and action menus.
 struct Picks {
     /// Result of the title menu.
@@ -387,6 +447,7 @@ fn snap(
     height: u32,
 ) -> Result<()> {
     let (choose, path) = (picks.choose, &picks.path);
+    let mut route = K1Route::from_env();
     use silky_runtime::render::Renderer;
     use silky_runtime::text::TextRenderer;
     use silky_runtime::ui::{Layout, Ui};
@@ -451,6 +512,7 @@ fn snap(
     let mut action_menus = 0usize;
     let mut maps = 0usize;
     let mut k1_screens = 0usize;
+    let mut plays = 0usize;
     let mut k1_shots: std::collections::HashMap<&'static str, usize> = Default::default();
     let mut rooms = 0usize;
     let mut trains = 0usize;
@@ -503,6 +565,16 @@ fn snap(
                         }
                         title_saved = true;
                     }
+                    // きまぐれテンプテーション: without --path the story starts
+                    // again after each ending, with other picks; stop once
+                    // that no longer brings anything new.
+                    if k1_game {
+                        plays += 1;
+                        if plays > K1_PLAYS {
+                            println!("stopped after {K1_PLAYS} playthroughs");
+                            break;
+                        }
+                    }
                     // "Start" is the new game entry of the game's own menu.
                     let choice = match rt.config.title_choice {
                         1 => layout
@@ -519,6 +591,7 @@ fn snap(
                     let name = rt.message_script();
                     if name != script {
                         script = name.to_string();
+                        k1_screens = 0;
                         println!("script {script} at line {line_no}");
                     }
                     // Snow falls on for a second each message; the faces
@@ -647,6 +720,9 @@ fn snap(
                         if !k1_game {
                             return None;
                         }
+                        if let Some(i) = route.label(&rt.choices) {
+                            return Some(i);
+                        }
                         // By script and labels, so that the story played
                         // again from the start (after an ending) takes the
                         // next entry of each list: other branches and
@@ -664,6 +740,17 @@ fn snap(
                     let choose = path.get(selections).copied().or(wanted).unwrap_or(choose);
                     selections += 1;
                     println!("select [{}] -> {}", rt.choices.join(" | "), choose);
+                    if std::env::var_os("K1_TRACE").is_some() {
+                        let e: Vec<u8> = (205..242).map(|i| vm.var_b(i)).collect();
+                        println!(
+                            "   g18 {:?} b138 {} b800 {} b801 {} b807 {} bytes 205-241 {e:?}",
+                            vm.var_g(18),
+                            vm.var_b(138),
+                            vm.var_b(800),
+                            vm.var_b(801),
+                            vm.var_b(807)
+                        );
+                    }
                     let mail = rt.scene.mail_select.as_ref().is_some_and(|m| m.shown);
                     mail_selects = if mail { mail_selects + 1 } else { 0 };
                     if mail_selects > 30 {
@@ -795,8 +882,46 @@ fn snap(
                     }
                     *n += 1;
                     let mut click = Click::None;
+                    // A result the route asks for: the element that
+                    // answers it.
+                    let mut forced =
+                        route
+                            .next(name, vm.script_name().unwrap_or(""))
+                            .and_then(|want| {
+                                (-2..400).find(|&id| {
+                                matches!(screen.clone().click(id), Click::Result(r) if r == want)
+                            })
+                            });
                     for _ in 0..64 {
-                        click = match screen.auto_pick().0 {
+                        let id = forced.take().or_else(|| screen.auto_pick().0);
+                        // K1_TRACE: where a player would press (the point of
+                        // the element nearest its centre).
+                        if let (Some(id), true) = (id, std::env::var_os("K1_TRACE").is_some()) {
+                            let mut hits = Vec::new();
+                            for y in (0..720).step_by(4) {
+                                for x in (0..1280).step_by(4) {
+                                    if screen.hit(x, y) == Some(id) {
+                                        hits.push((x, y));
+                                    }
+                                }
+                            }
+                            if !hits.is_empty() {
+                                let n = hits.len() as i32;
+                                let cx = hits.iter().map(|p| p.0).sum::<i32>() / n;
+                                let cy = hits.iter().map(|p| p.1).sum::<i32>() / n;
+                                let at = hits
+                                    .iter()
+                                    .min_by_key(|p| (p.0 - cx).pow(2) + (p.1 - cy).pow(2))
+                                    .unwrap();
+                                println!(
+                                    "   press element {id} at ({}, {}) in {} line {line_no}",
+                                    at.0,
+                                    at.1,
+                                    vm.script_name().unwrap_or("?")
+                                );
+                            }
+                        }
+                        click = match id {
                             Some(id) => screen.click(id),
                             None => screen.cancel(),
                         };
@@ -818,9 +943,18 @@ fn snap(
                     if std::env::var_os("K1_TRACE").is_some() {
                         let b: Vec<u8> = (0..4).chain(100..110).map(|i| vm.var_b(i)).collect();
                         println!("   bytes 0-3,100-109: {b:?}");
+                        let e: Vec<u8> = (205..242).map(|i| vm.var_b(i)).collect();
+                        println!(
+                            "   g18 {:?} b138 {} b800 {} b801 {} b807 {} bytes 205-241 {e:?}",
+                            vm.var_g(18),
+                            vm.var_b(138),
+                            vm.var_b(800),
+                            vm.var_b(801),
+                            vm.var_b(807)
+                        );
                     }
                     k1_screens += 1;
-                    if k1_screens > 4000 {
+                    if k1_screens > 600 {
                         println!("the screens keep coming back; stopped in {script}");
                         break;
                     }

@@ -30,8 +30,8 @@ const HOTSPOT_HELP: &str = "ここを調べる";
 const BACK_HELP: &str = "行動選択に戻る";
 const CLICK: &str = "ses_001.wav";
 
-/// How often the headless run pressed a hotspot: (picture of the screen,
-/// hotspot). A hotspot can say something new each time it is looked at.
+/// How often the headless run pressed a hotspot: (picture of the screen
+/// and state of the story, hotspot). A hotspot can say something new each time it is looked at.
 static TRIED: Mutex<Option<HashMap<(u64, i32), u8>>> = Mutex::new(None);
 const LOOKS: u8 = 3;
 
@@ -41,15 +41,19 @@ pub struct AreaSelect {
     map: Arc<Vec<u8>>,
     off: [bool; BAR_LEN],
     sound: Option<&'static str>,
-    /// Identifies the picture of hotspots, for the headless run.
+    /// Identifies the picture of hotspots and the state of the story, for
+    /// the headless run.
     scene: u64,
 }
 
 impl AreaSelect {
-    pub fn open(areas: Vec<Area>, map: Vec<u8>, notebook: bool) -> Self {
+    /// `progress` are the story counters (bytes 100 on): the same picture
+    /// can say something new once they have moved.
+    pub fn open(areas: Vec<Area>, map: Vec<u8>, notebook: bool, progress: &[u8]) -> Self {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
         map.hash(&mut h);
+        progress.hash(&mut h);
         let scene = h.finish();
         let mut off = [false; BAR_LEN];
         off[7] = !notebook;
