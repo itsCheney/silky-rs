@@ -55,7 +55,7 @@ const WAIT_ORIGIN: (u32, u32) = (504, 660);
 const WAIT_CELL: u32 = 44;
 const WAIT_FRAMES: u64 = 10;
 const WAIT_AT: (i32, i32) = (1021, TOP + 174);
-const WAIT_FRAME_MS: u64 = 650;
+const WAIT_FRAME_MS: u64 = 150;
 
 /// Left of the text, and the width of a line (33 cells of 28 pixels and a
 /// little over).
