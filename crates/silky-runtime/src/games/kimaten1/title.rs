@@ -7,8 +7,12 @@
 //! unlock the extras come from the executable. The buttons jump in from
 //! below one after the other, 100 ms apart, and a page that is left falls
 //! out of sight the same way. The picture of the heroine on the title
-//! changes her face now and then from the five on `titlea_p.akb`.
+//! changes her face now and then from the five on `titlea_p.akb`. Faint
+//! sparkles (`Prism.akb`) drift over the whole title.
 
+use std::sync::Mutex;
+
+use super::fx::Mt;
 use crate::assets::Assets;
 use crate::render::Canvas;
 use crate::ui::{title, Button, Ui};
@@ -135,14 +139,10 @@ fn fall_top(ms: u64, k: usize) -> Option<i32> {
     (y < BELOW as i32).then_some(y)
 }
 
-/// Whether the menu moves between the clock `before` and now, so that a
-/// frame has to be drawn: buttons on their way, or a face fading in.
-pub fn animating(ui: &Ui, before: u64) -> bool {
-    let fading = |clock: u64| {
-        let opened = clock.saturating_sub(ui.title_opened);
-        opened % (FACE_WAIT + FADE_MS) >= FACE_WAIT
-    };
-    before.saturating_sub(ui.title_shown) < STAGGER * 6 + 2000 || fading(before) || fading(ui.clock)
+/// Whether the menu moves, so that a frame has to be drawn: the sparkles
+/// never rest while the title is up.
+pub fn animating(_ui: &Ui, _before: u64) -> bool {
+    true
 }
 
 /// Face shown after `k` changes, and the one the next change picks: the
@@ -189,6 +189,144 @@ pub fn draw(
     }
     for (k, c) in page(extras).iter().enumerate() {
         put(c, jump_top(shown, k), state_of(c));
+    }
+    draw_prism(canvas, assets, ui.title_opened, opened)
+}
+
+/// The sparkle effect of the title: twenty sprites of `Prism.akb` (64 by
+/// 64, turned on at the middle) of which a new one is started at random
+/// intervals. A sparkle starts in the lower right of the screen at a random
+/// size and drifts up and to the right until its life of two to four
+/// seconds is over or it leaves the top (64) or the right edge, pulsing
+/// through a table of faint alphas. It is a sprite with a priority, so it
+/// sits over what the title itself draws, the buttons included (the
+/// original does not say it in so many words; the draw order of the two
+/// lists is read from the sprite list code, not compared with the game).
+mod prism {
+    use super::Mt;
+
+    pub const COUNT: usize = 20;
+    /// The next sparkle starts within this many milliseconds.
+    const SPAWN_GAP: u32 = 500;
+    /// The original draws every number from a freshly seeded engine with
+    /// `below(0xb70a7c3) % n`; one engine seeded here keeps runs equal.
+    const RANGE: u32 = 0xb70a_7c3;
+    /// Alpha by (counter / 8) % 10, where the counter starts at random and
+    /// grows one a frame.
+    pub const ALPHA: [u8; 10] = [48, 48, 92, 0, 48, 48, 48, 48, 48, 48];
+    const SEED: u32 = 0x5eed_0001;
+
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct Spark {
+        pub on: bool,
+        pub x: f32,
+        pub y: f32,
+        pub vx: f32,
+        pub vy: f32,
+        pub scale: f32,
+        pub counter: u32,
+        start: u64,
+        life: u64,
+    }
+
+    impl Spark {
+        pub fn alpha(&self) -> u8 {
+            ALPHA[(self.counter as usize >> 3) % 10]
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    pub struct Prism {
+        rng: Mt,
+        pub sparks: [Spark; COUNT],
+        next: u64,
+        /// Frames done so far.
+        pub frames: u64,
+    }
+
+    impl Prism {
+        pub fn new() -> Self {
+            Self {
+                rng: Mt::new(SEED),
+                sparks: [Spark::default(); COUNT],
+                next: 0,
+                frames: 0,
+            }
+        }
+
+        fn rand(&mut self, n: u32) -> u32 {
+            self.rng.below(RANGE) % n
+        }
+
+        fn spawn(&mut self, i: usize, now: u64) {
+            let x = (self.rand(1000) + 0x78) as f32;
+            let y = (self.rand(0x168) + 0x168) as f32;
+            let vy = (self.rand(300) as f32 / 100.0) * -1.0 - 0.1;
+            let vx = self.rand(300) as f32 / 100.0 + 0.1;
+            let scale = self.rand(100) as f32 / 100.0 + 0.1;
+            let counter = self.rand(1000) % 100;
+            let life = (self.rand(2000) + 2000) as u64;
+            self.sparks[i] = Spark {
+                on: true,
+                x,
+                y,
+                vx,
+                vy,
+                scale,
+                counter,
+                start: now,
+                life,
+            };
+        }
+
+        /// One frame at time `now` (ms): maybe start a sparkle, then move
+        /// them all.
+        pub fn step(&mut self, now: u64) {
+            if let Some(i) = self.sparks.iter().position(|s| !s.on) {
+                if now >= self.next {
+                    self.spawn(i, now);
+                    self.next = now + self.rand(SPAWN_GAP) as u64;
+                }
+            }
+            for s in self.sparks.iter_mut().filter(|s| s.on) {
+                s.y += s.vy;
+                s.x += s.vx;
+                if now >= s.start + s.life || s.x >= 1280.0 || s.y <= 64.0 {
+                    s.on = false;
+                }
+                s.counter += 1;
+            }
+            self.frames += 1;
+        }
+    }
+}
+
+/// The running sparkles, kept between frames; restarted when the title is
+/// opened again or the clock goes back.
+static PRISM: Mutex<Option<(u64, prism::Prism)>> = Mutex::new(None);
+
+fn draw_prism(canvas: &mut Canvas, assets: &mut Assets, opened_at: u64, opened: u64) -> Result<()> {
+    let sheet = assets.image("Prism.akb")?;
+    let want = opened * 60 / 1000 + 1;
+    let mut guard = PRISM.lock().unwrap();
+    match guard.as_mut() {
+        Some((at, p)) if *at == opened_at && p.frames <= want => {}
+        _ => *guard = Some((opened_at, prism::Prism::new())),
+    }
+    let (_, p) = guard.as_mut().unwrap();
+    while p.frames < want {
+        p.step(p.frames * 1000 / 60);
+    }
+    for s in p.sparks.iter().filter(|s| s.on) {
+        let size = 64.0 * s.scale;
+        let (x, y) = (s.x - 32.0 * s.scale, s.y - 32.0 * s.scale);
+        canvas.draw_sprite(
+            Some(&sheet),
+            (0, 0, 64, 64),
+            [[x, y], [x + size, y], [x, y + size]],
+            [255, 255, 255, s.alpha()],
+            false,
+        );
     }
     Ok(())
 }
@@ -247,6 +385,21 @@ mod tests {
             assert!(f != last && f != 3);
             last = f;
         }
+    }
+
+    #[test]
+    fn sparkles_start_drift_and_die() {
+        let mut p = prism::Prism::new();
+        p.step(0);
+        assert_eq!(p.sparks.iter().filter(|s| s.on).count(), 1);
+        for k in 1..600 {
+            p.step(k * 1000 / 60);
+        }
+        let on: Vec<_> = p.sparks.iter().filter(|s| s.on).collect();
+        assert!(!on.is_empty() && on.len() <= prism::COUNT);
+        assert!(on
+            .iter()
+            .all(|s| s.x < 1280.0 && s.y > 64.0 && s.scale >= 0.1));
     }
 
     #[test]

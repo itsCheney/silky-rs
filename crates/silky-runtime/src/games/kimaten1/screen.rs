@@ -302,6 +302,7 @@ impl Screen {
     /// is redrawn each frame then, and [`Self::tick`] runs it).
     pub fn animating(&self, ms: u64) -> bool {
         match self {
+            Screen::Action(s) => s.animating(ms),
             Screen::Map(m) => m.animating(ms),
             Screen::Notebook(n) => n.animating(ms),
             _ => false,
@@ -312,6 +313,7 @@ impl Screen {
     /// answer gives the answer here once the fade is over.
     pub fn tick(&mut self, ms: u64) -> Option<Click> {
         match self {
+            Screen::Action(s) => s.tick(ms),
             Screen::Map(m) => m.tick(ms),
             Screen::Notebook(n) => n.tick(ms),
             _ => None,
@@ -322,6 +324,7 @@ impl Screen {
     /// is holding back, now.
     pub fn settle(&mut self) -> Option<Click> {
         match self {
+            Screen::Action(s) => s.settle(),
             Screen::Map(m) => m.settle(),
             Screen::Notebook(n) => n.settle(),
             _ => None,

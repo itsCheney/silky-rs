@@ -8,6 +8,7 @@
 //! kind plus one (1 look, 2 talk, 3 move, 4 present). The skip button
 //! answers 100.
 
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -43,8 +44,16 @@ const HELP: [&str; 4] = [
     "証拠品をつきつける",
 ];
 const SKIP_HELP: &str = "行動選択をスキップします";
-/// Click sound of the interface.
+/// Click sound of the interface, and the one of the question's no button.
 const CLICK: &str = "ses_001.wav";
+const CANCEL: &str = "ses_002.wav";
+/// Played when the skip tutorial opens. Its OK button makes no sound of
+/// its own.
+const TUTORIAL_SOUND: &str = "ses_009.wav";
+/// The tutorial fades in and out over 8 frames of 1/60 s, and takes no
+/// press while it does.
+const FADE_FRAMES: u64 = 8;
+const FADE_MS: u64 = FADE_FRAMES * 1000 / 60;
 
 /// The story counters the scripts keep from byte 100 on (and the flags of
 /// the scene from 0 to 3); the headless run
@@ -68,9 +77,47 @@ enum Popup {
     Confirm,
 }
 
+/// Where the skip tutorial is in its life.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Phase {
+    In,
+    Shown,
+    Out,
+}
+
+/// Draws with `draw` and mixes the result over what was there at `alpha`.
+fn faded(
+    canvas: &mut Canvas,
+    alpha: u8,
+    draw: impl FnOnce(&mut Canvas) -> Result<()>,
+) -> Result<()> {
+    if alpha == 255 {
+        return draw(canvas);
+    }
+    let under = canvas.clone();
+    draw(canvas)?;
+    *canvas = Canvas::blend(&under, canvas, alpha as f32 / 255.0, None);
+    Ok(())
+}
+
+/// Opacity of a fade `age` ms in: it gains (or loses) an eighth of the
+/// range each frame.
+fn fade_alpha(age: u64, out: bool) -> u8 {
+    let frames = (age * 60 / 1000 + 1).min(FADE_FRAMES);
+    let a = (255 * frames / FADE_FRAMES) as u8;
+    if out {
+        255 - a
+    } else {
+        a
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ActSelect {
     popup: Popup,
+    phase: Phase,
+    /// The screen's clock when the phase was first seen.
+    phase_at: Cell<Option<u64>>,
     tutorial_areas: Vec<Area>,
     dialog_areas: Vec<Area>,
     areas: Vec<Area>,
@@ -104,6 +151,8 @@ impl ActSelect {
         off[7] = !notebook;
         Self {
             popup: Popup::None,
+            phase: Phase::In,
+            phase_at: Cell::new(None),
             tutorial_areas: Vec::new(),
             dialog_areas: Vec::new(),
             areas,
@@ -131,6 +180,9 @@ impl ActSelect {
     pub fn hit(&self, x: i32, y: i32) -> Option<i32> {
         match self.popup {
             Popup::Tutorial => {
+                if self.phase != Phase::Shown {
+                    return None;
+                }
                 return self
                     .tutorial_areas
                     .iter()
@@ -161,14 +213,16 @@ impl ActSelect {
     pub fn click(&mut self, id: i32) -> Click {
         match self.popup {
             Popup::Tutorial => {
-                if id == TUTORIAL_OK {
-                    self.sound = Some(CLICK);
-                    self.popup = Popup::Confirm;
+                // The press closes the page: it fades out, then the
+                // question comes.
+                if id == TUTORIAL_OK && self.phase == Phase::Shown {
+                    self.phase = Phase::Out;
+                    self.phase_at.set(None);
                 }
                 return Click::None;
             }
             Popup::Confirm => {
-                self.sound = Some(CLICK);
+                self.sound = Some(if id == YES { CLICK } else { CANCEL });
                 self.popup = Popup::None;
                 // Yes answers the skip; no goes back to the menu.
                 return if id == YES {
@@ -200,11 +254,60 @@ impl ActSelect {
             } else {
                 self.tutorial_seen = true;
                 self.bytes.push((TUTORIAL_SEEN, 1));
+                self.phase = Phase::In;
+                self.phase_at.set(None);
+                // The page's own sound takes the place of the click.
+                self.sound = Some(TUTORIAL_SOUND);
                 Popup::Tutorial
             };
             return Click::None;
         }
         Click::None
+    }
+
+    /// Milliseconds since the tutorial's phase began.
+    fn age(&self, ms: u64) -> u64 {
+        let at = self.phase_at.get().unwrap_or_else(|| {
+            self.phase_at.set(Some(ms));
+            ms
+        });
+        ms.saturating_sub(at)
+    }
+
+    /// Whether the tutorial is fading in or out at `ms`.
+    pub fn animating(&self, ms: u64) -> bool {
+        let _ = ms;
+        self.popup == Popup::Tutorial && self.phase != Phase::Shown
+    }
+
+    /// Runs the tutorial's fades: once the fade out is over the question
+    /// follows.
+    pub fn tick(&mut self, ms: u64) -> Option<Click> {
+        if self.popup != Popup::Tutorial || self.phase == Phase::Shown {
+            return None;
+        }
+        if self.age(ms) < FADE_MS {
+            return None;
+        }
+        self.advance()
+    }
+
+    /// For a run without time: ends the fade under way at once.
+    pub fn settle(&mut self) -> Option<Click> {
+        if self.popup == Popup::Tutorial && self.phase != Phase::Shown {
+            return self.advance();
+        }
+        None
+    }
+
+    fn advance(&mut self) -> Option<Click> {
+        self.phase_at.set(None);
+        match self.phase {
+            Phase::In => self.phase = Phase::Shown,
+            Phase::Out => self.popup = Popup::Confirm,
+            Phase::Shown => return None,
+        }
+        Some(Click::None)
     }
 
     /// A right click: answers no to the question.
@@ -272,13 +375,21 @@ impl ActSelect {
     /// button at the lower right.
     fn draw_tutorial(&self, canvas: &mut Canvas, assets: &mut Assets, look: &Look) -> Result<()> {
         let page = assets.image("moveskip_tutorial.akb")?;
-        canvas.draw_part(&page, (0, 0, 1280, 720), 0, 0, false, 255);
         let ok = assets.image("OKbotton.akb")?;
-        if let Some(a) = self.tutorial_areas.iter().find(|a| a.id == 0) {
-            let row = chrome::state(look, TUTORIAL_OK);
-            canvas.draw_part(&ok, (0, 44 * row, 102, 44), a.left, a.top, false, 255);
-        }
-        Ok(())
+        let alpha = match self.phase {
+            Phase::In => fade_alpha(self.age(look.ms), false),
+            Phase::Shown => 255,
+            Phase::Out => fade_alpha(self.age(look.ms), true),
+        };
+        // The button is part of the page, so both fade together.
+        faded(canvas, alpha, |canvas| {
+            canvas.draw_part(&page, (0, 0, 1280, 720), 0, 0, false, 255);
+            if let Some(a) = self.tutorial_areas.iter().find(|a| a.id == 0) {
+                let row = chrome::state(look, TUTORIAL_OK);
+                canvas.draw_part(&ok, (0, 44 * row, 102, 44), a.left, a.top, false, 255);
+            }
+            Ok(())
+        })
     }
 
     /// The question whether to skip the action selection, with yes and no.
@@ -367,9 +478,20 @@ mod tests {
         let mut m = menu(false);
         assert_eq!(m.click(SKIP), Click::None);
         assert_eq!(m.take_bytes(), vec![(TUTORIAL_SEEN, 1)]);
+        assert_eq!(m.take_sound().as_deref(), Some(TUTORIAL_SOUND));
+        // It fades in first and takes no press meanwhile.
+        assert_eq!(m.hit(1050, 580), None);
+        assert!(m.animating(0));
+        assert_eq!(m.tick(0), None);
+        assert_eq!(m.tick(FADE_MS), Some(Click::None));
         assert_eq!(m.hit(1050, 580), Some(TUTORIAL_OK));
         assert_eq!(m.hit(30, 30), None);
         assert_eq!(m.click(TUTORIAL_OK), Click::None);
+        // No click sound; the page fades out, then the question comes.
+        assert_eq!(m.take_sound(), None);
+        assert_eq!(m.hit(500, 300), None);
+        assert_eq!(m.tick(FADE_MS + 10), None);
+        assert_eq!(m.tick(2 * FADE_MS + 10), Some(Click::None));
         assert_eq!(m.hit(500, 300), Some(YES));
         assert_eq!(m.click(YES), Click::Result(SKIP_ANSWER));
     }
