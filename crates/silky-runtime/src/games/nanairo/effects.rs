@@ -27,6 +27,8 @@ const EVENT: u32 = 1001;
 const MOVIE: u32 = 1002;
 const OVERLAY: u32 = 1003;
 const PULSE: u32 = 1005;
+/// The message window fading away (`MesWnd.2(0)`).
+const WINDOW: u32 = 2;
 pub(super) const ANIMATOR: u32 = 1006;
 /// The ending's message overlay (`Game.50`) and the staff roll (`Game.34`).
 pub(super) const ENDING: u32 = 50;
@@ -159,9 +161,41 @@ pub fn clear_all(st: &mut Stage) {
         STAFF,
         super::calendar::CALENDAR,
         super::figures::FX,
+        WINDOW,
     ] {
         clear(st, owner);
     }
+}
+
+/// Frames the message window takes to fade away.
+const WINDOW_FRAMES: i32 = 12;
+
+/// `MesWnd.2(0)` over a window that is up: it fades out over 12 frames and
+/// is then gone; the script waits. The sprite only carries the opacity; the
+/// renderer draws the window with it (see [`window_fading`]).
+pub fn window_out(st: &mut Stage, factor: f32) {
+    clear(st, WINDOW);
+    let mut fx = Fx::new(st, WINDOW);
+    let id = fx.sprite(0, Look::Nothing, Z_FLASH);
+    if let Some(Step::Add(s)) = fx.steps.last_mut() {
+        s.alpha = 255;
+        s.shown = true;
+    }
+    let key = Key::new(scaled(WINDOW_FRAMES, factor))
+        .show(true)
+        .fade(255, 0);
+    fx.play(vec![(id, vec![key])], true);
+    fx.remove(&[id]);
+    fx.run();
+}
+
+/// Opacity (of 255) of the message window while it fades away, `None` when
+/// it is not fading.
+pub fn window_fading(st: &Stage) -> Option<u8> {
+    st.sprites
+        .iter()
+        .find(|s| s.owner == WINDOW && s.shown)
+        .map(|s| s.alpha)
 }
 
 /// Whether the sparkle picture of `Game.22` is up (shown from `22.1` until
@@ -448,6 +482,23 @@ impl Runtime {
         self.nanairo_effect_wait()
     }
 
+    /// `MesWnd.2(0)`: with the message window up it fades away over 12
+    /// frames and the script waits; with the scenes skipped, or no window
+    /// up, nothing happens. The text is gone at once.
+    pub(crate) fn nanairo_window_out(&mut self) -> Option<silky_vm::Result<Flow>> {
+        let up = self.scene.text.is_some();
+        self.scene.text = None;
+        self.scene.speaker = None;
+        self.scene.speaker_name = None;
+        self.scene.speaker_hero = false;
+        if !up || self.scene_skip() {
+            return self.done();
+        }
+        let f = self.system.settings.effect_scale();
+        window_out(&mut self.scene.effects, f);
+        self.nanairo_effect_wait()
+    }
+
     /// Waits for the timelines the script has to wait for.
     pub(super) fn nanairo_effect_wait(&mut self) -> Option<silky_vm::Result<Flow>> {
         match self.scene.effects.blocking_ms() {
@@ -536,6 +587,32 @@ mod tests {
         assert_eq!(scaled(16, 0.0), 1);
         assert_eq!(looped(24, 0.0), 24);
         assert_eq!(looped(24, 0.5), 12);
+    }
+
+    #[test]
+    fn the_message_window_fades_out_over_twelve_frames() {
+        let mut st = Stage::default();
+        assert_eq!(window_fading(&st), None);
+        window_out(&mut st, 1.0);
+        // The script waits the 12 frames and a little over.
+        let wait = st.blocking_ms().unwrap();
+        assert!(wait >= 12 * TICK_MS && wait <= 14 * TICK_MS, "{wait}");
+        assert_eq!(window_fading(&st), Some(255));
+        play(&mut st, 6);
+        let half = window_fading(&st).unwrap();
+        assert!((120..=135).contains(&half), "{half}");
+        play(&mut st, 20);
+        // Gone at the end.
+        assert_eq!(window_fading(&st), None);
+        assert!(st.sprites.is_empty());
+    }
+
+    #[test]
+    fn the_message_window_fade_is_one_frame_at_the_third_speed() {
+        let mut st = Stage::default();
+        window_out(&mut st, 0.0);
+        let wait = st.blocking_ms().unwrap();
+        assert!(wait <= 3 * TICK_MS, "{wait}");
     }
 
     #[test]

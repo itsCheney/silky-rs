@@ -22,6 +22,8 @@ Measured under Wine: the place and pitch of the message text and the place of th
 - The window is the alpha mask in the top 199 rows of `meswaku.akb`, filled with the window colour. Its top is at 521 (`/Config/MesWnd/Pos` of a new install).
 - Default colour is 19, 70, 133 and the default transparency 50, each of 268. The program scales each by 255 / 268.
 - Buttons are cells of `meswaku.akb` laid over the click areas of `mes.area`, which are relative to the window. Ids 0 to 12: save, load, quick save, quick load, voice loop, hide, auto, skip, next choice, previous choice, title, backlog, settings. Cells have four state rows: normal, hover, pressed, disabled. Auto, skip and voice loop show pressed while on.
+- `MesWnd.2(0)` takes the window away: the text is gone at once and the window (and its buttons) fade out over 12 frames, scaled by the effect speed, and the script waits for it. With no window up it does nothing, and with `/Config/SceneSkip` at 1 the window goes at once. (Under Wine the recording of the scene before `Screen.0` shows this fade, about 1.5 s long: the program ran about 3.4 recorded frames to a frame of the fade there. It is the window that fades, not the screen.) Ours draws the window band at the fade's opacity; the face window and the buttons go at once.
+- `Screen.0(frames, colour)` and `Screen.1(frames)` fade the cover in and out and take at least one frame: the scripts' `Screen.0(0, 0)` is one frame of black, not a long fade (the library's cover helper passes the 0 its caller gave; the scene change after the glow's message calls it with 0). The recording shows the cut to black in one recorded frame, held about 0.5 s before the next pictures; what the program waits for in that time is not read (picture and sound loading under Wine is the likely part), so no hold is added.
 - Click wait: a 29 x 28 mark at (1050, window top + 154), shown while a message waits for a click. Its frames lie in two rows of `meswaku.akb` from x = 691, 29 apart: a triangle (11 frames, y = 461) and a speaker (14 frames, y = 433). A timer steps it: frames 0 to 4 play in (100 ms each), then the loop runs at 400 ms a frame, frames 5 and 6 for the triangle and 5 to 8 for the speaker. While a voice line plays the mark is the speaker, otherwise the triangle. When that changes, the picture on screen plays out (triangle frames 7 to 10, speaker frames 9 to 13, 100 ms each) and the other one plays in. Every new wait starts from frame 0 of the triangle (or the speaker if a voice is playing).
 
 ### Text
@@ -220,6 +222,8 @@ Addresses in `nanairo.exe` as linked (image base 0x400000). The code itself does
 | `Game.19` fill | 0x473430 |
 | `Game.26` chapter end | 0x454980 |
 | Message window: layer creation (window, wait mark, face layer) | 0x455f60 |
+| `MesWnd` handler (sub 2 picks the close at slot 3 when its value is not 1); window close: fade over 12 frames, then hide (runs only while the window is up, flag at +0xc8) | 0x42cf40 (table 0x42cfc8), 0x42cfe0; 0x456840 |
+| `Screen` handler (jump table 0x48e8a4); `Screen.0` and `Screen.1` (scene skip tested, frames at least 1); cover fade in and out | 0x48e820; 0x48e8c0, 0x48e950; 0x482da0, 0x482ba0 |
 | Wait mark: step function (frame, phase, row; timer 100 / 400 ms) | 0x458750 |
 | `Game.1004` handler; `1007` (clears object map); `1008`, `1009` (thumbnail files `thm%03u`) | 0x471b20; 0x497fc0; 0x4727c0, 0x472600 |
 | Message window: colour and transparency (K at 0x50d328) | 0x456160 |

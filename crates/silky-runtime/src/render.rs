@@ -1624,11 +1624,17 @@ impl Renderer {
             if text {
                 self.draw_text_at(&mut canvas, scene, None, (0, 0));
             }
-        } else if scene.text.is_some() && window && self.title == Title::Nanairo {
+        } else if self.title == Title::Nanairo
+            && ((scene.text.is_some() && window)
+                || crate::games::nanairo::effects::window_fading(&scene.effects).is_some())
+        {
             use crate::games::nanairo::window;
             // The mask filled with the window colour, at the window's
-            // opacity.
+            // opacity (times the fade's while the window goes away).
             let (color, opacity) = self.window;
+            let opacity = opacity
+                * crate::games::nanairo::effects::window_fading(&scene.effects)
+                    .map_or(1.0, |a| a as f32 / 255.0);
             let rgb = color.map(|c| (c.clamp(0.0, 1.0) * 255.0) as u8);
             let parts = assets.image(window::SHEET)?;
             let band = self.tinted(&parts, window::BAND, rgb);

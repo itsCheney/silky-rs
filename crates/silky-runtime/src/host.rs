@@ -1204,14 +1204,23 @@ impl Runtime {
                 return Some(flow);
             }
         }
+        // なないろリンカネーション: a fade takes at least one frame (the
+        // scripts pass 0 for a cut, which shows one frame of the colour).
+        let fade = |frames: i32| {
+            if self.assets.game().title == Title::Nanairo {
+                frames.max(1)
+            } else {
+                frames
+            }
+        };
         Some(match (class, sub, args.len()) {
             (SCREEN, screen::FADE_OUT, 2) => {
                 self.scene.cover = Some(colour(n(1)));
-                self.transition(n(0), None)
+                self.transition(fade(n(0)), None)
             }
             (SCREEN, screen::FADE_IN, 1) => {
                 self.scene.cover = None;
-                self.transition(n(0), None)
+                self.transition(fade(n(0)), None)
             }
             (SCREEN, screen::RULE_OUT, 3) => {
                 self.scene.cover = Some(colour(n(2)));
@@ -1538,6 +1547,13 @@ impl Host for Runtime {
                 // MesWnd.2(1) shows it, which the next message does anyway.
                 if class == MESWND && sub == 2 {
                     if let [Value::Int(on)] = args.as_slice() {
+                        // なないろリンカネーション: the window fades away
+                        // over 12 frames and the script waits.
+                        if *on == 0 && title == Title::Nanairo {
+                            if let Some(r) = self.nanairo_window_out() {
+                                return r;
+                            }
+                        }
                         if *on == 0 {
                             self.scene.text = None;
                             self.scene.speaker = None;
