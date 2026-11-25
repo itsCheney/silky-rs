@@ -233,6 +233,8 @@ pub struct Viewer {
     phase: Phase,
     fade: Option<ButtonFade>,
     scroll: usize,
+    /// The drag that holds the scroll bar, while there is one.
+    bar: Option<BarDrag>,
     /// The slider, 0 to 1.
     zoom: f32,
     hidden: bool,
@@ -261,6 +263,24 @@ pub fn timeline(n: usize) -> i32 {
 /// The size of the model in percent for a slider value.
 pub fn size_percent(zoom: f32) -> i32 {
     SIZE_MIN + (zoom * SIZE_RANGE) as i32
+}
+
+/// A drag of the scroll bar. The original follows the pointer's travel
+/// from the press (`pos` starts at the pointer's height and cannot go
+/// above 0) and puts the list where that height maps to, but only when
+/// that differs from what the press itself mapped to (`last`).
+#[derive(Debug, Clone, Copy)]
+struct BarDrag {
+    last: usize,
+    pos: i32,
+    y: i32,
+}
+
+/// Whether (x, y) is on the knob of the bar when the list is at `scroll`
+/// (35 wide and 50 high).
+pub fn on_knob(scroll: usize, x: i32, y: i32) -> bool {
+    let top = BAR_TOP + (scroll as i32 * BAR_HEIGHT) / SCROLL_MAX as i32;
+    (BAR_X..BAR_X + 35).contains(&x) && (top..top + 50).contains(&y)
 }
 
 /// The scroll position for a pointer at height `y` on the bar.
@@ -293,6 +313,7 @@ impl Viewer {
             phase: Phase::Idle,
             fade: None,
             scroll: 0,
+            bar: None,
             zoom: ZOOM_START,
             hidden: false,
             dialog: false,
@@ -473,6 +494,7 @@ impl Viewer {
     }
 
     pub fn click(&mut self, id: i32) -> Click {
+        self.bar = None;
         // (`hit` already answers nothing while a fade runs.)
         if self.dialog {
             self.dialog = false;
@@ -622,9 +644,39 @@ impl Viewer {
                 self.zoom = v as f32 / 256.0;
                 self.dirty = true;
             }
-            SCROLLBAR => self.scroll = scroll_at(y),
+            SCROLLBAR => match &mut self.bar {
+                Some(d) => {
+                    d.pos = (d.pos + y - d.y).max(0);
+                    d.y = y;
+                    let n = scroll_at(d.pos);
+                    if n != d.last {
+                        d.last = n;
+                        self.scroll = n;
+                    }
+                }
+                None => self.scroll = scroll_at(y),
+            },
             _ => {}
         }
+    }
+
+    /// The press that starts a drag of the scroll bar. A press off the
+    /// knob puts the list under the pointer at once; a press on the knob
+    /// leaves it until the pointer's height maps to another position.
+    pub fn press_start(&mut self, id: i32, x: i32, y: i32) {
+        self.bar = None;
+        if id != SCROLLBAR || self.dialog || self.hidden || self.busy() {
+            return;
+        }
+        let first = scroll_at(y);
+        if !on_knob(self.scroll, x, y) {
+            self.scroll = first;
+        }
+        self.bar = Some(BarDrag {
+            last: first,
+            pos: y,
+            y,
+        });
     }
 
     /// The mouse wheel: up goes back by five, down forward; true when the
@@ -1037,6 +1089,36 @@ mod tests {
         // The row pressed is counted from the top of the shown list.
         v.click(ROW + 2);
         assert_eq!(v.motion, Some(SCROLL_MAX - 5 + 2));
+    }
+
+    #[test]
+    fn a_press_off_the_knob_jumps_and_one_on_it_waits() {
+        let mut v = viewer(&[0]);
+        v.scroll = 80;
+        // The knob sits at 150 + 80 * 405 / 162 = 350, 50 high.
+        assert!(on_knob(80, 1240, 350) && on_knob(80, 1263, 399));
+        assert!(!on_knob(80, 1240, 349) && !on_knob(80, 1240, 400));
+        assert!(!on_knob(80, 1228, 360) && !on_knob(80, 1264, 360));
+        // Off the knob: the list goes where the pointer maps to.
+        v.press_start(SCROLLBAR, 1240, 500);
+        assert_eq!(v.scroll, scroll_at(500));
+        // On the knob: nothing moves with the press or a nudge that maps
+        // to the same place, then the list follows the pointer.
+        v.scroll = 80;
+        v.press_start(SCROLLBAR, 1240, 352);
+        assert_eq!(v.scroll, 80);
+        v.press_at(SCROLLBAR, 1240, 352);
+        assert_eq!(v.scroll, 80);
+        v.press_at(SCROLLBAR, 1240, 400);
+        assert_eq!(v.scroll, scroll_at(400));
+        // The tracked position cannot go above 0, so coming back from
+        // above the window is measured from there.
+        v.press_at(SCROLLBAR, 1240, -500);
+        assert_eq!(v.scroll, 0);
+        v.press_at(SCROLLBAR, 1240, 300);
+        assert_eq!(v.scroll, scroll_at(800));
+        v.click(SCROLLBAR);
+        assert!(v.bar.is_none());
     }
 
     #[test]

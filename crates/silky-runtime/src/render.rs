@@ -1857,34 +1857,38 @@ fn emote_shift(scene: &Scene, key: i32) -> i32 {
     crate::games::kimaten1::effects::emote_shift(scene, key)
 }
 
-/// Draws a model picture at `opacity`, its colours raised by the model's
-/// colour setting by `white`, both from 0 to 255 (`None`: as it is). The
-/// engine's setting is a colour whose 0x80 leaves the model as it is and
-/// 0xff doubles it; so `white` 255 doubles each channel, up to white.
+/// Draws a model picture at `opacity` with the model's colour byte (`None`:
+/// as it is). The engine multiplies each colour channel by twice the byte
+/// over 255, so 0x80 leaves the model as it is and 0xff doubles it, up to
+/// white; the opacity is not touched by it.
 #[cfg(feature = "emote")]
 fn draw_faded(canvas: &mut Canvas, img: &Arc<Image>, x: f32, y: f32, fx: Option<(u8, u8)>) {
     let (x, y) = (x.round() as i32, y.round() as i32);
-    let Some((alpha, white)) = fx else {
+    let Some((alpha, byte)) = fx else {
         canvas.draw(img, x, y, false);
         return;
     };
     if alpha == 0 {
         return;
     }
-    let img = if white == 0 {
+    let img = if byte == 0x80 {
         img.clone()
     } else {
-        // The colour byte runs from 128 (as it is) to 255 over `white`.
-        let byte = 128 + white as u32 * 127 / 255;
         let mut t = (**img).clone();
         for px in t.rgba.chunks_exact_mut(4) {
             for c in &mut px[..3] {
-                *c = (*c as u32 * byte / 128).min(255) as u8;
+                *c = model_colour(*c, byte);
             }
         }
         Arc::new(t)
     };
     canvas.draw_part(&img, (0, 0, img.width, img.height), x, y, false, alpha);
+}
+
+/// One colour channel of a model picture under the model's colour byte.
+#[cfg(feature = "emote")]
+fn model_colour(c: u8, byte: u8) -> u8 {
+    ((c as u32 * byte as u32 * 2 + 127) / 255).min(255) as u8
 }
 
 #[cfg(test)]

@@ -1461,6 +1461,10 @@ impl Session {
             {
                 s.press_at(id, x, y);
             }
+            // The viewer's scroll bar starts its drag at the press.
+            if let Some(K1::Viewer(v)) = self.ui.k1_menu.as_mut().or(self.ui.k1.as_mut()) {
+                v.press_start(id, x, y);
+            }
         }
         // A click that cancels the walk is no click on the map.
         let cancelled = self.cancel_walk();
