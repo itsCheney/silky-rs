@@ -918,6 +918,10 @@ impl Runtime {
             // picture is drawn over sprite 6, which ends a dimming.
             (3, 9) => {
                 self.scene.dim = None;
+                if self.assets.game().title == Title::Nanairo {
+                    let a: Vec<i32> = args.iter().map(Value::int).collect();
+                    crate::games::nanairo::stage::copied(&mut self.scene, &a);
+                }
                 // 同級生 Remake: the window of a layer's picture copied
                 // onto the screen (sprite 0) sets what the layer shows.
                 // Values: flag, source, source y, source x, target, height,

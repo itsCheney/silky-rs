@@ -13,6 +13,23 @@ use crate::scene::Scene;
 use crate::text::TextRenderer;
 use crate::Result;
 
+/// Sprite that event pictures and scene stills are loaded into over the
+/// background; it only shows while it is copied onto the screen.
+const OVERLAY_SPRITE: i32 = 6;
+
+/// `Sprite.3(flag, source, y, x, target, height, width, target y, target
+/// x)`: the screen is the target sprite 0. A whole picture copied onto it
+/// from the background replaces what an earlier copy of the overlay
+/// sprite showed; the overlay's picture is kept in its sprite but is gone
+/// from the screen.
+pub fn copied(scene: &mut Scene, a: &[i32]) {
+    if let [_, source, 0, 0, 0, 720, 1280, 0, 0] = *a {
+        if source == super::BACKGROUND_SPRITE {
+            scene.layers.remove(&OVERLAY_SPRITE);
+        }
+    }
+}
+
 /// The two letters after the `t` of a standing picture's name.
 fn id(body: &str) -> Option<String> {
     let b = body.to_ascii_lowercase();
@@ -142,6 +159,24 @@ mod tests {
         assert_eq!(shifted(0, 1, 50, "tiy11.akb"), (-345, 50));
         assert_eq!(shifted(1, 0, 50, "tiy11.akb"), (300, 50));
         assert_eq!(shifted(2, 2, 50, "tiy11.akb"), offset(2, 50, "tiy11.akb"));
+    }
+
+    /// A still loaded into the overlay sprite shows once it is copied onto
+    /// the screen, and goes when the next background is copied there.
+    #[test]
+    fn overlay_picture_goes_with_the_next_background() {
+        let mut scene = crate::scene::Scene::default();
+        scene.layers.insert(2, "HG040003_h01.akb".into());
+        scene.layers.insert(6, "HG040002_h01.akb".into());
+        // A part of the picture does not replace the screen.
+        super::copied(&mut scene, &[1, 2, 0, 0, 0, 100, 100, 0, 0]);
+        assert!(scene.layers.contains_key(&6));
+        // The overlay itself copied to the screen stays.
+        super::copied(&mut scene, &[0, 6, 0, 0, 0, 720, 1280, 0, 0]);
+        assert!(scene.layers.contains_key(&6));
+        super::copied(&mut scene, &[1, 2, 0, 0, 0, 720, 1280, 0, 0]);
+        assert!(!scene.layers.contains_key(&6));
+        assert!(scene.layers.contains_key(&2));
     }
 
     #[test]
