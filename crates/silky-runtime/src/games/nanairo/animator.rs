@@ -193,13 +193,15 @@ fn bobbing(fx: &mut Fx, fade: bool, factor: f32) {
     fx.play(vec![(a, keys)], false);
 }
 
-/// Subs 1 and 11: A pans slowly sideways and back, fading out and in
-/// over 64 frames each way.
+/// Subs 1 and 11: A pans sideways, fading out and in, 64 frames each way.
 ///
-/// The original moves A 100 pixels to the left and 20 down while it fades
-/// out, then brings it in from 100 to the left of its place and 20 up to
-/// it; the first round is done as read, and the way the rounds after it
-/// alternate (they also move to the right) is not read far enough.
+/// The first round takes A 100 pixels to the left and 20 down while it
+/// fades out. Then 19 pairs follow, A coming in from the left (odd pairs)
+/// or the right (even pairs) 100 pixels away and 20 up to its place, and
+/// leaving to the opposite side, each pair 2 pixels higher than the one
+/// before, with the size growing by 0.0005 a step from a quarter. Then, for
+/// ever, from the place 50 high: in from the right and out to the left,
+/// in from the left and out to the right.
 fn pan(fx: &mut Fx, factor: f32) {
     let (a, _) = set_up(fx);
     edit(fx, a, |s| {
@@ -209,14 +211,43 @@ fn pan(fx: &mut Fx, factor: f32) {
         s.shown = true;
     });
     let n = looped(64, factor);
-    let keys = vec![
+    let size = |u: i32| 0.25 + 0.0005 * u as f32;
+    let grow = |k: Key, from: i32, to: i32| {
+        k.scaling((size(from), size(from)), (size(to), size(to)), CENTRE)
+    };
+    let come = |y: i32, side: i32| {
+        Key::new(n)
+            .moving((side * 100, y), (0, y - 20))
+            .fade(0, 255)
+    };
+    let go = |y: i32, side: i32| {
+        Key::new(n)
+            .moving((0, y - 20), (side * 100, y))
+            .fade(255, 0)
+    };
+    let mut keys = vec![grow(
         Key::new(n)
             .show(true)
             .moving((0, 100), (-100, 120))
             .fade(255, 0),
-        Key::new(n).moving((-100, 100), (0, 80)).fade(0, 255),
-        Key::jump(0),
-    ];
+        0,
+        2,
+    )];
+    let mut y = 100;
+    for pair in 1..=19 {
+        let u = 1 + 5 * pair;
+        // Odd pairs come in from the left, even ones from the right.
+        let side = if pair % 2 == 1 { -1 } else { 1 };
+        keys.push(grow(come(y, side), u - 1, u));
+        keys.push(grow(go(y, -side), u, u + 1));
+        y -= 2;
+    }
+    let again = keys.len();
+    for (side, _) in [(1, ()), (-1, ())] {
+        keys.push(come(50, side));
+        keys.push(go(50, -side));
+    }
+    keys.push(Key::jump(again));
     fx.play(vec![(a, keys)], false);
 }
 

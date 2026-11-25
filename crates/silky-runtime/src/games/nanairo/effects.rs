@@ -219,10 +219,11 @@ pub fn event_zoom(st: &mut Stage, factor: f32) {
 
 /// `Game.1001.1`: the effect picture fades in over 24 frames and stays
 /// (the script does not wait). With the movie `movie` playing, its picture
-/// comes up in place of the still one, its brightness as opacity.
+/// comes up as well, its brightness as opacity.
 ///
-/// Not done: the original also scrolls the effect picture round for ever;
-/// the way it does is not read.
+/// The original's key list also rolls the picture up a row a frame, but
+/// the same roll on the glow does not show in the original's recording, so
+/// it is not drawn.
 pub fn event_in(st: &mut Stage, movie: Option<&str>, factor: f32) {
     let mut fx = Fx::new(st, EVENT);
     let frames = scaled(24, factor);
