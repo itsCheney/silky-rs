@@ -7,7 +7,7 @@ How far each game runs on silky-rs. The engine shared by all games is described 
 | Game | Known by | Page |
 | --- | --- | --- |
 | ふゆから、くるる。 (international build 1.0.1.0; Japanese package 1.0.0.0 and 1.0.1.0) | `fuyukuru.exe` | [games/fuyukuru.md](games/fuyukuru.md) |
-| きまぐれテンプテーション (Japanese build with the official update 1.04), interface, E-mote models and extras; headless, it reaches the bad endings and some branches, not the 06 endings | `kimaten.exe` | [games/kimaten1.md](games/kimaten1.md) |
+| きまぐれテンプテーション (Japanese build with the official update 1.04), interface, E-mote models and extras; headless, `K1_ROUTE` reaches every ending | `kimaten.exe` | [games/kimaten1.md](games/kimaten1.md) |
 | きまぐれテンプテーション2 (2024 Japanese build, patch 1.02) | `kimaten2.exe` | [games/kimaten2.md](games/kimaten2.md) |
 | 先輩が私の妄想にドージンする (Japanese build 1.0.1.0), story text to an ending headless | `doujin.exe` | [games/doujin.md](games/doujin.md) |
 | 景の海のアペイリア (Japanese build with the official update), story and extras | `apeiria.exe` | [games/apeiria.md](games/apeiria.md) |

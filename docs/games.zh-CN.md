@@ -7,7 +7,7 @@
 | 游戏 | 识别依据 | 页面 |
 | --- | --- | --- |
 | ふゆから、くるる。（国际版 1.0.1.0；日文盒装版 1.0.0.0 和 1.0.1.0） | `fuyukuru.exe` | [games/fuyukuru.zh-CN.md](games/fuyukuru.zh-CN.md) |
-| きまぐれテンプテーション（日文版，带官方更新 1.04），界面、E-mote 模型和附加内容可用；无界面模式下能到达坏结局和部分分支，到不了 06 的各个结局 | `kimaten.exe` | [games/kimaten1.zh-CN.md](games/kimaten1.zh-CN.md) |
+| きまぐれテンプテーション（日文版，带官方更新 1.04），界面、E-mote 模型和附加内容可用；无界面模式下用 `K1_ROUTE` 能到达所有结局 | `kimaten.exe` | [games/kimaten1.zh-CN.md](games/kimaten1.zh-CN.md) |
 | きまぐれテンプテーション2（2024 年日文版，1.02 补丁） | `kimaten2.exe` | [games/kimaten2.zh-CN.md](games/kimaten2.zh-CN.md) |
 | 先輩が私の妄想にドージンする（日文版 1.0.1.0），无界面模式下剧情文本可播放到结局 | `doujin.exe` | [games/doujin.zh-CN.md](games/doujin.zh-CN.md) |
 | 景の海のアペイリア（日文版，带官方更新），剧情和鉴赏模式可用 | `apeiria.exe` | [games/apeiria.zh-CN.md](games/apeiria.zh-CN.md) |
