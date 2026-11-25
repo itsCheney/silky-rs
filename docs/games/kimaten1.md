@@ -23,7 +23,7 @@ The player and `silky-run snap` open it. Window, button bar, action menu, invest
 - A band along the bottom, a colour fill with a diamond texture over it; its top is the saved window position, 505 by default. The text sits in a box from (280, 66) to (1120, 202) under the top, in 28 pixel cells and 36 pixel lines; the speaker name is one line above it.
 - The bar is thirteen buttons: save, load, quick save, quick load, voice loop, jump to the next selection, backlog, auto, skip read text, skip all text, settings, notebook, and one that folds the others away. A cross hides the window.
 - The fold button slides the bar down to y = 720 and back up to 682 over 12 passes at 60 a second. Input is not blocked meanwhile (the exe may block it). The rate is taken from the same animation class in another build.
-- The notebook button blinks when the notebook is unlocked (`Game.10` sub 15): cell 11 of `message_p.akb`, five rounds of 400 ms.
+- The notebook button blinks when the notebook is unlocked (`Game.10` sub 15): cell 11 of `message_p.akb`, five rounds of 400 ms (lit, off, lit, off, lit). The button's tooltip balloon shows above it for the whole blink, and above any button the pointer is on while the tooltip setting is on (the balloon is built from pieces of `message_p.akb` and sized by its text, 18 pixel cells).
 - Greyed buttons: history while the log is empty, load while there are no saves (both approximations of the exe's own flags), notebook by byte 899.
 - The click-wait bat is four frames of 200 ms at (1126, window top + 90).
 - Buttons show the game's tooltips in the information line.
@@ -82,7 +82,7 @@ The help line is written in 16 pixel cells at (668, 695), white glyphs with a bl
 
 ### Notices
 
-`Game.44` queues a string (sub 0), shows the queue (sub 1), takes the strips down (sub 2), clears the queue (sub 3) or answers whether strips are still up (sub 4). A notice is a small pink strip, such as 「捜査手帳」が解放されました, that slides in from the right edge, stays four seconds and slides out. The strips of one batch are as wide as the longest; the older ones step down to make room.
+`Game.44` queues a string (sub 0), shows the queue (sub 1), takes the strips down (sub 2), clears the queue (sub 3) or answers whether strips are still up (sub 4). A notice is a small pink strip, such as 「捜査手帳」が解放されました, that slides in from the right edge, stays four seconds and slides out. The strips of one batch are as wide as the longest; the older ones step down to make room. A strip is 48 pixels of sheet with a 35 pixel pink bar, at 50 pixel pitch from y = 32; its pieces are copied over each other (no seams) and the text is white with a black edge in 20 pixel cells. The batch of six notices after the notebook unlock is 448 wide (19 cells). The slide, the step down and the four seconds are frame counts in the exe, so the original's speed follows its frame rate; in the Wine run the strips of a batch started 100 to 200 ms apart after each arrival, which ours (60 frames a second) does not reproduce.
 
 ## E-mote
 
@@ -143,6 +143,10 @@ The notebook (opened from the action menu's bar, six entries new, the rest locke
 - Scene skip does not cut a running wait short.
 - Effects (`Game.1001`, `1002`): the exe copies the screen once for type 7 and for `1002` subs 3 and 6; ours is live. Subs 4 and 5 bake the top picture into the background, where the exe copies the composed screen. The black fade and piece depth of sub 1, the companion model's depth, the place of the black layer of types 2 and 3 are guesses. The red room is a sprite, not the background. Random positions cannot match a run of the original. None of these effects were compared with the original under Wine.
 - `Mouse.5` (input device slot 0x40, vtable 0x53fb94) is handled as clearing the pending click; what the device does with the argument is not decoded.
+
+## Notices and blink compared
+
+The notice strip (geometry, rows 32 to 66, width, pitch, removal order bottom up, text place) and the notebook button's blink (rhythm and target) were compared with frames of the original under Wine. Fixed from that: the strip showed seams (the pieces were blended over each other), the text was thin and without the black edge, and the bar had no tooltip balloon (the original shows it above the notebook button while it blinks). Not matched: the original's frame rate varied during the run, so slide times differ by tens of milliseconds; its text is slightly heavier than ours.
 
 ## Headless routes
 
@@ -205,6 +209,7 @@ Addresses in `kimaten.exe` of the build above. The code itself does not name the
 | Notices: `Game.44`, sub table | 0x49c600, 0x49c754 |
 | Notices: create, init, add, frame, show, clear | 0x46b760, 0x46b8b0, 0x46b940, 0x46b9b0, 0x46bb20, 0x46be30 |
 | Notices: build strip, draw text, strip step, created in the game object | 0x46b190, 0x46b680, 0x46b570, 0x4bed10 |
+| Window: hover tooltip, balloon text, `Game.10` sub 15 balloon | 0x471790, 0x472870, 0x472950 |
 | Notebook: vtable, create, exit, init, update, click | 0x53bca8, 0x47e140, 0x47e4d0, 0x47e5c0, 0x47e6c0, 0x47e7e0 |
 | Notebook: draw element, static, list, page | 0x47f1c0, 0x47f740, 0x47f880, 0x480ed0 |
 | Notebook: scroll bar draw, thumb draw, drag loop | 0x480490, 0x4805a0, 0x480640 |

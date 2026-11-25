@@ -2673,7 +2673,11 @@ impl Layout {
             return d.draw(canvas, assets, ui, true);
         }
         if let Some(k) = &self.k1 {
-            return k.draw(canvas, assets, ui);
+            k.draw(canvas, assets, ui)?;
+            if let Some(t) = text {
+                k.draw_help(canvas, assets, ui, t)?;
+            }
+            return Ok(());
         }
         if let Some(n) = &self.nanairo {
             return n.draw(canvas, assets, ui);

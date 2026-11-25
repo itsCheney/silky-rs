@@ -30,6 +30,8 @@ const CELL: i32 = 20;
 const PADDING: i32 = 68;
 const TEXT_LEFT: i32 = 44;
 const TEXT_TOP: i32 = 14;
+const GLYPH: f32 = 16.0;
+const BASELINE: f32 = 15.0;
 /// How long a strip stays after it starts, in ms.
 const STAY_MS: u64 = 4000;
 /// The strips move once per frame.
@@ -254,21 +256,30 @@ impl Notices {
                 continue;
             }
             canvas.draw_part(&sheet, CAP, t.x, t.y, false, 255);
+            // The original copies the pieces over each other into the
+            // strip's own picture (24 wide at a 20 pixel pitch), so only
+            // the last one keeps its full width; blending the overlaps
+            // would leave seams.
             for i in 0..=t.cells {
-                canvas.draw_part(&sheet, MIDDLE, t.x + TEXT_LEFT + i * CELL, t.y, false, 255);
+                let w = if i == t.cells { MIDDLE.2 } else { CELL as u32 };
+                let part = (MIDDLE.0, MIDDLE.1, w, MIDDLE.3);
+                canvas.draw_part(&sheet, part, t.x + TEXT_LEFT + i * CELL, t.y, false, 255);
             }
             if let Some(tr) = text {
                 // Shorter strings sit toward the right edge of the strip.
                 let left = t.x + TEXT_LEFT + (t.cells - t.own) * CELL;
                 let top = t.y + TEXT_TOP;
-                tr.draw_plain(
-                    canvas,
-                    &t.text,
-                    left as f32,
-                    top as f32 + 16.0,
-                    CELL as f32,
-                    [255, 255, 255, 255],
-                );
+                tr.with_fixed_cells(CELL as f32 / GLYPH, |tr| {
+                    tr.draw_outlined(
+                        canvas,
+                        &t.text,
+                        left as f32,
+                        top as f32 + BASELINE,
+                        GLYPH,
+                        [255, 255, 255, 255],
+                        [0, 0, 0, 255],
+                    )
+                });
             }
         }
         Ok(())
@@ -315,5 +326,45 @@ mod tests {
         assert_eq!(n.toasts.len(), 2);
         assert_eq!(n.toasts[0].y, TOP + STACK_STEP);
         assert_eq!(n.toasts[1].y, TOP);
+    }
+
+    #[test]
+    fn a_batch_is_as_wide_as_its_longest_string() {
+        let mut n = Notices::default();
+        n.push("【集団自殺（？）事件】が追加されました");
+        n.push("【大家】が追加されました");
+        n.show();
+        for f in 1..=80 {
+            n.advance(f * 1000 / 60);
+        }
+        // 19 cells: 448 wide, flush with the right edge.
+        assert_eq!(n.toasts[0].x, EDGE - 448);
+        assert_eq!(n.toasts[1].x, EDGE - 448);
+    }
+
+    #[test]
+    fn the_oldest_strip_leaves_first() {
+        let mut n = Notices::default();
+        n.push("あいう");
+        n.show();
+        n.clear_queue();
+        for f in 1..=60 {
+            n.advance(f * 1000 / 60);
+        }
+        n.push("えお");
+        n.show();
+        let mut clock = 1000;
+        let mut order = Vec::new();
+        while n.busy() && clock < 20_000 {
+            clock += 17;
+            let before = n.toasts.iter().map(|t| t.text.clone()).collect::<Vec<_>>();
+            n.advance(clock);
+            for b in before {
+                if !n.toasts.iter().any(|t| t.text == b) {
+                    order.push(b);
+                }
+            }
+        }
+        assert_eq!(order, ["あいう", "えお"]);
     }
 }

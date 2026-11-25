@@ -19,6 +19,7 @@ use silky_format::area::{self, Area};
 
 use crate::assets::Assets;
 use crate::render::Canvas;
+use crate::text::TextRenderer;
 use crate::ui::{bar, Button, State, Ui};
 use crate::Result;
 
@@ -51,6 +52,32 @@ const FOLD: i32 = 12;
 const NOTEBOOK: i32 = 11;
 const BLINK_ROUND_MS: u64 = 400;
 const BLINK_ROUNDS: u64 = 5;
+/// The tooltip of each button (by `mes_o.area` id) that shows above it
+/// while the pointer is on it, and above the notebook button while it
+/// blinks. `\n` breaks a line.
+const HELP: [(i32, &str); 13] = [
+    (0, "セーブ画面を開きます"),
+    (1, "ロード画面を開きます"),
+    (2, "クイックセーブします"),
+    (3, "クイックロードします"),
+    (4, "音声をループ再生します"),
+    (5, "未読文章、選択肢又はシーンの\n始まりまでジャンプします"),
+    (6, "履歴を表示します"),
+    (7, "文章の自動再生を開始します"),
+    (8, "既読文章をスキップします"),
+    (9, "既読・未読両方スキップします"),
+    (10, "環境設定を開きます"),
+    (11, "捜査手帳を開きます"),
+    (12, "メニューの開閉をします"),
+];
+/// Pieces of the balloon on `message_p.akb`: 30 pixel corners, 18 pixel
+/// edges and middle, three rows (top, side, bottom) at these tops, and the
+/// point.
+const BALLOON_ROWS: [u32; 3] = [680, 710, 740];
+const BALLOON_POINT: (u32, u32, u32, u32) = (30, 830, 30, 30);
+/// Glyph size of the balloon text, over 18 pixel cells.
+const HELP_GLYPH: f32 = 14.0;
+const HELP_BASELINE: f32 = 13.0;
 /// Folding the bar moves the twelve buttons down off the screen, and
 /// unfolding moves them back, over twelve passes of the engine's sprite
 /// animation (60 a second), in a straight line.
@@ -134,6 +161,79 @@ impl Bar {
         Some((way * t / SLIDE_PASSES) as i32)
     }
 
+    /// The tooltip balloon: above the button under the pointer when the
+    /// tooltips are on, otherwise above the notebook button during its
+    /// blink.
+    pub fn draw_help(
+        &self,
+        canvas: &mut Canvas,
+        assets: &mut Assets,
+        ui: &Ui,
+        text: &TextRenderer,
+    ) -> Result<()> {
+        let hovered = match ui.hover {
+            Some(Button::Bar(action_id)) if ui.tooltips => self
+                .shown(ui)
+                .map(|(id, _)| *id)
+                .find(|id| *id < CROSS && action(*id) == action_id),
+            _ => None,
+        };
+        let blinking = ui
+            .k1_blink
+            .is_some_and(|start| ui.clock.saturating_sub(start) < BLINK_ROUND_MS * BLINK_ROUNDS);
+        let id = match hovered {
+            Some(id) => id,
+            None if blinking && !ui.ring_closed => NOTEBOOK,
+            None => return Ok(()),
+        };
+        let Some((_, area)) = self.areas.iter().find(|(i, _)| *i == id) else {
+            return Ok(());
+        };
+        let Some((_, line)) = HELP.iter().find(|(i, _)| *i == id) else {
+            return Ok(());
+        };
+        let sheet = assets.image("message_p.akb")?;
+        let lines: Vec<&str> = line.split('\n').collect();
+        // The width counts 18 for a full-width character and 15 for a
+        // single-byte one (the text itself advances 9).
+        let width =
+            |l: &str| -> i32 { l.chars().map(|c| if c.is_ascii() { 15 } else { 18 }).sum() };
+        let text_w = lines.iter().map(|l| width(l)).max().unwrap_or(0);
+        let rows = lines.len() as i32;
+        let balloon = balloon(&sheet, text_w, rows);
+        let half = (text_w + 60) / 2;
+        let x = area.left + area.width() as i32 / 2 - half / 2 - half;
+        let y = area.top - 18 * rows - 45;
+        canvas.draw_part(
+            &balloon,
+            (0, 0, balloon.width, balloon.height),
+            x,
+            y,
+            false,
+            255,
+        );
+        let point_x = half - 15 + half / 2;
+        let point_y = 18 * rows + 30;
+        canvas.draw_part(&sheet, BALLOON_POINT, x + point_x, y + point_y, false, 255);
+        for (i, l) in lines.iter().enumerate() {
+            let mut gx = x + 30;
+            for c in l.chars() {
+                let mut buf = [0; 4];
+                text.draw_outlined(
+                    canvas,
+                    c.encode_utf8(&mut buf),
+                    gx as f32,
+                    (y + 30 + 18 * i as i32) as f32 + HELP_BASELINE,
+                    HELP_GLYPH,
+                    [255, 255, 255, 255],
+                    [0, 0, 0, 255],
+                );
+                gx += if c.is_ascii() { 9 } else { 18 };
+            }
+        }
+        Ok(())
+    }
+
     pub fn hit(&self, ui: &Ui, x: i32, y: i32) -> Option<Button> {
         self.shown(ui)
             .find(|(_, a)| a.contains(x, y))
@@ -212,5 +312,80 @@ pub fn draw_band(
     if rgb != [0; 3] {
         let (_, _, w, h) = BAND;
         canvas.fill(0, TOP, w, h, [rgb[0], rgb[1], rgb[2], alpha / 2]);
+    }
+}
+
+/// The balloon put together from the pieces on `message_p.akb`. The
+/// original copies each piece over what is there, so the overlaps replace
+/// instead of blending.
+fn balloon(
+    sheet: &silky_format::akb::Image,
+    text_w: i32,
+    rows: i32,
+) -> Arc<silky_format::akb::Image> {
+    let cols = (text_w + 17) / 18;
+    let width = (30 + 18 * cols + 30) as u32;
+    let height = (30 + 18 * rows + 30) as u32;
+    let mut rgba = vec![0u8; (width * height * 4) as usize];
+    let mut copy = |(sx, sy, w, h): (u32, u32, u32, u32), dx: i32, dy: i32| {
+        for row in 0..h {
+            for col in 0..w {
+                let (tx, ty) = (dx + col as i32, dy + row as i32);
+                if tx < 0 || ty < 0 || tx >= width as i32 || ty >= height as i32 {
+                    continue;
+                }
+                let (px, py) = (sx + col, sy + row);
+                if px >= sheet.width || py >= sheet.height {
+                    continue;
+                }
+                let s = ((py * sheet.width + px) * 4) as usize;
+                let d = ((ty as u32 * width + tx as u32) * 4) as usize;
+                rgba[d..d + 4].copy_from_slice(&sheet.rgba[s..s + 4]);
+            }
+        }
+    };
+    let mut row = |kind: usize, h: u32, dy: i32| {
+        let top = BALLOON_ROWS[kind];
+        copy((0, top, 30, h), 0, dy);
+        for i in 0..cols {
+            copy((30, top, 18, h), 30 + 18 * i, dy);
+        }
+        copy((60, top, 30, h), 30 + 18 * cols, dy);
+    };
+    row(0, 30, 0);
+    for r in 0..rows {
+        row(1, if r == rows - 1 { 30 } else { 18 }, 30 + 18 * r);
+    }
+    row(2, 30, 30 + 18 * rows);
+    Arc::new(silky_format::akb::Image {
+        width,
+        height,
+        rgba,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn balloon_grows_in_18_pixel_steps() {
+        let sheet = silky_format::akb::Image {
+            width: 800,
+            height: 900,
+            rgba: vec![255; 800 * 900 * 4],
+        };
+        // Nine full-width characters: nine middle pieces between the caps.
+        let b = balloon(&sheet, 162, 1);
+        assert_eq!((b.width, b.height), (30 + 162 + 30, 30 + 18 + 30));
+        let b = balloon(&sheet, 163, 2);
+        assert_eq!((b.width, b.height), (30 + 180 + 30, 30 + 36 + 30));
+    }
+
+    #[test]
+    fn every_bar_button_has_a_tooltip() {
+        for id in 0..CROSS {
+            assert!(HELP.iter().any(|(i, _)| *i == id));
+        }
     }
 }
