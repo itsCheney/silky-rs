@@ -11,7 +11,7 @@ The engine of four programs, all linked with Visual Studio 2013. Read from the e
 | `kimaten.exe` (きまぐれテンプテーション, with update 1.04) | 1.0.4.0 | 2019-12-16 04:48:49 | `36148a0286bd9d31ceaec4323f4be987319bd759e68b5961c59c992b07b54700` |
 | `nanairo.exe` (なないろリンカネーション) | 1.0.0.2 | 2014-09-09 19:27:20 | not recorded yet |
 
-`casablanca.exe` is 1,559,040 bytes. Its engine code is the same as that of `apeiria.exe`, so the differences below hold for both. The trace probe addresses are given for `apeiria.exe` and `casablanca.exe`.
+`casablanca.exe` is 1,559,040 bytes. Its engine code is the same as that of `apeiria.exe`, so the differences below hold for both. The trace probe addresses are given for `apeiria.exe`, `casablanca.exe` and `nanairo.exe`.
 
 `kimaten.exe` is 2,039,808 bytes. Its engine calls match the table below at the points checked (`Sprite.1` on layer 5, `BackLog`, `Movie.3`, `HEffect`); its `Game` commands are described in [kimaten1.md](../games/kimaten1.md).
 
@@ -87,6 +87,35 @@ The spec for this build:
       "19": "Sprite", "20": "Screen", "21": "Script", "22": "BackLog", "23": "Movie", "24": "OneMes",
       "25": "Xml", "26": "Ui", "27": "Save", "28": "Wait", "29": "Game"}}},
     {"at": "0x4b45b0", "call": "message"}
+  ]
+}
+```
+
+### nanairo.exe
+
+Addresses in `nanairo.exe` as linked (image base 0x400000, version 1.0.0.2). The functions are those above, at other addresses; the stack layout is the same (a value is 0x20 bytes, kind at +0, number at +4, `std::string` at +8, the value stack a vector at the start of the script object). Not yet run under Wine.
+
+| What | Where |
+| --- | --- |
+| Script opcode switch (opcode 0x18 goes to the `native` handler, 0x19 to `message`) | 0x492815 (byte table 0x492ba4, jump table 0x492ae4; the range check and byte lookup start at 0x492805) |
+| `native` handler; pops the class, then a switch on class − 1 (jump table 0x47eab4, no byte table) | 0x47e3d0 |
+| Breakpoint: class popped, statement still on the stack | 0x47e43c (`eax` = class, `esi` = the script object, its value stack a vector at its start) |
+| Value pop: copies the top value into the caller's buffer and returns it; 0x20 bytes, kind at +0, number at +4, `std::string` at +8 | 0x492c00 |
+| `message` handler (a breakpoint here marks each message) | 0x480410 |
+
+Here the class is read just before the breakpoint (`dec eax` at 0x47e43c is the first instruction of the switch), and the pop routine takes the script object in `ecx` and an output buffer on the stack. The spec for this build:
+
+```json
+{
+  "name": "nanairo 1.0.0.2",
+  "stack": {"vector": "esi", "size": 32, "kind": 0, "int": 4, "str": 8, "kinds": {"0": "int", "1": "str"}},
+  "breakpoints": [
+    {"at": "0x47e43c", "stack": true, "call": {"read": "eax", "names": {
+      "1": "Select", "2": "MesWnd", "3": "Shake", "10": "Font", "11": "Value", "12": "Mouse",
+      "13": "Anime", "14": "Flag", "15": "Music", "16": "Effect", "17": "HEffect", "18": "Voice",
+      "19": "Sprite", "20": "Screen", "21": "Script", "22": "BackLog", "23": "Movie", "24": "OneMes",
+      "25": "Xml", "26": "Ui", "27": "Save", "28": "Wait", "29": "Game"}}},
+    {"at": "0x480410", "call": "message"}
   ]
 }
 ```

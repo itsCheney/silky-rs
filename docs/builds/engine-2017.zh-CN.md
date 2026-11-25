@@ -11,7 +11,7 @@
 | `kimaten.exe`（きまぐれテンプテーション，带更新 1.04） | 1.0.4.0 | 2019-12-16 04:48:49 | `36148a0286bd9d31ceaec4323f4be987319bd759e68b5961c59c992b07b54700` |
 | `nanairo.exe`（なないろリンカネーション） | 1.0.0.2 | 2014-09-09 19:27:20 | 尚未记录 |
 
-`casablanca.exe` 大小为 1,559,040 字节。它的引擎代码和 `apeiria.exe` 相同，所以下面的差异对两者都成立。trace 探针地址只给出 `apeiria.exe` 和 `casablanca.exe` 的。
+`casablanca.exe` 大小为 1,559,040 字节。它的引擎代码和 `apeiria.exe` 相同，所以下面的差异对两者都成立。trace 探针地址只给出 `apeiria.exe`、`casablanca.exe` 和 `nanairo.exe` 的。
 
 `kimaten.exe` 大小为 2,039,808 字节。在检查过的几处（图层 5 上的 `Sprite.1`、`BackLog`、`Movie.3`、`HEffect`），它的引擎调用与下表一致；它的 `Game` 命令见 [kimaten1.zh-CN.md](../games/kimaten1.zh-CN.md)。
 
@@ -60,6 +60,35 @@
 | `message` 处理函数（在这里下断点可标出每条消息） | 0x4b45b0 |
 
 这个版本的 spec 同样见英文页面。
+
+### nanairo.exe
+
+`nanairo.exe` 的链接地址（映像基址 0x400000，版本 1.0.0.2）。函数和上面的相同，只是地址不同；栈的布局也相同（每个值 0x20 字节，+0 为种类，+4 为数字，+8 为 `std::string`，值栈是脚本对象开头的 vector）。尚未在 Wine 下运行过。
+
+| 内容 | 位置 |
+| --- | --- |
+| 脚本操作码分派（操作码 0x18 进入 `native` 处理函数，0x19 进入 `message`） | 0x492815（字节表 0x492ba4，跳转表 0x492ae4；范围检查和查字节表从 0x492805 开始） |
+| `native` 处理函数；弹出类号，再按 类号 − 1 分派（跳转表 0x47eab4，没有字节表） | 0x47e3d0 |
+| 断点：类号已弹出，语句的值仍在栈上 | 0x47e43c（`eax` = 类号，`esi` = 脚本对象，开头就是它的值栈 vector） |
+| 弹出值：把栈顶的值复制到调用者给的缓冲区并返回它；每个 0x20 字节，+0 为种类，+4 为数字，+8 为 `std::string` | 0x492c00 |
+| `message` 处理函数（在这里下断点可标出每条消息） | 0x480410 |
+
+这里类号在断点前一刻读出（0x47e43c 处的 `dec eax` 是分派的第一条指令），弹出函数用 `ecx` 传脚本对象，输出缓冲区放在栈上。这个版本的 spec：
+
+```json
+{
+  "name": "nanairo 1.0.0.2",
+  "stack": {"vector": "esi", "size": 32, "kind": 0, "int": 4, "str": 8, "kinds": {"0": "int", "1": "str"}},
+  "breakpoints": [
+    {"at": "0x47e43c", "stack": true, "call": {"read": "eax", "names": {
+      "1": "Select", "2": "MesWnd", "3": "Shake", "10": "Font", "11": "Value", "12": "Mouse",
+      "13": "Anime", "14": "Flag", "15": "Music", "16": "Effect", "17": "HEffect", "18": "Voice",
+      "19": "Sprite", "20": "Screen", "21": "Script", "22": "BackLog", "23": "Movie", "24": "OneMes",
+      "25": "Xml", "26": "Ui", "27": "Save", "28": "Wait", "29": "Game"}}},
+    {"at": "0x480410", "call": "message"}
+  ]
+}
+```
 
 ## 安装文件和存档
 
