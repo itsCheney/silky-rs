@@ -349,6 +349,8 @@ pub struct Runtime {
     /// The staff roll of 景の海のアペイリア ～カサブランカの騎士～ is on and
     /// takes no click or skip (bit 11 of global 55 was clear).
     pub(crate) roll_locked: bool,
+    /// A click or the skip mode ended the staff roll before its end.
+    pub(crate) roll_cut: bool,
     /// Music set up by `Music.5`, by channel, for `Music.4` to start.
     pub(crate) queued_music: BTreeMap<i32, String>,
     /// Set by the game's auto save point (ふゆから、くるる。, command 14);
@@ -439,6 +441,7 @@ impl Runtime {
             vo_steps: Vec::new(),
             quake_mode: 0,
             roll_locked: false,
+            roll_cut: false,
             queued_music: BTreeMap::new(),
             auto_save: false,
             cg_track: crate::games::apeiria::omake::CgTrack::new(
@@ -451,7 +454,7 @@ impl Runtime {
     /// Runs the second step of an effect if one is due: changes the scene
     /// and sets [`Runtime::pause`] to its transition (or leaves it empty
     /// when effects are turned off). False if none is due.
-    pub fn follow_up(&mut self) -> bool {
+    pub fn follow_up(&mut self, vm: &mut Vm) -> bool {
         let Some(step) = self.then.take() else {
             return false;
         };
@@ -484,6 +487,8 @@ impl Runtime {
             }
             FollowUp::EndRoll => {
                 self.roll_locked = false;
+                // The staff roll answers once it is over.
+                vm.push(std::mem::take(&mut self.roll_cut) as i32);
                 Flow::Continue
             }
             FollowUp::EndStaff => {
@@ -501,6 +506,19 @@ impl Runtime {
     /// `path`, or `default` when none did.
     pub(crate) fn config_value(&self, path: &str, default: i32) -> i32 {
         self.xml.get(path).copied().unwrap_or(default)
+    }
+
+    /// Notes that a click or the skip mode cut the staff roll short.
+    pub(crate) fn cut_roll(&mut self) {
+        if matches!(self.then, Some(FollowUp::EndRoll)) {
+            self.roll_cut = true;
+        }
+    }
+
+    /// Presets a value of the original's XML configuration, as if a script
+    /// had written it (`Xml.1`): what `Xml.0` returns for `path` after this.
+    pub fn set_xml(&mut self, path: &str, value: i32) {
+        self.xml.insert(path.to_string(), value);
     }
 
     /// The original's scene skip setting (`/Config/SceneSkip`), off unless

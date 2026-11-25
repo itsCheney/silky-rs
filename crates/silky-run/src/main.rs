@@ -116,6 +116,11 @@ enum Command {
         /// compare an effect's course with the original's. 0: none.
         #[arg(long, default_value_t = 0)]
         wait_frames: u64,
+        /// Preset value of the original's configuration, `PATH=VALUE`, as
+        /// if a script had written it: `--xml /Config/Movie/Play=0` turns
+        /// the movies off. Repeat for more values.
+        #[arg(long = "xml", value_name = "PATH=VALUE", value_parser = parse_xml)]
+        xml: Vec<(String, i32)>,
         /// How frames are drawn: `cpu` directly, `record` as the draw
         /// lists a GPU compositor gets, played back in software (to check
         /// them against `cpu`), `gpu` by that compositor (feature `gpu`).
@@ -217,6 +222,7 @@ fn main() -> Result<()> {
             height,
             settle,
             wait_frames,
+            xml,
             renderer,
             trace,
         } => {
@@ -231,6 +237,7 @@ fn main() -> Result<()> {
                 renderer,
                 settle,
                 wait_frames,
+                xml,
             };
             let mut vm = Vm::new(Profile::default());
             if trace.is_some() {
@@ -287,6 +294,15 @@ fn main() -> Result<()> {
     }
 }
 
+/// A `--xml PATH=VALUE` of `snap`: a configuration path and its value.
+fn parse_xml(s: &str) -> std::result::Result<(String, i32), String> {
+    let (path, value) = s
+        .rsplit_once('=')
+        .ok_or_else(|| format!("{s}: expected PATH=VALUE"))?;
+    let value = value.parse().map_err(|e| format!("{s}: bad value ({e})"))?;
+    Ok((path.to_string(), value))
+}
+
 /// Writes the calls `vm` recorded to a trace file. The command line goes
 /// into its notes, without the game folder (a path of this computer).
 fn write_trace(
@@ -317,12 +333,13 @@ fn write_trace(
             kept.push(a);
         }
     }
-    // Other paths (--out, --trace, fonts) by their file name only.
+    // Other paths (--out, --trace, fonts) by their file name only; a
+    // `PATH=VALUE` (--xml) is kept whole.
     let kept: Vec<String> = kept
         .into_iter()
         .map(|a| {
             let path = std::path::Path::new(&a);
-            match (path.is_absolute(), path.file_name()) {
+            match (path.is_absolute() && !a.contains('='), path.file_name()) {
                 (true, Some(name)) => name.to_string_lossy().into_owned(),
                 _ => a,
             }
@@ -442,6 +459,8 @@ struct Picks {
     settle: u64,
     /// Milliseconds between the frames saved through a timed wait.
     wait_frames: u64,
+    /// Configuration values preset with `--xml`.
+    xml: Vec<(String, i32)>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -511,6 +530,9 @@ fn snap(
     let assets = Assets::new(game);
     let layout = Layout::load(&assets, language)?;
     let mut rt = Runtime::new(assets, config);
+    for (path, value) in &picks.xml {
+        rt.set_xml(path, *value);
+    }
     rt.boot(vm, "start.mes")?;
     let last = lines.iter().copied().max().unwrap_or(0);
     let mut line_no = 0u64;
@@ -704,7 +726,7 @@ fn snap(
                     }
                     // Second steps of effects end at once too; a choice one
                     // puts up is kept for the choice arm to answer.
-                    while rt.follow_up() {
+                    while rt.follow_up(vm) {
                         if matches!(rt.pause, Some(Pause::Choice)) {
                             break;
                         }

@@ -99,10 +99,11 @@ pub fn roll(st: &mut Stage, picture: &str) {
 }
 
 impl Runtime {
-    /// `Game.990`: the staff roll. It answers 1 when it is over (inferred
-    /// from the scripts, which test for 1 and from the other build of the
-    /// engine that answers so). A click or the skip mode ends it early,
-    /// but only while bit 11 of global 55 is set.
+    /// `Game.990`: the staff roll. The answer comes after the wait: 0 when
+    /// the roll ran to its end (as the original does on a first
+    /// playthrough, traced), 1 when a click or the skip mode cut it short
+    /// (inferred: the script then redraws the roll's last screen itself).
+    /// Those can end it early only while bit 11 of global 55 is set.
     pub(crate) fn casablanca_staff(
         &mut self,
         vm: &mut Vm,
@@ -111,7 +112,7 @@ impl Runtime {
         if c.sub != 0 {
             return None;
         }
-        vm.push(1);
+        self.roll_cut = false;
         self.scene.text = None;
         self.scene.speaker_name = None;
         let picture = c.str(0).unwrap_or_else(|| "ending.akb".into());

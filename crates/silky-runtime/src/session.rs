@@ -635,7 +635,7 @@ impl Session {
         }
         let mut budgets = 0;
         loop {
-            let stop = if self.rt.follow_up() {
+            let stop = if self.rt.follow_up(&mut self.vm) {
                 if self.rt.pause.is_none() {
                     continue;
                 }
@@ -1742,6 +1742,7 @@ impl Session {
             if let Some(b) = &mut self.busy {
                 if !b.frame && self.rt.scene.intro.is_none() && !self.rt.roll_locked {
                     b.elapsed = b.ms;
+                    self.rt.cut_roll();
                 }
             }
             return Ok(());
@@ -5206,6 +5207,7 @@ impl Session {
                 let Some(b) = &mut self.busy else { break };
                 if self.ui.skip && self.rt.scene.intro.is_none() && !self.rt.roll_locked {
                     b.elapsed = b.ms;
+                    self.rt.cut_roll();
                 }
                 let step = left.min(b.ms - b.elapsed.min(b.ms));
                 b.elapsed += step;
