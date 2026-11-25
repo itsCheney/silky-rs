@@ -179,7 +179,8 @@ impl Runtime {
                 let flags = numbers
                     .iter()
                     .map(|&n| {
-                        usize::try_from(n).is_ok_and(|n| vm.var_b(exselect::FLAG_FIRST + n) == 1)
+                        usize::try_from(n)
+                            .is_ok_and(|n| vm.raw.get(exselect::FLAG_FIRST + n).copied() == Some(1))
                     })
                     .collect();
                 self.k1 = Some(Screen::Ex(

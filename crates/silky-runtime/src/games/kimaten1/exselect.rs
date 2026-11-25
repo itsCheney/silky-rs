@@ -14,7 +14,9 @@
 //! list comes as several runs of options before the selection, and the
 //! numbers are those of the options as written in the script.
 //!
-//! An option is on while byte 7500 plus its number is 1. One with another
+//! An option is on while the byte of the raw area at 7500 plus its number
+//! is 1 (the script's option wrapper sets all of them before it opens the
+//! list, and the options that are not available clear theirs). One with another
 //! value is drawn in grey text and does nothing: it takes no hover, plays no
 //! click sound and answers nothing. The text of a bar is made once, so a
 //! pressed bar shows the same text in the same place as a bar at rest.
@@ -50,7 +52,8 @@ const TEXT_SIZE: f32 = 24.0;
 const TEXT_TOP: i32 = 28;
 const TEXT_BASELINE: f32 = (TEXT_TOP + 20) as f32;
 const CLICK: &str = "ses_001.wav";
-/// First of the bytes that switch the options on, one for each number.
+/// First of the raw-area bytes that switch the options on, one for each
+/// number.
 pub const FLAG_FIRST: usize = 7500;
 /// Text colour of an option that is off.
 const OFF_TEXT: [u8; 4] = [128, 128, 128, 255];
