@@ -23,6 +23,8 @@ pub mod games;
 mod host;
 pub mod menus;
 pub mod movie;
+#[cfg(feature = "ffmpeg")]
+mod movie_ff;
 pub mod render;
 pub mod save;
 pub mod scene;

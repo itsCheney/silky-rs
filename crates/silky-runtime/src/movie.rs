@@ -1,5 +1,7 @@
 //! Movies (`.vsd`: an MPEG-1 program stream with MP2 audio), decoded with
-//! pl_mpeg (MIT, vendored in `vendor/pl_mpeg`).
+//! pl_mpeg (MIT, vendored in `vendor/pl_mpeg`). ASF files (VC-1 and WMA
+//! Pro) go to FFmpeg instead when the `ffmpeg` feature is on
+//! (`movie_ff.rs`).
 
 use std::ffi::c_void;
 use std::sync::Arc;
@@ -48,6 +50,26 @@ impl Drop for Decoder {
     }
 }
 
+/// Whether the bytes start with the ASF header GUID.
+pub fn is_asf(data: &[u8]) -> bool {
+    data.starts_with(&[0x30, 0x26, 0xb2, 0x75, 0x8e, 0x66, 0xcf, 0x11])
+}
+
+#[cfg(not(feature = "ffmpeg"))]
+fn no_ffmpeg() -> Error {
+    Error::Invalid("movie: ASF files need the `ffmpeg` feature (tools/ffmpeg/build.sh)".into())
+}
+
+/// The stream of a movie file as the decoders read it: an ASF file as it
+/// is, else the MPEG-1 stream behind the `VSD1` header.
+pub fn movie_stream(file: Vec<u8>) -> Result<Vec<u8>> {
+    if is_asf(&file) {
+        Ok(file)
+    } else {
+        mpeg_stream(&file)
+    }
+}
+
 /// Strips the `VSD1` header of a movie file.
 pub fn mpeg_stream(file: &[u8]) -> Result<Vec<u8>> {
     let range = silky_format::vsd::stream_range(file, file.len() as u64)?;
@@ -56,6 +78,12 @@ pub fn mpeg_stream(file: &[u8]) -> Result<Vec<u8>> {
 
 /// Decodes the whole sound track of a stream.
 pub fn decode_audio(data: Arc<Vec<u8>>) -> Result<Pcm> {
+    if is_asf(&data) {
+        #[cfg(feature = "ffmpeg")]
+        return crate::movie_ff::decode_audio(data);
+        #[cfg(not(feature = "ffmpeg"))]
+        return Err(no_ffmpeg());
+    }
     let d = Decoder::open(data, true)?;
     let rate = unsafe { silky_plm_samplerate(d.plm) }.max(1) as u32;
     let mut buf = vec![0f32; 1152 * 2];
@@ -76,7 +104,7 @@ pub fn decode_audio(data: Arc<Vec<u8>>) -> Result<Pcm> {
 
 /// The picture side of a movie, decoded as time goes on.
 pub struct Movie {
-    video: Decoder,
+    video: Source,
     pub width: u32,
     pub height: u32,
     frame_ms: f64,
@@ -87,15 +115,34 @@ pub struct Movie {
     pub ended: bool,
 }
 
+/// Where the pictures come from.
+enum Source {
+    Mpeg(Decoder),
+    #[cfg(feature = "ffmpeg")]
+    Asf(crate::movie_ff::Video),
+}
+
 impl Movie {
     pub fn open(data: Arc<Vec<u8>>) -> Result<Self> {
-        let video = Decoder::open(data, false)?;
-        let (w, h, fps) = unsafe {
-            (
-                silky_plm_width(video.plm),
-                silky_plm_height(video.plm),
-                silky_plm_framerate(video.plm),
-            )
+        let (video, w, h, fps) = if is_asf(&data) {
+            #[cfg(feature = "ffmpeg")]
+            {
+                let v = crate::movie_ff::Video::open(data)?;
+                let (w, h, fps) = (v.width, v.height, v.fps);
+                (Source::Asf(v), w, h, fps)
+            }
+            #[cfg(not(feature = "ffmpeg"))]
+            return Err(no_ffmpeg());
+        } else {
+            let d = Decoder::open(data, false)?;
+            let (w, h, fps) = unsafe {
+                (
+                    silky_plm_width(d.plm),
+                    silky_plm_height(d.plm),
+                    silky_plm_framerate(d.plm),
+                )
+            };
+            (Source::Mpeg(d), w, h, fps)
         };
         if w <= 0 || h <= 0 {
             return Err(Error::Invalid("movie without pictures".into()));
@@ -115,8 +162,20 @@ impl Movie {
 
     fn next_frame(&mut self) -> bool {
         let mut t = 0.0;
-        let ok = unsafe { silky_plm_next_frame(self.video.plm, self.rgba.as_mut_ptr(), &mut t) };
-        if ok == 0 {
+        let ok = match &mut self.video {
+            Source::Mpeg(d) => unsafe {
+                silky_plm_next_frame(d.plm, self.rgba.as_mut_ptr(), &mut t) != 0
+            },
+            #[cfg(feature = "ffmpeg")]
+            Source::Asf(v) => match v.next_frame(&mut self.rgba) {
+                Some(time) => {
+                    t = time;
+                    true
+                }
+                None => false,
+            },
+        };
+        if !ok {
             self.ended = true;
             return false;
         }

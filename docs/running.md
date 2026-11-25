@@ -13,6 +13,17 @@ cargo test --workspace
 
 The binaries land in `target/release`. CI builds Windows binaries on each push (the `silky-rs-windows` artifact).
 
+### Movies in ASF files (optional)
+
+先輩が私の妄想にドージンする keeps its movies in ASF files (VC-1 video, WMA Pro sound), which the built-in MPEG-1 decoder cannot read. The `ffmpeg` feature of `silky-runtime` (passed through by `silky-player` and `silky-run`) decodes them with a trimmed, LGPL-only FFmpeg linked statically. It is off by default; without it the build is unchanged and those movies are skipped.
+
+```sh
+tools/ffmpeg/build.sh                            # fetches FFmpeg n7.1 and installs into target/ffmpeg
+cargo build --release --features silky-player/ffmpeg,silky-run/ffmpeg
+```
+
+`tools/ffmpeg/build.sh [prefix]` needs git, make and a C compiler (nasm is used when found); `FFMPEG_SRC=<dir>` builds an existing source tree instead of fetching one. The cargo build looks for the libraries in `target/ffmpeg`, or in `SILKY_FFMPEG_DIR`, and stops with a message naming the script when they are missing. The libraries are about 23 MB in all.
+
 ## silky-player
 
 ```sh

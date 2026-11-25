@@ -13,6 +13,17 @@ cargo test --workspace
 
 生成的程序位于 `target/release`。每次推送后 CI 都会构建 Windows 版程序（`silky-rs-windows` 构件）。
 
+### ASF 影片（可选）
+
+《先輩が私の妄想にドージンする》的影片是 ASF 文件（VC-1 视频、WMA Pro 声音），内置的 MPEG-1 解码器读不了。`silky-runtime` 的 `ffmpeg` 功能（由 `silky-player` 和 `silky-run` 转发）用静态链接的精简版 FFmpeg（仅 LGPL）解码它们。该功能默认关闭；关闭时构建不变，这些影片会被跳过。
+
+```sh
+tools/ffmpeg/build.sh                            # 获取 FFmpeg n7.1 并安装到 target/ffmpeg
+cargo build --release --features silky-player/ffmpeg,silky-run/ffmpeg
+```
+
+`tools/ffmpeg/build.sh [前缀]` 需要 git、make 和 C 编译器（找到 nasm 时会使用）；`FFMPEG_SRC=<目录>` 改为构建已有的源码树，而不是下载。cargo 构建会在 `target/ffmpeg` 或 `SILKY_FFMPEG_DIR` 中找这些库，找不到时报错并指出该脚本。这些库合计约 23 MB。
+
 ## silky-player
 
 ```sh

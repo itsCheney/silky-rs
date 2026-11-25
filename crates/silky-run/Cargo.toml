@@ -14,6 +14,8 @@ path = "src/main.rs"
 [features]
 # Frames drawn by the GPU compositor (`snap --renderer gpu`).
 gpu = ["silky-runtime/gpu"]
+# ASF movies through FFmpeg (tools/ffmpeg/build.sh).
+ffmpeg = ["silky-runtime/ffmpeg"]
 
 [dependencies]
 silky-format.workspace = true

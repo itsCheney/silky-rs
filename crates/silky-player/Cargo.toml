@@ -11,6 +11,10 @@ repository.workspace = true
 name = "silky-player"
 path = "src/main.rs"
 
+[features]
+# ASF movies through FFmpeg (tools/ffmpeg/build.sh).
+ffmpeg = ["silky-runtime/ffmpeg"]
+
 [dependencies]
 silky-format.workspace = true
 silky-runtime = { workspace = true, features = ["gpu"] }
