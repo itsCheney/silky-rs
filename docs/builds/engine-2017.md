@@ -122,6 +122,35 @@ Here the class is read just before the breakpoint (`dec eax` at 0x47e43c is the 
 }
 ```
 
+### kimaten.exe
+
+Addresses in `kimaten.exe` 1.0.4.0 as linked (image base 0x400000). The functions are those above, at other addresses; the stack layout is the same. Checked in the disassembly.
+
+| What | Where |
+| --- | --- |
+| Script opcode switch (opcode 0x18 goes to the `native` handler, 0x19 to `message`, 0x1a to `smessage`) | 0x4bd145 (byte table 0x4bd4d4, jump table 0x4bd414), in the routine at 0x4bcfe0 |
+| `native` handler; pops the class, then a switch on class − 1 (jump table 0x4a8c8c) | 0x4a8610 |
+| Breakpoint at the `native` handler: class popped, statement still on the stack | 0x4a8673 (`eax` = class, `esi` = the script object, its value stack a vector at its start) |
+| Value pop (the vector is `ecx`, begin and end at +0 and +4): copies the top value, 0x20 bytes; kind at +0 (0 number, 1 string), number at +4, `std::string` at +8 (text inline while the capacity at +0x1c is 15 or less, length at +0x18) | 0x4bd530 |
+| `message` handler (a breakpoint here marks each message) | 0x4aa7b0 |
+
+The spec for this build:
+
+```json
+{
+  "name": "kimaten 1.0.4.0 (2017)",
+  "stack": {"vector": "esi", "size": 32, "kind": 0, "int": 4, "str": 8, "kinds": {"0": "int", "1": "str"}},
+  "breakpoints": [
+    {"at": "0x4a8673", "stack": true, "call": {"read": "eax", "names": {
+      "1": "Select", "2": "MesWnd", "3": "Shake", "10": "Font", "11": "Value", "12": "Mouse",
+      "13": "Anime", "14": "Flag", "15": "Music", "16": "Effect", "17": "HEffect", "18": "Voice",
+      "19": "Sprite", "20": "Screen", "21": "Script", "22": "BackLog", "23": "Movie", "24": "OneMes",
+      "25": "Xml", "26": "Ui", "27": "Save", "28": "Wait", "29": "Game"}}},
+    {"at": "0x4aa7b0", "call": "message"}
+  ]
+}
+```
+
 ## Install file and saves
 
 `apeiria.exe` reads `apeiria_inst.xml` from `AppData\Roaming\SilkysPlus\apeiria` and stops at once if `InstallPath` there is not set; its saves and settings go to the `Save` folder next to it. `casablanca.exe` reads `casablanca_inst.xml` from `AppData\Roaming\SilkysPlus\casablanca` in the same way, and its settings and saves are in the `Save` folder next to it too (settings file `Save\casablanca.xml`). With every bit of `onemes.dat` there set, holding Ctrl skips the story to the place to trace.

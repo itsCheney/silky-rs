@@ -92,6 +92,35 @@
 }
 ```
 
+### kimaten.exe
+
+`kimaten.exe` 1.0.4.0 的链接地址（映像基址 0x400000）。函数和上面的相同，只是地址不同；栈的布局也相同。已对照反汇编核对。
+
+| 内容 | 位置 |
+| --- | --- |
+| 脚本操作码分派（操作码 0x18 进入 `native` 处理函数，0x19 进入 `message`，0x1a 进入 `smessage`） | 0x4bd145（字节表 0x4bd4d4，跳转表 0x4bd414），在 0x4bcfe0 这个函数里 |
+| `native` 处理函数；弹出类号，再按 类号 − 1 分派（跳转表 0x4a8c8c） | 0x4a8610 |
+| `native` 处理函数处的断点：类号已弹出，语句的值仍在栈上 | 0x4a8673（`eax` = 类号，`esi` = 脚本对象，开头就是它的值栈 vector） |
+| 弹出值（vector 在 `ecx`，+0 和 +4 为起止指针）：复制栈顶的值，每个 0x20 字节；+0 为种类（0 数字，1 字符串），+4 为数字，+8 为 `std::string`（容量 +0x1c 不超过 15 时文本内联，长度在 +0x18） | 0x4bd530 |
+| `message` 处理函数（在这里下断点可标出每条消息） | 0x4aa7b0 |
+
+这个版本的 spec：
+
+```json
+{
+  "name": "kimaten 1.0.4.0 (2017)",
+  "stack": {"vector": "esi", "size": 32, "kind": 0, "int": 4, "str": 8, "kinds": {"0": "int", "1": "str"}},
+  "breakpoints": [
+    {"at": "0x4a8673", "stack": true, "call": {"read": "eax", "names": {
+      "1": "Select", "2": "MesWnd", "3": "Shake", "10": "Font", "11": "Value", "12": "Mouse",
+      "13": "Anime", "14": "Flag", "15": "Music", "16": "Effect", "17": "HEffect", "18": "Voice",
+      "19": "Sprite", "20": "Screen", "21": "Script", "22": "BackLog", "23": "Movie", "24": "OneMes",
+      "25": "Xml", "26": "Ui", "27": "Save", "28": "Wait", "29": "Game"}}},
+    {"at": "0x4aa7b0", "call": "message"}
+  ]
+}
+```
+
 ## 安装文件和存档
 
 `apeiria.exe` 从 `AppData\Roaming\SilkysPlus\apeiria` 读取 `apeiria_inst.xml`，其中 `InstallPath` 没有设置时立即停止；存档和设置在它旁边的 `Save` 文件夹中。`casablanca.exe` 同样从 `AppData\Roaming\SilkysPlus\casablanca` 读取 `casablanca_inst.xml`，它的设置和存档也在旁边的 `Save` 文件夹中（设置文件 `Save\casablanca.xml`）。把那里 `onemes.dat` 的每一位都设为 1 后，按住 Ctrl 就能把剧情快进到要记录的地方。
