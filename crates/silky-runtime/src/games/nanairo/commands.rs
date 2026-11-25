@@ -324,13 +324,24 @@ impl Runtime {
         let cg = &mut self.scene.cg;
         match (c.sub, c.args.len()) {
             (10, 1) => cg.start(&c.str(0)?),
-            (1, 2) => cg.part(c.int(0).max(0) as usize, &c.str(1)?),
-            // Register the combination; 5 and 7 also set a time of the
-            // transition that is not kept.
-            (11, 0) | (5, 0) | (7, 1) => cg.register(vm),
-            // Start of a scene picture (the full-screen rectangle), and
-            // clearing the name tables of the slots: nothing to keep.
-            (4, 0) | (2, 1) | (3, 1) => {}
+            (1, 2) => {
+                cg.part(c.int(0).max(0) as usize, &c.str(1)?);
+                cg.set_picture(0, c.int(0), &c.str(1)?);
+            }
+            // The second table of pictures (three places).
+            (12, 2) => cg.set_picture(1, c.int(0), &c.str(1)?),
+            // Register the combination.
+            (11, 0) => cg.register(vm),
+            // Copy the background onto the screen, draw the pictures of
+            // the tables over it and register the combination; 5 and 7
+            // also fade, a time that is not kept.
+            (4 | 5, 0) | (7, 1) => {
+                cg.compose();
+                cg.register(vm);
+            }
+            // Frees a place of the first or second table.
+            (2, 1) => cg.clear_picture(0, c.int(0)),
+            (3, 1) => cg.clear_picture(1, c.int(0)),
             _ => return None,
         }
         self.done()

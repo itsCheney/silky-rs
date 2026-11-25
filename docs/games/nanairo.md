@@ -53,6 +53,8 @@ Measured under Wine: the place and pitch of the message text and the place of th
 - The scripts name the picture (`14.10`) and its layers in slot order (`14.1`). A name is kept only if it begins with a capital `H`. A layer goes to the first free place up to its slot, or replaces the one at the slot. When the scene is committed, the combination is looked up in the game's CG table of 644 rows: the picture and the first six layers must equal a row's, place by place. A match sets the byte flag of that row and byte 3001. Any registered picture with a name also sets byte 3002 (the CG tab of the extras screens).
 - The flags of the table run from 3200 to 3845 and are 3200 + row only up to row 492; row 493 holds 3694. The table is in `cg_table.rs`, the rows in the game's order, so the flag comes from the row and not from its number.
 - Names are compared without case and without `.akb`.
+- Two tables of pictures lie over the background: five places (`14.1(slot, name)` sets one; `14.2(slot)` frees one) and three (`14.12(slot, name)`; `14.3(slot)`). The picture is drawn only when the script composes: `14.4`, `14.5` and `14.7(n)` copy the sprite 2 picture onto the screen and draw the named pictures of both tables over it, the first table first, pure green in them clear; `14.5` and `14.7` also fade over a time that is not kept here, and all three register the combination. `14.11` only registers. The scripts free every place, load the picture into sprite 2 and copy it onto the screen, then set the expression parts one by one and compose, so the parts change on the picture. Copying the whole sprite 2 picture onto the screen again takes the pictures of the tables away.
+- Sprite 6 holds an event still loaded by `Sprite.1`, and the fade helpers copy the screen background into it (`Sprite.3` from sprite 2 into sprite 6) before they copy it onto the screen. That copy replaces the still: no script copies sprite 6 onto the screen again without loading a new still into it or filling it from the background first, so the still leaves the scene when the whole background is copied onto the screen or into sprite 6.
 - Not read: what the program's settings block holds in the field that stops registering when it is 1 (the registry does nothing then; probably while a scene is replayed from the scene screen, which is not here yet).
 
 ### Event pictures and effect pictures
@@ -113,7 +115,7 @@ The effects are sprites of the shared effect stage: keyframes of fades, zooms an
 | `10` | Start up; nothing to do |
 | `12.4(face, body)`, `12.5`, `12.6`, `12.7`, `12.8(picture)` | Face window |
 | `13.0` to `13.2`, `13.5` to `13.15` | Standing characters |
-| `14.10(name)`, `14.1(slot, name)`, `14.11`, `14.5`, `14.7(n)` | CG registry |
+| `14.10(name)`, `14.1(slot, name)`, `14.12(slot, name)`, `14.2`, `14.3`, `14.4`, `14.5`, `14.7(n)`, `14.11` | CG registry; pictures over the background |
 | `15(name)` | Speaker name |
 | `18` | Title menu |
 | `19(value, end, start)` | Fill byte flags |
@@ -161,6 +163,7 @@ Addresses in `nanairo.exe` as linked (image base 0x400000). The code itself does
 | CG registry: handler | 0x46f3a0 |
 | CG table (644 rows of 36 bytes: flag, then up to eight picture names; ends with -1) | 0x533cf0 |
 | CG registration: match and set the flags; start (`14.10`); layer (`14.1`) | 0x43d650; 0x43d840; 0x43d9f0 |
+| Picture tables (five, three places): set; compose onto the screen | 0x45fc60, 0x45fce0; 0x45fe50 |
 | `Game.3` quit: handler; yes or no box constructor; click; button draw | 0x494c50; 0x449650; 0x449a40; 0x449c90 |
 | Box setting read (`/Config/Dialog/%02u/Enable`, default on); table of question to setting | 0x474c40 (path at 0x509490); 0x50d440, 0x50d3c0 |
 | `Game.17` auto save: handler; setting read (`/Config/AutoSave/Enable`, path at 0x5094c0); slot writer | 0x46f970; 0x4750d0; 0x463c20 |

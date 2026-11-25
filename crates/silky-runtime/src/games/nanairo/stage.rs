@@ -18,14 +18,23 @@ use crate::Result;
 const OVERLAY_SPRITE: i32 = 6;
 
 /// `Sprite.3(flag, source, y, x, target, height, width, target y, target
-/// x)`: the screen is the target sprite 0. A whole picture copied onto it
-/// from the background replaces what an earlier copy of the overlay
-/// sprite showed; the overlay's picture is kept in its sprite but is gone
-/// from the screen.
+/// x)`: the screen is the target sprite 0. A whole picture copied from
+/// the background onto the screen, or into the overlay sprite itself (the
+/// fade helpers do this before they copy the overlay onto the screen),
+/// replaces what the overlay sprite showed; its picture is no longer on
+/// the screen. Nothing later copies the overlay onto the screen without
+/// loading a picture into it or filling it from the background first.
+/// A whole background copied onto the screen also takes the pictures laid
+/// over the background (`Game.14`) away.
 pub fn copied(scene: &mut Scene, a: &[i32]) {
-    if let [_, source, 0, 0, 0, 720, 1280, 0, 0] = *a {
+    if let [_, source, 0, 0, target, 720, 1280, 0, 0] = *a {
         if source == super::BACKGROUND_SPRITE {
-            scene.layers.remove(&OVERLAY_SPRITE);
+            if target == 0 {
+                scene.cg.clear_screen();
+            }
+            if target == 0 || target == OVERLAY_SPRITE {
+                scene.layers.remove(&OVERLAY_SPRITE);
+            }
         }
     }
 }
@@ -177,6 +186,32 @@ mod tests {
         super::copied(&mut scene, &[1, 2, 0, 0, 0, 720, 1280, 0, 0]);
         assert!(!scene.layers.contains_key(&6));
         assert!(scene.layers.contains_key(&2));
+    }
+
+    /// The fade helpers fill the overlay sprite from the background; its
+    /// old picture is gone from then on.
+    #[test]
+    fn overlay_filled_from_the_background() {
+        let mut scene = crate::scene::Scene::default();
+        scene.layers.insert(2, "HG040003_h01.akb".into());
+        scene.layers.insert(6, "HG040002_h01.akb".into());
+        // Another sprite as the target changes nothing here.
+        super::copied(&mut scene, &[1, 2, 0, 0, 3, 720, 1280, 0, 0]);
+        assert!(scene.layers.contains_key(&6));
+        super::copied(&mut scene, &[1, 2, 0, 0, 6, 720, 1280, 0, 0]);
+        assert!(!scene.layers.contains_key(&6));
+    }
+
+    /// Pictures laid over the background go when the background is copied
+    /// onto the screen again.
+    #[test]
+    fn parts_go_with_the_background_copy() {
+        let mut scene = crate::scene::Scene::default();
+        scene.cg.set_picture(0, 0, "HG090401_h05.akb");
+        scene.cg.compose();
+        assert_eq!(scene.cg.on_screen().len(), 1);
+        super::copied(&mut scene, &[1, 2, 0, 0, 0, 720, 1280, 0, 0]);
+        assert!(scene.cg.on_screen().is_empty());
     }
 
     #[test]

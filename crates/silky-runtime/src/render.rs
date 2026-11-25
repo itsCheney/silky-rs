@@ -865,6 +865,14 @@ impl Renderer {
                 draw_layer(&mut canvas, scene, assets, *id, name)?;
             }
         }
+        // なないろリンカネーション: the pictures laid over the background;
+        // pure green in them is clear.
+        if self.title == Title::Nanairo {
+            for name in scene.cg.on_screen() {
+                let img = assets.image(name)?;
+                canvas.draw(&img, 0, 0, true);
+            }
+        }
         // なないろリンカネーション: the glow behind the figures.
         if self.title == Title::Nanairo && !scene.effects.sprites.is_empty() {
             self.effects.draw_where(

@@ -22,7 +22,17 @@ const LAYERS: usize = 6;
 pub struct Combo {
     base: String,
     parts: Vec<String>,
+    /// The two tables of pictures the scripts lay over the background:
+    /// five places, then three. An empty name is a free place.
+    #[serde(default)]
+    tables: [Vec<String>; 2],
+    /// What the last composition put on the screen, in drawing order.
+    #[serde(default)]
+    on_screen: Vec<String>,
 }
+
+/// Places of the two picture tables.
+const TABLE_SIZES: [usize; 2] = [5, 3];
 
 fn norm(name: &str) -> String {
     let s = name.to_ascii_lowercase();
@@ -53,6 +63,50 @@ impl Combo {
             .find(|&i| self.parts[i].is_empty())
             .unwrap_or(slot);
         self.parts[at] = norm(name);
+    }
+
+    /// Puts `name` in a place of a picture table (0 or 1); it is drawn at
+    /// the next composition.
+    pub fn set_picture(&mut self, table: usize, slot: i32, name: &str) {
+        if let Some(at) = usize::try_from(slot)
+            .ok()
+            .filter(|&i| i < TABLE_SIZES[table])
+        {
+            let t = &mut self.tables[table];
+            t.resize(TABLE_SIZES[table], String::new());
+            t[at] = name.to_string();
+        }
+    }
+
+    /// Frees a place of a picture table.
+    pub fn clear_picture(&mut self, table: usize, slot: i32) {
+        if let Ok(at) = usize::try_from(slot) {
+            if let Some(p) = self.tables[table].get_mut(at) {
+                p.clear();
+            }
+        }
+    }
+
+    /// Copies the background onto the screen and draws the pictures of both
+    /// tables over it, the first table first.
+    pub fn compose(&mut self) {
+        self.on_screen = self
+            .tables
+            .iter()
+            .flatten()
+            .filter(|n| !n.is_empty())
+            .cloned()
+            .collect();
+    }
+
+    /// The screen shows the background alone again.
+    pub fn clear_screen(&mut self) {
+        self.on_screen.clear();
+    }
+
+    /// Pictures laid over the background on the screen, bottom first.
+    pub fn on_screen(&self) -> &[String] {
+        &self.on_screen
     }
 
     /// The row of the table this combination is, if any: the base and the
@@ -118,6 +172,28 @@ mod tests {
         assert_eq!((flags(492), flags(493)), (3692, 3694));
         assert_eq!(ROWS[493].layers, ["hg070502"]);
         assert_eq!((flags(643), ROWS[643].layers), (3845, &["staff04"][..]));
+    }
+
+    #[test]
+    fn pictures_show_at_composition() {
+        let mut c = Combo::default();
+        c.set_picture(0, 1, "HG090401_h02.akb");
+        c.set_picture(0, 0, "HG090401_h05.akb");
+        c.set_picture(1, 2, "HG090401_h09.akb");
+        c.set_picture(0, 5, "ignored.akb");
+        assert!(c.on_screen().is_empty());
+        c.compose();
+        assert_eq!(
+            c.on_screen(),
+            ["HG090401_h05.akb", "HG090401_h02.akb", "HG090401_h09.akb"]
+        );
+        // A cleared place stays on the screen until the next composition.
+        c.clear_picture(0, 1);
+        assert_eq!(c.on_screen().len(), 3);
+        c.compose();
+        assert_eq!(c.on_screen(), ["HG090401_h05.akb", "HG090401_h09.akb"]);
+        c.clear_screen();
+        assert!(c.on_screen().is_empty());
     }
 
     #[test]
