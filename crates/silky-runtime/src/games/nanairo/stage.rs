@@ -89,6 +89,35 @@ pub fn shifted(slot: i32, place: i32, size: i32, body: &str) -> (i32, i32) {
     (own_x(place) - shared_x(slot), -lift - (300 - 7 * size))
 }
 
+/// The rows of a face picture that cover the body: the top and bottom of
+/// the rectangle its file holds pixels for.
+pub fn face_rows(assets: &Assets, face: &str) -> Option<(u32, u32)> {
+    let data = assets
+        .read(
+            silky_format::game::Kind::Layer,
+            &crate::assets::with_ext(face),
+        )
+        .ok()?;
+    let h = silky_format::akb::Header::parse(&data).ok()?;
+    Some((h.top.max(0) as u32, h.bottom.max(0) as u32))
+}
+
+/// Puts a face on a body: the rows of the face picture's rectangle
+/// replace the same rows of the body, across the whole width. A face is a
+/// piece of the figure with the same outline, so blending it over the
+/// body would count the soft rim of the outline twice.
+pub fn put_face(body: &mut [u8], width: u32, face: &silky_format::akb::Image, rows: (u32, u32)) {
+    if face.width != width {
+        return;
+    }
+    let row = width as usize * 4;
+    let top = (rows.0 as usize).min(face.height as usize);
+    let bottom = (rows.1 as usize).clamp(top, face.height as usize);
+    let end = (bottom * row).min(body.len());
+    let start = (top * row).min(end);
+    body[start..end].copy_from_slice(&face.rgba[start..end]);
+}
+
 /// Whether two pictures are of the same character.
 pub fn same_character(a: &str, b: &str) -> bool {
     id(a).is_some() && id(a) == id(b)
@@ -212,6 +241,22 @@ mod tests {
         assert_eq!(scene.cg.on_screen().len(), 1);
         super::copied(&mut scene, &[1, 2, 0, 0, 0, 720, 1280, 0, 0]);
         assert!(scene.cg.on_screen().is_empty());
+    }
+
+    /// A face replaces the rows of its rectangle, soft edges included.
+    #[test]
+    fn face_replaces_its_rows() {
+        use silky_format::akb::Image;
+        let face = Image {
+            width: 2,
+            height: 3,
+            rgba: vec![9; 24],
+        };
+        let mut body = vec![1u8; 24];
+        super::put_face(&mut body, 2, &face, (1, 2));
+        assert_eq!(&body[..8], &[1; 8]);
+        assert_eq!(&body[8..16], &[9; 8]);
+        assert_eq!(&body[16..], &[1; 8]);
     }
 
     #[test]

@@ -323,8 +323,13 @@ impl Renderer {
             let mut canvas = Canvas::from_rgba(body.width, body.height, body.rgba.clone());
             let faces = usize::from(face.is_some());
             for (i, top) in tops.into_iter().enumerate() {
+                let rows = (i < faces && self.title == Title::Nanairo)
+                    .then(|| nanairo::stage::face_rows(assets, top))
+                    .flatten();
                 let top = assets.image(top)?;
-                if i >= faces && self.title == Title::Doujin {
+                if let Some(rows) = rows {
+                    nanairo::stage::put_face(&mut canvas.rgba, canvas.width, &top, rows);
+                } else if i >= faces && self.title == Title::Doujin {
                     crate::games::doujin::window::overlay_keep_alpha(&mut canvas, &top);
                 } else {
                     overlay_rgba(&mut canvas, &top);
@@ -1776,11 +1781,14 @@ fn overlay_rgba(canvas: &mut Canvas, top: &Image) {
         }
         let d = &mut canvas.rgba[i * 4..i * 4 + 4];
         let da = d[3] as u32;
-        let out_a = a + da * (255 - a) / 255;
+        // Weights over 255 so that the colour is an exact mean of the
+        // two (no overshoot when the alpha is small).
+        let den = a * 255 + da * (255 - a);
         for k in 0..3 {
-            let v = (s[k] as u32 * a + d[k] as u32 * da * (255 - a) / 255) / out_a.max(1);
-            d[k] = v as u8;
+            let num = s[k] as u32 * a * 255 + d[k] as u32 * da * (255 - a);
+            d[k] = (num / den.max(1)) as u8;
         }
+        let out_a = den / 255;
         d[3] = out_a as u8;
     }
 }
@@ -1894,6 +1902,20 @@ fn model_colour(c: u8, byte: u8) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Two faint layers of one colour stay that colour (the sum of the
+    /// weighted colours is not allowed to wrap round).
+    #[test]
+    fn overlay_of_faint_pixels_keeps_the_colour() {
+        let mut canvas = Canvas::from_rgba(1, 1, vec![42, 255, 137, 1]);
+        let top = Image {
+            width: 1,
+            height: 1,
+            rgba: vec![42, 255, 137, 1],
+        };
+        overlay_rgba(&mut canvas, &top);
+        assert_eq!(&canvas.rgba[..3], &[42, 255, 137]);
+    }
 
     fn solid(w: u32, h: u32, px: [u8; 4]) -> Image {
         Image {
