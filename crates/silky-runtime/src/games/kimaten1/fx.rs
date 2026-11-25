@@ -141,7 +141,6 @@ pub struct Soot {
     ids: Vec<u32>,
     slots: Vec<Option<Speck>>,
     counter: i32,
-    made: i32,
     rng: Mt,
 }
 
@@ -156,8 +155,9 @@ impl Soot {
             let x = (r / 0x500 + 1) * 0x500 - r;
             let y = (self.rng.below(0xb70a7c3) % 100) as i32 + 570;
             let late = (self.rng.below(0xb70a7c3) % 100) as i32;
-            // The first batch of all starts at once.
-            let delay = if self.made == 0 { 0 } else { late };
+            // A speck made while none is alive starts at once.
+            let alive = self.slots.iter().flatten().count();
+            let delay = if alive == 0 { 0 } else { late };
             let amp = (self.rng.below(0xb70a7c3) % 20 + 11) as f64;
             let phase = (self.rng.below(0xb70a7c3) % 100 + 101) as f64;
             let speed = ((self.rng.below(0xb70a7c3) % 100 + 1) as f32 / 100.0 * 2.0).max(1.0);
@@ -176,9 +176,10 @@ impl Soot {
                 s.alpha = 0;
                 s.shown = true;
             }
-            self.made += 1;
         }
-        let k = (self.made / 100).max(1) as u32;
+        // The next batch comes after 16 frames and up to 3 more (the
+        // range grows with the specks alive, a hundred at a time).
+        let k = (self.slots.iter().flatten().count() / 100).max(1) as u32;
         self.counter = (self.rng.below(0xb70a7c3) % (k * 4)) as i32 + 16;
     }
 
@@ -258,11 +259,12 @@ impl Pulse {
             return;
         }
         let a = self.counter.min(64) as u8;
-        // One accumulator adds each wave's own step in turn (1 for the
-        // first copy, 2 for the second), so the pair advances 3 a frame.
-        for (id, step) in self.waves.iter().zip([1.0, 2.0]) {
-            self.phase += step;
-            let Some(s) = sprites.iter_mut().find(|s| s.id == *id) else {
+        // One accumulator is shared by both copies and grows by 1 for
+        // each copy drawn, so the pair advances 2 a frame (the copies'
+        // own steps of 1 and 2 degrees are the row-to-row step).
+        for id in self.waves {
+            self.phase += 1.0;
+            let Some(s) = sprites.iter_mut().find(|s| s.id == id) else {
                 continue;
             };
             s.shown = true;
@@ -659,7 +661,6 @@ pub fn effect(st: &mut Stage, ty: i32, action: i32, bg: Option<&str>) {
                     slots: vec![None; 128],
                     ids,
                     counter: 1,
-                    made: 0,
                     rng,
                 }),
                 1,
@@ -1077,6 +1078,33 @@ mod tests {
     }
 
     #[test]
+    fn a_speck_made_with_none_alive_starts_at_once() {
+        let ids: Vec<u32> = (1..=128).collect();
+        let mut sprites: Vec<Sprite> = ids
+            .iter()
+            .map(|&id| Sprite::new(id, FX, Look::Nothing, 2))
+            .collect();
+        let mut soot = Soot {
+            mode: 0,
+            ids,
+            slots: vec![None; 128],
+            counter: 1,
+            rng: Mt::new(7),
+        };
+        soot.spawn(&mut sprites);
+        let delays: Vec<i32> = soot.slots.iter().flatten().map(|p| p.delay).collect();
+        assert_eq!(delays.len(), 4);
+        // Only the first of a batch into an empty field has none.
+        assert_eq!(delays[0], 0);
+        // Once they have all gone, the next one starts at once again.
+        soot.slots.iter_mut().for_each(|s| *s = None);
+        soot.spawn(&mut sprites);
+        assert_eq!(soot.slots.iter().flatten().next().unwrap().delay, 0);
+        // The wait to the next batch stays 16 to 19 frames.
+        assert!((16..20).contains(&soot.counter));
+    }
+
+    #[test]
     fn soot_is_the_same_every_run() {
         let positions = || {
             let mut st = Stage::default();
@@ -1347,7 +1375,7 @@ mod tests {
     }
 
     #[test]
-    fn the_waves_advance_by_their_own_steps() {
+    fn the_waves_share_one_phase_that_grows_by_one_a_copy() {
         let mut st = Stage::default();
         effect(&mut st, 3, 0, Some("bg1.akb"));
         run(&mut st, 2);
@@ -1359,8 +1387,18 @@ mod tests {
                 _ => None,
             })
             .collect();
-        // First frame: 0 + 1 and 1 + 2; second: 3 + 1 and 4 + 2.
-        assert_eq!(phases, [4.0, 6.0]);
+        // First frame: 1 and 2; second: 3 and 4. The copies' own steps
+        // (1 and 2 degrees a row) stay as they are.
+        assert_eq!(phases, [3.0, 4.0]);
+        let steps: Vec<f32> = st
+            .sprites
+            .iter()
+            .filter_map(|s| match &s.look {
+                Look::Raster { step, .. } => Some(*step),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(steps, [1.0, 2.0]);
     }
 
     #[test]

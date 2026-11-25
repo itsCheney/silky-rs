@@ -348,6 +348,10 @@ pub struct Runtime {
     /// きまぐれテンプテーション: the pause being started is a wait that
     /// Enter, Ctrl or a click ends at once (`Game.1000`).
     pub k1_keywait: bool,
+    /// きまぐれテンプテーション: the pause being started is a blocking
+    /// animation or effect wait, which neither skip mode nor a click ends
+    /// (`Game.1000`'s wait is cut short by its keys only).
+    pub k1_hold: bool,
     /// きまぐれテンプテーション: the bar's jump button is running (skip to
     /// the next choice), which the original treats as its scene skip
     /// setting being on.
@@ -459,6 +463,7 @@ impl Runtime {
             k1_title_extras: false,
             k1_blink: false,
             k1_keywait: false,
+            k1_hold: false,
             k1_scene_skip: false,
             cover_under_name: None,
             town: None,

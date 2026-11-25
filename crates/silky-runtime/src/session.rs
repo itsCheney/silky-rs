@@ -180,6 +180,21 @@ struct Busy {
     ui_fade: Option<bool>,
     /// A wait that Enter ends too (きまぐれテンプテーション's text strip).
     key_wait: bool,
+    /// A blocking animation wait: skip mode does not end it, and a click
+    /// ends it only when it is a key wait.
+    hold: bool,
+}
+
+impl Busy {
+    /// Whether skip mode ends the wait at once.
+    fn skippable(&self) -> bool {
+        !self.hold
+    }
+
+    /// Whether a click ends the wait at once.
+    fn clickable(&self) -> bool {
+        !self.frame && (!self.hold || self.key_wait)
+    }
 }
 
 /// Length of one frame for input polls.
@@ -734,6 +749,7 @@ impl Session {
                             spin: t.spin,
                             ui_fade,
                             key_wait: std::mem::take(&mut self.rt.k1_keywait),
+                            hold: std::mem::take(&mut self.rt.k1_hold),
                         });
                         self.state = State::Busy;
                         break;
@@ -748,6 +764,7 @@ impl Session {
                             spin: None,
                             ui_fade: None,
                             key_wait: false,
+                            hold: false,
                         });
                         self.state = State::Busy;
                         break;
@@ -1752,7 +1769,7 @@ impl Session {
             if let Some(b) = &mut self.busy {
                 // The staff roll takes no primary click (only a secondary
                 // click, Escape, Delete or keypad 0; see `roll_cancel`).
-                if !b.frame
+                if b.clickable()
                     && self.rt.scene.intro.is_none()
                     && !self.rt.roll_locked
                     && !self.rt.rolling()
@@ -5512,6 +5529,7 @@ impl Session {
                 let Some(b) = &mut self.busy else { break };
                 // The roll does not look at the skip mode either.
                 if self.ui.skip
+                    && b.skippable()
                     && self.rt.scene.intro.is_none()
                     && !self.rt.roll_locked
                     && !self.rt.rolling()
@@ -6030,4 +6048,44 @@ fn under_dialog(
         None => ui.state(Button::Screen(id), true, false) as u32,
     };
     (hover, state)
+}
+
+#[cfg(test)]
+mod k1_wait_tests {
+    use super::*;
+
+    fn busy(hold: bool, key_wait: bool) -> Busy {
+        Busy {
+            from: None,
+            rule: None,
+            ms: 100,
+            elapsed: 0,
+            frame: false,
+            spin: None,
+            ui_fade: None,
+            key_wait,
+            hold,
+        }
+    }
+
+    #[test]
+    fn an_animation_wait_ignores_skip_and_clicks() {
+        let b = busy(true, false);
+        assert!(!b.skippable());
+        assert!(!b.clickable());
+    }
+
+    #[test]
+    fn a_key_wait_takes_clicks_but_not_skip() {
+        let b = busy(true, true);
+        assert!(!b.skippable());
+        assert!(b.clickable());
+    }
+
+    #[test]
+    fn other_waits_end_as_before() {
+        let b = busy(false, false);
+        assert!(b.skippable());
+        assert!(b.clickable());
+    }
 }

@@ -233,6 +233,10 @@ pub struct Viewer {
     phase: Phase,
     fade: Option<ButtonFade>,
     scroll: usize,
+    /// Wheel notches since the screen last took the wheel (up counts
+    /// one, down takes one off). The original keeps this count while it
+    /// waits for a fade and then scrolls once, by the sign of the net.
+    wheel_net: i32,
     /// The drag that holds the scroll bar, while there is one.
     bar: Option<BarDrag>,
     /// The slider, 0 to 1.
@@ -313,6 +317,7 @@ impl Viewer {
             phase: Phase::Idle,
             fade: None,
             scroll: 0,
+            wheel_net: 0,
             bar: None,
             zoom: ZOOM_START,
             hidden: false,
@@ -422,6 +427,7 @@ impl Viewer {
     pub fn tick(&mut self, scene: &mut Scene, ms: u64) -> (bool, bool) {
         let mut redraw = false;
         let mut changed = false;
+        let scroll = self.scroll;
         if let Some(f) = &mut self.fade {
             let start = *f.start.get_or_insert(ms);
             if ms.saturating_sub(start) >= u64::from(frames_ms(BUTTON_FADE)) {
@@ -443,6 +449,10 @@ impl Viewer {
         }
         if self.phase == Phase::Idle && (self.reload || self.dirty) {
             changed |= self.sync_scene(scene);
+        }
+        if !self.busy() {
+            self.take_wheel();
+            redraw |= self.scroll != scroll;
         }
         (changed, redraw || changed || self.phase != Phase::Idle)
     }
@@ -679,20 +689,27 @@ impl Viewer {
         });
     }
 
-    /// The mouse wheel: up goes back by five, down forward; true when the
-    /// list was there to scroll. The original scrolls while the buttons
-    /// are hidden too (the list is only out of sight); the question
-    /// takes the wheel while it is up.
+    /// The mouse wheel: the notch is counted; the screen scrolls on its
+    /// next step when no fade is running (see `tick`). The original
+    /// scrolls while the buttons are hidden too (the list is only out
+    /// of sight); the question takes the wheel while it is up.
     pub fn wheel(&mut self, up: bool) -> bool {
         if self.dialog {
             return true;
         }
-        if up {
+        self.wheel_net += if up { 1 } else { -1 };
+        true
+    }
+
+    /// Takes the counted notches: one step of five, up back and down
+    /// forward, by the sign of the net count, then the count is reset.
+    fn take_wheel(&mut self) {
+        let net = std::mem::take(&mut self.wheel_net);
+        if net > 0 {
             self.scroll = self.scroll.saturating_sub(SCROLL_STEP);
-        } else {
+        } else if net < 0 {
             self.scroll = (self.scroll + SCROLL_STEP).min(SCROLL_MAX);
         }
-        true
     }
 
     /// Right click or Escape: the buttons go and come back; a question
@@ -957,6 +974,12 @@ mod tests {
         )
     }
 
+    /// One wheel notch and one step of the screen.
+    fn notch(v: &mut Viewer, up: bool) {
+        v.wheel(up);
+        v.tick(&mut Scene::default(), 0);
+    }
+
     /// Runs the fades out.
     fn settle(v: &mut Viewer, scene: &mut Scene) {
         for i in 0..200 {
@@ -1078,13 +1101,13 @@ mod tests {
         assert_eq!(scroll_at(178 + 405), SCROLL_MAX);
         assert_eq!(scroll_at(900), SCROLL_MAX);
         let mut v = viewer(&[0]);
-        assert!(v.wheel(true));
+        notch(&mut v, true);
         assert_eq!(v.scroll, 0);
         for _ in 0..40 {
-            v.wheel(false);
+            notch(&mut v, false);
         }
         assert_eq!(v.scroll, SCROLL_MAX);
-        v.wheel(true);
+        notch(&mut v, true);
         assert_eq!(v.scroll, SCROLL_MAX - 5);
         // The row pressed is counted from the top of the shown list.
         v.click(ROW + 2);
@@ -1201,18 +1224,43 @@ mod tests {
     #[test]
     fn the_wheel_scrolls_while_the_buttons_are_hidden() {
         let mut v = viewer(&[0]);
+        let mut scene = Scene::default();
         v.cancel();
         assert!(v.hidden);
-        v.wheel(false);
+        settle(&mut v, &mut scene);
+        notch(&mut v, false);
         assert_eq!(v.scroll, SCROLL_STEP);
-        v.wheel(true);
-        v.wheel(true);
+        notch(&mut v, true);
+        notch(&mut v, true);
         assert_eq!(v.scroll, 0);
         // The question takes it while it is up.
         v.hidden = false;
         v.click(UNLOCK);
-        v.wheel(false);
+        notch(&mut v, false);
         assert_eq!(v.scroll, 0);
+    }
+
+    #[test]
+    fn notches_during_a_fade_are_counted_and_scroll_once_afterwards() {
+        let mut scene = Scene::default();
+        let mut v = viewer(&[0]);
+        v.cancel();
+        assert!(v.busy());
+        // Three down and one up while the buttons fade: net down, one step.
+        v.wheel(false);
+        v.wheel(false);
+        v.wheel(false);
+        v.wheel(true);
+        v.tick(&mut scene, 0);
+        assert_eq!(v.scroll, 0);
+        settle(&mut v, &mut scene);
+        assert_eq!(v.scroll, SCROLL_STEP);
+        // An even count scrolls nothing.
+        v.show();
+        v.wheel(false);
+        v.wheel(true);
+        settle(&mut v, &mut scene);
+        assert_eq!(v.scroll, SCROLL_STEP);
     }
 
     #[test]

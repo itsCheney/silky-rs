@@ -303,8 +303,10 @@ impl Runtime {
                 if ms == 0 {
                     return self.done();
                 }
-                // Enter, Ctrl and a click end the wait (and the wipe) at once.
+                // Enter, Ctrl and a click end the wait (and the wipe) at once; skip
+                // mode does not.
                 self.k1_keywait = true;
+                self.k1_hold = true;
                 self.wait_for(Pause::Transition(crate::host::Transition {
                     ms: ms as u32,
                     rule: None,

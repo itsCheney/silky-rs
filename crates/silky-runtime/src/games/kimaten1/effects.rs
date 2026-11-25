@@ -488,6 +488,7 @@ impl crate::host::Runtime {
     pub(crate) fn k1_block(&mut self, extra: u64) {
         let ms = self.scene.effects.blocking_ms().unwrap_or(0) + extra;
         if ms > 0 {
+            self.k1_hold = true;
             self.pause = Some(Pause::Transition(Transition {
                 ms: ms as u32,
                 rule: None,
