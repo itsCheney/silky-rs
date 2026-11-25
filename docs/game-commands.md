@@ -168,16 +168,24 @@ Commands of ふゆから、くるる。 general enough to try on a game not know
 
 ## 先輩が私の妄想にドージンする
 
-`games/doujin/`. Read from the executable; no command here is carried out yet. Those that return a value are 20, 30, 31, 32, 110, 990 and 1009 always, and 40 subs 0 and 1 and 1006 sub 0 only. The module gives 0 for the last three until they are carried out. Every other call leaves nothing on the stack.
+`games/doujin/`. The game page, [games/doujin.md](games/doujin.md), lists what is carried out and in which file; the values below are read from the executable.
 
 | Call | Returns | Does | Source |
 | --- | --- | --- | --- |
-| `20(a, b)` | A number | A selection: hands the two values to the game's screen object | Read |
-| `30`, `31`, `32` | A code, or -1 | CG, scene and music mode screens; -1 when the screen failed or was left | Read |
-| `110(state)` | The picked item | The title menu | Read |
-| `990(value)` | A number | The staff roll | Read |
-| `1009` | 0 or 1 | 1 when the first message window entry has bit 14 of its flags set | Read |
-| `40.0(a, b)`, `40.1(a, b)` | A number | Asks the doujinshi screen object for a result (page turn or choice, not known) | Read |
-| `1006.0(file, a, b, c, d, e)` | A handle | Creates an entry in the animation layer list from a `.brt` file | Read |
+| `10` | | Portrait window on the left (subs 4 to 16) | Read |
+| `11` | | Speaker name above the text | Read |
+| `12.3` | | Crossfade; cut when the help picture is laid over the copy of the screen (`Sprite.5` sets the flag it takes) | Read |
+| `12.8` | | Rule wipe of the picture shown | Read |
+| `14` | | Auto save point | Read |
+| `16` subs 6 to 12 | | Second portrait window; sub 8 lays a picture over the portrait, sub 12 clears it | Read |
+| `20(a, b)` | The option picked, plus 1 | Selection; the options a flag leaves out keep their numbers. -1 only on an error path, which the runtime never takes | Read |
+| `30` to `32` (`omake.rs`) | -1 for back and right click; in the scene mode, the scene picked (0 to 18) | CG, scene and music modes: tabs of one screen | Read |
+| `40.0`, `40.1` (`comic.rs`) | 0 on a click; 2 and 3 for the two round page buttons; 1 when a scene of the scene mode is left during a replay | Doujinshi screen and its wait | Read |
+| `110(state)` | 1 for the new game; 257 to 260 for the doujinshi, CG, scene and music buttons of the extras page | Title menu. The other buttons work inside the menu and never return | Read |
+| `990` | Not recorded yet | Staff roll | Read |
+| `1005` | | Zoom and white flash | Read |
+| `1006` sub 0 | Not recorded yet | Breath animation, from `.brt` files | Read |
+| `1007` | | Pictures that change with the voice line, from `.vo` files | Read |
+| `1009` | Not recorded yet | Not described on the game page yet | Read |
 
-The codes returned by 20, 30 to 32, 110 and 990 are not known yet.
+Accepted with nothing to do: `13.18`, `993` apart from `993.1`, `1003`, `961.1`, `12.7`, `10.4`, `10.5` and `10.16`. Movies (`do-jin*.dat`) are not played yet.
