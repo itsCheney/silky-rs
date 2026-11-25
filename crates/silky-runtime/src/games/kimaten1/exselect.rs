@@ -48,8 +48,8 @@ const PER_PAGE: usize = 4;
 const TEXT_SIZE: f32 = 24.0;
 /// Where the text sits in a bar: top of the glyph row, and the baseline
 /// under it (the same offset the selection bars of the message window use,
-/// checked under Wine there).
-const TEXT_TOP: i32 = 28;
+/// checked under Wine there; one pixel lower here, from the option list).
+const TEXT_TOP: i32 = 29;
 const TEXT_BASELINE: f32 = (TEXT_TOP + 20) as f32;
 const CLICK: &str = "ses_001.wav";
 /// First of the raw-area bytes that switch the options on, one for each
@@ -289,14 +289,20 @@ impl ExSelect {
                 (CELL.0 - Self::label_width(label)) / 2
             };
             if let Some(text) = look.text {
-                text.draw_dropped(
-                    canvas,
-                    label,
-                    (left + x + 2) as f32,
-                    top as f32 + TEXT_BASELINE,
-                    TEXT_SIZE,
-                    shade,
-                );
+                // The game centres a label by 24 pixel cells but draws it
+                // with the message window's 28 pixel cells (measured under
+                // Wine: the last glyph of a three-kana label lands 9 pixels
+                // right of where 24 pixel cells put it).
+                text.with_fixed_cells(super::window::TEXT_CELL / TEXT_SIZE, |text| {
+                    text.draw_dropped(
+                        canvas,
+                        label,
+                        (left + x + 2) as f32,
+                        top as f32 + TEXT_BASELINE,
+                        TEXT_SIZE,
+                        shade,
+                    )
+                });
             }
         }
         let help = match look.hover {

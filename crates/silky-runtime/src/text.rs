@@ -24,7 +24,7 @@ pub struct TextRenderer {
     wide_advance: std::cell::Cell<Option<f32>>,
     /// Other characters take half that advance (the engine's half-width
     /// cells), while a wide advance is set.
-    half_cells: bool,
+    half_cells: std::cell::Cell<bool>,
     /// Rasterized glyphs by font, character and size (bits of the f32).
     glyphs: RefCell<HashMap<(usize, char, u32), Arc<Glyph>>>,
 }
@@ -49,7 +49,7 @@ impl TextRenderer {
         Ok(Self {
             fonts,
             wide_advance: Default::default(),
-            half_cells: false,
+            half_cells: std::cell::Cell::new(false),
             glyphs: Default::default(),
         })
     }
@@ -64,7 +64,7 @@ impl TextRenderer {
     }
 
     pub fn set_half_cells(&mut self, on: bool) {
-        self.half_cells = on;
+        self.half_cells.set(on);
     }
 
     /// Runs `f` with CJK characters `k` times the size apart (if the text
@@ -74,6 +74,18 @@ impl TextRenderer {
         self.wide_advance.set(old.map(|_| k));
         let r = f(self);
         self.wide_advance.set(old);
+        r
+    }
+
+    /// Runs `f` with every full-width character `k` times the size apart
+    /// and half-width ones half that, whatever the renderer's own spacing.
+    pub fn with_fixed_cells<R>(&self, k: f32, f: impl FnOnce(&Self) -> R) -> R {
+        let (old, half) = (self.wide_advance.get(), self.half_cells.get());
+        self.wide_advance.set(Some(k));
+        self.half_cells.set(true);
+        let r = f(self);
+        self.wide_advance.set(old);
+        self.half_cells.set(half);
         r
     }
 
@@ -114,7 +126,7 @@ impl TextRenderer {
     fn advance(&self, c: char, size: f32) -> f32 {
         match self.wide_advance.get() {
             Some(k) if takes_cell(c) => size * k,
-            Some(k) if self.half_cells => size * k / 2.0,
+            Some(k) if self.half_cells.get() => size * k / 2.0,
             _ => self.font_for(c).metrics(c, size).advance_width,
         }
     }
