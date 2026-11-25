@@ -46,6 +46,8 @@ pub(super) const CENTRE: (f32, f32) = (640.0, 360.0);
 
 /// The sparkle picture of `Game.22`.
 const KIRARA_PICTURE: &str = "kirara.akb";
+/// The size `22.1` gives the sparkle picture, and `22.2` starts from.
+const KIRARA_SCALE: f32 = 1.2;
 /// The picture the event overlay of `Game.1001` lays over the scene.
 const EVENT_PICTURE: &str = "HG091010_h05_eff.akb";
 /// The picture of `Game.1005`.
@@ -170,21 +172,31 @@ pub fn kirara_up(st: &mut Stage) -> bool {
     id.is_some_and(|id| st.sprite(id).is_some())
 }
 
-/// `Game.22.1`: the sparkle picture is put up, shown but fully clear.
+/// The full-screen sprite is taken down at once (the CG and scene screens
+/// do this when they open).
+pub fn kirara_down(st: &mut Stage) {
+    clear(st, KIRARA);
+}
+
+/// `Game.22.1`: the sparkle picture (a full-screen picture, opaque all
+/// over) is put up at once at 1.2 times its size about the middle, fully
+/// opaque: the screen shows it until `22.2` has played out.
 pub fn kirara_ready(st: &mut Stage) {
     clear(st, KIRARA);
     let mut fx = Fx::new(st, KIRARA);
     fx.sprite(0, Look::picture(KIRARA_PICTURE), Z_FLASH);
     if let Some(Step::Add(s)) = fx.steps.last_mut() {
-        s.alpha = 0;
+        s.alpha = 255;
+        s.scale = (KIRARA_SCALE, KIRARA_SCALE);
+        s.scale_at = CENTRE;
         s.shown = true;
     }
     fx.run();
 }
 
 /// `Game.22.2`: over 16 frames the sparkle picture goes from opaque to
-/// clear while it grows to 1.2 times about the middle; then it is
-/// released. The script waits.
+/// clear while it shrinks from 1.2 times to its own size about the
+/// middle; then it is gone. The script waits.
 pub fn kirara_flash(st: &mut Stage, factor: f32) {
     let mut fx = Fx::new(st, KIRARA);
     let id = match fx.alive(0) {
@@ -194,7 +206,7 @@ pub fn kirara_flash(st: &mut Stage, factor: f32) {
     let key = Key::new(scaled(16, factor))
         .show(true)
         .fade(255, 0)
-        .scaling((1.0, 1.0), (1.2, 1.2), CENTRE);
+        .scaling((KIRARA_SCALE, KIRARA_SCALE), (1.0, 1.0), CENTRE);
     fx.play(vec![(id, vec![key])], true);
     fx.remove(&[id]);
     fx.run();
@@ -526,12 +538,16 @@ mod tests {
     }
 
     #[test]
-    fn the_sparkle_flashes_out_while_it_grows() {
+    fn the_sparkle_flashes_out_while_it_shrinks() {
         let mut st = Stage::default();
+        assert!(!kirara_up(&mut st));
         kirara_ready(&mut st);
         assert_eq!(st.sprites.len(), 1);
         assert!(st.sprites[0].shown);
-        assert_eq!(st.sprites[0].alpha, 0);
+        // Put up opaque at 1.2 times, and that is what the commits see.
+        assert_eq!(st.sprites[0].alpha, 255);
+        assert!((st.sprites[0].scale.0 - 1.2).abs() < 0.001);
+        assert!(kirara_up(&mut st));
         kirara_flash(&mut st, 1.0);
         // The script waits the 16 frames and a little over.
         let wait = st.blocking_ms().unwrap();
@@ -543,8 +559,9 @@ mod tests {
         assert!((s.scale.0 - 1.1).abs() < 0.02, "{:?}", s.scale);
         assert_eq!(s.scale_at, CENTRE);
         play(&mut st, 20);
-        // Released at the end.
+        // Gone at the end: the veil is down again.
         assert!(st.sprites.is_empty());
+        assert!(!kirara_up(&mut st));
     }
 
     #[test]

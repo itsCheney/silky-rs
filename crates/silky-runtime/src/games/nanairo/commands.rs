@@ -68,6 +68,11 @@ impl Runtime {
     /// faded out by the music mode (the screen's own start); a mode
     /// opened over silence starts the mode BGM.
     pub(crate) fn nanairo_open_mode(&mut self, vm: &mut Vm, mode: Mode) {
+        // The CG and scene screens take the full-screen sprite down if it
+        // is up.
+        if matches!(mode, Mode::Cg | Mode::Scene) && !self.scene_skip() {
+            super::effects::kirara_down(&mut self.scene.effects);
+        }
         // Whether each tab is open, in the order of the strip.
         let tabs = [Mode::Cg, Mode::Music, Mode::Scene].map(|m| vm.var_b(m.tab_byte()));
         let screen = match mode {
@@ -294,15 +299,28 @@ impl Runtime {
             }
             // (time, slot)
             1 if c.args.len() == 2 => {
-                self.character_time = self.character_time.max(c.int(0));
+                // With the full-screen sprite up the figure is gone at
+                // once, with no fade.
+                if !veil {
+                    self.character_time = self.character_time.max(c.int(0));
+                }
                 scene.characters.remove(&c.int(1));
                 scene.figures.forget(c.int(1));
             }
             // Commit: every change crossfades over the longest time given,
             // and the hops, sways, bows and slides run at the same time;
             // the script waits for the last of them.
+            // With the full-screen sprite up every change shows at once: no
+            // crossfade, no motions (they wait for a later commit), and
+            // the script does not wait.
             2 => {
-                for (slot, steps) in scene.figures.start() {
+                let started = if veil {
+                    scene.figures.show_at_once();
+                    Vec::new()
+                } else {
+                    scene.figures.start()
+                };
+                for (slot, steps) in started {
                     if skip {
                         continue;
                     }
@@ -310,6 +328,7 @@ impl Runtime {
                     self.jolts.push((slot, Jolt { steps, step_ms: 16 }));
                 }
                 let t = std::mem::take(&mut self.character_time);
+                let t = if veil { 0 } else { t };
                 self.handled += 1;
                 return Some(Ok(self.transition(t, None)));
             }
@@ -337,7 +356,9 @@ impl Runtime {
             }
             // (time): remove all.
             7 if c.args.len() == 1 => {
-                self.character_time = self.character_time.max(c.int(0));
+                if !veil {
+                    self.character_time = self.character_time.max(c.int(0));
+                }
                 scene.characters.clear();
                 scene.figures.forget_all();
             }

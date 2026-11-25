@@ -887,7 +887,16 @@ impl Runtime {
     /// Plays a track once (the music mode).
     pub fn play_music_once(&mut self, file: &str) -> crate::Result<()> {
         self.audio.stop_bus(Bus::Music);
-        self.play_with(Bus::Music, Kind::Music, 0, file, false)
+        // なないろリンカネーション has no loop flag in its play call: a
+        // file loops exactly when its own `smpl` chunk says so.
+        let own_loop = self.assets.game().title == silky_format::game::Title::Nanairo
+            && self
+                .assets
+                .read(Kind::Music, file)
+                .ok()
+                .and_then(|d| silky_format::wav::parse(&d).ok())
+                .is_some_and(|w| w.loop_frames.is_some());
+        self.play_with(Bus::Music, Kind::Music, 0, file, own_loop)
     }
 
     pub fn stop_music(&mut self) {

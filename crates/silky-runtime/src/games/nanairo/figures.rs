@@ -141,6 +141,12 @@ impl Figures {
         self.pending.entry(slot).or_default().slide = Some(shift);
     }
 
+    /// A commit with the full-screen sprite up: the figures show at once
+    /// and their motions stay waiting for a later commit.
+    pub fn show_at_once(&mut self) {
+        self.placed.clear();
+    }
+
     /// The motions to play now, by slot: an offset for each frame. The
     /// last one is back at rest.
     pub fn start(&mut self) -> Vec<(i32, Vec<(i32, i32)>)> {
@@ -365,6 +371,19 @@ mod tests {
         f.placed(0);
         f.forget(0);
         assert_eq!(f.face_frames(0, true), 12);
+    }
+
+    #[test]
+    fn a_commit_under_the_full_screen_sprite_keeps_the_motions_waiting() {
+        let mut f = Figures::default();
+        f.hop(0, 0, 14);
+        f.placed(0);
+        f.show_at_once();
+        // Nothing was started, and the figure is no longer new.
+        assert_eq!(f.face_frames(0, true), 12);
+        let started = f.start();
+        assert_eq!(started.len(), 1);
+        assert_eq!(started[0].0, 0);
     }
 
     #[test]

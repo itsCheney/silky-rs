@@ -151,7 +151,7 @@ Commands of ふゆから、くるる。 general enough to try on a game not know
 | `22.0` | | Register the picture shown | Read |
 | `26` | | End of chapter: empties the message window | Read |
 | `27` | | Message window start up | Read |
-| `22.1`, `22.2` | | Sparkle picture (`kirara.akb`): put up clear; flash out over 16 frames, growing to 1.2 times about (640, 360); the script waits | Read |
+| `22.1`, `22.2` | | Sparkle picture (`kirara.akb`): put up opaque at 1.2 times about (640, 360); flash out over 16 frames, shrinking to 1.0 times; the script waits | Read |
 | `23.0(from, to, _)` | | Moves the picture in sprite 2 sideways a pixel a frame from window position `from` to `to`; the script waits. The direction is assumed | Read |
 | `1001.0`, `1001.1` | | Event picture: grows to 1.2 times over 16 frames, an effect picture fades in and repeats; the end fades both out over 24 frames. Both wait | Read |
 | `1002.0(name, frames)`, `1002.1(frames)` | | Scene movie fades in and out, the script waits. Movies are not decoded; the picture of the same name stands in | Read |
