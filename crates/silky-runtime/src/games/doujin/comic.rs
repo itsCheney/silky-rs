@@ -18,14 +18,21 @@
 //! interval the text speed setting gives (150 ms at the slowest, none at
 //! the fastest or with the one-by-one setting off), a little longer after
 //! a stop mark when that setting is on. A click, or leaving by the keys,
-//! puts the rest up at once; skipping does too.
+//! puts the rest up at once; skipping does too. The rest is the whole
+//! lettered page: when a bubble is done (by itself or by a click) the page
+//! picture is copied over in one piece, so the words of the bubbles not
+//! spoken yet show too, until the page is cleared. Auto mode waits 500 ms
+//! plus the auto speed's step for each two bytes of the bubble's text,
+//! from when the wait begins (not for the typing).
 //!
 //! Two round buttons (`comic.akb`, at the areas 2 and 3 of
 //! `DOUJINSHI.AREA`) turn the page: the left one forward (the wait returns
 //! 2), the right one back (3). The sheet has four looks for each: normal,
 //! pointer over, pressed and unavailable; the back button is unavailable
 //! on the first page and does nothing there. A click on a button plays the
-//! confirm sound. A click on the page itself ends the wait (0). Sub 6
+//! confirm sound, and the button shows its pressed look while that sound
+//! plays; the wait ends when the sound has. A click on the page itself ends
+//! the wait (0). Sub 6
 //! names a small rectangle of the lettered page that appears with the next
 //! wait (a sound word written in a bubble) instead of text: it is wiped in
 //! from the top over 24 frames, and a click during that finishes it.
@@ -37,6 +44,7 @@ use std::sync::Arc;
 use silky_vm::{Flow, Vm};
 
 use crate::assets::Assets;
+use crate::audio::Bus;
 use crate::games::Call;
 use crate::host::{Pause, Runtime};
 use crate::render::Canvas;
@@ -70,7 +78,14 @@ const CLICK_SOUND: &str = "ses_001.wav";
 /// Rows of `comic.akb`.
 const ROW_NORMAL: u32 = 0;
 const ROW_OVER: u32 = 1;
+const ROW_PRESSED: u32 = 2;
 const ROW_UNAVAILABLE: u32 = 3;
+/// Auto mode: base wait and the step per two bytes at the slowest speed.
+const AUTO_BASE_MS: u64 = 500;
+const AUTO_STEP_MS: f64 = 250.0;
+/// The pressed look is held for no longer than this if the sound never
+/// ends.
+const PRESS_LIMIT_MS: u64 = 3000;
 /// Variables the script sets the bubble's text start in.
 const VAR_X: usize = 50;
 const VAR_Y: usize = 51;
@@ -133,6 +148,14 @@ pub struct Comic {
     /// The lettered version of the page.
     lettered: Option<String>,
     shown: Vec<Shown>,
+    /// The whole lettered page has been copied over.
+    whole: bool,
+    /// A round button was pressed: its code, held until its sound ends.
+    pending: Option<i32>,
+    /// Milliseconds the button has been held.
+    held: u64,
+    /// Bytes of the bubble's text, for the auto mode wait.
+    auto_len: u64,
 }
 
 impl Comic {
@@ -213,8 +236,19 @@ impl Comic {
                 break;
             }
         }
+        self.auto_len = text.len() as u64;
         if !glyphs.is_empty() {
             self.shown.push(Shown::Text(glyphs));
+        }
+    }
+
+    /// Copies the whole lettered page over once the newest bubble is done.
+    fn settle(&mut self) {
+        if self.lettered.is_some()
+            && !self.busy()
+            && matches!(self.shown.last(), Some(Shown::Text(_)))
+        {
+            self.whole = true;
         }
     }
 
@@ -254,6 +288,7 @@ impl Comic {
             return false;
         }
         self.elapsed = u64::MAX / 2;
+        self.whole = self.lettered.is_some();
         true
     }
 
@@ -261,13 +296,19 @@ impl Comic {
     pub fn advance(&mut self, ms: u64) -> bool {
         let busy = self.busy();
         self.elapsed = self.elapsed.saturating_add(ms);
-        busy
+        if self.pending.is_some() {
+            self.held = self.held.saturating_add(ms);
+        }
+        self.settle();
+        busy || self.pending.is_some()
     }
 
     /// Look of a round button.
     fn row(&self, id: i32) -> u32 {
         if id == PREVIOUS_PAGE && self.first_page {
             ROW_UNAVAILABLE
+        } else if self.pending == Some(id) {
+            ROW_PRESSED
         } else if self.over == Some(id) {
             ROW_OVER
         } else {
@@ -282,6 +323,9 @@ impl Comic {
             .as_ref()
             .and_then(|name| assets.image(name).ok());
         let (_, ch) = self.cell;
+        if let (true, Some(img)) = (self.whole, &lettered) {
+            canvas.draw_part(img, (0, 0, img.width, img.height), 0, 0, false, 255);
+        }
         for item in &self.shown {
             match item {
                 Shown::Spot(r, fading) => {
@@ -405,23 +449,22 @@ pub enum Click {
     Pass,
     /// Used up (it put the rest of the words up, or did nothing).
     Used,
-    /// Changed the wait's result; the script goes on.
-    Answered,
 }
 
 /// A click at (x, y) while the screen waits.
-pub fn click(rt: &mut Runtime, vm: &mut Vm, x: i32, y: i32) -> Click {
+pub fn click(rt: &mut Runtime, x: i32, y: i32) -> Click {
     let Some(comic) = &mut rt.scene.comic else {
         return Click::Pass;
     };
     match comic.button_at(x, y) {
         Some(PREVIOUS_PAGE) if comic.first_page => Click::Used,
+        // The pressed look stays while the sound plays.
+        Some(_) if comic.pending.is_some() => Click::Used,
         Some(code) => {
-            // The wait pushed its 0 already.
-            let _ = vm.pop();
-            vm.push(code);
+            comic.pending = Some(code);
+            comic.held = 0;
             let _ = rt.play_sound(CLICK_SOUND);
-            Click::Answered
+            Click::Used
         }
         // The first click while words come up or the hot spot appears
         // finishes that.
@@ -452,6 +495,34 @@ pub fn tick(rt: &mut Runtime, ms: u64, skipping: bool) -> bool {
         return comic.finish();
     }
     comic.advance(ms)
+}
+
+/// A pressed round button whose sound has ended answers the wait now (the
+/// wait pushed its 0 already). True if it did.
+pub fn answer_due(rt: &mut Runtime, vm: &mut Vm) -> bool {
+    let playing = rt.audio.is_playing(Bus::Effect, 0);
+    let Some(comic) = &mut rt.scene.comic else {
+        return false;
+    };
+    let Some(code) = comic.pending else {
+        return false;
+    };
+    if playing && comic.held < PRESS_LIMIT_MS {
+        return false;
+    }
+    comic.pending = None;
+    comic.finish();
+    let _ = vm.pop();
+    vm.push(code);
+    true
+}
+
+/// How long auto mode keeps the bubble, from the start of the wait.
+pub fn auto_ms(rt: &Runtime) -> Option<u64> {
+    let comic = rt.scene.comic.as_ref()?;
+    let speed = f64::from(rt.system.settings.auto_speed.clamp(0.0, 1.0));
+    let step = ((1.0 - speed) * AUTO_STEP_MS) as u64;
+    Some(AUTO_BASE_MS + (comic.auto_len.saturating_sub(1) / 2) * step)
 }
 
 /// The pointer is at (x, y). True if a button changes its look.
@@ -495,6 +566,7 @@ impl Runtime {
                         Some(r) => comic.shown.push(Shown::Spot(r, true)),
                         None => comic.put_text(n, timing),
                     }
+                    comic.settle();
                 }
                 let name = self
                     .message_script
@@ -517,6 +589,8 @@ impl Runtime {
             2 => {
                 if let Some(comic) = &mut self.scene.comic {
                     comic.shown.clear();
+                    comic.whole = false;
+                    comic.pending = None;
                     comic.arrows = false;
                     comic.next_spot = None;
                 }
@@ -655,5 +729,40 @@ mod tests {
         assert!(c.busy());
         assert!(c.advance(SPOT_FRAMES * FRAME_MS));
         assert!(!c.busy());
+    }
+
+    #[test]
+    fn a_finished_bubble_shows_the_whole_page() {
+        let mut c = Comic {
+            texts: Arc::new(vec!["あい".to_string()]),
+            lettered: Some("do00a.akb".to_string()),
+            anchor: (100, 20),
+            top: 20,
+            cell: (11, 10),
+            ..Comic::default()
+        };
+        let slow = Timing {
+            interval: 50,
+            stop_pause: false,
+        };
+        c.put_text(FIRST_MESSAGE, slow);
+        c.settle();
+        assert!(!c.whole);
+        assert!(c.finish());
+        assert!(c.whole);
+        // Nothing to type: the page is there at once.
+        let mut d = Comic {
+            texts: c.texts.clone(),
+            lettered: c.lettered.clone(),
+            cell: (11, 10),
+            ..Comic::default()
+        };
+        let at_once = Timing {
+            interval: 0,
+            stop_pause: false,
+        };
+        d.put_text(FIRST_MESSAGE, at_once);
+        d.settle();
+        assert!(d.whole);
     }
 }

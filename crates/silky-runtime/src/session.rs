@@ -1739,9 +1739,8 @@ impl Session {
             Some(b) => self.press(b),
             None if self.state == State::Text => {
                 use crate::games::doujin::comic::{click, Click};
-                match click(&mut self.rt, &mut self.vm, x, y) {
+                match click(&mut self.rt, x, y) {
                     Click::Used => return Ok(()),
-                    Click::Answered => return self.advance(),
                     Click::Pass => {}
                 }
                 if self.ui.auto || self.ui.skip {
@@ -1764,7 +1763,7 @@ impl Session {
             return Ok(());
         }
         if self.replaying() {
-            return self.ask(Action::ReplayReturn);
+            return self.ask(self.replay_action());
         }
         // The mail forward screen of 景の海のアペイリア does what the
         // settings say too.
@@ -1804,7 +1803,7 @@ impl Session {
             return Ok(());
         }
         if self.replaying() {
-            return self.ask(Action::ReplayReturn);
+            return self.ask(self.replay_action());
         }
         if self.mail_select_up() {
             return self.mail_select_secondary();
@@ -2030,7 +2029,7 @@ impl Session {
             return Ok(());
         }
         if self.replaying() {
-            return self.ask(Action::ReplayReturn);
+            return self.ask(self.replay_action());
         }
         if self.mail_select_up() {
             return self.mail_select_secondary();
@@ -2063,6 +2062,16 @@ impl Session {
             && self.dialog.is_none()
             && self.screen.is_none()
             && self.vm.var_h(REPLAY_VAR).int() == 1
+    }
+
+    /// The question asked before leaving a replay: the doujinshi screen
+    /// asks to go back to the title.
+    fn replay_action(&self) -> Action {
+        if self.rt.assets.game().title == silky_format::game::Title::Doujin {
+            Action::ComicReturn
+        } else {
+            Action::ReplayReturn
+        }
     }
 
     /// Ends the waiting text with result 1, which the scene scripts take
@@ -3452,7 +3461,7 @@ impl Session {
 
     /// Asks before doing something, unless the player said not to ask.
     fn ask(&mut self, action: Action) -> Result<()> {
-        let always = matches!(action, Action::Unlock(_));
+        let always = matches!(action, Action::Unlock(_) | Action::ComicReturn);
         // The jump to an event has its own setting.
         let confirm = match action {
             Action::FlagJump => self.rt.system.settings.confirm_event,
@@ -3600,7 +3609,7 @@ impl Session {
                 self.state = State::Ended;
             }
             Action::Scene(i) => self.leave_extras(i as i32)?,
-            Action::ReplayReturn => self.leave_replay()?,
+            Action::ReplayReturn | Action::ComicReturn => self.leave_replay()?,
             Action::Unlock(_) if matches!(self.ui.panel, Some(DoukPanel::Reel(_))) => {
                 if let Some(DoukPanel::Reel(r)) = &mut self.ui.panel {
                     let girl = r.girl.unwrap_or(0);
@@ -4903,6 +4912,12 @@ impl Session {
         {
             self.frame = None;
         }
+        if self.state == State::Text
+            && crate::games::doujin::comic::answer_due(&mut self.rt, &mut self.vm)
+        {
+            self.advance()?;
+            return Ok(true);
+        }
         if self.state == State::Text {
             let shown = self.revealed();
             if shown != self.shown_chars {
@@ -4932,7 +4947,10 @@ impl Session {
                 Some(st.skip_ms())
             } else if self.ui.auto && !self.rt.voice_playing() {
                 // Auto mode waits for the whole text and for the voice.
-                Some(self.reveal_ms().max(st.auto_ms(text)))
+                Some(
+                    crate::games::doujin::comic::auto_ms(&self.rt)
+                        .unwrap_or_else(|| self.reveal_ms().max(st.auto_ms(text))),
+                )
             } else {
                 None
             };

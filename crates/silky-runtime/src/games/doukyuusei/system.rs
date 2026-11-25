@@ -933,7 +933,7 @@ pub fn draw_dialog(
     let question = match d.action {
         Action::Save(_) if d.fresh => 0,
         Action::Load(_) => 1,
-        Action::Title => 2,
+        Action::Title | Action::ComicReturn => 2,
         Action::Quit => 3,
         Action::Save(_) => 4,
         Action::Delete(_) => 5,

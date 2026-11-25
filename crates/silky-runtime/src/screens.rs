@@ -544,6 +544,9 @@ pub enum Action {
     /// 景の海のアペイリア: leave the scene being replayed for the scene
     /// list.
     ReplayReturn,
+    /// 先輩が私の妄想にドージンする: leave the replay from the doujinshi
+    /// screen, asked as the return to the title.
+    ComicReturn,
     /// きまぐれテンプテーション2: mark everything of an extras screen seen.
     Unlock(crate::Extras),
 }
@@ -557,7 +560,7 @@ impl Action {
             Action::Delete(_) => question::DELETE,
             Action::DeleteAll => question::DELETE_ALL,
             Action::Jump(_) => question::JUMP,
-            Action::Title => question::TITLE,
+            Action::Title | Action::ComicReturn => question::TITLE,
             Action::Quit => question::QUIT,
             Action::FlagJump => question::FLAG_JUMP,
             Action::Scene(_) | Action::ReplayReturn => question::SCENE_SELECT,
