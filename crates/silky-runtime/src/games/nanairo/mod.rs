@@ -17,6 +17,7 @@ pub mod mode;
 pub mod music;
 pub mod scene;
 pub(crate) mod stage;
+pub mod video;
 pub(crate) mod window;
 
 /// Auto saves the game keeps: each new one goes to the top of a list of

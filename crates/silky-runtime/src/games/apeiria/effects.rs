@@ -1918,6 +1918,44 @@ pub struct Drawn {
     made: std::collections::HashMap<u32, (String, std::sync::Arc<Image>)>,
     /// Rule pictures of the wipes.
     rules: std::collections::HashMap<u32, Option<Arc<Vec<u8>>>>,
+    /// Movies playing, by sprite.
+    movies: std::collections::HashMap<u32, Playing>,
+    /// Movie streams read, by name.
+    streams: std::collections::HashMap<String, Arc<Vec<u8>>>,
+}
+
+/// A movie a sprite shows.
+struct Playing {
+    name: String,
+    movie: crate::movie::Movie,
+    /// The stage's movie clock when it started.
+    origin: u64,
+    image: Arc<Image>,
+}
+
+/// The picture of a movie frame for a movie sprite's mode.
+pub(crate) fn video_picture(movie: &crate::movie::Movie, mode: u8) -> Arc<Image> {
+    let mut rgba = movie.rgba.clone();
+    match mode {
+        1 => {
+            for px in rgba.chunks_exact_mut(4) {
+                *px.last_mut().unwrap() = px[1];
+                px[..3].fill(255);
+            }
+        }
+        2 => {
+            for px in rgba.chunks_exact_mut(4) {
+                let y = (px[0] as u32 * 299 + px[1] as u32 * 587 + px[2] as u32 * 114) / 1000;
+                px.copy_from_slice(&[0xb0, 0xc8, 0xff, y as u8]);
+            }
+        }
+        _ => {}
+    }
+    Arc::new(Image {
+        width: movie.width,
+        height: movie.height,
+        rgba,
+    })
 }
 
 use crate::assets::Assets;
@@ -1942,6 +1980,8 @@ impl Drawn {
     ) {
         self.made
             .retain(|id, _| stage.sprites.iter().any(|s| s.id == *id));
+        self.movies
+            .retain(|id, _| stage.sprites.iter().any(|s| s.id == *id));
         let mut order: Vec<&Sprite> = stage
             .sprites
             .iter()
@@ -1964,6 +2004,14 @@ impl Drawn {
                     }
                     Err(_) => continue,
                 },
+                Look::Video { name, mode, looped } => {
+                    let Some(img) = self.video(s.id, name, *mode, *looped, stage.video_ms, assets)
+                    else {
+                        continue;
+                    };
+                    let part = (0, 0, img.width, img.height);
+                    (Some(img), part, [255; 4])
+                }
                 look => {
                     let Some(img) = self.make(s.id, look, canvas, &mut screen, assets) else {
                         continue;
@@ -2017,6 +2065,48 @@ impl Drawn {
                 None => canvas.draw_sprite(image.as_ref(), part, corners, color, s.add),
             }
         }
+    }
+
+    /// The picture a movie sprite shows `now` on the stage's movie clock.
+    fn video(
+        &mut self,
+        id: u32,
+        name: &str,
+        mode: u8,
+        looped: bool,
+        now: u64,
+        assets: &mut Assets,
+    ) -> Option<Arc<Image>> {
+        if !self.streams.contains_key(name) {
+            let stream = crate::games::nanairo::video::stream(assets, name)?;
+            self.streams.insert(name.to_string(), Arc::new(stream));
+        }
+        let stream = self.streams.get(name)?.clone();
+        if self.movies.get(&id).is_none_or(|p| p.name != name) {
+            let movie = crate::movie::Movie::open(stream.clone()).ok()?;
+            let image = video_picture(&movie, mode);
+            let name = name.to_string();
+            self.movies.insert(
+                id,
+                Playing {
+                    name,
+                    movie,
+                    origin: now,
+                    image,
+                },
+            );
+        }
+        let p = self.movies.get_mut(&id)?;
+        let mut changed = p.movie.seek_forward(now.saturating_sub(p.origin) as f64);
+        if p.movie.ended && looped {
+            p.movie = crate::movie::Movie::open(stream).ok()?;
+            p.origin = now;
+            changed = true;
+        }
+        if changed {
+            p.image = video_picture(&p.movie, mode);
+        }
+        Some(p.image.clone())
     }
 
     /// The picture of a wavering or mixed look, made again when it changed.
@@ -2208,6 +2298,8 @@ fn picture(
             let src = picture(source, canvas, screen, assets)?;
             rastered(&src, *amp, *step, *phase)
         }
+        // Drawn by its own path.
+        Look::Video { .. } => return None,
     })
 }
 

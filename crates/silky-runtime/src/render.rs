@@ -875,12 +875,11 @@ impl Renderer {
         }
         // なないろリンカネーション: the glow behind the figures.
         if self.title == Title::Nanairo && !scene.effects.sprites.is_empty() {
-            self.effects.draw_where(
-                &mut canvas,
-                &scene.effects,
-                assets,
-                crate::games::nanairo::figures::is_under,
-            );
+            self.effects
+                .draw_where(&mut canvas, &scene.effects, assets, |s| {
+                    crate::games::nanairo::figures::is_under(s)
+                        || crate::games::nanairo::video::is_background(s)
+                });
         }
         let mut chars: Vec<_> = scene.characters.iter().collect();
         chars.sort_by_key(|(slot, _)| scene.figures.depth(**slot).unwrap_or(slot_layout(**slot).1));
@@ -1499,7 +1498,9 @@ impl Renderer {
             self.effects
                 .draw_where(&mut canvas, &scene.effects, assets, |s| {
                     !(k1 && kimaten1::fx::is_low(s))
-                        && !(nanairo && crate::games::nanairo::figures::is_under(s))
+                        && !(nanairo
+                            && (crate::games::nanairo::figures::is_under(s)
+                                || crate::games::nanairo::video::is_background(s)))
                 });
         }
         if scene.snow {

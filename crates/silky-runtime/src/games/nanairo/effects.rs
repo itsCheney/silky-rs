@@ -16,6 +16,7 @@
 use silky_format::game::Kind;
 use silky_vm::Flow;
 
+use super::video::{video, BRIGHTNESS_AS_OPACITY, GREEN_AS_OPACITY, OPAQUE};
 use crate::games::apeiria::anim::{Key, Look, Sprite, Stage, Step, TICK_MS};
 use crate::games::Call;
 use crate::host::{frames_ms, Pause, Runtime, Transition};
@@ -197,8 +198,8 @@ pub fn kirara_flash(st: &mut Stage, factor: f32) {
 ///
 /// Approximate: the length of the fade in is not known (24 frames are
 /// used), nor is the middle the scene grows about (the screen's is used).
-/// The original plays a movie over the picture too, which is left out.
-pub fn event_begin(st: &mut Stage, factor: f32) {
+/// The movie `movie` plays over the picture, its brightness as opacity.
+pub fn event_begin(st: &mut Stage, movie: Option<&str>, factor: f32) {
     clear(st, EVENT);
     let mut fx = Fx::new(st, EVENT);
     let zoom = fx.sprite(0, Look::Screen, Z_ZOOM);
@@ -213,6 +214,12 @@ pub fn event_begin(st: &mut Stage, factor: f32) {
         Key::jump(0),
     ];
     fx.play(vec![(effect, pulse)], false);
+    if let Some(name) = movie {
+        fx.sprite(2, video(name, BRIGHTNESS_AS_OPACITY, true), Z_SECOND);
+        if let Some(Step::Add(s)) = fx.steps.last_mut() {
+            s.shown = true;
+        }
+    }
     fx.run();
 }
 
@@ -222,7 +229,10 @@ pub fn event_begin(st: &mut Stage, factor: f32) {
 /// not known.
 pub fn event_end(st: &mut Stage, factor: f32) {
     let mut fx = Fx::new(st, EVENT);
-    let ids: Vec<u32> = [0, 1].iter().filter_map(|&slot| fx.alive(slot)).collect();
+    let ids: Vec<u32> = [0, 1, 2]
+        .iter()
+        .filter_map(|&slot| fx.alive(slot))
+        .collect();
     if ids.is_empty() {
         return;
     }
@@ -240,13 +250,11 @@ pub fn event_end(st: &mut Stage, factor: f32) {
 }
 
 /// `Game.1002.0` and `1002.3`: the scene movie fades in over `frames`
-/// frames and stays (the script waits for the fade). Movies are not
-/// decoded here: the movie's first picture stands in when there is one
-/// (`still`), otherwise nothing is drawn and only the time passes.
-pub fn movie_begin(st: &mut Stage, still: Option<&str>, frames: i32, factor: f32) {
+/// frames and stays (the script waits for the fade). `look` is the movie,
+/// or its picture standing in when the movies are off, or nothing.
+pub fn movie_begin(st: &mut Stage, look: Look, frames: i32, factor: f32) {
     clear(st, MOVIE);
     let mut fx = Fx::new(st, MOVIE);
-    let look = still.map_or(Look::Nothing, Look::picture);
     let id = fx.sprite(0, look, Z_MOVIE);
     let key = Key::new(scaled(frames, factor)).show(true).fade(0, 255);
     fx.play(vec![(id, vec![key])], true);
@@ -375,19 +383,38 @@ impl Runtime {
             (22, 1) => kirara_ready(st),
             (22, _) => kirara_flash(st, f),
             (23, _) => return self.nanairo_scroll(c),
-            (1001, 0) => event_begin(st, f),
+            (1001, 0) => {
+                let name = "HG091010_H05.mov";
+                let movie = self.movie_playable(name).then_some(name);
+                event_begin(&mut self.scene.effects, movie, f);
+            }
             (1001, _) => event_end(st, f),
             (1002, sub @ (0 | 3)) => {
                 // The movie of `.3` supplies only the opacity of an
                 // effect, so no picture stands in for it.
-                let still = (sub == 0).then(|| c.str(0)).flatten().and_then(|name| {
+                let name = c.str(0).unwrap_or_default();
+                let look = if self.movie_playable(&name) {
+                    if sub == 0 {
+                        self.movie_sound(&name);
+                        video(&name, OPAQUE, false)
+                    } else {
+                        video(&name, GREEN_AS_OPACITY, false)
+                    }
+                } else {
                     let stem = name.rsplit_once('.').map_or(name.as_str(), |n| n.0);
                     let still = format!("{stem}.akb");
-                    self.assets.exists(Kind::Layer, &still).then_some(still)
-                });
-                movie_begin(&mut self.scene.effects, still.as_deref(), c.int(1), f);
+                    if sub == 0 && self.assets.exists(Kind::Layer, &still) {
+                        Look::picture(&still)
+                    } else {
+                        Look::Nothing
+                    }
+                };
+                movie_begin(&mut self.scene.effects, look, c.int(1), f);
             }
-            (1002, _) => movie_end(st, c.int(0), f),
+            (1002, _) => {
+                self.movie_sound_stop();
+                movie_end(&mut self.scene.effects, c.int(0), f);
+            }
             (1003, 0) => overlay_begin(st, &c.str(0)?, c.int(1), f),
             (1003, _) => overlay_end(st, c.int(0), f),
             (1005, 0) => pulse_begin(st, f),
@@ -510,7 +537,7 @@ mod tests {
     #[test]
     fn the_event_picture_grows_then_its_effect_repeats() {
         let mut st = Stage::default();
-        event_begin(&mut st, 1.0);
+        event_begin(&mut st, None, 1.0);
         let wait = st.blocking_ms().unwrap();
         assert!(wait >= 16 * TICK_MS && wait <= 18 * TICK_MS, "{wait}");
         // Halfway through the 16 frames the picture is 1.1 times as big.
@@ -536,7 +563,7 @@ mod tests {
     #[test]
     fn a_movie_without_a_picture_only_takes_time() {
         let mut st = Stage::default();
-        movie_begin(&mut st, None, 100, 1.0);
+        movie_begin(&mut st, Look::Nothing, 100, 1.0);
         let wait = st.blocking_ms().unwrap();
         assert!(wait >= 100 * TICK_MS && wait <= 102 * TICK_MS, "{wait}");
         st.settle();

@@ -241,7 +241,7 @@ pub struct Jolt {
 }
 
 /// Mixer channel of movie sound.
-const MOVIE_AUDIO: i32 = 99;
+pub(crate) const MOVIE_AUDIO: i32 = 99;
 
 pub struct Runtime {
     pub assets: Assets,
@@ -366,7 +366,7 @@ pub struct Runtime {
     pub(crate) cg_track: crate::games::apeiria::omake::CgTrack,
     /// Values the scripts wrote to the original's XML configuration
     /// (`Xml.1`); the rest read as the configuration the games ship.
-    xml: HashMap<String, i32>,
+    pub(crate) xml: HashMap<String, i32>,
 }
 
 /// Second step of a two-step effect.
@@ -770,6 +770,16 @@ impl Runtime {
                 });
         }
         Ok(movie)
+    }
+
+    /// Starts the sound of a movie stream apart from the movie player.
+    pub(crate) fn start_movie_sound(&mut self, stream: Arc<Vec<u8>>) {
+        if self.audio.enabled() {
+            self.audio
+                .play_later(Bus::Music, MOVIE_AUDIO, false, 1.0, move || {
+                    crate::movie::decode_audio(stream).map(Arc::new)
+                });
+        }
     }
 
     /// Position of the movie sound in ms, while it plays; `Some(None)`
@@ -1318,6 +1328,11 @@ impl Host for Runtime {
                         self.handled += 1;
                         return Ok(Flow::Continue);
                     }
+                    if title == Title::Nanairo && layer == crate::games::nanairo::BACKGROUND_SPRITE
+                    {
+                        // A new background takes the moving one away.
+                        self.scene.effects.background_changed();
+                    }
                     match args[1].as_str() {
                         Some(name) if !name.is_empty() => {
                             self.scene.layers.insert(layer, name.to_string());
@@ -1424,6 +1439,12 @@ impl Host for Runtime {
                         // when the configuration has movies on. Not decoded
                         // yet: its first frame, the picture of the same
                         // name, stands in.
+                        (1, [_, Value::Str(name)])
+                            if self.assets.game().title == Title::Nanairo
+                                && self.nanairo_background_movie(name) =>
+                        {
+                            self.movie_unplayed = true;
+                        }
                         (1, [_, Value::Str(name)]) => {
                             let still = format!(
                                 "{}.akb",

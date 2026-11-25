@@ -193,6 +193,15 @@ pub enum Look {
         /// rule a row of the source at a time.
         stride: u32,
     },
+    /// The picture of a movie at the stage's clock: `mode` 0 shows it as
+    /// it is, 1 takes its green as the opacity (the colour is white), 2 its
+    /// brightness as the opacity (the colour is a pale blue); `looped`
+    /// starts it again when it ends, otherwise its last picture stays.
+    Video {
+        name: String,
+        mode: u8,
+        looped: bool,
+    },
 }
 
 impl Look {
@@ -335,6 +344,9 @@ pub struct Stage {
     /// Sprites left covering the screen: they go when the background
     /// changes.
     pub until_background: Vec<u32>,
+    /// Milliseconds the stage ran while a movie sprite was on it: the
+    /// clock the movies play by.
+    pub video_ms: u64,
     /// Sprites that are drawn into the background once their keyframes
     /// end, with what is drawn.
     pub to_background: Vec<(u32, super::panels::Paint)>,
@@ -530,9 +542,18 @@ impl Stage {
 
     /// Steps for `ms` milliseconds. True when anything may have changed.
     pub fn advance(&mut self, ms: u64) -> bool {
+        // A movie on the stage changes the picture every frame.
+        let video = self
+            .sprites
+            .iter()
+            .any(|s| s.shown && matches!(s.look, Look::Video { .. }));
+        if video {
+            self.video_ms += ms;
+            self.version += 1;
+        }
         if self.running.is_empty() && self.queue.is_empty() {
             self.carry = 0;
-            return false;
+            return video;
         }
         self.carry += ms;
         let mut stepped = false;
@@ -541,7 +562,7 @@ impl Stage {
             self.tick();
             stepped = true;
         }
-        stepped
+        stepped || video
     }
 
     /// Plays a timeline to the end of every sprite's keyframes, without
