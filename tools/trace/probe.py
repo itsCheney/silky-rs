@@ -289,6 +289,15 @@ class Breakpoint:
         self.only = None
         if spec.get("only"):
             self.only = (parse_expr(spec["only"]["read"]), {int(str(v), 0) for v in spec["only"]["is"]})
+        # A text the script hands to the engine without putting it on the
+        # value stack (a message line) is read at the place that takes it:
+        # `hold` keeps the values of `args` under that name and records no
+        # call; the next call of a stack breakpoint that is named in its `carry`
+        # gets them as its arguments.
+        self.hold = spec.get("hold")
+        self.take = None
+        if spec.get("carry"):
+            self.take = (spec["carry"]["hold"], set(spec["carry"]["calls"]))
         self.result = None  # results are not read at the call's entry
         self.original = None
         self.address = None
@@ -299,7 +308,7 @@ class Breakpoint:
             a = {"read": a}
         return (parse_expr(a["read"]), a.get("type", "int"), a.get("encoding", encoding))
 
-    def record(self, proc, regs):
+    def record(self, proc, regs, held):
         def value(arg):
             tree, kind, enc = arg
             v = evaluate(tree, regs, proc.u32)
@@ -309,8 +318,13 @@ class Breakpoint:
                 return proc.cstr(v, enc)
             if kind == "wstr":
                 return proc.wstr(v)
+            if kind == "string":
+                return msvc_string(proc, v, enc)
             raise ValueError(f"unknown type {kind}")
 
+        carried = []
+        if self.take is not None:
+            carried = held.pop(self.take[0], [])
         if self.only is not None and evaluate(self.only[0], regs, proc.u32) not in self.only[1]:
             return None
         call = {}
@@ -331,12 +345,17 @@ class Breakpoint:
             values = self.stack.read(proc, regs)
             if values and isinstance(values[-1], int):
                 name = f"{name}.{values.pop()}"
+            if self.take is not None and name in self.take[1]:
+                values += carried
             call["call"] = name
             if values:
                 call["args"] = values
             return call
         call["call"] = name
         values = [value(a) for a in args]
+        if self.hold is not None:
+            held[self.hold] = values
+            return None
         if values:
             call["args"] = values
         return call
@@ -356,6 +375,7 @@ def run(opts, spec):
     proc = None
     by_address = {}
     stepping = {}  # thread id -> breakpoint to put back after one step
+    held = {}  # values kept by a `hold` breakpoint for a later call
     calls, errors = [], []
     # Each call as it is read, one per line, for a script that drives the
     # game to watch.
@@ -391,7 +411,7 @@ def run(opts, spec):
                     ctx = get_context(thread)
                     regs = {r: reg(ctx, r) for r in REGS}
                     try:
-                        call = b.record(proc, regs)
+                        call = b.record(proc, regs, held)
                         if call is not None:
                             if opts.tick is not None:
                                 call = {"tick": proc.u32(opts.tick - image_base + proc.base), **call}
