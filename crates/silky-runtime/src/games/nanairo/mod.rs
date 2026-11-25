@@ -6,6 +6,7 @@ mod animator;
 mod calendar;
 pub(crate) mod cg;
 mod cg_table;
+pub mod cgmode;
 pub(crate) mod commands;
 pub(crate) mod dialog;
 pub(crate) mod effects;

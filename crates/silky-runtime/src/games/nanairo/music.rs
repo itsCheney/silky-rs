@@ -154,8 +154,8 @@ pub struct MusicMode {
 }
 
 impl MusicMode {
-    /// `tracks` are the flags 3050..3084 (1 when open), `tabs` the bytes
-    /// 0xbba..0xbbc, `volume` the music volume 0..1.
+    /// `tracks` are the flags 3050..3084 (1 when open), `tabs` the three tab bytes in strip order
+    /// (CG, music, scene), `volume` the music volume 0..1.
     pub fn open(tracks: [u8; ROWS], tabs: [u8; 3], music_on: bool, volume: f32) -> Self {
         MusicMode {
             tracks,

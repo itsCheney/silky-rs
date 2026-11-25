@@ -801,19 +801,7 @@ impl Session {
                         break;
                     }
                     Some(Pause::Kimaten1) => {
-                        self.ui.k1 = self.rt.k1.take();
-                        if let Some(k) = &mut self.ui.k1 {
-                            k.set_context(self.ui.has_saves, !self.log.is_empty());
-                        }
-                        self.ui.k1_menu = None;
-                        self.ui.k1_since = self.ui.clock;
-                        self.ui.hover = None;
-                        self.ui.waiting = false;
-                        self.ui.skip = false;
-                        self.ui.auto = false;
-                        self.skip_to_choice = false;
-                        self.state = State::Choice;
-                        self.base = None;
+                        self.show_k1();
                         break;
                     }
                     Some(Pause::HMode) => {
@@ -1799,6 +1787,9 @@ impl Session {
         if self.mail_select_up() {
             return self.mail_select_secondary();
         }
+        if self.poll_cancel() {
+            return Ok(());
+        }
         if self.state != State::Text {
             return Ok(());
         }
@@ -1837,7 +1828,20 @@ impl Session {
         if self.mail_select_up() {
             return self.mail_select_secondary();
         }
+        self.poll_cancel();
         Ok(())
+    }
+
+    /// なないろリンカネーション: a secondary click or Escape while the
+    /// script polls the input (the CG viewer does) is what the poll for
+    /// 257 answers. Returns whether it was taken.
+    fn poll_cancel(&mut self) -> bool {
+        let polling = self.state == State::Busy && self.busy.as_ref().is_some_and(|b| b.frame);
+        if polling && self.rt.assets.game().title == silky_format::game::Title::Nanairo {
+            self.rt.cancelled = true;
+            return true;
+        }
+        false
     }
 
     /// 同級生 Remake: Escape, Delete and keypad 0 close a dialog or a
@@ -2180,6 +2184,24 @@ impl Session {
         }
     }
 
+    /// Puts up the screen of きまぐれテンプテーション (or one of the game
+    /// modes of なないろリンカネーション) the runtime has ready.
+    fn show_k1(&mut self) {
+        self.ui.k1 = self.rt.k1.take();
+        if let Some(k) = &mut self.ui.k1 {
+            k.set_context(self.ui.has_saves, !self.log.is_empty());
+        }
+        self.ui.k1_menu = None;
+        self.ui.k1_since = self.ui.clock;
+        self.ui.hover = None;
+        self.ui.waiting = false;
+        self.ui.skip = false;
+        self.ui.auto = false;
+        self.skip_to_choice = false;
+        self.state = State::Choice;
+        self.base = None;
+    }
+
     /// Opens one of the shared extras screens (the gallery, the scenes
     /// or the music room).
     fn open_extras(&mut self, kind: crate::host::Extras) {
@@ -2239,6 +2261,9 @@ impl Session {
         for (i, v) in s.take_bytes() {
             self.vm.set_var_b(i, v);
         }
+        for (i, v) in s.take_globals() {
+            self.vm.set_g(i, v);
+        }
         // The viewer keeps its model in the scene, and gives it back.
         if matches!(click, Click::Result(_) | Click::Close) {
             s.leave_scene(&mut self.rt.scene);
@@ -2268,23 +2293,33 @@ impl Session {
             Click::None => {}
             Click::Bar(id) => self.press(crate::ui::Button::Bar(id))?,
             Click::Result(r) => {
-                // The music mode's tabs to the other two modes use the
-                // shared screens until the game's own are done.
-                let tab = match (&self.ui.k1, r) {
-                    (Some(crate::games::kimaten1::Screen::NanairoMusic(_)), 0x100) => {
-                        Some(crate::host::Extras::Gallery)
-                    }
-                    (Some(crate::games::kimaten1::Screen::NanairoMusic(_)), 0x102) => {
-                        Some(crate::host::Extras::Scenes)
-                    }
+                // The game's own mode screens hand over to each other inside
+                // one call; the script sees only the last answer.
+                use crate::games::kimaten1::Screen as K;
+                use crate::games::nanairo::mode::{self, Mode, Next};
+                let from = match &self.ui.k1 {
+                    Some(K::NanairoMusic(_)) => Some(Mode::Music),
+                    Some(K::NanairoCg(_)) => Some(Mode::Cg),
                     _ => None,
                 };
+                let next = from.map(|m| mode::next(m, r));
                 self.ui.k1 = None;
                 self.ui.hover = None;
                 self.base = None;
-                if let Some(kind) = tab {
-                    self.open_extras(kind);
-                    return Ok(());
+                let mut r = r;
+                match next {
+                    // The scene screen is not done yet: the shared one.
+                    Some(Next::Go(Mode::Scene)) => {
+                        self.open_extras(crate::host::Extras::Scenes);
+                        return Ok(());
+                    }
+                    Some(Next::Go(m)) => {
+                        self.rt.nanairo_open_mode(&mut self.vm, m);
+                        self.show_k1();
+                        return Ok(());
+                    }
+                    Some(Next::Leave(v)) => r = v,
+                    None => {}
                 }
                 self.rt.answer_action(&mut self.vm, r);
                 self.run()?;

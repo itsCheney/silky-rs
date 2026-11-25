@@ -2,6 +2,10 @@
 
 use silky_vm::{Flow, Vm};
 
+use super::cg::ROWS;
+use super::cgmode::CgMode;
+use super::mode::Mode;
+use super::music::{self, MusicMode};
 use super::{figures, stage};
 use crate::audio::Bus;
 use crate::games::kimaten1::Screen;
@@ -34,32 +38,51 @@ const CHAPTER_END: i32 = 26;
 const INIT: i32 = 27;
 /// Notice of the trial version.
 const TRIAL: i32 = 40;
+/// The CG mode.
+const CG_MODE: i32 = 30;
 /// The music mode.
 const MUSIC_MODE: i32 = 32;
 
 impl Runtime {
-    /// `Game.32`: the music mode. The BGM left playing is faded out (the
-    /// screen's own start), and the mode's tabs fall back to the shared
-    /// screens for now.
-    fn nanairo_music_mode(&mut self, vm: &mut Vm) -> Option<silky_vm::Result<Flow>> {
-        use super::music::{MusicMode, ROWS, TRACKS};
-        let mut tracks = [0u8; ROWS];
-        for (t, (flag, _)) in tracks.iter_mut().zip(TRACKS) {
-            *t = vm.var_b(flag);
-        }
-        let tabs = [0xbba, 0xbbb, 0xbbc].map(|i| vm.var_b(i));
-        let st = &self.system.settings;
-        let screen = MusicMode::open(tracks, tabs, st.music_on, st.music);
-        // What plays fades out (the original leaves it near silent); with
-        // the music off it is stopped. Nothing plays, nothing starts: the
-        // opening track would be silenced at once.
-        if self.system.settings.music_on {
-            self.audio.fade_out(Bus::Music, 0, 512);
-        } else {
-            self.stop_music();
-        }
-        self.k1 = Some(Screen::NanairoMusic(Box::new(screen)));
-        self.wait_for(Pause::Kimaten1)
+    /// Opens one of the game's own mode screens (`Game.30` and `Game.32`,
+    /// and the tabs that go from one to the other). The BGM left playing is
+    /// faded out by the music mode (the screen's own start).
+    pub(crate) fn nanairo_open_mode(&mut self, vm: &mut Vm, mode: Mode) {
+        // Whether each tab is open, in the order of the strip.
+        let tabs = [Mode::Cg, Mode::Music, Mode::Scene].map(|m| vm.var_b(m.tab_byte()));
+        let screen = match mode {
+            Mode::Cg => {
+                self.cancelled = false;
+                let flags: Vec<u8> = ROWS.iter().map(|r| vm.var_b(r.flag as usize)).collect();
+                // With script variable 9 at 1 the screen opens on the
+                // picker of the picture in variable 25.
+                let first = (vm.var_g(9).int() == 1).then(|| vm.var_g(25).int().max(0) as usize);
+                if first.is_some() {
+                    vm.set_g(8, 0);
+                    vm.set_g(9, 0);
+                }
+                Screen::NanairoCg(Box::new(CgMode::open(&flags, tabs, first)))
+            }
+            _ => {
+                let mut tracks = [0u8; music::ROWS];
+                for (t, (flag, _)) in tracks.iter_mut().zip(music::TRACKS) {
+                    *t = vm.var_b(flag);
+                }
+                let st = &self.system.settings;
+                let screen = MusicMode::open(tracks, tabs, st.music_on, st.music);
+                // What plays fades out (the original leaves it near
+                // silent); with the music off it is stopped. Nothing
+                // plays, nothing starts: the opening track would be
+                // silenced at once.
+                if self.system.settings.music_on {
+                    self.audio.fade_out(Bus::Music, 0, 512);
+                } else {
+                    self.stop_music();
+                }
+                Screen::NanairoMusic(Box::new(screen))
+            }
+        };
+        self.k1 = Some(screen);
     }
 
     /// This game's own commands. `None` for the others.
@@ -125,7 +148,14 @@ impl Runtime {
                 self.scene.speaker_name = None;
                 self.done()
             }
-            MUSIC_MODE => self.nanairo_music_mode(vm),
+            CG_MODE => {
+                self.nanairo_open_mode(vm, Mode::Cg);
+                self.wait_for(Pause::Kimaten1)
+            }
+            MUSIC_MODE => {
+                self.nanairo_open_mode(vm, Mode::Music);
+                self.wait_for(Pause::Kimaten1)
+            }
             // Object of the library's start up; nothing is read from it.
             10 => self.done(),
             // The ending's message overlay and the staff roll.

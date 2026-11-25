@@ -276,6 +276,9 @@ pub struct Runtime {
     pub choices: Vec<String>,
     /// Set by the frontend when the player clicked; read by input polls.
     pub clicked: bool,
+    /// Set by the frontend when the player cancelled (secondary click,
+    /// Escape) while the script polls the input; read by the poll for 257.
+    pub cancelled: bool,
     /// Longest time of the character changes since they were last
     /// applied (game command 13).
     pub(crate) character_time: i32,
@@ -413,6 +416,7 @@ impl Runtime {
             choice_status: Vec::new(),
             choices: Vec::new(),
             clicked: false,
+            cancelled: false,
             character_time: 0,
             jolts: Vec::new(),
             audio,
@@ -724,6 +728,7 @@ impl Runtime {
         self.lip = None;
         self.jolts.clear();
         self.clicked = false;
+        self.cancelled = false;
     }
 
     /// Returns the result of an extras screen to the script: -1 to leave,
@@ -1091,7 +1096,11 @@ impl Runtime {
                 }
             }
             (UI, ui_call::POLL, 1) => {
-                let hit = n(0) == 256 && std::mem::take(&mut self.clicked);
+                let hit = match n(0) {
+                    256 => std::mem::take(&mut self.clicked),
+                    257 => std::mem::take(&mut self.cancelled),
+                    _ => false,
+                };
                 vm.push(hit as i32);
                 self.pause = Some(Pause::Frame);
                 Flow::Yield
