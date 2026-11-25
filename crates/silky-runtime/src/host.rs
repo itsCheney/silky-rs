@@ -783,8 +783,15 @@ impl Runtime {
             .movie
             .clone()
             .ok_or_else(|| crate::Error::Invalid("no movie set up".into()))?;
-        let file = self.assets.read(Kind::Movie, &name)?;
-        let stream = Arc::new(crate::movie::mpeg_stream(&file)?);
+        let game = self.assets.game();
+        let file = match self.assets.read(Kind::Movie, &name) {
+            Ok(file) => file,
+            Err(e) if game.title == Title::Doujin => {
+                crate::games::doujin::movie_file(&game.root, &name).ok_or(e)?
+            }
+            Err(e) => return Err(e),
+        };
+        let stream = Arc::new(crate::movie::movie_stream(file)?);
         let movie = crate::movie::Movie::open(stream.clone())?;
         if self.audio.enabled() {
             self.audio

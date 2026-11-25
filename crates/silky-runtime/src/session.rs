@@ -1696,7 +1696,7 @@ impl Session {
             }
         }
         if self.state == State::Movie {
-            return self.end_movie();
+            return self.end_movie(true);
         }
         if let Some(Screen::Extras(e)) = &mut self.screen {
             if e.k2.dragging_volume || e.ap.dragging_volume || e.ap.dragging_scroll {
@@ -2548,7 +2548,7 @@ impl Session {
             return Ok(true);
         }
         if self.state == State::Movie {
-            self.end_movie()?;
+            self.end_movie(true)?;
             return Ok(true);
         }
         // 同級生 Remake's character picker leaves on a secondary click; the
@@ -2649,9 +2649,13 @@ impl Session {
         Ok(true)
     }
 
-    fn end_movie(&mut self) -> Result<()> {
+    /// Ends the movie: `skipped` by a click, else it ran out. Doujin's
+    /// `Movie.2` answers 1 only for a skip; the other games answer 1 either way.
+    fn end_movie(&mut self, skipped: bool) -> Result<()> {
         if self.movie.take().is_some() {
-            self.rt.answer_movie(&mut self.vm, true);
+            let answer =
+                skipped || self.rt.assets.game().title != silky_format::game::Title::Doujin;
+            self.rt.answer_movie(&mut self.vm, answer);
             self.state = State::Busy;
             self.run()?;
         }
@@ -5412,7 +5416,7 @@ impl Session {
             }
             let changed = p.movie.seek_forward(p.ms);
             if p.movie.ended {
-                self.end_movie()?;
+                self.end_movie(false)?;
                 return Ok(true);
             }
             if changed {
