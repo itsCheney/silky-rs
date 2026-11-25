@@ -14,7 +14,7 @@ The player and `silky-run snap` open it. Window, button bar, action menu, invest
 
 - Six buttons along the bottom edge, and a second page of six for the extras. They drop in one after another, 100 ms apart, and bounce into place; a page that is left falls out of sight the same way.
 - The heroine's face on the title changes every five seconds, picking among four of the five faces on the sheet, and fades over 16 frames.
-- Sparkles drift over the title: 20 sprites of `Prism.akb`, moved by the effect's own random numbers. The seed is fixed, so a run repeats. Their layer over the buttons is a guess. The exe has no separate logo slide.
+- Sparkles drift over the title: 20 sprites of `Prism.akb`, moved by the effect's own random numbers. The seed is fixed, so a run repeats. They sit on layer 30 with plain alpha, above the title buttons, their hover pictures and the face (all on layer 1). The exe has no separate logo slide.
 - Extras page: CG, scene and music need bytes 0xbba, 0xbbb and 0xbbc, Anne Viewer 0xbbd and the notebook 0xbbe (the story sets them); until then they are grey. 戻る always works.
 - The notebook opened from the title shows the copy the scripts keep 1000 bytes higher, with a button that opens every entry (`archive00_p.akb`). Bytes from 1000 on are kept outside a game in `system.json`.
 
@@ -22,9 +22,10 @@ The player and `silky-run snap` open it. Window, button bar, action menu, invest
 
 - A band along the bottom, a colour fill with a diamond texture over it; its top is the saved window position, 505 by default. The text sits in a box from (280, 66) to (1120, 202) under the top, in 28 pixel cells and 36 pixel lines; the speaker name is one line above it.
 - The bar is thirteen buttons: save, load, quick save, quick load, voice loop, jump to the next selection, backlog, auto, skip read text, skip all text, settings, notebook, and one that folds the others away. A cross hides the window.
-- The fold button slides the bar down to y = 720 and back up to 682 over 12 passes at 60 a second. Input is not blocked meanwhile (the exe may block it). The rate is taken from the same animation class in another build.
+- The fold button slides the bar down to y = 720 and back up to 682 over 12 passes at 60 a second. The exe does not block input meanwhile. It moves the twelve buttons in 12 equal integer steps, one per 15 ms animation pass (the first pass shows the start, the 13th lands on the end); the 15 ms is inferred from the constructor and from the sequel's identical rule.
 - The notebook button blinks when the notebook is unlocked (`Game.10` sub 15): cell 11 of `message_p.akb`, five rounds of 400 ms (lit, off, lit, off, lit). The button's tooltip balloon shows above it for the whole blink, and above any button the pointer is on while the tooltip setting is on (the balloon is built from pieces of `message_p.akb` and sized by its text, 18 pixel cells).
-- Greyed buttons: history while the log is empty, load while there are no saves (both approximations of the exe's own flags), notebook by byte 899.
+- Greyed buttons follow live state every frame, by rules in the exe: history needs log lines; save is grey while a scene is replayed (h69) or h77 is set; load also needs some save slot; quick save is grey in a replay; quick load needs a quick save; the notebook button follows byte 899. The map's bar greys the same way and its buttons act when pressed. The option list keeps the inputs in its own fields: +0x8a4 is h69 (scene replay), +0x8c4 is taken as h77 (the exe never writes it), +0x6a4 means some save slot exists (slots 0 to 119) and +0x724 means a quick slot exists.
+- Scene skip (the jump button) never shortens a wait that is already running. It only stops the guarded calls from starting and drops the 1 ms sleep inside loops; ours sets the same state, so the guarded calls are skipped during it.
 - The click-wait bat is four frames of 200 ms at (1126, window top + 90).
 - Buttons show the game's tooltips in the information line.
 - `Game.14` marks an auto save point.
@@ -45,13 +46,13 @@ The skip button shows the tutorial the first time (byte 0xbc0), then asks to con
 
 ### Option list
 
-`Game.45` turns the options the script registered into a list of bars, four to a page with up and down bars to turn pages, for the talk and look menus. A press answers the number the script gave the option, plus one; the back button and right click answer 100. The labels are the strings the option bodies leave; a conditional option list comes as several runs before the selection and keeps the script's numbers. Compared with the original's first list in 02_B-2 (one bar, one option): the bar's position, size, emblem, texture and both colours (near black at rest, magenta under the pointer) match within one level of 255; labels are centred by 24 pixel cells but drawn with the message window's 28 pixel cells, and sit one pixel lower than the message window's selection text. The remaining text difference is the glyph shapes of the font used. Escape and right click close the list with 100 as in the original; `Game.45` takes no argument. In the original capture the history and load buttons were grey in this list; the headless frames leave them lit because no context is given.
+`Game.45` turns the options the script registered into a list of bars, four to a page with up and down bars to turn pages, for the talk and look menus. A press answers the number the script gave the option, plus one; the back button and right click answer 100. The labels are the strings the option bodies leave; a conditional option list comes as several runs before the selection and keeps the script's numbers. Compared with the original's first list in 02_B-2 (one bar, one option): the bar's position, size, emblem, texture and both colours (near black at rest, magenta under the pointer) match within one level of 255; labels are centred by 24 pixel cells but drawn with the message window's 28 pixel cells, and sit one pixel lower than the message window's selection text. The remaining text difference is the glyph shapes of the font used. Escape and right click close the list with 100 as in the original; `Game.45` takes no argument. In the original capture the history and load buttons were grey in this list; the headless frames leave them lit because no context is given. The list's own bar has its own rule: it greys the sixth button (quick save) for a locked notebook, and quick load and the notebook button are never grey there.
 
 Option n is on while byte 7500 + n of the raw area is 1; the script's option wrapper sets bytes 7500 to 7563 to 1 (with st.r8) before it opens the list, and options that are not available clear theirs. Any other value draws it in grey text (128, 128, 128) with no hover, no sound and no result. A pressed bar shows the same text colour and baseline (28) as at rest, as in the exe.
 
 ### Map
 
-`Game.43`: the six rooms (101 to 103 on the first floor, 201 to 203 on the second) as cards, an information line naming each, and the menu buttons. A room whose byte (0 to 5) is 0 is locked. Pressing a room answers 1 to 6; the back button, shown when the call's argument is 1, answers 100. A room not yet looked at (byte 810 plus its number) shows a plain card on hover. The menu's notebook button opens the notebook over the map. The pictures and the information line fade in and out over 12 frames; leaving stops the voice channel. Right click and Escape answer 100 at once when the argument is 1; with 0 they follow the right-click setting.
+`Game.43`: the six rooms (101 to 103 on the first floor, 201 to 203 on the second) as cards, an information line naming each, and the menu buttons. A room whose byte (0 to 5) is 0 is locked. Pressing a room answers 1 to 6; the back button, shown when the call's argument is 1, answers 100. A room not yet looked at (byte 810 plus its number) shows a plain card on hover. The menu's notebook button opens the notebook over the map. The pictures and the information line fade in and out over 12 frames; leaving stops the voice channel. The map and the other selection screens set bit 0 of the message window's flag word when they start (if h69 is 0) and clear it after leaving; the map's exit clears bit 1 (snapshot taken) first. The word only says whether a system screen may take a snapshot of the screen, and nothing else reads it, so there is nothing visible to port. Right click and Escape answer 100 at once when the argument is 1; with 0 they follow the right-click setting.
 
 ### Notebook
 
@@ -88,8 +89,8 @@ The help line is written in 16 pixel cells at (668, 695), white glyphs with a bl
 
 The models are the sequel's: `_h0007` with faces 0 to 7 and `_h0813` with faces 8 to 13, two files per costume, opened by the same key. The game hands the driver its positions the other way round to the sequel: a positive x moves right, a positive y down.
 
-- `Game.10`: the companion beside the message window, at size 0.35 and (-542, 400), fading in over 16 frames. Subs 6, 7, 8, 9, 11, 12, 13, 16 and 17 work as in the sequel. Sub 10 wipes the window's text, 14 takes the whole window away and 15 holds the script for two seconds and blinks the bar's notebook button (the notebook's unlock).
-- `Game.40`: standing models by slot, with x by slot (0, -400, 400) and y from the size, so the feet stay on one line. The sequel's subs apply, plus 17 (the extra timeline alone), 18 (pause the driver), 21 (stop the mouth) and 31 (clear the cache of mouth tracks); sub 16 hands over the mouth track of the voice that just started. Sub 100 flashes a slot white while the old model fades out and the new one fades in.
+- `Game.10`: the companion beside the message window, at size 0.35 and (-542, 400), fading in over 16 frames. Subs 6, 7, 8, 9, 11, 12, 13, 16 and 17 work as in the sequel. Sub 10 wipes the window's text, 14 takes the whole window away and 15 holds the script for two seconds and blinks the bar's notebook button (the notebook's unlock). Sub 18 is the driver's Skip: it snaps the running motions of every part of the model to their ends. Scene skip never calls it and the story does not either.
+- `Game.40`: standing models by slot, with x by slot (0, -400, 400) and y from the size, so the feet stay on one line. The sequel's subs apply, plus 17 (the extra timeline alone), 18 (Skip, as in `Game.10`), 21 (stop the mouth) and 31 (clear the cache of mouth tracks); sub 16 hands over the mouth track of the voice that just started. Sub 100 flashes a slot white while the old model fades out and the new one fades in.
 - `Game.48`: the one-file CG models of the update, shown over the background (`hg010200_0` is `hg010200_0.psb`). 0 loads one (fading in over 32 frames), 1 sets the face, 15 the main timeline, 2 waits for the fade in and 3 fades it out and removes it. Their place was found by laying the model's first picture over the still picture of the same CG.
 - Voice-timed models: `Game.1007(file)` reads a `.vo` file, a list of changes made a set time after a voice line starts: a standing model put up or taken away in a slot, or the companion changed, fading over 12 frames (16 for the companion). Records of kind 2 (pictures laid in a layer) are used by no file of the game.
 
@@ -101,12 +102,17 @@ The y origin of a model (350 on screen) was fitted on one screenshot of the game
 - `Game.999`: a picture laid over the screen. 0 fades in the picture on screen over eight frames, 1 fades it out, 2 shows it at once, 3 puts it away.
 - `Game.993`: screen shake (0 resets, 2 sets the mode, 3 starts, 1 stops).
 - `Game.961`: a long voice on a channel of its own that the next message does not cut; sub 1 stops it.
-- `Game.1001 (type, action)`: a looping screen effect. Action 0 starts it, 1 stops it at once, 2 stops it gracefully (each sprite finishes its lap). Types 0, 1 and 4 are soot specks drifting up (1 adds a dark haze wiped in through rule 61, 4 uses the other tile). Type 2 is a darkening pulse; 3 adds two waving copies of the screen. Type 5 is a red room with three bobbing lights. Type 6 makes the lights swell, plays a sound and waits. Type 7 is a turned and doubled screen with streaks. Type 8 is an eight-picture film. The effect loops until stopped and the script does not wait, except for type 6.
+- `Game.1001 (type, action)`: a looping screen effect. Action 0 starts it, 1 stops it at once, 2 stops it gracefully (each sprite finishes its lap). Types 0, 1 and 4 are soot specks drifting up (1 adds a dark haze wiped in through rule 61, 4 uses the other tile). Type 2 is a darkening pulse; 3 adds two waving copies of the screen. Type 5 is a red room with three bobbing lights. Type 6 makes the lights swell, plays a sound and waits. Type 7 is a turned and doubled screen with streaks. Type 8 is an eight-picture film. The effect loops until stopped and the script does not wait, except for type 6. When an effect starts it takes one copy of the base background picture (no overlays, models or window) and uses it for the whole effect: type 7, the waves of types 2 and 3, and `1002` subs 3 and 6.
 - `Game.1002 (arg)`, the sub on top: 1 a text strip over black, revealed in 255 pieces; 2 flashes (arg 0 to 3); 3 a zoom from 1.2 to 1.0; 4 a flash, then a CG fades in and becomes the background; 5 the same with eff09; 6 two pictures in turn. All of them make the script wait.
+- Types 2 and 3: the darkening picks its depth (128, 64 or 24 of 255) again at the start of every 136 frame lap. The original draws the pick from the clock, ours from the stage's generator. Black sits at depth 8 and the waves at 1 and 0. Type 5's red room is the displayed screen, under the models and text; stopping the effect leaves it until a sub 4, 5 or 6 copy replaces it.
+- `1002` sub 1: a black layer waits 128 frames, then fades to black over 128 while the 255 strip pieces draw over it. The black layer and the pieces lie over the standing text strips and models.
+- `1002` subs 4 and 5: the under picture wipes in over 4 frames and the over one over 6. The loaded background then replaces the screen and the over picture fades out in 64 frames. Sub 4 arg 0 uses `eff02` (rule 305) under and `HG011100_02` (rule 35) over; arg 1 uses `eff08` (311) and `HG011100_03` (34); sub 5 uses `eff08` (311) and `eff09` (34).
+- `1002` sub 6: `HG011400_01` fades in over 128 frames. `HG011400_02` waits 160, then wipes in with rule 45 over 12. The background copy waits 184 and fades in over 128, ending at frame 312; then all three go.
 - Depth and blend of the effects come from the exe: an effect at depth 3 or below draws between the models. Lights, film and the flashes and pictures of 1002 blend additively; the rest use plain alpha.
-- A flash on a model (`Game.40` sub 100) sets the E-mote model colour from neutral 0x80 to 0xff. Ours multiplies RGB by byte / 128.
+- A flash on a model (`Game.40` sub 100) runs the model's colour byte from 0x80 (unchanged) to 0xff (each channel doubled, clamped) in integer steps over the flash's frames. The draw multiplies each colour channel by twice the byte over 255 and leaves alpha alone. The old model goes 0x80 to 0xff over n frames, then fades out over n; the new one starts at 0xff, fades in over n, then goes back to 0x80 over n. Ours applies this to the rasterised model picture, where the original works per mesh, so the edges of overlapping meshes may differ slightly.
 - Models that leave: ghosts keep animating, as in the exe. Standing models that leave (`Game.40` subs 3 and 4) fade and slide 48 pixels (slot 1 left, slot 2 right).
 - Scene skip: effect calls are skipped when `/Config/SceneSkip` is 1.
+- `Mouse.4` returns the mouse's wheel counter (+1 per notch away from the player, -1 towards) and `Mouse.5(n)` sets it. The voice-wait function clears it and leaves its wait once it is not 0.
 - `Game.989`: acts only when flag 89 is set. No script sets it, so it does nothing.
 - `Game.35`: only sub 2 is used by the scripts. It resets an object we do not have, so it does nothing here.
 - Nothing to do: `Game.1003`, `1006.11`, `1010`, `1011`, `10008`, `10009`, and the engine calls of the window set up that the game's library makes.
@@ -119,7 +125,7 @@ CG, scene and music modes (`Game.30` to `Game.32`) are tabs of one screen: a pre
 - Scene mode: eight scenes, seen when bytes 3101 to 3108 are set. A press answers the scene's number from 0 and the script plays it.
 - Music mode: 24 tracks, heard when bytes 3051 to 3074 are set; eight rows with a scroll bar, and the music volume.
 - Each mode's unlock button asks first, then sets every byte of its mode.
-- Anne viewer (`Game.33`): the model over `bg004` with twelve outfits (bytes 3010 and on open them), fourteen expression cells, the poses of an outfit, a size slider, a list of 180 motions with a scroll bar, a blush toggle and a button that hides the others. It answers -1 when left. The buttons fade over 16 frames. A model swap fades the old one out over 12 frames and the new one in over 12; the viewer takes no input during the fades. Picking the playing motion plays it again, and some motions stop the main timeline first. The old model's fade curve is the effect stage's.
+- Anne viewer (`Game.33`): the model over `bg004` with twelve outfits (bytes 3010 and on open them), fourteen expression cells, the poses of an outfit, a size slider, a list of 180 motions with a scroll bar, a blush toggle and a button that hides the others. It answers -1 when left. The buttons fade over 16 frames. A model swap fades the old one out over 12 frames and the new one in over 12; the viewer takes no input during the fades. Picking the playing motion plays it again, and some motions stop the main timeline first. The old model's fade curve is the effect stage's. Picking the outfit already worn swaps the model like any other (fade out, load, fade in) and so ends the main timeline, while the face, blush and pose stay. The wheel moves the list by five rows even while the buttons are hidden; only the unlock question takes it. The labels are white glyphs with a black edge one pixel wide in fixed cells: 24 pixels for the motion rows, 16 for the help line at (648, 696). A press on the scroll bar jumps the list to the pointer only when it lands outside the knob (35 by 50 pixels); the drag then sets the list to the pointer's height whenever that maps to another position than the press did, with the tracked position held at 0 or above.
 
 ## Staff roll
 
@@ -131,18 +137,15 @@ Frames of the first action menu and the first map (second chapter) were compared
 
 The notebook (opened from the action menu's bar, six entries new, the rest locked) was compared with frames of the original in the chrome areas: the list column, the new and locked markers, both page pills and arrows, the title area and the lower bar match to an RMSE of about 1 (top) and 4 (the whole bottom strip, which keeps an edge-blur difference on the bar's frames in the reference that the pixels of our sheet do not reproduce). Fixed from that: the notebook's own button is lit instead of grey, history and load grey as on the bar, the help line's place, size and black edge, and the key focus (the same four keys, Right then Left then Down give the original's help lines and outlined first row). Opening takes the same 12 frame fade.
 
+The effects were compared under Wine by overall and cell luminance curves (the original ran 11 to 35 frames a second, depending on load): types 0, 1, 2, 3, 4 and `1002` sub 1 match. `1002` sub 3 is too short for the capture to resolve. Types 5 to 8 and subs 2, 4, 5 and 6 were not captured, so they are not compared.
+
 ## Not done yet
 
-- Fold slide: the exe may block input during it. The stepping rate was not checked in this build.
-- `Game.10` sub 18 acts on a part of the window that nothing in the story reaches.
-- Title sparkles: the layer over the buttons is a guess.
-- Map and notebook: a flag bit on the message window object at map exit is not identified.
-- Anne viewer: the text edge and baselines are estimated. A same-outfit reselect may keep the running pose in the original. The wheel is ignored while the buttons are hidden; the original scrolls.
-- Option list and bar: the flags at 0x8a4 and 0x8c4 in the option list, the quick save and load greying in the action menu and the meaning of 0x6a4 are not wired in. The greying of history and load is approximate.
-- Flash white: the draw side of the model colour is a guess.
-- Scene skip does not cut a running wait short.
-- Effects (`Game.1001`, `1002`): the exe copies the screen once for type 7 and for `1002` subs 3 and 6; ours is live. Subs 4 and 5 bake the top picture into the background, where the exe copies the composed screen. The black fade and piece depth of sub 1, the companion model's depth, the place of the black layer of types 2 and 3 are guesses. The red room is a sprite, not the background. Random positions cannot match a run of the original. None of these effects were compared with the original under Wine.
-- `Mouse.5` (input device slot 0x40, vtable 0x53fb94) is handled as clearing the pending click; what the device does with the argument is not decoded.
+- Anne viewer: the glyph size and baseline come from the notice strips and the notebook measurements, since the exe gives only the cell. The wheel is not held off during the fades here; the exe's fades are blocking loops.
+- Option list and bar: the meaning of h77 (+0x8c4) is assumed. The "return to the scene list?" confirm on right click during a replay is not ported. The `/Config/System` right-click modes are not wired for these screens. We keep one quick slot where the exe has ten (100 to 109). The snapshot behind a system screen includes the selection UI in the original.
+- Scene skip and waits: our generic skip (not scene skip) still ends busy waits at once. The `Game.40` sub 18 argument is taken as the slot. The effect speed setting is ignored. Waits on Ctrl and Shift are not ported.
+- Effects (`Game.1001`, `1002`): open are the companion model's depth, the depth of sub 6's background copy (ours 2), the piece depth of sub 1 (inferred) and the wave phase speed of type 3 (ours 3 a frame; one reading of the exe gives 2). Random positions cannot match a run of the original. The details of types 0, 1, 4, 6 and 8, the frame counts of sub 2 and the input blocking while a `1002` waits were not checked in the exe.
+- Flash white: ours works on the rasterised model picture, the original per mesh.
 
 ## Notices and blink compared
 
@@ -227,7 +230,16 @@ Addresses in `kimaten.exe` of the build above. The code itself does not name the
 | Text strip wait (`Game.1000`): ends on Enter, Ctrl or left click | 0x4b1510 |
 | Extras: CG cell sound check on g[16] (value at +0x204) | 0x49a1d0 |
 | Message bar buttons 0 and 2 grey on h[69] (+0x8a4) | 0x472350, 0x443d30 |
-| `Mouse.5`: input device vtable | 0x4b6090, 0x53fb94 |
+| Bar state shared by action menu, area, item and map; callers | 0x443d30, 0x4429b0, 0x443390, 0x4490f0, 0x4495b0, 0x46cb90, 0x46d3d0, 0x46f930, 0x470070 |
+| Bar state: history test (window flag), log line count | 0x42ac20, 0x443ce0 |
+| Window flags default 0x57 | 0x4c1380 |
+| Save flags: slot scan, set | 0x486e60, 0x4886c0, 0x488510 |
+| Replay right-click confirm | 0x4bfa80 |
+| Snapshot bit: capture if needed | 0x4c0310 |
+| `Mouse` class table, `Mouse.4`, `Mouse.2`, `Mouse.3` | 0x4b6090, 0x4b6310, 0x4b6180, 0x4b6240 |
+| Input device: vtable, get and set (vtable +0x3c, +0x40) | 0x53fb94, 0x4c4da0, 0x4c4db0 |
+| Cursor show and hide, wheel notch handler | 0x4c4fb0, 0x4c50c0 |
+| Wait loops that read the wheel counter | 0x42ae60, 0x4b1510 |
 | Title: start, create | 0x4912d0, 0x490e10 |
 | Title: `Game.110`, tab lock check, button state | 0x497c90, 0x491470, 0x491a50 |
 | Title: source cells (main, extras, widths), destination cells | 0x570180, 0x570198, 0x570240, 0x5701e0, 0x570210 |
@@ -235,6 +247,9 @@ Addresses in `kimaten.exe` of the build above. The code itself does not name the
 | Title: tick, face change and fade | 0x492380, 0x492530, 0x4926d0 |
 | Title sparkles (prism): create sprites, update, spawn, step, random | 0x45d2b0, 0x45d480, 0x45d3d0, 0x45d400, 0x45d550, 0x45d690, 0x45d790 |
 | Title sparkles: MT seed, MT draw | 0x45cff0, 0x45d040 |
+| Title sparkles: sprite create (layer 30), sprite create base | 0x45d480, 0x4b3590 |
+| Title buttons: create (layer 1), create call | 0x490e10, 0x4b1e90 |
+| Sprite layer set and sort | 0x4cd820, 0x4cfae0 |
 | Title sparkles: constants (alpha table 0x541e40) | 0x541e40, 0x541ee0, 0x541da4, 0x541d10, 0x541e08, 0x541df8, 0x541da0 |
 | Extras: mode loop, `Game.30` to `Game.33` | 0x49a1d0 |
 | CG mode: picture table, view and registration copies, grid entries | 0x56ad70, 0x56d250, 0x56ab60 |
@@ -252,6 +267,8 @@ Addresses in `kimaten.exe` of the build above. The code itself does not name the
 | Anne viewer: hover, press, right click, wheel, release, keyboard | 0x444880, 0x4448e0, 0x444c40, 0x444cc0, 0x444d90, 0x444dd0..0x445170 |
 | Anne viewer: slider knob, draw element, draw all (unlock bytes 0xbc2 to 0xbcd), button fade in and out | 0x445310, 0x4453b0, 0x445850, 0x445ce0, 0x445ef0 |
 | Anne viewer: slider drag, motion rows ("アクション%03d" at 0x537cd4), scroll | 0x446100, 0x446580, 0x446640, 0x446980, 0x446e90 |
+| Anne viewer: scroll bar press and drag loop, bar map, knob redraw | 0x446980, 0x446e90, 0x446d30 |
+| Anne viewer: help text rect table | 0x541fe0 |
 | Anne viewer: model load (names 0x537ce4..0x537d14), face, outfit, face picture | 0x446f10, 0x447520, 0x447590, 0x447740 |
 | Anne viewer: motion press with stop-first list, model swap, glyph box, pose cycle | 0x4475f0, 0x4476f0, 0x447810, 0x4479c0 |
 | Anne viewer: glyph draw with edge flags, font size, font create, glyph blit | 0x4adfc0, 0x4adef0, 0x4ae250, 0x4ae2e0 |
@@ -277,6 +294,8 @@ Addresses in `kimaten.exe` of the build above. The code itself does not name the
 | Strip wipe: `Game.1000`, setup, start | 0x498310, 0x46e6d0, 0x46e800 |
 | E-mote colour (`Game.48`, `Game.40`) | 0x43b210, 0x441d50, 0x441d70, 0x441d90, 0x43ce40 |
 | E-mote colour: `emotedriver.dll` SetColor | 0x10002790 -> 0x10014690 |
+| E-mote colour: model colour set (vtable +0x124) | 0x43ce40 |
+| E-mote colour: pixel shader with the (2,2,2,1) multiply (`emotedriver.dll`) | 0x1009fab0 |
 | `Game.35`: handler and subs | 0x49aeb0, 0x46eb60, 0x46edd0, 0x46f010 |
 | `Game.993`, `999`, `14`, `961`, `13` | 0x497db0, 0x4981f0, 0x497b40, 0x49b1d0, 0x4974a0 |
 | `Game.1001`, `1002`, `1006`, `1009`, `1010`, `1011` | 0x4985b0, 0x498000, 0x4993f0, 0x499a60, 0x499b50, 0x499d20 |
@@ -285,9 +304,12 @@ Addresses in `kimaten.exe` of the build above. The code itself does not name the
 | Effect classes: soot vtable, create, setup, update, spawner | 0x53a3ec, 0x45ff50, 0x460060, 0x460370, 0x4603e0 |
 | Effect classes: soot speck setup, update | 0x45fc40, 0x45fe70 |
 | Effect classes: random numbers (rejection sampling) | 0x45d040 |
-| Effect classes: S0402 vtable, setup, peak pick, update, wave | 0x53a2bc, 0x45d950, 0x45da50, 0x45dad0, 0x45dc00 |
+| Effect classes: S0402 vtable, setup, init (depth pick, called each lap), update, per-row wave | 0x53a2bc, 0x45d950, 0x45da50, 0x45dad0, 0x45dc00 |
 | Effect classes: S04022 constructor, setup, init, update | 0x45de90, 0x45dfc0, 0x45e190, 0x45e590 |
 | Effect classes: S04022 piece placement, key, random | 0x45e5f0, 0x45e8a0, 0x45e9b0 |
+| Effect classes: S04022 end (clears its layer to black) | 0x45e560 |
+| Effects: standing model depth sort | 0x43c2e0 |
+| Effects: key start (calls the effect's init each lap), key end, per-frame step | 0x4cdbf0, 0x4cdc60, 0x4cdb20 |
 | Effect classes: S0405 constructor, setup, mover update, mover setup, mover init | 0x45ea80, 0x45ebb0, 0x45eec0, 0x45f0f0, 0x45e9f0 |
 | Effect classes: S0501 vtable, setup | 0x53a37c, 0x45f400 |
 | Effect classes: S0501202 constructor, init, update, next picture | 0x45f650, 0x45f770, 0x45f8a0, 0x45f8d0 |
@@ -296,6 +318,9 @@ Addresses in `kimaten.exe` of the build above. The code itself does not name the
 | Timeline: push, blocking run, graceful stop; key stepper, finish all | 0x4cbec0, 0x4cb9e0, 0x4cbd40, 0x4cdce0, 0x4cd950 |
 | Sprites: SetZ, z-list, manager draw; texture draw (additive), transform | 0x4cd820, 0x4ce700, 0x4ce940, 0x4d04c0, 0x4d06a0 |
 | Sprite factory, character z table, background loader | 0x4b3470, 0x43c6f0, 0x490b60 |
+| Sprite animation task class vtable, blocking wait, non-blocking registration | 0x53ffa4, 0x4cb9e0, 0x4cbec0 |
+| Companion model class constructor, model part class constructor | 0x43d270, 0x435e60 |
+| E-mote driver Skip, Pass, Step (vtable slots) | 0x10c, 0x110, 0x114 |
 | `Game.1002` subs 1 to 6 | 0x493340, 0x4948c0, 0x4945a0, 0x493510, 0x494160, 0x493d50 |
 | Staff roll: `Game.990`, vtable, create, start, skip, update | 0x49a0b0, 0x53cb5c, 0x48eec0, 0x48f290, 0x48f430, 0x48f530, 0x48f5e0, 0x48f580 |
 | Staff roll: timing tables (roll 106999 ms, strip 1280 x 3080) | 0x56f728, 0x56f784 |
