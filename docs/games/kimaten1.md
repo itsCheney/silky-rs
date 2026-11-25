@@ -31,7 +31,7 @@ The player and `silky-run snap` open it. Window, button bar, action menu, invest
 
 ### Action menu
 
-`Game.42`: up to four large buttons (look around, talk, move, present evidence), packed into the first positions of `actselect.area` in that order; the script turns a kind on with bytes 0 to 3. A skip button at the lower right shows once the skip tutorial is unlocked (byte 0xbbf) and answers 100. The system buttons along the bottom (the same eight on every investigation screen) open the engine's own screens.
+`Game.42`: up to four large buttons (look around, talk, move, present evidence), packed into the first positions of `actselect.area` in that order; the script turns a kind on with bytes 0 to 3. A skip button at the lower right shows once the skip tutorial is unlocked (byte 0xbbf) and answers 100. The system buttons along the bottom (the same eight on every investigation screen) open the engine's own screens. Pointing at one of the four large buttons only shows the heart marker; the information line stays empty (the exe's hover code leaves the help text to the skip and system buttons).
 
 The skip button shows the tutorial the first time (byte 0xbc0), then asks to confirm (`dialog.area`, `dialog_p.akb`, row 5); Yes answers 100. The tutorial (`TUTORIAL.AREA`, `MOVESKIP_TUTORIAL.AKB`, `OKbotton.akb`) plays `ses_009` and fades in and out over 8 frames. Its OK button makes no sound. In the confirm dialog Yes plays the OK sound and No plays `ses_002`. `tutorial01.akb` is a different tutorial (dragging keywords) that the skip button does not use.
 
@@ -51,7 +51,7 @@ Option n is on while byte 7500 + n of the raw area is 1; the script's option wra
 
 ### Map
 
-`Game.43`: the six rooms (101 to 103 on the first floor, 201 to 203 on the second) as cards, an information line naming each, and the menu buttons. A room whose byte (0 to 5) is 0 is locked. Pressing a room answers 1 to 6; the back button, shown when the call's argument is 1, answers 100. A room not yet looked at (byte 810 plus its number) shows a plain card on hover. The menu's notebook button opens the notebook over the map. The pictures and the information line fade in and out over 12 frames; leaving stops the voice channel.
+`Game.43`: the six rooms (101 to 103 on the first floor, 201 to 203 on the second) as cards, an information line naming each, and the menu buttons. A room whose byte (0 to 5) is 0 is locked. Pressing a room answers 1 to 6; the back button, shown when the call's argument is 1, answers 100. A room not yet looked at (byte 810 plus its number) shows a plain card on hover. The menu's notebook button opens the notebook over the map. The pictures and the information line fade in and out over 12 frames; leaving stops the voice channel. Right click and Escape answer 100 at once when the argument is 1; with 0 they follow the right-click setting.
 
 ### Notebook
 
@@ -101,6 +101,10 @@ CG, scene and music modes (`Game.30` to `Game.32`) are tabs of one screen: a pre
 ## Staff roll
 
 `Game.990`, sub 0 after the normal endings and sub 1 after the true one, differ in the strip, the cover colour and the track. A card shows behind a cover for eight seconds; from 13 seconds the strip (1280 x 3080) rises from the bottom edge at an even speed until it has gone by at 107 seconds. The call answers 1 when the roll is over. A press ends it early, but only while bit 11 of global 55 is set, as in the original.
+
+## Compared with the original
+
+Frames of the first action menu and the first map (second chapter) were compared with screenshots of the original at the same pointer positions (menu: look, move; map: rooms 101 and 102; plus the frame right after pressing Move). The backgrounds differ (the reference save loads a different scene), so only the interface pixels were measured: over the pixels the interface draws opaquely the map matches to an RMSE of about 3 to 5 (floors, cards, crown and wings, locked card, title, back button, information line), and the menu buttons, heart marker, pressed state and title match as well. One difference was found and fixed: the menu wrote a help line when a large button was hovered, the original does not. The history button is grey in the reference only because that save has no backlog. A right click on the map did not cancel in the reference run; the exe's handler answers 100 when the back button is on, so that is taken to be a test artefact (the click may have been missed) and was not copied.
 
 ## Not done yet
 
@@ -169,6 +173,7 @@ Addresses in `kimaten.exe` of the build above. The code itself does not name the
 | Option list: up and down strings, back help string | 0x53a454, 0x53a458, 0x5380d8 |
 | Help lines: investigation (「ここを調べる」), action menu strings, evidence strings | 0x5380c8, 0x53793c..0x537988, 0x53a77c..0x53a7c4 |
 | Standard selection | 0x47c530, 0x47c970 |
+| Map: help line by id, highlight by id, floor frames | 0x470b20, 0x470070, 0x470220 |
 | Map: `Game.43`, vtable, create, load assets | 0x49c2f0, 0x53aba4, 0x46f210, 0x46f340 |
 | Map: run, init, exit fade, show, hide | 0x46f690, 0x46f7e0, 0x46f7c0, 0x46f610, 0x46f650 |
 | Map: hover, click, right click, keyboard | 0x46f8c0, 0x46f930, 0x46fc40, 0x46fe70..0x46ffd0 |

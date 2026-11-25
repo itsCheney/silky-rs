@@ -36,13 +36,6 @@ const CONFIRM_ROW: u32 = 5;
 const CELL: (u32, u32) = (380, 134);
 /// Row of the first button picture in the sheet.
 const CELL_TOP: u32 = 152;
-/// Help line of each kind of button.
-const HELP: [&str; 4] = [
-    "部屋の中を調べる",
-    "人物と会話する",
-    "他の場所へ移動する",
-    "証拠品をつきつける",
-];
 const SKIP_HELP: &str = "行動選択をスキップします";
 /// Click sound of the interface, and the one of the question's no button.
 const CLICK: &str = "ses_001.wav";
@@ -336,6 +329,8 @@ impl ActSelect {
                 canvas.draw_part(&sheet, (1093, 38 * row, 52, 38), a.left, a.top, false, 255);
             }
         }
+        // Pointing at a button of the menu leaves the information line empty;
+        // only the skip button and the system buttons write to it.
         let mut help = chrome::bar_help(look);
         for (k, &kind) in self.kinds.iter().enumerate() {
             let Some(a) = self.slot(k) else {
@@ -355,9 +350,6 @@ impl ActSelect {
                 false,
                 255,
             );
-            if look.hover == Some(k as i32) {
-                help = Some(HELP[kind as usize]);
-            }
         }
         if look.hover == Some(SKIP) {
             help = Some(SKIP_HELP);
