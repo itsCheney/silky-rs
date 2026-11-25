@@ -19,6 +19,9 @@ pub mod scene;
 pub(crate) mod stage;
 pub(crate) mod window;
 
+/// Auto saves the game keeps: each new one goes to the top of a list of
+/// twenty and the oldest falls off.
+pub const AUTO_SLOTS: u32 = 20;
 /// Sprite of the sheet the calendar and the ending overlay draw from.
 pub const SHEET_STORE: i32 = 3;
 /// Sprite of the backgrounds and pictures, under the standing characters.

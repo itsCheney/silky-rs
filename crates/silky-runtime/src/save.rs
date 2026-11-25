@@ -63,11 +63,22 @@ pub struct SaveFile {
 #[derive(Debug, Clone)]
 pub struct Saves {
     dir: PathBuf,
+    /// Auto saves kept before the oldest is replaced.
+    auto_slots: u32,
 }
 
 impl Saves {
     pub fn new(dir: impl Into<PathBuf>) -> Self {
-        Self { dir: dir.into() }
+        Self {
+            dir: dir.into(),
+            auto_slots: AUTO_SLOTS,
+        }
+    }
+
+    /// Keeps `n` auto saves instead of the usual [`AUTO_SLOTS`].
+    pub fn with_auto_slots(mut self, n: u32) -> Self {
+        self.auto_slots = n.max(1);
+        self
     }
 
     /// The save folder.
@@ -198,7 +209,7 @@ impl Saves {
     /// The auto save slot to write next: a free one, else the oldest.
     pub fn next_auto_slot(&self) -> String {
         let used = self.list_kind(Kind::Auto);
-        (1..=AUTO_SLOTS)
+        (1..=self.auto_slots)
             .map(|n| format!("auto{n:02}"))
             .find(|s| !used.contains(s))
             .or_else(|| used.last().cloned())
@@ -285,4 +296,42 @@ fn decode_png(data: &[u8]) -> Option<Image> {
 
 fn io_error(path: &Path) -> impl FnOnce(std::io::Error) -> Error + '_ {
     move |e| Error::Invalid(format!("{}: {e}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn folder(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("silky-save-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn auto_slots_fill_then_replace_the_oldest() {
+        let dir = folder("auto");
+        let saves = Saves::new(&dir).with_auto_slots(3);
+        assert_eq!(saves.next_auto_slot(), "auto01");
+        for (i, n) in ["auto01", "auto02", "auto03"].iter().enumerate() {
+            let path = dir.join(format!("{n}.json"));
+            std::fs::write(&path, b"{}").unwrap();
+            let t = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1000 + i as u64);
+            std::fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_modified(t)
+                .unwrap();
+        }
+        // All three are used: the oldest goes.
+        assert_eq!(saves.next_auto_slot(), "auto01");
+        // A longer history has room left.
+        assert_eq!(
+            Saves::new(&dir).with_auto_slots(5).next_auto_slot(),
+            "auto04"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

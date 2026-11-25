@@ -287,6 +287,12 @@ impl Session {
     /// Where to keep save files and system data (`system.json`: settings
     /// and what was seen). Without one, nothing is kept.
     pub fn set_saves(&mut self, saves: Saves) {
+        // The game's auto save keeps a history of twenty.
+        let saves = if self.rt.assets.game().title == silky_format::game::Title::Nanairo {
+            saves.with_auto_slots(crate::games::nanairo::AUTO_SLOTS)
+        } else {
+            saves
+        };
         self.ui.has_saves = !saves.list().is_empty();
         let mut data = SystemData::load(saves.dir(), self.rt.assets.game().title);
         let seen = std::mem::take(&mut self.rt.system);

@@ -119,6 +119,15 @@ impl Runtime {
         self.nanairo_mode_bgm();
     }
 
+    /// Asks for an auto save, unless the player switched auto save off in
+    /// the configuration (it is on in a new install). Also asked for by
+    /// `Game.17` and the start of the calendar.
+    pub(crate) fn nanairo_auto_save(&mut self) {
+        if self.config_value("/Config/AutoSave/Enable", 1) != 0 {
+            self.auto_save = true;
+        }
+    }
+
     /// Starts the BGM of the mode screens when the music is on and the
     /// music channel is silent.
     pub(crate) fn nanairo_mode_bgm(&mut self) {
@@ -178,9 +187,7 @@ impl Runtime {
             // a new install); the frontend writes the save at the next
             // message, as for the other games' auto save points.
             AUTO_SAVE => {
-                if self.config_value("/Config/AutoSave/Enable", 1) != 0 {
-                    self.auto_save = true;
-                }
+                self.nanairo_auto_save();
                 self.done()
             }
             // The notice shows pictures that this release does not carry,
