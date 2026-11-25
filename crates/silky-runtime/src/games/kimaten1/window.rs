@@ -19,7 +19,7 @@ use silky_format::area::{self, Area};
 
 use crate::assets::Assets;
 use crate::render::Canvas;
-use crate::ui::{bar, Button, Ui};
+use crate::ui::{bar, Button, State, Ui};
 use crate::Result;
 
 /// Top of the message window (`/Config/MesWnd/Pos` default).
@@ -46,6 +46,16 @@ const CROSS_CELL: u32 = 33;
 /// other buttons away and back.
 const CROSS: i32 = 13;
 const FOLD: i32 = 12;
+/// The notebook button, which blinks when the notebook is unlocked: five
+/// rounds of 400 ms, lit on the first, third and fifth.
+const NOTEBOOK: i32 = 11;
+const BLINK_ROUND_MS: u64 = 400;
+const BLINK_ROUNDS: u64 = 5;
+/// Folding the bar moves the twelve buttons down off the screen, and
+/// unfolding moves them back, over twelve passes of the engine's sprite
+/// animation (60 a second), in a straight line.
+const SLIDE_PASSES: i64 = 12;
+const SCREEN_H: i32 = 720;
 
 /// Click-wait bat: four 84 x 84 frames down the sheet at (1281, 0) (a
 /// second set at x = 1365 is used while a voice plays), at (1126, window
@@ -109,6 +119,21 @@ impl Bar {
             .filter(move |(id, _)| !ui.ring_closed || *id >= FOLD)
     }
 
+    /// How far button `id` is below its place while the bar slides.
+    fn slide_dy(ui: &Ui, id: i32, top: i32) -> Option<i32> {
+        let (opening, start) = ui.k1_fold?;
+        if id >= FOLD {
+            return None;
+        }
+        let t = i64::from(crate::games::doukyuusei::menu::passes(start, ui.clock));
+        if t >= SLIDE_PASSES {
+            return None;
+        }
+        let way = i64::from(SCREEN_H - top);
+        let t = if opening { SLIDE_PASSES - t } else { t };
+        Some((way * t / SLIDE_PASSES) as i32)
+    }
+
     pub fn hit(&self, ui: &Ui, x: i32, y: i32) -> Option<Button> {
         self.shown(ui)
             .find(|(_, a)| a.contains(x, y))
@@ -117,7 +142,12 @@ impl Bar {
 
     pub fn draw(&self, canvas: &mut Canvas, assets: &mut Assets, ui: &Ui) -> Result<()> {
         let sheet = assets.image("message_p.akb")?;
-        for (id, a) in self.shown(ui) {
+        for (id, a) in &self.areas {
+            let dy = Self::slide_dy(ui, *id, a.top);
+            if dy.is_none() && ui.ring_closed && *id < FOLD {
+                continue;
+            }
+            let dy = dy.unwrap_or(0);
             let b = Button::Bar(action(*id));
             let active = match *id {
                 7 => ui.auto,
@@ -126,7 +156,19 @@ impl Bar {
                 4 => ui.loop_voice,
                 _ => false,
             };
-            let state = ui.state(b, ui.enabled(b), active);
+            let mut state = ui.state(b, ui.enabled(b), active);
+            if *id == NOTEBOOK {
+                if let Some(start) = ui.k1_blink {
+                    let round = ui.clock.saturating_sub(start) / BLINK_ROUND_MS;
+                    if round < BLINK_ROUNDS {
+                        state = if round % 2 == 0 {
+                            State::Pressed
+                        } else {
+                            State::Normal
+                        };
+                    }
+                }
+            }
             if *id == CROSS {
                 // The cross has no off row.
                 let row = (state as u32).min(2);
@@ -136,7 +178,7 @@ impl Bar {
                     CROSS_CELL,
                     CROSS_CELL,
                 );
-                canvas.draw_part(&sheet, part, a.left, a.top, false, 255);
+                canvas.draw_part(&sheet, part, a.left, a.top + dy, false, 255);
             } else {
                 let part = (
                     SHEET.0 + CELL.0 * *id as u32,
@@ -144,7 +186,7 @@ impl Bar {
                     CELL.0,
                     CELL.1,
                 );
-                canvas.draw_part(&sheet, part, a.left, a.top, false, 255);
+                canvas.draw_part(&sheet, part, a.left, a.top + dy, false, 255);
             }
         }
         if ui.waiting {

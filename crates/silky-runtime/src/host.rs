@@ -322,6 +322,9 @@ pub struct Runtime {
     /// きまぐれテンプテーション: the title menu opens on its extras page
     /// (the script's argument of `Game.110`).
     pub k1_title_extras: bool,
+    /// きまぐれテンプテーション: the pause being started blinks the notebook
+    /// button of the message window (`Game.10` sub 15).
+    pub k1_blink: bool,
     /// The colour covering the screen when 同級生 Remake's name entry
     /// opened: the page shows the background, and the cover comes back
     /// when it is done.
@@ -418,6 +421,7 @@ impl Runtime {
             k1: None,
             k1_notices: Default::default(),
             k1_title_extras: false,
+            k1_blink: false,
             cover_under_name: None,
             town: None,
             sprites: Default::default(),

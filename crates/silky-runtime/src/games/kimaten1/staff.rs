@@ -12,9 +12,9 @@
 //!   bottom of the screen at 107000, which ends the roll (the original
 //!   ends it at 106999).
 //!
-//! The call pushes 1 when the roll is over. A press ends it early; what
-//! the original does with a press (it checks a setting of the message
-//! window first) was not found, so any press ends it here.
+//! The call pushes 1 when the roll is over. A press ends it early, but only
+//! while bit 11 of the script's global 55 is set: the scripts set it when a
+//! game starts (and in the extras' scene mode) and clear it at the title.
 
 use super::screen::{Click, Look};
 use crate::assets::Assets;
@@ -31,19 +31,27 @@ const ROLL_END: u64 = 107_000;
 /// Top of the strip when it starts, and how far it rises.
 const START_Y: i32 = 680;
 const RISE: i32 = 3040;
+/// The bit of global 55 that lets a press end the roll.
+const SKIP_FLAG: i32 = 0x800;
+/// The press of a headless run, which ends the roll whatever the flag says.
+pub const END_NOW: i32 = 1;
 const SCREEN: (u32, u32) = (1280, 720);
 
 #[derive(Debug, Clone)]
 pub struct Staff {
     /// After the true ending.
     true_end: bool,
+    /// A press may end the roll.
+    can_skip: bool,
     stop_music: bool,
 }
 
 impl Staff {
-    pub fn open(true_end: bool) -> Self {
+    /// `flags` is the script's global 55.
+    pub fn open(true_end: bool, flags: i32) -> Self {
         Self {
             true_end,
+            can_skip: flags & SKIP_FLAG != 0,
             stop_music: false,
         }
     }
@@ -93,7 +101,10 @@ impl Staff {
         Some(0)
     }
 
-    pub fn click(&mut self, _id: i32) -> Click {
+    pub fn click(&mut self, id: i32) -> Click {
+        if !self.can_skip && id != END_NOW {
+            return Click::None;
+        }
         self.stop_music = true;
         Click::Result(1)
     }

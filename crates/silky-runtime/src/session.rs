@@ -683,6 +683,9 @@ impl Session {
                         break;
                     }
                     Some(Pause::Transition(t)) => {
+                        if std::mem::take(&mut self.rt.k1_blink) {
+                            self.ui.k1_blink = Some(self.ui.clock);
+                        }
                         // A live wait shows the train on its way.
                         if let (true, Some(train)) = (t.live, &mut self.rt.scene.train) {
                             train.progress(0, t.ms);
@@ -4196,7 +4199,12 @@ impl Session {
                 self.run()?;
             }
             Button::Bar(bar::MENU) => self.toggle_side_menu(),
-            Button::Bar(bar::RING) => self.ui.ring_closed = !self.ui.ring_closed,
+            Button::Bar(bar::RING) => {
+                self.ui.ring_closed = !self.ui.ring_closed;
+                if self.layout.is_kimaten1() {
+                    self.ui.k1_fold = Some((!self.ui.ring_closed, self.ui.clock));
+                }
+            }
             Button::Bar(id) => match id {
                 bar::AUTO => {
                     self.ui.auto = !self.ui.auto;

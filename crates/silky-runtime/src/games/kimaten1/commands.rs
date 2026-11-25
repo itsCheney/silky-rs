@@ -114,15 +114,21 @@ impl Runtime {
             ACTION => {
                 let areas = self.k1_areas("actselect.area")?;
                 let b = |i: usize| vm.var_b(i);
-                self.k1 = Some(Screen::Action(ActSelect::open(
-                    areas,
-                    [b(0), b(1), b(2), b(3)],
-                    sub == 1,
-                    b(TUTORIAL_UNLOCKED) != 0,
-                    b(TUTORIAL_SEEN) != 0,
-                    b(NOTEBOOK_UNLOCKED) != 0,
-                    std::array::from_fn(|i| b(super::actsel::PROGRESS_FIRST + i)),
-                )));
+                self.k1 = Some(Screen::Action(
+                    ActSelect::open(
+                        areas,
+                        [b(0), b(1), b(2), b(3)],
+                        sub == 1,
+                        b(TUTORIAL_UNLOCKED) != 0,
+                        b(TUTORIAL_SEEN) != 0,
+                        b(NOTEBOOK_UNLOCKED) != 0,
+                        std::array::from_fn(|i| b(super::actsel::PROGRESS_FIRST + i)),
+                    )
+                    .with_popups(
+                        self.k1_areas("tutorial.area").unwrap_or_default(),
+                        self.k1_areas("dialog.area").unwrap_or_default(),
+                    ),
+                ));
                 self.wait_for(Pause::Kimaten1)
             }
             AREA => {
@@ -182,7 +188,7 @@ impl Runtime {
             STAFF => {
                 let true_end = sub == 1;
                 let _ = self.play_music_once(Staff::track(true_end));
-                self.k1 = Some(Screen::Staff(Staff::open(true_end)));
+                self.k1 = Some(Screen::Staff(Staff::open(true_end, vm.var_g(55).int())));
                 self.wait_for(Pause::Kimaten1)
             }
             // The viewer of アンネ.

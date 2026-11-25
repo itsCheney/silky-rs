@@ -214,6 +214,12 @@ pub struct Ui {
     /// it answers nothing to the script.
     pub k1_menu: Option<crate::games::kimaten1::Screen>,
     pub k1_since: u64,
+    /// きまぐれテンプテーション: the clock when the notebook button of the
+    /// window started to blink.
+    pub k1_blink: Option<u64>,
+    /// きまぐれテンプテーション: the bar's buttons slide down (folding) or
+    /// back up (unfolding): which way and the clock when it started.
+    pub k1_fold: Option<(bool, u64)>,
     /// The notices of きまぐれテンプテーション that are up.
     pub k1_notices: Option<crate::games::kimaten1::Notices>,
     /// 同級生 Remake's status plate, while it is up.

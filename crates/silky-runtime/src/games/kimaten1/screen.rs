@@ -118,6 +118,7 @@ impl Screen {
     /// ignore it).
     pub fn cancel(&mut self) -> Click {
         match self {
+            Screen::Action(s) => s.cancel(),
             Screen::Area(s) => s.cancel(),
             Screen::Ex(s) => s.cancel(),
             Screen::Map(m) => m.cancel(),
@@ -188,7 +189,7 @@ impl Screen {
             Screen::Omake(o) => (o.auto_pick(), "omake"),
             Screen::Doujin(o) => (o.auto_pick(), "omake"),
             Screen::Viewer(v) => (v.auto_pick(), "viewer"),
-            Screen::Staff(_) => (Some(0), "staff"),
+            Screen::Staff(_) => (Some(super::staff::END_NOW), "staff"),
         }
     }
 

@@ -30,7 +30,8 @@ pub(super) const COMPANION_FADE: i32 = 16;
 const COMPANION_FADE_OVER: i32 = 8;
 const CG_FADE: i32 = 32;
 
-/// How long `Game.10` sub 15 holds the script: five rounds of 400 ms.
+/// How long `Game.10` sub 15 holds the script: five rounds of 400 ms, in
+/// which the notebook button of the window lights on the even ones.
 const BAR_BLINK_MS: u32 = 2000;
 
 /// Standing models' x by slot, in the first game's signs.
@@ -100,8 +101,8 @@ impl Runtime {
     /// 16 the `a` timeline, 17 the main timeline to follow. 10, 14, 15 and
     /// 18 act on the message window: 10 wipes its text (the window and the
     /// name stay), 14 takes the whole window away, 15 holds the script for
-    /// two seconds while the button bar blinks (the notebook's unlock; the
-    /// blinking is not drawn), 18 does a call on one of the window's parts
+    /// two seconds while the window's notebook button blinks (the
+    /// notebook's unlock), 18 does a call on one of the window's parts
     /// that nothing in the story reaches.
     pub(crate) fn kimaten1_emote(&mut self, args: &[Value], sub: i32) -> bool {
         let a = &args[..args.len().saturating_sub(1)];
@@ -119,6 +120,7 @@ impl Runtime {
                 self.scene.speaker_name = None;
             }
             (15, 0) => {
+                self.k1_blink = true;
                 self.pause = Some(crate::host::Pause::Transition(crate::host::Transition {
                     ms: BAR_BLINK_MS,
                     rule: None,
