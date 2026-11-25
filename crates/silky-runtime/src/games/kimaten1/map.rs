@@ -6,10 +6,15 @@
 //! the choice is forced. The call returns the room's number 1..6, or 100
 //! for the back button. A room's byte 810 + n tells whether it was looked
 //! at already; a room not looked at shows a plain card on hover.
+//!
+//! The map fades in over 12 frames when it opens and out over 12 once the
+//! answer is chosen (the script then goes on). Its two layers fade, the
+//! pictures and the information line, so the scene shows through; the
+//! right-click that hides the buttons is not a fade.
 
 use silky_format::area::{self, Area};
 
-use super::notebook::{Notebook, BOOK_FIRST, BOOK_VARS};
+use super::notebook::{Notebook, Voice, BOOK_FIRST, BOOK_VARS};
 use super::screen::{Click, Look};
 use crate::assets::Assets;
 use crate::render::Canvas;
@@ -89,6 +94,46 @@ pub(super) const MENU_INFO: [&str; 8] = [
 /// The sound of a press.
 pub(super) const OK_SOUND: &str = "ses_001.wav";
 
+/// A fade of the map or the notebook takes 12 frames of 1/60 s.
+pub(super) const FADE_FRAMES: u64 = 12;
+pub(super) const FADE_MS: u64 = FADE_FRAMES * 1000 / 60;
+
+/// Opacity of a screen `age` ms into its fade: it gains (or loses) a
+/// twelfth of the range each frame.
+pub(super) fn fade_alpha(age: u64, out: bool) -> u8 {
+    let frames = (age * 60 / 1000 + 1).min(FADE_FRAMES);
+    let a = (255 * frames / FADE_FRAMES) as u8;
+    if out {
+        255 - a
+    } else {
+        a
+    }
+}
+
+/// Draws with `draw` and mixes the result over what was there at `alpha`.
+pub(super) fn faded(
+    canvas: &mut Canvas,
+    alpha: u8,
+    draw: impl FnOnce(&mut Canvas) -> Result<()>,
+) -> Result<()> {
+    if alpha == 255 {
+        return draw(canvas);
+    }
+    let under = canvas.clone();
+    draw(canvas)?;
+    *canvas = Canvas::blend(&under, canvas, alpha as f32 / 255.0, None);
+    Ok(())
+}
+
+/// The answer chosen and the fade out under way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Leave {
+    No,
+    /// Chosen; the fade begins when the clock is next seen.
+    Pending(i32),
+    At(i32, u64),
+}
+
 #[derive(Debug, Clone)]
 pub struct Map {
     /// Whether the back button is there.
@@ -103,6 +148,7 @@ pub struct Map {
     book: Option<Box<Notebook>>,
     book_vars: Vec<u8>,
     book_areas: Vec<Area>,
+    leave: Leave,
 }
 
 impl Map {
@@ -128,6 +174,7 @@ impl Map {
             book: None,
             book_vars,
             book_areas,
+            leave: Leave::No,
         })
     }
 
@@ -139,7 +186,7 @@ impl Map {
         if let Some(b) = &self.book {
             return b.hit(x, y);
         }
-        if self.hidden {
+        if self.hidden || self.leave != Leave::No {
             return None;
         }
         self.areas.iter().find(|a| a.contains(x, y)).map(|a| a.id)
@@ -165,14 +212,19 @@ impl Map {
         if !self.enabled(id) {
             return Click::None;
         }
+        if self.leave != Leave::No {
+            return Click::None;
+        }
         if let Some(i) = Self::room(id) {
             self.sound = Some(OK_SOUND.into());
-            return Click::Result(i as i32 + 1);
+            self.leave = Leave::Pending(i as i32 + 1);
+            return Click::None;
         }
         match id {
             BACK => {
                 self.sound = Some(OK_SOUND.into());
-                Click::Result(BACK_RESULT)
+                self.leave = Leave::Pending(BACK_RESULT);
+                Click::None
             }
             MENU_NOTEBOOK => {
                 self.sound = Some(OK_SOUND.into());
@@ -196,12 +248,78 @@ impl Map {
             }
             return Click::None;
         }
+        if self.leave != Leave::No {
+            return Click::None;
+        }
         if self.back {
-            return Click::Result(BACK_RESULT);
+            self.leave = Leave::Pending(BACK_RESULT);
+            return Click::None;
         }
         // With no way back the right click only hides the buttons.
         self.hidden = !self.hidden;
         Click::None
+    }
+
+    /// Whether a fade is running at `ms` on the clock.
+    pub fn animating(&self, ms: u64) -> bool {
+        match &self.book {
+            Some(b) => b.animating(ms),
+            None => self.leave != Leave::No || ms < FADE_MS,
+        }
+    }
+
+    /// Runs the fade out; the answer goes to the script once it is over.
+    pub fn tick(&mut self, ms: u64) -> Option<Click> {
+        if let Some(b) = &mut self.book {
+            if b.tick(ms) == Some(Click::Close) {
+                self.book = None;
+            }
+            return None;
+        }
+        match self.leave {
+            Leave::No => None,
+            Leave::Pending(r) => {
+                self.leave = Leave::At(r, ms);
+                None
+            }
+            Leave::At(r, t0) => (ms >= t0 + FADE_MS).then_some(Click::Result(r)),
+        }
+    }
+
+    /// A headless run has no time: ends the fade out at once.
+    pub fn settle(&mut self) -> Option<Click> {
+        if let Some(b) = &mut self.book {
+            if b.settle() == Some(Click::Close) {
+                self.book = None;
+            }
+            return None;
+        }
+        match self.leave {
+            Leave::No => None,
+            Leave::Pending(r) | Leave::At(r, _) => Some(Click::Result(r)),
+        }
+    }
+
+    pub fn wheel(&mut self, up: bool) -> bool {
+        self.book.as_mut().is_some_and(|b| b.wheel(up))
+    }
+
+    pub fn press_at(&mut self, id: i32, x: i32, y: i32) {
+        if let Some(b) = &mut self.book {
+            b.press_at(id, x, y);
+        }
+    }
+
+    pub fn take_voice(&mut self) -> Option<Voice> {
+        self.book.as_mut().and_then(|b| b.take_voice())
+    }
+
+    pub fn voice_wait(&self) -> bool {
+        self.book.as_ref().is_some_and(|b| b.voice_wait())
+    }
+
+    pub fn voice_ended(&mut self) -> bool {
+        self.book.as_mut().is_some_and(|b| b.voice_ended())
     }
 
     pub fn take_bytes(&mut self) -> Vec<(usize, u8)> {
@@ -238,11 +356,31 @@ impl Map {
 
     pub fn draw(&self, canvas: &mut Canvas, assets: &mut Assets, look: &Look) -> Result<()> {
         if let Some(b) = &self.book {
+            // The map stays under the notebook while that fades.
+            if b.fading(look.ms) {
+                self.draw_map(
+                    canvas,
+                    assets,
+                    &Look {
+                        ms: u64::MAX / 2,
+                        ..*look
+                    },
+                )?;
+            }
             return b.draw(canvas, assets, look);
         }
         if self.hidden {
             return Ok(());
         }
+        let alpha = match self.leave {
+            Leave::At(_, t0) => fade_alpha(look.ms.saturating_sub(t0), true),
+            Leave::Pending(_) => 255,
+            Leave::No => fade_alpha(look.ms, false),
+        };
+        faded(canvas, alpha, |canvas| self.draw_map(canvas, assets, look))
+    }
+
+    fn draw_map(&self, canvas: &mut Canvas, assets: &mut Assets, look: &Look) -> Result<()> {
         let sheet = assets.image("move_p.akb")?;
         let cards = assets.image("move01_p.akb")?;
         for (src, (x, y)) in FLOORS {
@@ -359,15 +497,22 @@ mod tests {
             book: None,
             book_vars: vec![0; BOOK_VARS],
             book_areas: Vec::new(),
+            leave: Leave::No,
         }
     }
 
     #[test]
     fn places_answer_their_number() {
         let mut m = map([true; PLACES], [false; PLACES], true);
-        assert_eq!(m.click(2), Click::Result(3));
+        assert_eq!(m.click(2), Click::None);
         assert_eq!(m.take_sound().as_deref(), Some(OK_SOUND));
-        assert_eq!(m.click(BACK), Click::Result(BACK_RESULT));
+        // The answer goes out when the fade out is over.
+        assert_eq!(m.tick(1000), None);
+        assert_eq!(m.tick(1000 + FADE_MS - 1), None);
+        assert_eq!(m.tick(1000 + FADE_MS), Some(Click::Result(3)));
+        let mut m = map([true; PLACES], [false; PLACES], true);
+        assert_eq!(m.click(BACK), Click::None);
+        assert_eq!(m.settle(), Some(Click::Result(BACK_RESULT)));
     }
 
     #[test]
@@ -391,9 +536,23 @@ mod tests {
     }
 
     #[test]
+    fn fades_take_twelve_frames() {
+        assert_eq!(fade_alpha(0, false), 21);
+        assert_eq!(fade_alpha(FADE_MS, false), 255);
+        assert_eq!(fade_alpha(0, true), 234);
+        assert_eq!(fade_alpha(FADE_MS, true), 0);
+        // Each frame adds the same share.
+        let a: Vec<u8> = (0..12)
+            .map(|f| fade_alpha(f * 1000 / 60 + 1, false))
+            .collect();
+        assert!(a.windows(2).all(|w| w[1] > w[0]));
+    }
+
+    #[test]
     fn right_click_goes_back_or_hides() {
         let mut m = map([true; PLACES], [false; PLACES], true);
-        assert_eq!(m.cancel(), Click::Result(BACK_RESULT));
+        assert_eq!(m.cancel(), Click::None);
+        assert_eq!(m.settle(), Some(Click::Result(BACK_RESULT)));
         let mut m = map([true; PLACES], [false; PLACES], false);
         assert_eq!(m.cancel(), Click::None);
         assert_eq!(m.hit(140, 300), None);

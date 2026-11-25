@@ -1283,7 +1283,10 @@ impl Session {
     pub fn pointer_move(&mut self, x: i32, y: i32) {
         self.ui.pointer = (x, y);
         // A bar of the music mode follows the pointer while held.
-        if let (Some(Button::Kimaten1(id)), Some(k)) = (self.ui.pressed, &mut self.ui.k1) {
+        if let (Some(Button::Kimaten1(id)), Some(k)) = (
+            self.ui.pressed,
+            self.ui.k1_menu.as_mut().or(self.ui.k1.as_mut()),
+        ) {
             k.press_at(id, x, y);
             let _ = self.k1_answer(crate::games::kimaten1::Click::None);
         }
@@ -1418,6 +1421,15 @@ impl Session {
         }
         self.ui.pressed = self.hit(x, y);
         self.frame = None;
+        // The notebook's thumb jumps under the pointer as it is pressed.
+        if let Some(Button::Kimaten1(id)) = self.ui.pressed {
+            use crate::games::kimaten1::Screen as K1;
+            if let Some(s @ (K1::Notebook(_) | K1::Map(_))) =
+                self.ui.k1_menu.as_mut().or(self.ui.k1.as_mut())
+            {
+                s.press_at(id, x, y);
+            }
+        }
         // A click that cancels the walk is no click on the map.
         let cancelled = self.cancel_walk();
         if self.walking() && self.ui.pressed.is_none() {
@@ -2125,12 +2137,14 @@ impl Session {
         // closes with is never an answer to the script.
         if let Some(s) = &mut self.ui.k1_menu {
             let sound = s.take_sound();
+            let voice = s.take_voice();
             for (i, v) in s.take_bytes() {
                 self.vm.set_var_b(i, v);
             }
             if let Some(file) = sound {
                 let _ = self.rt.play_sound(&file);
             }
+            self.k1_voice(voice);
             self.frame = None;
             match click {
                 Click::Close | Click::Result(_) => {
@@ -2147,6 +2161,7 @@ impl Session {
             return Ok(());
         };
         let sound = s.take_sound();
+        let voice = s.take_voice();
         for (i, v) in s.take_bytes() {
             self.vm.set_var_b(i, v);
         }
@@ -2173,6 +2188,7 @@ impl Session {
         if let Some(file) = sound {
             let _ = self.rt.play_sound(&file);
         }
+        self.k1_voice(voice);
         self.frame = None;
         match click {
             Click::None => {}
@@ -2193,6 +2209,19 @@ impl Session {
             }
         }
         Ok(())
+    }
+
+    /// Plays or stops the voice line a screen asked for (the notebook's
+    /// recording).
+    fn k1_voice(&mut self, voice: Option<crate::games::kimaten1::notebook::Voice>) {
+        use crate::games::kimaten1::notebook::Voice;
+        match voice {
+            Some(Voice::Play(file)) => {
+                let _ = self.rt.replay_voice(file);
+            }
+            Some(Voice::Stop) => self.rt.stop_sound_voice(),
+            None => {}
+        }
     }
 
     pub fn back(&mut self) -> Result<bool> {
@@ -2506,7 +2535,7 @@ impl Session {
         if self.dialog.is_some() {
             return Ok(());
         }
-        if let Some(s) = self.ui.k1.as_mut() {
+        if let Some(s) = self.ui.k1_menu.as_mut().or(self.ui.k1.as_mut()) {
             if s.wheel(up) {
                 return self.k1_answer(crate::games::kimaten1::Click::None);
             }
@@ -4541,6 +4570,30 @@ impl Session {
                 .visible()
                 .then(|| self.rt.k1_notices.clone());
             self.frame = None;
+        }
+        // The map and the notebook fade in and out; a screen that is
+        // leaving answers when its fade is over.
+        let k1_ms = self.ui.clock.saturating_sub(self.ui.k1_since);
+        let mut k1_click = None;
+        if let Some(s) = self.ui.k1_menu.as_mut().or(self.ui.k1.as_mut()) {
+            if s.animating(k1_ms) {
+                self.frame = None;
+            }
+            k1_click = s.tick(k1_ms);
+            // The notebook's recording goes on to its next line when the
+            // one playing ends (without audio it plays on).
+            if k1_click.is_none()
+                && s.voice_wait()
+                && self.rt.audio.enabled()
+                && !self.rt.voice_playing()
+                && s.voice_ended()
+            {
+                k1_click = Some(crate::games::kimaten1::Click::None);
+            }
+        }
+        if let Some(click) = k1_click {
+            self.frame = None;
+            self.k1_answer(click)?;
         }
         // The staff roll rises by itself and ends when its time is up.
         if let Some(s) = self.ui.k1.as_ref().filter(|s| s.timed()) {

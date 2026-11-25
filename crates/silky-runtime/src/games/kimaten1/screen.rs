@@ -7,7 +7,7 @@ use super::areasel::AreaSelect;
 use super::exselect::ExSelect;
 use super::itemsel::ItemSelect;
 use super::map::Map;
-use super::notebook::Notebook;
+use super::notebook::{Notebook, Voice};
 use super::omake::{Music, Omake};
 use super::staff::Staff;
 use super::viewer::Viewer;
@@ -197,6 +197,8 @@ impl Screen {
     /// mode).
     pub fn press_at(&mut self, id: i32, x: i32, y: i32) {
         match self {
+            Screen::Map(m) => m.press_at(id, x, y),
+            Screen::Notebook(n) => n.press_at(id, x, y),
             Screen::Omake(o) => o.press_at(id, x, y),
             Screen::Doujin(o) => o.press_at(id, x, y),
             Screen::Viewer(v) => v.press_at(id, x, y),
@@ -208,6 +210,8 @@ impl Screen {
     /// has something to scroll.
     pub fn wheel(&mut self, up: bool) -> bool {
         match self {
+            Screen::Map(m) => m.wheel(up),
+            Screen::Notebook(n) => n.wheel(up),
             Screen::Viewer(v) => v.wheel(up),
             _ => false,
         }
@@ -272,6 +276,64 @@ impl Screen {
     pub fn over(&self, ms: u64) -> bool {
         match self {
             Screen::Staff(s) => s.over(ms),
+            _ => false,
+        }
+    }
+
+    /// Whether the screen is fading in or out at `ms` since it opened (it
+    /// is redrawn each frame then, and [`Self::tick`] runs it).
+    pub fn animating(&self, ms: u64) -> bool {
+        match self {
+            Screen::Map(m) => m.animating(ms),
+            Screen::Notebook(n) => n.animating(ms),
+            _ => false,
+        }
+    }
+
+    /// Runs the screen's own clock: a screen that fades out after its
+    /// answer gives the answer here once the fade is over.
+    pub fn tick(&mut self, ms: u64) -> Option<Click> {
+        match self {
+            Screen::Map(m) => m.tick(ms),
+            Screen::Notebook(n) => n.tick(ms),
+            _ => None,
+        }
+    }
+
+    /// For a run without time (`silky-run snap`): the answer a fade out
+    /// is holding back, now.
+    pub fn settle(&mut self) -> Option<Click> {
+        match self {
+            Screen::Map(m) => m.settle(),
+            Screen::Notebook(n) => n.settle(),
+            _ => None,
+        }
+    }
+
+    /// What the screen asks of the voice channel (taken once).
+    pub fn take_voice(&mut self) -> Option<Voice> {
+        match self {
+            Screen::Map(m) => m.take_voice(),
+            Screen::Notebook(n) => n.take_voice(),
+            _ => None,
+        }
+    }
+
+    /// Whether the screen waits for the voice line it started to end.
+    pub fn voice_wait(&self) -> bool {
+        match self {
+            Screen::Map(m) => m.voice_wait(),
+            Screen::Notebook(n) => n.voice_wait(),
+            _ => false,
+        }
+    }
+
+    /// The voice line ended; true when the screen changed (it may ask for
+    /// the next line with [`Self::take_voice`]).
+    pub fn voice_ended(&mut self) -> bool {
+        match self {
+            Screen::Map(m) => m.voice_ended(),
+            Screen::Notebook(n) => n.voice_ended(),
             _ => false,
         }
     }

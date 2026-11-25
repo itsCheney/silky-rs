@@ -10,12 +10,19 @@
 //! (`Game.44`, see [`super::notice`]). The player opens it from the message
 //! window's menu and the map's menu; the map here opens it on its own
 //! button.
+//!
+//! The whole screen fades in over 12 frames when it opens and out over 12
+//! when it is left; the page and the background are the two layers that
+//! fade, so what is under shows through. The thumb of the scroll bar
+//! follows the pointer while it is held, and the wheel scrolls ten pixels
+//! a notch. The recording on the phone's page (entry 28) is five lines
+//! played one after the other.
 
 use std::cell::Cell;
 
 use silky_format::area::{self, Area};
 
-use super::map::{draw_info, MENU_INFO, OK_SOUND};
+use super::map::{draw_info, fade_alpha, faded, FADE_MS, MENU_INFO, OK_SOUND};
 use super::screen::{Click, Look};
 use crate::assets::Assets;
 use crate::render::Canvas;
@@ -56,8 +63,15 @@ const MENU_NOTEBOOK: i32 = MENU + 5;
 
 /// The entry whose page has a recording.
 const VOICE_ENTRY: usize = 28;
-/// The recording's first line; the original goes on to four more.
-const VOICE_FILE: &str = "kt_b0155.ogg";
+/// The five lines of the recording, in the order they play; each starts
+/// when the one before it has ended.
+const VOICES: [&str; 5] = [
+    "kt_b0155.ogg",
+    "kt_c0201.ogg",
+    "kt_b0156.ogg",
+    "kt_c0202.ogg",
+    "kt_c0203.ogg",
+];
 /// The entry that, when first opened, marks the first entry as new.
 const MARKER_ENTRY: usize = 30;
 /// The entry with the other background.
@@ -86,6 +100,8 @@ const THUMB_SIZE: (u32, u32) = (49, 51);
 const THUMB_SRC_X: u32 = 702;
 const TRACK_TOP: i32 = 119;
 const TRACK_RANGE: i32 = 457;
+/// A pointer at y holds the thumb centred on it: its top is 26 above.
+const THUMB_GRAB: i32 = 145;
 const SCROLL_STEP: i32 = 10;
 const PAGE_BUTTON_Y: [i32; 2] = [95, 595];
 const MENU_SIZE: (u32, u32) = (52, 38);
@@ -94,6 +110,11 @@ const BACK_POS: (i32, i32) = (1198, 679);
 const BACK_SRC_X: u32 = 312;
 const VOICE_FRAME: (u32, u32, i32, i32) = (156, 156, 959, 132);
 const VOICE_FRAME_Y: u32 = 272;
+/// The unlock-all button of the title's copy: size, place, and its cells
+/// on `archive00_p.akb` (three rows: normal, hover, pressed).
+const UNLOCK_SIZE: (u32, u32) = (71, 64);
+const UNLOCK_POS: (i32, i32) = (1200, 11);
+const UNLOCK_SRC: (u32, u32) = (156, 272);
 
 /// Titles of the entries, as the information line names them.
 pub const NAMES: [&str; ENTRIES] = [
@@ -143,6 +164,22 @@ enum Entry {
     Read,
 }
 
+/// What the screen asks of the voice channel (taken once).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Voice {
+    Play(&'static str),
+    Stop,
+}
+
+/// Leaving: the press is made; the fade out begins when the screen's
+/// clock is next seen and runs to its end.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Leave {
+    No,
+    Pending,
+    At(u64),
+}
+
 #[derive(Debug, Clone)]
 pub struct Notebook {
     areas: Vec<Area>,
@@ -158,20 +195,33 @@ pub struct Notebook {
     sound: Option<String>,
     /// The title menu's copy: bytes 1000 higher, with the unlock-all button.
     extras: bool,
+    /// The line of the recording now playing (valid while `playing`).
+    line: usize,
+    voice: Option<Voice>,
+    leave: Leave,
+    /// The screen's clock when it was first seen, for the fade in.
+    since: Cell<Option<u64>>,
 }
 
 impl Notebook {
     /// Opens the notebook with the bytes 900..=940 as they are.
     pub fn new(assets: &Assets, vars: Vec<u8>) -> Result<Self> {
         let areas = area::parse(&assets.data("notebook.area")?)?;
-        Ok(Self::with_areas(areas, vars, false))
+        Ok(Self::with_areas(areas, vars, false).from_start())
     }
 
     /// Opens the title menu's copy: `vars` are the bytes 1900.. (900 on
     /// from [`BOOK_FIRST`]), and what it writes goes 1000 higher.
     pub fn new_extras(assets: &Assets, vars: Vec<u8>) -> Result<Self> {
         let areas = area::parse(&assets.data("notebook.area")?)?;
-        Ok(Self::with_areas(areas, vars, true))
+        Ok(Self::with_areas(areas, vars, true).from_start())
+    }
+
+    /// Takes the screen's clock to start when the screen opened (a notebook
+    /// inside another screen starts at the first time it is seen).
+    fn from_start(self) -> Self {
+        self.since.set(Some(0));
+        self
     }
 
     /// Opens it with the areas read already. `extras` is the title menu's
@@ -189,6 +239,10 @@ impl Notebook {
             writes: Vec::new(),
             sound: None,
             extras,
+            line: 0,
+            voice: None,
+            leave: Leave::No,
+            since: Cell::new(None),
         }
     }
 
@@ -268,7 +322,6 @@ impl Notebook {
         self.selected = Some(idx);
         self.offset = 0;
         self.height.set(-1);
-        self.playing = false;
         self.set_var(ENTRY_VARS[idx], 1);
         // The last story entry makes the first one new again, once.
         if idx == MARKER_ENTRY && self.var(OPENED_30) != 2 {
@@ -299,7 +352,7 @@ impl Notebook {
     }
 
     pub fn click(&mut self, id: i32) -> Click {
-        if !self.enabled(id) {
+        if !self.enabled(id) || self.leave != Leave::No {
             return Click::None;
         }
         match id {
@@ -324,13 +377,19 @@ impl Notebook {
                 };
             }
             VOICE => {
+                // Starts the recording from its first line, or stops it.
+                self.sound = Some(OK_SOUND.into());
+                self.line = 0;
                 self.playing = !self.playing;
-                let file = if self.playing { VOICE_FILE } else { OK_SOUND };
-                self.sound = Some(file.into());
+                self.voice = Some(if self.playing {
+                    Voice::Play(VOICES[0])
+                } else {
+                    Voice::Stop
+                });
             }
             BACK => {
                 self.sound = Some(OK_SOUND.into());
-                return Click::Close;
+                self.begin_leave();
             }
             UNLOCK => {
                 self.sound = Some(OK_SOUND.into());
@@ -342,7 +401,109 @@ impl Notebook {
     }
 
     pub fn cancel(&mut self) -> Click {
-        Click::Close
+        if self.leave == Leave::No {
+            self.begin_leave();
+        }
+        Click::None
+    }
+
+    /// Leaving cuts the voice, then the screen fades out.
+    fn begin_leave(&mut self) {
+        self.playing = false;
+        self.voice = Some(Voice::Stop);
+        self.leave = Leave::Pending;
+    }
+
+    /// Whether the screen is fading in or out at `ms` on the clock.
+    pub fn animating(&self, ms: u64) -> bool {
+        self.leave != Leave::No || self.age(ms) < FADE_MS
+    }
+
+    /// Milliseconds since the screen was first seen.
+    fn age(&self, ms: u64) -> u64 {
+        let since = self.since.get().unwrap_or_else(|| {
+            self.since.set(Some(ms));
+            ms
+        });
+        ms.saturating_sub(since)
+    }
+
+    /// Opacity of the whole screen at `ms`.
+    fn alpha(&self, ms: u64) -> u8 {
+        match self.leave {
+            Leave::At(t0) => fade_alpha(ms.saturating_sub(t0), true),
+            Leave::Pending => 255,
+            Leave::No => fade_alpha(self.age(ms), false),
+        }
+    }
+
+    /// Runs the fade out; closes the screen once it is over.
+    pub fn tick(&mut self, ms: u64) -> Option<Click> {
+        self.age(ms);
+        match self.leave {
+            Leave::Pending => {
+                self.leave = Leave::At(ms);
+                None
+            }
+            Leave::At(t0) => (ms >= t0 + FADE_MS).then_some(Click::Close),
+            Leave::No => None,
+        }
+    }
+
+    /// A headless run has no time: ends the fade out at once.
+    pub fn settle(&mut self) -> Option<Click> {
+        (self.leave != Leave::No).then_some(Click::Close)
+    }
+
+    /// Whether the screen is fading in or out and so lets what is under
+    /// it show.
+    pub fn fading(&self, ms: u64) -> bool {
+        self.alpha(ms) < 255
+    }
+
+    /// The mouse wheel: ten pixels a notch, when the page scrolls.
+    pub fn wheel(&mut self, up: bool) -> bool {
+        if self.leave != Leave::No || self.max_scroll() == 0 {
+            return false;
+        }
+        let d = if up { -SCROLL_STEP } else { SCROLL_STEP };
+        self.offset = (self.offset + d).clamp(0, self.max_scroll());
+        true
+    }
+
+    /// A press or drag at y on the thumb's track: the thumb is centred on
+    /// the pointer and the page follows in proportion, rounded.
+    pub fn press_at(&mut self, id: i32, _x: i32, y: i32) {
+        let max = self.max_scroll();
+        if id != TRACK || max == 0 || self.leave != Leave::No {
+            return;
+        }
+        let pos = (y - THUMB_GRAB).clamp(0, TRACK_RANGE);
+        self.offset = ((pos * max * 10 / TRACK_RANGE + 5) / 10).clamp(0, max);
+    }
+
+    pub fn take_voice(&mut self) -> Option<Voice> {
+        self.voice.take()
+    }
+
+    /// Whether the screen waits for a line of the recording to end.
+    pub fn voice_wait(&self) -> bool {
+        self.playing
+    }
+
+    /// The line that was playing has ended: the next one starts, or the
+    /// recording is over after the fifth.
+    pub fn voice_ended(&mut self) -> bool {
+        if !self.playing {
+            return false;
+        }
+        if self.line + 1 >= VOICES.len() {
+            self.playing = false;
+        } else {
+            self.line += 1;
+            self.voice = Some(Voice::Play(VOICES[self.line]));
+        }
+        true
     }
 
     pub fn take_bytes(&mut self) -> Vec<(usize, u8)> {
@@ -358,6 +519,11 @@ impl Notebook {
     }
 
     pub fn draw(&self, canvas: &mut Canvas, assets: &mut Assets, look: &Look) -> Result<()> {
+        let alpha = self.alpha(look.ms);
+        faded(canvas, alpha, |canvas| self.draw_all(canvas, assets, look))
+    }
+
+    fn draw_all(&self, canvas: &mut Canvas, assets: &mut Assets, look: &Look) -> Result<()> {
         let bg = if self.selected == Some(LAST_ENTRY) {
             "archive_bg01.akb"
         } else {
@@ -439,10 +605,10 @@ impl Notebook {
             canvas.draw_part(&page, (0, off, VIEW.2, h), VIEW.0, VIEW.1, false, 255);
             if idx == VOICE_ENTRY {
                 // A frame round the picture of the phone: dark, white on
-                // hover, yellow while the recording plays.
-                let st = match (self.playing, state(VOICE)) {
-                    (true, _) => 2,
-                    (_, s) => s.min(1),
+                // hover or press, yellow while the recording plays.
+                let st = match (state(VOICE), self.playing) {
+                    (0, true) => 2,
+                    (s, _) => s,
                 };
                 let (w, h, x, y) = VOICE_FRAME;
                 canvas.draw_part(&sheet, (0, VOICE_FRAME_Y + h * st, w, h), x, y, false, 255);
@@ -463,7 +629,7 @@ impl Notebook {
             );
         }
         if max > 0 {
-            let st = state(TRACK).min(1);
+            let st = state(TRACK);
             let y = self.offset * TRACK_RANGE / max + TRACK_TOP;
             canvas.draw_part(
                 &sheet,
@@ -475,6 +641,23 @@ impl Notebook {
                 ),
                 UP_POS.0,
                 y,
+                false,
+                255,
+            );
+        }
+
+        if self.extras {
+            let st = state(UNLOCK);
+            canvas.draw_part(
+                &sheet,
+                (
+                    UNLOCK_SRC.0,
+                    UNLOCK_SRC.1 + UNLOCK_SIZE.1 * st,
+                    UNLOCK_SIZE.0,
+                    UNLOCK_SIZE.1,
+                ),
+                UNLOCK_POS.0,
+                UNLOCK_POS.1,
                 false,
                 255,
             );
@@ -607,8 +790,66 @@ mod tests {
         b.click(NEXT);
         assert_eq!(b.page, 2);
         assert!(!b.enabled(NEXT));
-        assert_eq!(b.click(BACK), Click::Close);
-        assert_eq!(b.cancel(), Click::Close);
+        // Leaving fades out first, then closes.
+        assert_eq!(b.click(BACK), Click::None);
+        assert_eq!(b.tick(500), None);
+        assert_eq!(b.tick(500 + FADE_MS), Some(Click::Close));
+        let mut b = book(&[]);
+        b.cancel();
+        assert_eq!(b.settle(), Some(Click::Close));
+    }
+
+    #[test]
+    fn the_recording_plays_five_lines_in_turn() {
+        let mut b = book(&[(ENTRY_VARS[VOICE_ENTRY], 1)]);
+        b.page = 2;
+        b.click(0);
+        assert!(b.enabled(VOICE));
+        b.click(VOICE);
+        assert_eq!(b.take_voice(), Some(Voice::Play("kt_b0155.ogg")));
+        let mut heard = Vec::new();
+        while b.voice_wait() {
+            assert!(b.voice_ended());
+            if let Some(Voice::Play(f)) = b.take_voice() {
+                heard.push(f);
+            }
+        }
+        assert_eq!(
+            heard,
+            [
+                "kt_c0201.ogg",
+                "kt_b0156.ogg",
+                "kt_c0202.ogg",
+                "kt_c0203.ogg"
+            ]
+        );
+        // A second press while it plays stops it; leaving stops it too.
+        b.click(VOICE);
+        b.take_voice();
+        b.click(VOICE);
+        assert_eq!(b.take_voice(), Some(Voice::Stop));
+        b.click(VOICE);
+        b.click(BACK);
+        assert_eq!(b.take_voice(), Some(Voice::Stop));
+        assert!(!b.voice_wait());
+    }
+
+    #[test]
+    fn wheel_and_thumb_scroll_the_page() {
+        let mut b = book(&[(900, 1)]);
+        assert!(!b.wheel(false));
+        b.height.set(600);
+        assert!(b.wheel(false) && b.offset == 10);
+        assert!(b.wheel(true) && b.wheel(true) && b.offset == 0);
+        // The thumb follows the pointer, centred on it.
+        b.press_at(TRACK, 1230, 119 + 26);
+        assert_eq!(b.offset, 0);
+        b.press_at(TRACK, 1230, 119 + 26 + TRACK_RANGE);
+        assert_eq!(b.offset, 77);
+        b.press_at(TRACK, 1230, 145 + 229);
+        assert_eq!(b.offset, 39);
+        b.press_at(DOWN, 0, 0);
+        assert_eq!(b.offset, 39);
     }
 
     #[test]

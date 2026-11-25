@@ -773,9 +773,17 @@ fn snap(
                             let (x, y) = v.split_once(',')?;
                             screen.hit(x.trim().parse().ok()?, y.trim().parse().ok()?)
                         });
+                        // The map and the notebook fade in; the frame is saved
+                        // after the fade.
+                        let fades = matches!(
+                            screen,
+                            silky_runtime::games::kimaten1::Screen::Map(_)
+                                | silky_runtime::games::kimaten1::Screen::Notebook(_)
+                        );
                         let ui = Ui {
                             k1: Some(screen.clone()),
                             hover: hover.map(silky_runtime::ui::Button::Kimaten1),
+                            clock: if fades { 1000 } else { 0 },
                             ..Ui::default()
                         };
                         layout.draw(&mut frame, &mut rt.assets, &ui, false, k1_text.as_ref())?;
@@ -790,6 +798,13 @@ fn snap(
                             Some(id) => screen.click(id),
                             None => screen.cancel(),
                         };
+                        // A fade out holds the answer back; there is no time
+                        // here, so it ends at once.
+                        if click == Click::None {
+                            if let Some(c) = screen.settle() {
+                                click = c;
+                            }
+                        }
                         for (i, v) in screen.take_bytes() {
                             vm.set_var_b(i, v);
                         }
