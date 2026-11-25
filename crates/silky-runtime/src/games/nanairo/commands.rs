@@ -259,6 +259,7 @@ impl Runtime {
     /// Standing characters.
     fn nanairo_character(&mut self, c: &Call) -> Option<silky_vm::Result<Flow>> {
         let skip = self.scene_skip();
+        let veil = super::effects::kirara_up(&mut self.scene.effects);
         let factor = self.system.settings.effect_scale();
         let petals = self
             .movie_playable(super::figures::PETALS_MOVIE)
@@ -315,13 +316,14 @@ impl Runtime {
             // (flag, slot, name): the expression layer. The flag is not
             // read by the original. A face put on a figure that stands on
             // the screen blends in over 12 frames, and the commit waits
-            // for it; a figure put in the same commit brings its face with
+            // for it, unless the full-screen sprite is up (then it is at
+            // once); a figure put in the same commit brings its face with
             // its body.
             5 if c.args.len() == 3 => {
                 let slot = c.int(1);
                 if let Some(ch) = scene.characters.get_mut(&slot) {
                     ch.face = c.str(2).filter(|f| !f.is_empty());
-                    if !skip {
+                    if !veil {
                         let frames = scene.figures.face_frames(slot, true);
                         self.character_time = self.character_time.max(frames);
                     }

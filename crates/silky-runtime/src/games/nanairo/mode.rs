@@ -151,12 +151,18 @@ impl Phase {
         }
     }
 
-    /// How far out of its place the pictures are: 1 off screen, 0 at rest.
-    fn away(self) -> f32 {
+    /// How far out of its place the pictures are, as the program steps a
+    /// move: tick `k` of `n` ticks, from the place at rest (`true`) or from
+    /// the place off screen (`false`) toward the other.
+    fn away(self) -> (bool, i32, i32) {
         match self {
-            Phase::In(f) => 1.0 - (f as f32 / SLIDE_IN_FRAMES as f32).min(1.0),
-            Phase::Rest => 0.0,
-            Phase::Out(f) => (f as f32 / SLIDE_OUT_FRAMES as f32).min(1.0),
+            Phase::In(f) => (false, f.min(SLIDE_IN_FRAMES) as i32, SLIDE_IN_FRAMES as i32),
+            Phase::Rest => (true, 0, 1),
+            Phase::Out(f) => (
+                true,
+                f.min(SLIDE_OUT_FRAMES) as i32,
+                SLIDE_OUT_FRAMES as i32,
+            ),
         }
     }
 
@@ -172,8 +178,12 @@ impl Phase {
     }
 }
 
-fn place(p: &Piece, away: f32) -> (i32, i32) {
-    let mix = |rest: i32, off: i32| (rest as f32 + (off - rest) as f32 * away).round() as i32;
+fn place(p: &Piece, (from_rest, k, n): (bool, i32, i32)) -> (i32, i32) {
+    // The program's step: start + (end - start) * k / n in whole numbers.
+    let mix = |rest: i32, off: i32| {
+        let (a, b) = if from_rest { (rest, off) } else { (off, rest) };
+        a + (b - a) * k / n
+    };
     (mix(p.rest.0, p.off.0), mix(p.rest.1, p.off.1))
 }
 

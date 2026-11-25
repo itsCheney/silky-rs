@@ -162,6 +162,14 @@ pub fn clear_all(st: &mut Stage) {
     }
 }
 
+/// Whether the sparkle picture of `Game.22` is up (shown from `22.1` until
+/// `22.2` has played out): the original's full-screen sprite is then
+/// visible.
+pub fn kirara_up(st: &mut Stage) -> bool {
+    let id = st.slots.get(&(KIRARA, 0)).copied();
+    id.is_some_and(|id| st.sprite(id).is_some())
+}
+
 /// `Game.22.1`: the sparkle picture is put up, shown but fully clear.
 pub fn kirara_ready(st: &mut Stage) {
     clear(st, KIRARA);
