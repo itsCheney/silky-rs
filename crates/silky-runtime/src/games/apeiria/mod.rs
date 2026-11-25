@@ -14,6 +14,7 @@ pub mod mail_select;
 pub mod omake;
 pub mod panels;
 pub mod slides;
+pub mod staff;
 pub mod vo;
 
 /// Variable H 69: 1 while the scene list replays a scene.

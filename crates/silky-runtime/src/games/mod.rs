@@ -76,6 +76,27 @@ impl Call {
     }
 }
 
+/// The number the executable gives a standing character from the name of
+/// its picture (0x44e0a0, called when the name starts with `c`; any other
+/// name has -1). It reads three characters only: the second must be `h`,
+/// and the third and fourth give the number, `ch01` to `ch07` 0 to 6,
+/// `ch09` 7 and `ch10` 8. Every other name has -1: `ch00`, `ch08`, `ch11`
+/// and up, and names that do not start with `ch`. Two names count as the
+/// same character when their numbers are equal, -1 included.
+pub(crate) fn character_id(name: &str) -> i32 {
+    let b = name.as_bytes();
+    let at = |i: usize| b.get(i).copied().unwrap_or(0);
+    if at(0) != b'c' || at(1) != b'h' {
+        return -1;
+    }
+    match (at(2), at(3)) {
+        (b'0', d @ b'1'..=b'7') => (d - b'1') as i32,
+        (b'0', b'9') => 7,
+        (b'1', b'0') => 8,
+        _ => -1,
+    }
+}
+
 impl Runtime {
     /// Carries out a `Game` call.
     pub(crate) fn game(&mut self, vm: &mut Vm) -> silky_vm::Result<Flow> {
@@ -329,11 +350,12 @@ impl Runtime {
                     return Some(Err(host_error("character load without a name")));
                 };
                 // 0x44b4e0: a slot that already holds the same character
-                // (the "chNN" part of the name; 0x44e0a0) takes the new
-                // picture and size but keeps its opacity: the alpha is
-                // only stored when the character is new.
+                // (the number 0x44e0a0 computes from the name, see
+                // `character_id`) takes the new picture and size but keeps
+                // its opacity: the alpha is only stored when the character
+                // is new.
                 let alpha = match scene.characters.get(&c.int(4)) {
-                    Some(old) if old.body.get(..4) == body.get(..4) => old.alpha,
+                    Some(old) if character_id(&old.body) == character_id(&body) => old.alpha,
                     _ => c.int(0).clamp(0, 255),
                 };
                 let character = Character {
@@ -448,5 +470,52 @@ impl Runtime {
             _ => return None,
         }
         self.done()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::character_id;
+
+    #[test]
+    fn character_numbers_of_names() {
+        let id = |n| character_id(n);
+        // ch01 to ch07 are 0 to 6, ch09 is 7, ch10 is 8.
+        for (n, want) in [
+            ("ch01_01_00.akb", 0),
+            ("ch02_01_00_h00.akb", 1),
+            ("ch03_02_01.akb", 2),
+            ("ch04_01_00.akb", 3),
+            ("ch05_01_00.akb", 4),
+            ("ch06_01_00.akb", 5),
+            ("ch07_01_00.akb", 6),
+            ("ch09_01_00.akb", 7),
+            ("ch10_01_00.akb", 8),
+        ] {
+            assert_eq!(id(n), want, "{n}");
+        }
+        // Only the first four characters count.
+        assert_eq!(id("ch02"), 1);
+        assert_eq!(id("ch10"), 8);
+        // Not numbered: ch00, ch08, ch11 and up, other names, short names.
+        for n in [
+            "ch00_01_00.akb",
+            "ch08_02_03.akb",
+            "ch11_01_00.akb",
+            "ch20_01_00.akb",
+            "ch0",
+            "ch",
+            "c",
+            "",
+            "xh01_01_00.akb",
+            "cx01_01_00.akb",
+            "CH01_01_00.akb",
+            "bg01.akb",
+        ] {
+            assert_eq!(id(n), -1, "{n}");
+        }
+        // Names with no number are all the same character.
+        assert_eq!(id("ch08_02_03.akb"), id("ch11_01_00.akb"));
+        assert_ne!(id("ch01_01_00.akb"), id("ch02_01_00.akb"));
     }
 }

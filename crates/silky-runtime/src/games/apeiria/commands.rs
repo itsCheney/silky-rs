@@ -38,6 +38,8 @@ const CHANGE_MOVIE: i32 = 999;
 const FLUSH: i32 = 1005;
 /// `Game.993`, the screen shake.
 const QUAKE: i32 = 993;
+/// 景の海のアペイリア ～カサブランカの騎士～: the staff roll.
+const STAFF: i32 = 990;
 /// Offsets of the shaken screen, eight steps for each kind of shake
 /// (`Game.993` sub 2), read from the program.
 const QUAKE_STEPS: [[(i32, i32); 8]; 2] = [
@@ -144,6 +146,7 @@ impl Runtime {
             BOARD | EXPLAIN | ITEM => self.panels(c),
             // Not in Casablanca: its calls only drop slides it never makes.
             SLIDES if !self.casablanca() => self.slides(c),
+            STAFF if self.casablanca() => self.casablanca_staff(vm, c),
             PICTURE => self.apeiria_picture(vm, c),
             LONG_VOICE => self.long_voice(c),
             // (file): a picture changes a set time into the voice line

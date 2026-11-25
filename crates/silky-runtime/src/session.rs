@@ -1722,7 +1722,7 @@ impl Session {
             self.rt.clicked = true;
             // The intro of 同級生 Remake takes no click.
             if let Some(b) = &mut self.busy {
-                if !b.frame && self.rt.scene.intro.is_none() {
+                if !b.frame && self.rt.scene.intro.is_none() && !self.rt.roll_locked {
                     b.elapsed = b.ms;
                 }
             }
@@ -4944,7 +4944,7 @@ impl Session {
             let mut steps = 0;
             while self.state == State::Busy && steps < 64 {
                 let Some(b) = &mut self.busy else { break };
-                if self.ui.skip && self.rt.scene.intro.is_none() {
+                if self.ui.skip && self.rt.scene.intro.is_none() && !self.rt.roll_locked {
                     b.elapsed = b.ms;
                 }
                 let step = left.min(b.ms - b.elapsed.min(b.ms));

@@ -9,12 +9,15 @@ use std::sync::{Arc, Mutex};
 
 use crate::{Error, Result};
 
-/// The three sound classes of the engine, each with numbered channels.
+/// The sound classes of the engine, each with numbered channels. `HEffect`
+/// is the second set of effect channels (class 17), with a volume of its
+/// own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Bus {
     Music,
     Effect,
     Voice,
+    HEffect,
 }
 
 /// Decoded sound, as interleaved stereo f32.
@@ -90,8 +93,8 @@ struct Track {
 #[derive(Debug)]
 struct State {
     tracks: HashMap<(Bus, i32), Track>,
-    /// Volume of each bus (music, effects, voice), 0..1.
-    volume: [f32; 3],
+    /// Volume of each bus (music, effects, voice, second effects), 0..1.
+    volume: [f32; 4],
     /// Channels waiting for a sound decoded in the background, with the
     /// token of that request.
     pending: HashMap<(Bus, i32), u64>,
@@ -104,7 +107,7 @@ impl Default for State {
     fn default() -> Self {
         Self {
             tracks: HashMap::new(),
-            volume: [1.0; 3],
+            volume: [1.0; 4],
             pending: HashMap::new(),
             next_token: 0,
             rising: HashMap::new(),
@@ -117,6 +120,7 @@ fn bus_index(bus: Bus) -> usize {
         Bus::Music => 0,
         Bus::Effect => 1,
         Bus::Voice => 2,
+        Bus::HEffect => 3,
     }
 }
 

@@ -29,7 +29,7 @@ The size of `nanairo.exe` is not recorded yet. Its engine calls that return a va
 | `BackLog.4` to `BackLog.7` | Return a value | Return nothing |
 | `OneMes.5` | Returns a value | Returns nothing |
 | `Save.3`, `Save.8` | Return a value | Return nothing |
-| `HEffect` (class 17) | Plays sounds like `Effect` (scripts) | Not done |
+| `HEffect` (class 17) | Plays sounds on a second set of effect channels, with the same sub commands as `Effect` (scripts) | Not done |
 
 ## Trace probe
 
@@ -73,6 +73,8 @@ Addresses in `casablanca.exe` as linked (image base 0x400000). The functions are
 | Breakpoint at the `native` handler: class popped, statement still on the stack | 0x49fa23 (`eax` = class) |
 | Value pop | 0x4b4840 |
 | `message` handler (a breakpoint here marks each message) | 0x4b45b0 |
+| Class 16 `Effect`, 17 `HEffect`, 18 `Voice`: build (cases of the class switch), shared sub command switch | 0x49fca3, 0x49fcdc, 0x49fd15; 0x4adc70 (jump table 0x4add34) |
+| `Effect` and `HEffect`: method tables, channel list builders; volume readers | 0x52ea14, 0x52b758; 0x4ae700, 0x4ae9c0; 0x495050, 0x4950f0 |
 
 The spec for this build:
 

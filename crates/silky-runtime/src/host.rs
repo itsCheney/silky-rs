@@ -22,8 +22,9 @@ const UI: i32 = 26;
 const MOVIE: i32 = 23;
 const WAIT: i32 = 28;
 const HEFFECT: i32 = 17;
-/// Effect bus channel of HEffect channel 0.
-const HEFFECT_CHANNELS: i32 = 100;
+/// Volume of the `HEffect` channels. The executable reads it from
+/// `/Config/HEffect/Volume` (default 90), which no screen of the game sets.
+const HEFFECT_VOLUME: f32 = 0.9;
 const MESWND: i32 = 2;
 const MOUSE: i32 = 12;
 const FLAG: i32 = 14;
@@ -341,6 +342,9 @@ pub struct Runtime {
     pub vo_steps: Vec<(u32, crate::games::fuyukuru::vo::Step)>,
     /// Size of the screen quake to start (command 993, sub 2).
     pub(crate) quake_mode: i32,
+    /// The staff roll of 景の海のアペイリア ～カサブランカの騎士～ is on and
+    /// takes no click or skip (bit 11 of global 55 was clear).
+    pub(crate) roll_locked: bool,
     /// Music set up by `Music.5`, by channel, for `Music.4` to start.
     pub(crate) queued_music: BTreeMap<i32, String>,
     /// Set by the game's auto save point (ふゆから、くるる。, command 14);
@@ -373,6 +377,8 @@ pub(crate) enum FollowUp {
     /// なないろリンカネーション: the staff roll is over (or was cut short),
     /// and its music stops.
     EndStaff,
+    /// 景の海のアペイリア ～カサブランカの騎士～: the staff roll is over.
+    EndRoll,
 }
 
 pub(crate) fn host_error(msg: impl Into<String>) -> silky_vm::Error {
@@ -428,6 +434,7 @@ impl Runtime {
             then: None,
             vo_steps: Vec::new(),
             quake_mode: 0,
+            roll_locked: false,
             queued_music: BTreeMap::new(),
             auto_save: false,
             cg_track: crate::games::apeiria::omake::CgTrack::new(
@@ -470,6 +477,10 @@ impl Runtime {
             FollowUp::MailChoice => {
                 self.pause = Some(Pause::Choice);
                 Flow::Yield
+            }
+            FollowUp::EndRoll => {
+                self.roll_locked = false;
+                Flow::Continue
             }
             FollowUp::EndStaff => {
                 self.stop_music();
@@ -663,7 +674,7 @@ impl Runtime {
 
     /// Stops all sound.
     pub fn stop_sound(&mut self) {
-        for bus in [Bus::Music, Bus::Effect, Bus::Voice] {
+        for bus in [Bus::Music, Bus::Effect, Bus::HEffect, Bus::Voice] {
             self.audio.stop_bus(bus);
         }
     }
@@ -737,6 +748,7 @@ impl Runtime {
         self.audio.set_volume(Bus::Music, v(st.music_on, st.music));
         self.audio
             .set_volume(Bus::Effect, v(st.effects_on, st.effects));
+        self.audio.set_volume(Bus::HEffect, v(true, HEFFECT_VOLUME));
         self.audio.set_volume(Bus::Voice, v(st.voice_on, st.voice));
     }
 
@@ -1133,15 +1145,13 @@ impl Runtime {
     ) -> silky_vm::Result<bool> {
         let (bus, kind) = match class {
             MUSIC => (Bus::Music, Kind::Music),
-            EFFECT | HEFFECT => (Bus::Effect, Kind::Effect),
+            EFFECT => (Bus::Effect, Kind::Effect),
+            HEFFECT => (Bus::HEffect, Kind::Effect),
             _ => (Bus::Voice, Kind::Voice),
         };
-        let mut ch = args.first().map(Value::int).unwrap_or(0);
         // HEffect is a second set of effect channels (景の海のアペイリア
-        // plays its sound loops there); they share the effect volume.
-        if class == HEFFECT {
-            ch += HEFFECT_CHANNELS;
-        }
+        // plays its sound loops there), with its own volume.
+        let ch = args.first().map(Value::int).unwrap_or(0);
         match (sub, args) {
             (sound::CHANNELS, [_]) => {}
             (sound::VOICE_PLAY, [_, Value::Str(file)]) if bus == Bus::Voice => {
