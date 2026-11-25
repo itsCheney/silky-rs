@@ -299,6 +299,8 @@ pub enum Step {
     Stop(u32),
     /// Gives a sprite a new look.
     Look(u32, Look),
+    /// Draws into the background at this point of the program.
+    Paint(super::panels::Paint),
 }
 
 /// The effect sprites on screen and the timelines stepping them.
@@ -509,6 +511,7 @@ impl Stage {
                         s.look = look;
                     }
                 }
+                Step::Paint(paint) => self.painted.push(paint),
             }
             self.queue.pop_front();
         }

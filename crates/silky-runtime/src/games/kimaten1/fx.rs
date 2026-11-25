@@ -17,7 +17,7 @@
 //! MT19937 asked for numbers by rejection sampling); it is ported here and
 //! seeded from the stage, so a run always plays the same.
 
-use crate::games::apeiria::anim::{Key, Look, Sprite, Stage, Step};
+use crate::games::apeiria::anim::{flag, Key, Look, Sprite, Stage, Step};
 use crate::games::apeiria::effects::User;
 use crate::games::apeiria::panels::Paint;
 
@@ -25,6 +25,16 @@ use crate::games::apeiria::panels::Paint;
 pub const FX: u32 = 1001;
 /// Owner of the sprites of `Game.1002`.
 pub const FLASH: u32 = 1002;
+
+/// Effects at this depth or below come between the standing models (the
+/// models lie at depths 0 to 3, the one in the middle on top); the rest
+/// are drawn over all of them.
+pub const LOW: i32 = 3;
+
+/// Whether an effect sprite is drawn among the models.
+pub fn is_low(s: &Sprite) -> bool {
+    (s.owner == FX || s.owner == FLASH) && s.z <= LOW
+}
 
 /// MT19937 as the effects' generator.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -309,6 +319,9 @@ impl Mover {
     }
 }
 
+/// Frames the streaks of type 7 take to turn once.
+pub const TURN_FRAMES: i32 = 10;
+
 /// The picture film of type 8: the next picture scales and wipes in over 6
 /// frames and out over 6, one after the other, eight pictures round.
 #[derive(Debug, Clone)]
@@ -317,9 +330,74 @@ pub struct Film {
     t: i32,
 }
 
+/// Frames the `i`th piece of the text strip takes to fade in: 32 over
+/// the number of the piece, at least 1.
+pub fn piece_frames(i: usize) -> i32 {
+    (32 / (i as i32 + 1)).max(1)
+}
+
+/// Size of the text strip picture.
+const STRIP: (f32, f32) = (444.0, 41.0);
+
+/// The text strip of `Game.1002` sub 1, laid over the screen piece by
+/// piece: each of the 255 pieces is the whole strip, turned a little, put
+/// somewhere new and faded in, and the next one starts when it is in.
+#[derive(Debug, Clone)]
+pub struct Pieces {
+    ids: Vec<u32>,
+    next: usize,
+    left: i32,
+    frames: i32,
+    cur: usize,
+    pattern: i32,
+    rng: Mt,
+}
+
+impl Pieces {
+    fn tick(&mut self, sprites: &mut [Sprite]) {
+        if self.left == 0 && self.next < self.ids.len() {
+            let i = self.next;
+            self.next += 1;
+            let (r, r2) = (
+                self.rng.below(0xb70a7c3) as i32,
+                self.rng.below(0xb70a7c3) as i32,
+            );
+            let (cx, cy) = match self.pattern % 5 {
+                0 | 2 => (640 - r % 640, 360 - r2 % 360),
+                3 => (1280 - r % 640, 360 - r2 % 360),
+                1 => (1280 - r % 640, 720 - r2 % 360),
+                _ => (640 - r % 640, 720 - r2 % 360),
+            };
+            self.pattern += 1;
+            let turn = (self.rng.below(0xb70a7c3) % 44) as f32 - 22.0;
+            let big = self.rng.below(0xb70a7c3) % 100 > 50;
+            let scale = if big { 1.2 } else { 1.0 };
+            if let Some(s) = sprites.iter_mut().find(|s| s.id == self.ids[i]) {
+                s.x = cx as f32 - STRIP.0 / 2.0;
+                s.y = cy as f32 - STRIP.1 / 2.0;
+                s.turn = turn;
+                s.scale = (scale, scale);
+                s.alpha = 0;
+                s.shown = true;
+            }
+            self.cur = i;
+            self.frames = piece_frames(i);
+            self.left = self.frames;
+        }
+        if self.left > 0 {
+            let done = self.frames - self.left + 1;
+            if let Some(s) = sprites.iter_mut().find(|s| s.id == self.ids[self.cur]) {
+                s.alpha = (255 * done / self.frames) as u8;
+            }
+            self.left -= 1;
+        }
+    }
+}
+
 /// What an effect does each frame.
 #[derive(Debug, Clone)]
 pub enum Kind {
+    Pieces(Pieces),
     Soot(Soot),
     Pulse(Pulse),
     Lights(Vec<Mover>),
@@ -339,6 +417,7 @@ impl Fx {
 
     pub fn tick(&mut self, sprites: &mut [Sprite], f: i32) {
         match &mut self.kind {
+            Kind::Pieces(p) => p.tick(sprites),
             Kind::Soot(s) => s.tick(sprites),
             Kind::Pulse(p) => p.tick(sprites, f),
             Kind::Lights(m) => {
@@ -401,12 +480,33 @@ impl<'a> Play<'a> {
         id
     }
 
+    /// Like [`Play::add`], laid on the picture under it by adding.
+    fn add_lit(&mut self, look: Look, z: i32, x: f32, y: f32) -> u32 {
+        let id = self.st.id();
+        self.steps.push(Step::Add(
+            Sprite::new(id, self.owner, look, z).at(x, y).adding(),
+        ));
+        id
+    }
+
     fn add_hidden(&mut self, look: Look, z: i32, scale: f32) -> u32 {
         let id = self.st.id();
         let mut s = Sprite::new(id, self.owner, look, z);
         s.scale = (scale, scale);
         self.steps.push(Step::Add(s));
         id
+    }
+
+    /// Shows a sprite added in these steps from the start (a timeline
+    /// only steps shown sprites).
+    fn shown(&mut self, id: u32) {
+        for step in self.steps.iter_mut() {
+            if let Step::Add(s) = step {
+                if s.id == id {
+                    s.shown = true;
+                }
+            }
+        }
     }
 
     fn start(&mut self, sprites: Vec<(u32, Vec<Key>)>) -> u32 {
@@ -421,7 +521,17 @@ impl<'a> Play<'a> {
 
     /// An effect that is stepped every frame, for ever, by `kind`.
     fn run(&mut self, driver: u32, kind: Kind, frames: i32) {
+        self.run_keys(
+            driver,
+            kind,
+            vec![Key::new(frames).show(true), Key::jump(0)],
+        );
+    }
+
+    /// An effect stepped by the user key of `keys`.
+    fn run_keys(&mut self, driver: u32, kind: Kind, mut keys: Vec<Key>) {
         let u = self.st.id();
+        keys[0] = keys[0].clone().user(u);
         self.st.users.insert(
             u,
             User::K1(Box::new(Fx {
@@ -430,10 +540,7 @@ impl<'a> Play<'a> {
                 kind,
             })),
         );
-        self.start(vec![(
-            driver,
-            vec![Key::new(frames).show(true).user(u), Key::jump(0)],
-        )]);
+        self.start(vec![(driver, keys)]);
     }
 
     fn wait(&mut self, g: u32) {
@@ -453,10 +560,39 @@ fn black() -> Look {
     }
 }
 
+/// Action 2: the effects finish the lap they are on (the keys that go back
+/// are no longer taken), the script waits for that, and then they are
+/// taken off like with action 1.
+fn wind_down(st: &mut Stage) {
+    let mut groups: Vec<u32> = Vec::new();
+    let mut ids = Vec::new();
+    for s in st.sprites.iter_mut().filter(|s| s.owner == FX) {
+        for k in s.keys.iter_mut() {
+            if k.flags & flag::JUMP != 0 {
+                *k = Key::new(1);
+            }
+        }
+        ids.push(s.id);
+        if s.group != 0 && !groups.contains(&s.group) {
+            groups.push(s.group);
+        }
+    }
+    if ids.is_empty() {
+        return;
+    }
+    let mut steps: Vec<Step> = groups.into_iter().map(Step::Wait).collect();
+    steps.push(Step::Remove(ids));
+    st.play(steps);
+}
+
 /// `Game.1001 (type, action)`: action 0 starts the effect (an effect that
 /// is running goes first, except that 3 on top of 2 only adds its
 /// copies), 1 and 2 stop it.
 pub fn effect(st: &mut Stage, ty: i32, action: i32) {
+    if action == 2 {
+        wind_down(st);
+        return;
+    }
     if action != 0 {
         st.clear(FX);
         return;
@@ -483,10 +619,10 @@ pub fn effect(st: &mut Stage, ty: i32, action: i32) {
             let mode = if ty == 4 { 2 } else { ty };
             let tile = if mode == 2 { 8 } else { 0 };
             let ids: Vec<u32> = (0..128)
-                .map(|_| p.add_hidden(Look::part("soot.akb", (0, tile, 8, 8)), 600, 4.0))
+                .map(|_| p.add_hidden(Look::part("soot.akb", (0, tile, 8, 8)), 2, 1.0))
                 .collect();
             if mode == 1 {
-                let haze = p.add(Look::picture("soot2.akb"), 599, 0.0, 0.0);
+                let haze = p.add(Look::picture("soot2.akb"), 1, 0.0, 0.0);
                 p.start(vec![(haze, vec![Key::new(255).wiping(61, true)])]);
             }
             let rng = mt(p.st);
@@ -506,10 +642,12 @@ pub fn effect(st: &mut Stage, ty: i32, action: i32) {
         2 | 3 => {
             let rng = &mut mt(p.st);
             let peak = [128, 64, 24][rng.below(3) as usize];
-            let black = p.add(black(), 595, 0.0, 0.0);
+            let black = p.add(black(), 8, 0.0, 0.0);
             let waves = [-24.0, 24.0].map(|amp| {
                 let id = p.st.id();
                 let step = if amp < 0.0 { 1.0 } else { 2.0 };
+                // The first copy lies over the second.
+                let z = if amp < 0.0 { 1 } else { 0 };
                 let look = Look::Raster {
                     source: Box::new(Look::Screen),
                     amp,
@@ -517,7 +655,7 @@ pub fn effect(st: &mut Stage, ty: i32, action: i32) {
                     phase: 0.0,
                 };
                 p.steps
-                    .push(Step::Add(Sprite::new(id, FX, look, 596).at(0.0, 0.0)));
+                    .push(Step::Add(Sprite::new(id, FX, look, z).at(0.0, 0.0)));
                 id
             });
             p.run(
@@ -534,7 +672,9 @@ pub fn effect(st: &mut Stage, ty: i32, action: i32) {
             );
         }
         5 => {
-            let bg = p.add(Look::picture("bg005g.akb"), 1, 0.0, 0.0);
+            // The room is put in the background in the original; it lies
+            // under everything here.
+            let bg = p.add(Look::picture("bg005g.akb"), -1, 0.0, 0.0);
             p.steps.push(Step::Keys(bg, vec![Key::new(1).show(true)]));
             let g = p.st.id();
             p.steps.push(Step::Start(g, vec![bg]));
@@ -543,11 +683,12 @@ pub fn effect(st: &mut Stage, ty: i32, action: i32) {
             let mut lights = Vec::new();
             for i in 0..3 {
                 let name = format!("bg005g_{i:02}.akb");
-                let id = p.add(Look::picture(&name), 2, starts[i].0, starts[i].1);
+                let id = p.add_lit(Look::picture(&name), 0, starts[i].0, starts[i].1);
                 p.steps.push(Step::Keys(id, vec![Key::new(1).show(true)]));
                 let g = p.st.id();
                 p.steps.push(Step::Start(g, vec![id]));
-                let rng = mt(p.st);
+                // All three lights start from the same generator state.
+                let rng = Mt::new(5489);
                 lights.push(Mover {
                     sprite: id,
                     state: 0,
@@ -566,29 +707,39 @@ pub fn effect(st: &mut Stage, ty: i32, action: i32) {
         7 => {
             // The screen as it is, turned and doubled in size, with
             // streaks over it that go round.
-            let mut screen = Sprite::new(p.st.id(), FX, Look::Screen, 590);
+            let mut screen = Sprite::new(p.st.id(), FX, Look::Screen, 0);
             screen.x = -180.0;
             screen.y = 240.0;
             screen.scale = (2.0, 2.0);
             screen.scale_at = (910.0, 218.0);
             screen.turn = -35.0;
-            screen.turn_at = (910.0, 218.0);
+            screen.turn_at = (640.0, 360.0);
             screen.shown = true;
             p.steps.push(Step::Add(screen));
-            let lines = p.add(Look::picture("eff04.akb"), 591, 0.0, 0.0);
+            let lines = p.st.id();
+            let mut streaks = Sprite::new(lines, FX, Look::picture("eff04.akb"), 1);
+            streaks.scale = (2.0, 2.0);
+            streaks.scale_at = (640.0, 360.0);
+            p.steps.push(Step::Add(streaks));
+            // Ten frames to turn once round (0 to 324 degrees), over and over.
             p.start(vec![(
                 lines,
                 vec![
-                    Key::new(1).show(true),
-                    Key::new(324).turning(0, 324, (640.0, 360.0)),
+                    Key::new(TURN_FRAMES)
+                        .show(true)
+                        .turning(0, 324, (640.0, 360.0)),
                     Key::jump(0),
                 ],
             )]);
         }
         8 => {
             let rng = &mut mt(p.st);
-            let index = rng.below(8);
-            let film = p.add(Look::Nothing, 592, 0.0, 0.0);
+            // The third number drawn, as the original does, and only its
+            // low three bits count.
+            rng.below(0xb70a7c3);
+            rng.below(0xb70a7c3);
+            let index = rng.below(0xb70a7c3) & 7;
+            let film = p.add_lit(Look::Nothing, 2, 0.0, 0.0);
             p.run(film, Kind::Film(Film { index, t: 0 }), 1);
         }
         _ => {}
@@ -597,9 +748,11 @@ pub fn effect(st: &mut Stage, ty: i32, action: i32) {
 }
 
 /// Type 6: the three lights of the red room swell to 48 times their size
-/// about their middle over 24 frames, and stay.
+/// about their middle over 24 frames while they drift away, one after the
+/// other 12 frames apart, and vanish. The script waits until the last is
+/// gone.
 fn swell(st: &mut Stage) {
-    let ids: Vec<u32> = st
+    let lights: Vec<u32> = st
         .users
         .values()
         .filter_map(|u| match u {
@@ -611,19 +764,53 @@ fn swell(st: &mut Stage) {
         })
         .flatten()
         .collect();
-    if ids.is_empty() {
+    if lights.is_empty() {
         return;
     }
+    let at: Vec<(f32, f32)> = lights
+        .iter()
+        .map(|id| {
+            st.sprites
+                .iter()
+                .find(|s| s.id == *id)
+                .map_or((0.0, 0.0), |s| (s.x, s.y))
+        })
+        .collect();
     let mut p = Play::new(st, FX);
-    let keys = vec![Key::new(24).scaling((1.0, 1.0), (48.0, 48.0), (32.0, 32.0))];
-    let g = p.start(ids.iter().map(|&i| (i, keys.clone())).collect());
+    let sprites = lights
+        .iter()
+        .zip(at)
+        .enumerate()
+        .map(|(i, (&id, (x, y)))| (id, swell_keys(i, (x as i32, y as i32))))
+        .collect();
+    let g = p.start(sprites);
     p.wait(g);
     p.done();
 }
 
+/// How far the lights (left, right, middle) drift while they swell.
+const DRIFT: [(i32, i32); 3] = [(500, -100), (-700, -100), (0, -50)];
+
+/// The keys of light `i` of type 6, from its place `at`.
+fn swell_keys(i: usize, at: (i32, i32)) -> Vec<Key> {
+    let d = DRIFT[i % 3];
+    vec![Key::new(24)
+        .wait(12 * i as i32)
+        .show(false)
+        .moving(at, (at.0 + d.0, at.1 + d.1))
+        .scaling((1.0, 1.0), (48.0, 48.0), (32.0, 32.0))]
+}
+
 /// A flash picture that goes through a rule picture in and out again.
-fn flash_through(p: &mut Play, name: &str, rule_in: u32, rule_out: u32, frames: (i32, i32)) -> u32 {
-    let id = p.add(Look::picture(name), 700, 0.0, 0.0);
+fn flash_through(
+    p: &mut Play,
+    name: &str,
+    z: i32,
+    rule_in: u32,
+    rule_out: u32,
+    frames: (i32, i32),
+) -> u32 {
+    let id = p.add_lit(Look::picture(name), z, 0.0, 0.0);
     let g = p.start(vec![(
         id,
         vec![
@@ -636,14 +823,40 @@ fn flash_through(p: &mut Play, name: &str, rule_in: u32, rule_out: u32, frames: 
     g
 }
 
-/// A picture that fades in over `frames` frames and then goes into the
-/// background.
-fn fade_into_background(p: &mut Play, name: &str, frames: i32) {
-    let id = p.add(Look::picture(name), 700, 0.0, 0.0);
-    let g = p.start(vec![(id, vec![Key::new(frames).show(true).fade(0, 255)])]);
+/// Two pictures wipe in together (`under` through `rule_under` over 6
+/// frames, `over` through `rule_over` over 4), the first goes, what is on
+/// the screen goes into the background, and the second fades out over 64
+/// frames.
+fn wipe_then_bake(p: &mut Play, under: (&str, u32), over: (&str, u32)) {
+    let a = p.add_lit(Look::picture(under.0), 0, 0.0, 0.0);
+    let b = p.add_lit(Look::picture(over.0), 1, 0.0, 0.0);
+    let g = p.start(vec![
+        (a, vec![Key::new(6).wiping(under.1, true)]),
+        (b, vec![Key::new(4).wiping(over.1, true)]),
+    ]);
     p.wait(g);
-    p.st.to_background
-        .push((id, Paint::Picture(name.to_string())));
+    p.steps.push(Step::Remove(vec![a]));
+    // The original copies the composed screen; the picture that lies on
+    // top is what stands in for it.
+    p.steps
+        .push(Step::Paint(Paint::Picture(over.0.to_string())));
+    let g = p.start(vec![(b, vec![Key::new(64).show(false).fade(255, 0)])]);
+    p.wait(g);
+    p.steps.push(Step::Remove(vec![b]));
+}
+
+/// The eff05 band that opens a flash of sub 5 (sub 2, argument 3).
+fn band(p: &mut Play) {
+    let id = p.add_lit(Look::picture("eff05.akb"), 12, 0.0, 60.0);
+    let g = p.start(vec![(
+        id,
+        vec![
+            Key::new(6).wiping(19, true),
+            Key::new(24).wait(6).wiping(19, false),
+        ],
+    )]);
+    p.wait(g);
+    p.steps.push(Step::Remove(vec![id]));
 }
 
 /// `Game.1002 (arg, sub)`: the flashes and fades. The script waits for
@@ -652,34 +865,61 @@ pub fn flash(st: &mut Stage, sub: i32, arg: i32) {
     st.clear(FLASH);
     let mut p = Play::new(st, FLASH);
     match sub {
-        // A strip of text shown with a black screen behind it.
+        // A black screen and the text strip laid piece by piece.
         1 => {
-            let back = p.add(black(), 700, 0.0, 0.0);
-            let text = p.add(Look::picture("st00.akb"), 701, 418.0, 339.0);
-            let mut keys = Vec::new();
-            for _ in 0..2 {
-                keys.push(vec![
-                    Key::new(32).show(true).fade(0, 255),
-                    Key::new(96),
-                    Key::new(32).show(false).fade(255, 0),
-                ]);
-            }
-            let g = p.start(vec![(back, keys[0].clone()), (text, keys[1].clone())]);
+            let back = p.add(black(), -1, 0.0, 0.0);
+            let ids: Vec<u32> = (0..255)
+                .map(|_| {
+                    let id = p.st.id();
+                    let mut s = Sprite::new(id, FLASH, Look::picture("st00.akb"), 10);
+                    s.scale_at = (STRIP.0 / 2.0, STRIP.1 / 2.0);
+                    s.turn_at = s.scale_at;
+                    p.steps.push(Step::Add(s));
+                    id
+                })
+                .collect();
+            let driver = p.add(Look::Nothing, 0, 0.0, 0.0);
+            let pattern = mt(p.st).below(5) as i32;
+            let rng = mt(p.st);
+            let u = p.st.id();
+            p.st.users.insert(
+                u,
+                User::K1(Box::new(Fx {
+                    owner: FLASH,
+                    sprite: driver,
+                    kind: Kind::Pieces(Pieces {
+                        ids: ids.clone(),
+                        next: 0,
+                        left: 0,
+                        frames: 1,
+                        cur: 0,
+                        pattern,
+                        rng,
+                    }),
+                })),
+            );
+            let g = p.start(vec![
+                (back, vec![Key::new(32).show(true).fade(0, 255)]),
+                (driver, vec![Key::new(PIECE_FRAMES).show(true).user(u)]),
+            ]);
             p.wait(g);
-            p.steps.push(Step::Remove(vec![back, text]));
+            p.steps.push(Step::Remove(
+                ids.into_iter().chain([back, driver]).collect(),
+            ));
         }
         2 => match arg {
             0 => {
-                flash_through(&mut p, "eff00.akb", 20, 20, (6, 6));
+                flash_through(&mut p, "eff00.akb", 12, 20, 20, (6, 6));
             }
             1 => {
-                flash_through(&mut p, "eff02.akb", 305, 305, (6, 6));
+                flash_through(&mut p, "eff02.akb", 12, 305, 305, (6, 6));
             }
             2 => {
-                let id = p.add(Look::picture("eff03.akb"), 700, 0.0, 0.0);
+                let id = p.add_lit(Look::picture("eff03.akb"), 12, 0.0, 0.0);
+                p.shown(id);
                 let g = p.start(vec![(
                     id,
-                    vec![Key::new(8).wait(2).show(false).fade(0, 255).scaling(
+                    vec![Key::new(8).wait(2).show(false).fade(255, 0).scaling(
                         (1.0, 1.0),
                         (4.0, 4.0),
                         (640.0, 360.0),
@@ -688,25 +928,15 @@ pub fn flash(st: &mut Stage, sub: i32, arg: i32) {
                 p.wait(g);
                 p.steps.push(Step::Remove(vec![id]));
             }
-            _ => {
-                let id = p.add(Look::picture("eff05.akb"), 700, 0.0, 60.0);
-                let g = p.start(vec![(
-                    id,
-                    vec![
-                        Key::new(6).wiping(19, true),
-                        Key::new(24).wait(6).wiping(19, false),
-                    ],
-                )]);
-                p.wait(g);
-                p.steps.push(Step::Remove(vec![id]));
-            }
+            _ => band(&mut p),
         },
-        // The screen zooms back from a fifth too big.
+        // The screen zooms back from a fifth too big, fading away.
         3 => {
-            let id = p.add(Look::Screen, 700, 0.0, 0.0);
+            let id = p.add(Look::Screen, 7, 0.0, 0.0);
+            p.shown(id);
             let g = p.start(vec![(
                 id,
-                vec![Key::new(8).show(false).fade(0, 255).scaling(
+                vec![Key::new(8).show(false).fade(255, 0).scaling(
                     (1.2, 1.2),
                     (1.0, 1.0),
                     (640.0, 360.0),
@@ -715,44 +945,58 @@ pub fn flash(st: &mut Stage, sub: i32, arg: i32) {
             p.wait(g);
             p.steps.push(Step::Remove(vec![id]));
         }
-        // A flash, then a picture fades in and becomes the background.
-        4 => {
-            match arg {
-                0 => {
-                    flash_through(&mut p, "eff02.akb", 305, 35, (4, 6));
-                    fade_into_background(&mut p, "HG011100_02.akb", 64);
-                }
-                1 => {
-                    flash_through(&mut p, "eff08.akb", 311, 34, (4, 6));
-                    fade_into_background(&mut p, "HG011100_03.akb", 64);
-                }
-                _ => {
-                    flash_through(&mut p, "eff08.akb", 311, 34, (4, 6));
-                }
-            };
-        }
+        // Two pictures wipe in; arguments 0 and 1 then keep the second as
+        // the background.
+        4 => match arg {
+            0 => wipe_then_bake(&mut p, ("eff02.akb", 35), ("HG011100_02.akb", 305)),
+            1 => wipe_then_bake(&mut p, ("eff08.akb", 34), ("HG011100_03.akb", 311)),
+            _ => {
+                let id = p.add_lit(Look::picture("eff08.akb"), 0, 0.0, 0.0);
+                let g = p.start(vec![(
+                    id,
+                    vec![Key::new(4).wiping(311, true), Key::new(6).wiping(34, false)],
+                )]);
+                p.wait(g);
+                p.steps.push(Step::Remove(vec![id]));
+            }
+        },
         5 => {
-            flash_through(&mut p, "eff08.akb", 311, 34, (4, 6));
-            fade_into_background(&mut p, "eff09.akb", 64);
+            band(&mut p);
+            wipe_then_bake(&mut p, ("eff08.akb", 34), ("eff09.akb", 311));
         }
+        // Two pictures come in one after the other; then the screen as it
+        // was comes back over them, which takes them away.
         6 => {
-            let first = p.add(Look::picture("HG011400_01.akb"), 700, 0.0, 0.0);
-            let g = p.start(vec![(first, vec![Key::new(128).show(true).fade(0, 255)])]);
+            let first = p.add_lit(Look::picture("HG011400_01.akb"), 0, 0.0, 0.0);
+            let second = p.add_lit(Look::picture("HG011400_02.akb"), 1, 0.0, 0.0);
+            let g = p.start(vec![
+                (
+                    first,
+                    vec![
+                        Key::new(128).show(true).fade(0, 255),
+                        Key::new(1).wait(56),
+                        Key::new(128).show(false).fade(255, 0),
+                    ],
+                ),
+                (
+                    second,
+                    vec![
+                        Key::new(12).wait(160).wiping(45, true),
+                        Key::new(1).wait(12),
+                        Key::new(128).show(false).fade(255, 0),
+                    ],
+                ),
+            ]);
             p.wait(g);
-            let second = p.add(Look::picture("HG011400_02.akb"), 701, 0.0, 0.0);
-            let g = p.start(vec![(
-                second,
-                vec![Key::new(12).wait(160).wiping(45, true)],
-            )]);
-            p.wait(g);
-            p.steps.push(Step::Remove(vec![first]));
-            p.st.to_background
-                .push((second, Paint::Picture("HG011400_02.akb".to_string())));
+            p.steps.push(Step::Remove(vec![first, second]));
         }
         _ => {}
     }
     p.done();
 }
+
+/// Frames the text strip of sub 1 takes.
+pub const PIECE_FRAMES: i32 = 255;
 
 #[cfg(test)]
 mod tests {
@@ -786,12 +1030,12 @@ mod tests {
         let mut st = Stage::default();
         effect(&mut st, 0, 0);
         run(&mut st, 400);
-        let shown = st.sprites.iter().filter(|s| s.z == 600 && s.shown).count();
+        let shown = st.sprites.iter().filter(|s| s.z == 2 && s.shown).count();
         assert!(shown > 0, "no soot");
         assert!(st
             .sprites
             .iter()
-            .filter(|s| s.z == 600 && s.shown)
+            .filter(|s| s.z == 2 && s.shown)
             .all(|s| s.y < 720.0));
         effect(&mut st, 0, 1);
         assert!(st.sprites.is_empty());
@@ -805,7 +1049,7 @@ mod tests {
             run(&mut st, 300);
             st.sprites
                 .iter()
-                .filter(|s| s.z == 600 && s.shown)
+                .filter(|s| s.z == 2 && s.shown)
                 .map(|s| (s.x as i32, s.y as i32))
                 .collect::<Vec<_>>()
         };
@@ -817,12 +1061,19 @@ mod tests {
         let mut st = Stage::default();
         effect(&mut st, 2, 0);
         run(&mut st, 64);
-        let dark = st.sprites.iter().find(|s| s.z == 595).unwrap().alpha;
+        let dark = st.sprites.iter().find(|s| s.z == 8).unwrap().alpha;
         assert!(dark > 0);
-        assert!(st.sprites.iter().filter(|s| s.z == 596).all(|s| !s.shown));
+        let waves = |st: &Stage| {
+            st.sprites
+                .iter()
+                .filter(|s| matches!(s.look, Look::Raster { .. }))
+                .map(|s| (s.z, s.shown, s.add))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(waves(&st), [(1, false, false), (0, false, false)]);
         effect(&mut st, 3, 0);
         run(&mut st, 10);
-        assert!(st.sprites.iter().filter(|s| s.z == 596).all(|s| s.shown));
+        assert_eq!(waves(&st), [(1, true, false), (0, true, false)]);
     }
 
     #[test]
@@ -833,7 +1084,7 @@ mod tests {
         let l = st
             .sprites
             .iter()
-            .find(|s| s.z == 2 && (s.x - 512.0).abs() < 10.0)
+            .find(|s| s.add && (s.x - 512.0).abs() < 10.0)
             .unwrap();
         assert!((l.y - 366.0).abs() <= 6.0);
     }
@@ -843,5 +1094,123 @@ mod tests {
         let mut st = Stage::default();
         flash(&mut st, 2, 0);
         assert_eq!(st.blocking_ms(), Some(12 * 16));
+    }
+
+    #[test]
+    fn the_lights_add_and_the_room_lies_under_everything() {
+        let mut st = Stage::default();
+        effect(&mut st, 5, 0);
+        let bg = st.sprites.iter().find(|s| s.z == -1).unwrap();
+        assert!(!bg.add && is_low(bg));
+        assert_eq!(st.sprites.iter().filter(|s| s.add && s.z == 0).count(), 3);
+    }
+
+    #[test]
+    fn the_lights_swell_one_after_the_other_and_go() {
+        assert_eq!(
+            swell_keys(1, (10, 20)),
+            vec![Key::new(24)
+                .wait(12)
+                .show(false)
+                .moving((10, 20), (-690, -80))
+                .scaling((1.0, 1.0), (48.0, 48.0), (32.0, 32.0))]
+        );
+        assert_eq!(swell_keys(0, (0, 0))[0].to, (500, -100));
+        assert_eq!(swell_keys(2, (0, 0))[0].to, (0, -50));
+        let mut st = Stage::default();
+        effect(&mut st, 5, 0);
+        run(&mut st, 10);
+        effect(&mut st, 6, 0);
+        // The last light waits 24 frames, then swells for 24.
+        assert_eq!(st.blocking_ms(), Some(48 * 16));
+        run(&mut st, 60);
+        assert!(st.sprites.iter().filter(|s| s.add).all(|s| !s.shown));
+    }
+
+    #[test]
+    fn the_streaks_turn_every_ten_frames() {
+        let mut st = Stage::default();
+        effect(&mut st, 7, 0);
+        let streaks = st.sprites.iter().find(|s| s.z == 1).unwrap();
+        assert_eq!(streaks.scale, (2.0, 2.0));
+        assert_eq!(streaks.keys[0].frames, TURN_FRAMES);
+        assert_eq!(streaks.keys[0].turn, (0, 324));
+        let screen = st.sprites.iter().find(|s| s.z == 0 && s.shown).unwrap();
+        assert_eq!(screen.scale_at, (910.0, 218.0));
+        assert_eq!(screen.turn_at, (640.0, 360.0));
+    }
+
+    #[test]
+    fn the_film_is_added_and_runs_twelve_frames_a_picture() {
+        let mut st = Stage::default();
+        effect(&mut st, 8, 0);
+        let film = st.sprites.iter().find(|s| s.z == 2).unwrap();
+        assert!(film.add);
+    }
+
+    #[test]
+    fn a_pieces_fade_takes_32_over_its_number() {
+        let v: Vec<i32> = (0..17).map(piece_frames).collect();
+        assert_eq!(v, [32, 16, 10, 8, 6, 5, 4, 4, 3, 3, 2, 2, 2, 2, 2, 2, 1]);
+        assert_eq!(piece_frames(254), 1);
+    }
+
+    #[test]
+    fn the_strip_is_laid_piece_by_piece_for_255_frames() {
+        let mut st = Stage::default();
+        flash(&mut st, 1, 0);
+        assert_eq!(st.blocking_ms(), Some(256 * 16));
+        run(&mut st, 40);
+        let shown = |st: &Stage| st.sprites.iter().filter(|s| s.z == 10 && s.shown).count();
+        // The first piece takes 32 frames, the second 16 more.
+        assert_eq!(shown(&st), 2);
+        run(&mut st, 9);
+        assert_eq!(shown(&st), 3);
+        run(&mut st, 400);
+        assert!(st.sprites.is_empty());
+    }
+
+    #[test]
+    fn the_flashes_add_and_sub_6_lasts_312_frames() {
+        let mut st = Stage::default();
+        flash(&mut st, 6, 0);
+        assert!(st.sprites.iter().all(|s| s.add));
+        assert_eq!(st.blocking_ms(), Some(312 * 16));
+        let mut st = Stage::default();
+        flash(&mut st, 3, 0);
+        assert!(st.sprites.iter().all(|s| !s.add && s.z == 7));
+        assert_eq!(st.blocking_ms(), Some(9 * 16));
+        let mut st = Stage::default();
+        flash(&mut st, 2, 2);
+        assert_eq!(st.blocking_ms(), Some(10 * 16));
+    }
+
+    #[test]
+    fn sub_4_wipes_in_bakes_the_screen_and_fades_the_picture_out() {
+        let mut st = Stage::default();
+        flash(&mut st, 4, 0);
+        assert_eq!(st.blocking_ms(), Some(72 * 16));
+        run(&mut st, 8);
+        assert_eq!(
+            st.take_painted(),
+            [Paint::Picture("HG011100_02.akb".to_string())]
+        );
+        run(&mut st, 70);
+        assert!(st.sprites.is_empty());
+        // The last argument has no background copy.
+        flash(&mut st, 4, 2);
+        run(&mut st, 20);
+        assert!(st.take_painted().is_empty());
+    }
+
+    #[test]
+    fn action_2_finishes_the_lap_before_the_effects_go() {
+        let mut st = Stage::default();
+        effect(&mut st, 2, 0);
+        run(&mut st, 20);
+        effect(&mut st, 2, 2);
+        assert!(st.blocking_ms().is_some());
+        run(&mut st, 140);
+        assert!(st.sprites.is_empty());
     }
 }

@@ -492,9 +492,16 @@ impl Renderer {
     /// the visible ones, back to front, with the screen position of their
     /// top left corners.
     #[cfg(feature = "emote")]
-    fn draw_emotes(&mut self, canvas: &mut Canvas, scene: &Scene, assets: &Assets) {
+    fn draw_emotes(
+        &mut self,
+        canvas: &mut Canvas,
+        scene: &Scene,
+        assets: &mut Assets,
+        lo: &mut i32,
+    ) {
         if canvas.ops().is_none() {
             for (key, img, x, y) in self.emote_images(scene, assets) {
+                self.k1_low(canvas, scene, assets, lo, k1_depth(key));
                 let dx = emote_shift(scene, key) as f32;
                 draw_faded(canvas, &img, x + dx, y, emote_fx(scene, key));
             }
@@ -503,6 +510,10 @@ impl Renderer {
         // A compositor draws the models itself.
         self.open_emotes(scene, assets);
         for (key, emote) in emote_order(scene) {
+            if !self.emote.contains_key(&key) {
+                continue;
+            }
+            self.k1_low(canvas, scene, assets, lo, k1_depth(key));
             let Some(stage) = self.emote.get_mut(&key) else {
                 continue;
             };
@@ -521,6 +532,28 @@ impl Renderer {
                 }
             }
         }
+    }
+
+    /// きまぐれテンプテーション: draws the effect sprites that lie below
+    /// depth `hi` and not yet drawn (from `lo` up), so they come between
+    /// the models by depth.
+    fn k1_low(
+        &mut self,
+        canvas: &mut Canvas,
+        scene: &Scene,
+        assets: &mut Assets,
+        lo: &mut i32,
+        hi: i32,
+    ) {
+        if self.title != Title::Kimaten1 || hi <= *lo || scene.effects.sprites.is_empty() {
+            return;
+        }
+        let from = *lo;
+        self.effects
+            .draw_where(canvas, &scene.effects, assets, |s| {
+                kimaten1::fx::is_low(s) && s.z >= from && s.z < hi
+            });
+        *lo = hi;
     }
 
     /// Opens the E-mote pictures the scene shows and closes the others.
@@ -1423,8 +1456,10 @@ impl Renderer {
         window: bool,
         text: bool,
     ) -> Result<Canvas> {
+        let mut lo = i32::MIN;
         #[cfg(feature = "emote")]
-        self.draw_emotes(&mut canvas, scene, assets);
+        self.draw_emotes(&mut canvas, scene, assets, &mut lo);
+        self.k1_low(&mut canvas, scene, assets, &mut lo, kimaten1::fx::LOW + 1);
 
         for (id, name) in &scene.layers {
             if self.layer_under_characters(*id) {
@@ -1437,7 +1472,11 @@ impl Renderer {
             canvas.fill(0, 0, canvas.width, canvas.height, rgba);
         }
         if !scene.effects.sprites.is_empty() {
-            self.effects.draw(&mut canvas, &scene.effects, assets);
+            let k1 = self.title == Title::Kimaten1;
+            self.effects
+                .draw_where(&mut canvas, &scene.effects, assets, |s| {
+                    !(k1 && kimaten1::fx::is_low(s))
+                });
         }
         if scene.snow {
             self.snow
@@ -1661,6 +1700,17 @@ fn overlay_rgba(canvas: &mut Canvas, top: &Image) {
             d[k] = v as u8;
         }
         d[3] = out_a as u8;
+    }
+}
+
+/// Depth of the model under a key in きまぐれテンプテーション: slot 0 is at
+/// 3, the slots behind it lower, the companion above them.
+#[cfg(feature = "emote")]
+fn k1_depth(key: i32) -> i32 {
+    if key == COMPANION {
+        kimaten1::fx::LOW + 1
+    } else {
+        3 - key.clamp(0, 3)
     }
 }
 

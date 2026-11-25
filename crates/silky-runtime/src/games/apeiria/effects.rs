@@ -1928,9 +1928,25 @@ use std::sync::Arc;
 impl Drawn {
     /// Draws the effect sprites over `canvas`, lowest `z` first.
     pub fn draw(&mut self, canvas: &mut Canvas, stage: &Stage, assets: &mut Assets) {
+        self.draw_where(canvas, stage, assets, |_| true);
+    }
+
+    /// Draws only the sprites `pick` takes, lowest `z` first (a game that
+    /// puts effects between its characters draws them in several goes).
+    pub fn draw_where(
+        &mut self,
+        canvas: &mut Canvas,
+        stage: &Stage,
+        assets: &mut Assets,
+        pick: impl Fn(&Sprite) -> bool,
+    ) {
         self.made
             .retain(|id, _| stage.sprites.iter().any(|s| s.id == *id));
-        let mut order: Vec<&Sprite> = stage.sprites.iter().filter(|s| s.shown).collect();
+        let mut order: Vec<&Sprite> = stage
+            .sprites
+            .iter()
+            .filter(|s| s.shown && pick(s))
+            .collect();
         order.sort_by_key(|s| s.z);
         let mut screen: Option<Arc<Image>> = None;
         for s in order {
