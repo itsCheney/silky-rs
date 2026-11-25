@@ -328,15 +328,12 @@ fn fade_away(st: &mut Stage, owner: u32, z: i32, look: Look, frames: i32, factor
     fx.run();
 }
 
-/// `Game.1005.0`: the effect picture fades in over 64 frames; then it
-/// pulses slowly, one round of 24 frames held, then a fade out and a fade
-/// in of 96 and 80 frames, which the script waits for; the pulse goes on
-/// for ever.
+/// `Game.1005.0`: the effect picture fades in over 64 frames, which the
+/// script waits for, and then stays up; it is not a pulse.
 ///
-/// Approximate: the original crosses two layers, the picture going from
-/// full to clear over 96 frames while a second layer, whose picture is not
-/// read, comes up over 80; here one picture falls to half and returns, as
-/// a stand-in for that cross.
+/// Not drawn: the picture also scrolls up a pixel a frame for ever, and
+/// the new scene picture (layer 6) comes up over the old screen in the same
+/// 64 frames; here the picture changes when the script loads it.
 pub fn pulse_begin(st: &mut Stage, factor: f32) {
     clear(st, PULSE);
     let mut fx = Fx::new(st, PULSE);
@@ -348,18 +345,21 @@ pub fn pulse_begin(st: &mut Stage, factor: f32) {
         )],
         true,
     );
-    let round = |f: f32| {
-        vec![
-            Key::new(1).wait(scaled(24, f)),
-            Key::new(scaled(96, f)).fade(255, 128),
-            Key::new(scaled(80, f)).fade(128, 255),
-        ]
-    };
-    fx.play(vec![(id, round(factor))], true);
-    let mut forever = round(if factor > 0.0 { factor } else { 1.0 });
-    forever.push(Key::jump(0));
-    fx.play(vec![(id, forever)], false);
     fx.run();
+}
+
+/// `Game.1005.1`: the effect picture fades out over 96 frames, which the
+/// script waits for, and is taken away. (The new scene picture comes up
+/// over 80 of them; not drawn.)
+pub fn pulse_end(st: &mut Stage, factor: f32) {
+    fade_away(
+        st,
+        PULSE,
+        Z_EFFECT,
+        Look::picture(PULSE_PICTURE),
+        96,
+        factor,
+    );
 }
 
 impl Runtime {
@@ -441,6 +441,7 @@ impl Runtime {
             (1003, 0) => overlay_begin(st, &c.str(0)?, c.int(1), f),
             (1003, _) => overlay_end(st, c.int(0), f),
             (1005, 0) => pulse_begin(st, f),
+            (1005, 1) => pulse_end(st, f),
             (1005, _) => clear(st, PULSE),
             _ => return None,
         }
@@ -631,17 +632,21 @@ mod tests {
     }
 
     #[test]
-    fn the_pulse_waits_one_round() {
+    fn the_effect_picture_comes_up_and_goes_away() {
         let mut st = Stage::default();
         pulse_begin(&mut st, 1.0);
         let wait = st.blocking_ms().unwrap() / TICK_MS;
-        // 64 frames in, then 24 + 96 + 80.
-        assert!((264..=272).contains(&wait), "{wait}");
+        assert!((62..=68).contains(&wait), "{wait}");
         st.settle();
         assert_eq!(st.blocking_ms(), Some(0));
         play(&mut st, 1000);
         assert_eq!(st.sprites.len(), 1);
-        assert!(st.sprites[0].alpha >= 128);
+        assert_eq!(st.sprites[0].alpha, 255);
+        pulse_end(&mut st, 1.0);
+        let wait = st.blocking_ms().unwrap() / TICK_MS;
+        assert!((94..=100).contains(&wait), "{wait}");
+        st.settle();
+        assert!(st.sprites.is_empty());
     }
 
     #[test]

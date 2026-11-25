@@ -373,16 +373,17 @@ impl MusicMode {
             _ => Phase::at(look.ms, None, true),
         };
         let alpha = phase.page_alpha(look.ms);
-        Frame {
+        let frame = Frame {
             sheet: &sheet,
             mode: Mode::Music,
             open: [self.tab_open(0), true, self.tab_open(2)],
             hover: look.hover,
             pressed: look.pressed,
             phase,
-        }
-        .draw(canvas);
+        };
         self.draw_page(canvas, &sheet, look, alpha);
+        // The frame lies over the page.
+        frame.draw(canvas);
         Ok(())
     }
 

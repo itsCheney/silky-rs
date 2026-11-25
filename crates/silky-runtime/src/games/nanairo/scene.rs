@@ -309,18 +309,19 @@ impl SceneMode {
             _ => Phase::at(look.ms, None, true),
         };
         let alpha = phase.page_alpha(look.ms);
-        Frame {
+        let frame = Frame {
             sheet: &sheet,
             mode: Mode::Scene,
             open: [self.tab_open(0), self.tab_open(1), true],
             hover: look.hover,
             pressed: look.pressed,
             phase,
-        }
-        .draw(canvas);
+        };
         let titles = assets.image(TITLES)?;
         let thumbs = assets.image(THUMBS)?;
         self.draw_page(canvas, &sheet, &titles, &thumbs, look, alpha);
+        // The frame lies over the page.
+        frame.draw(canvas);
         self.draw_hover(canvas, assets, &sheet, &titles, look, alpha);
         Ok(())
     }

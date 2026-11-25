@@ -545,16 +545,17 @@ impl CgMode {
         let alpha = phase.page_alpha(look.ms);
         // While the picker is up nothing under it answers the pointer.
         let under = self.view.is_none();
-        Frame {
+        let frame = Frame {
             sheet: &sheet,
             mode: Mode::Cg,
             open: [true, self.tab_open(1), self.tab_open(2)],
             hover: look.hover.filter(|_| under),
             pressed: look.pressed.filter(|_| under),
             phase,
-        }
-        .draw(canvas);
+        };
         self.draw_page(canvas, assets, &sheet, look, alpha)?;
+        // The frame lies over the page.
+        frame.draw(canvas);
         if let Some(v) = &self.view {
             self.draw_view(canvas, assets, &sheet, v, look, alpha)?;
         }
