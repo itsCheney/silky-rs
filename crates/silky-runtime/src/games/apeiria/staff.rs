@@ -17,20 +17,28 @@ const CAN_SKIP: i32 = 0x800;
 const STRIP_HEIGHT: i32 = 2640;
 const SCREEN_HEIGHT: i32 = 720;
 
-fn frames(ms: u64) -> i32 {
-    (ms / TICK_MS).max(1) as i32
+/// The frame a time falls on. The original steps by the clock, not by
+/// frames, so every boundary is rounded on its own and the lengths are the
+/// differences: no drift builds up over the 105 seconds.
+fn at(ms: u64) -> i32 {
+    ((ms + TICK_MS / 2) / TICK_MS) as i32
+}
+
+/// Frames between two times (at least 1).
+fn span(from: u64, to: u64) -> i32 {
+    (at(to) - at(from)).max(1)
 }
 
 /// A picture that comes in over `[from, to]`, stays until `out_from` and
 /// goes out by `out_to` (all in milliseconds from the start).
 fn overlay(from: u64, to: u64, out: Option<(u64, u64)>) -> Vec<Key> {
     let mut keys = vec![
-        Key::new(1).wait(frames(from)).show(true).fade(0, 0),
-        Key::new(frames(to - from)).fade(0, 255),
+        Key::new(1).wait(at(from)).show(true).fade(0, 0),
+        Key::new(span(from, to)).fade(0, 255),
     ];
     if let Some((a, b)) = out {
-        keys.push(Key::new(1).wait(frames(a - to)));
-        keys.push(Key::new(frames(b - a)).show(false).fade(255, 0));
+        keys.push(Key::new(1).wait(span(to, a)));
+        keys.push(Key::new(span(a, b)).show(false).fade(255, 0));
     }
     keys
 }
@@ -41,7 +49,9 @@ fn overlay(from: u64, to: u64, out: Option<(u64, u64)>) -> Vec<Key> {
 /// page fades in (97.7 to 99.7 s) and out (102.7 to 105.0 s) while the
 /// closing picture comes in under it. Everything is taken off at 105 s.
 ///
-/// Approximate: the times are the executable's; the fades are even ramps.
+/// The executable steps the fades and the strip by the clock, in even
+/// ramps (0x481190, 0x4812f0, 0x4810f0); here they are those ramps in
+/// 16 ms frames, each boundary rounded on its own.
 pub fn roll(st: &mut Stage, picture: &str) {
     st.clear(OWNER);
     let mut steps = Vec::new();
@@ -74,8 +84,8 @@ pub fn roll(st: &mut Stage, picture: &str) {
         22,
         SCREEN_HEIGHT,
         vec![
-            Key::new(1).wait(frames(16_033)).show(true),
-            Key::new(frames(97_866 - 16_033)).moving((0, SCREEN_HEIGHT), (0, -STRIP_HEIGHT)),
+            Key::new(1).wait(at(16_033)).show(true),
+            Key::new(span(16_033, 97_866)).moving((0, SCREEN_HEIGHT), (0, -STRIP_HEIGHT)),
             Key::new(1).show(false),
         ],
     );
@@ -101,9 +111,11 @@ pub fn roll(st: &mut Stage, picture: &str) {
 impl Runtime {
     /// `Game.990`: the staff roll. The answer comes after the wait: 0 when
     /// the roll ran to its end (as the original does on a first
-    /// playthrough, traced), 1 when a click or the skip mode cut it short
-    /// (inferred: the script then redraws the roll's last screen itself).
-    /// Those can end it early only while bit 11 of global 55 is set.
+    /// playthrough, traced), 1 when Escape, Delete, keypad 0 or the secondary
+    /// click cut it short (0x480ff0 sets the result to 1; that the script
+    /// then redraws the roll's last screen itself is inferred). Those can
+    /// end it early only while bit 11 of global 55 is set; a primary click
+    /// and the skip mode do nothing.
     pub(crate) fn casablanca_staff(
         &mut self,
         vm: &mut Vm,
@@ -167,6 +179,45 @@ mod tests {
         assert!(shown(&st, "bcg99.akb"));
         st.settle();
         assert!(st.sprites.is_empty());
+    }
+
+    /// The executable's values at a time (0x4812f0, 0x481190, 0x4810f0).
+    #[test]
+    fn the_ramps_follow_the_clock() {
+        let sprite = |st: &Stage, name: &str| {
+            st.sprites
+                .iter()
+                .find(|s| matches!(&s.look, Look::Picture { name: n, .. } if n == name))
+                .map(|s| (s.shown, s.alpha as i32, s.y))
+        };
+        let mut st = Stage::default();
+        roll(&mut st, "ending.akb");
+        let mut t = 0u64;
+        for target in [3_000u64, 5_500, 6_020, 8_500, 9_100, 12_000, 40_000, 80_000] {
+            while t + TICK_MS <= target {
+                st.advance(TICK_MS);
+                t += TICK_MS;
+            }
+            let ramp = |a: u64, b: u64| ((t - a) * 255 / (b - a)) as i32;
+            if t < 5_033 {
+                let (_, a, _) = sprite(&st, "ending.akb").unwrap();
+                assert!((a - ramp(700, 5_033)).abs() <= 6, "ending {t} {a}");
+            }
+            if (5_033..6_033).contains(&t) {
+                let (_, a, _) = sprite(&st, "staff00.akb").unwrap();
+                assert!((a - ramp(5_033, 6_033)).abs() <= 8, "staff00 {t} {a}");
+            }
+            if (8_033..9_000).contains(&t) {
+                let (_, a, _) = sprite(&st, "staff00.akb").unwrap();
+                let want = 255 - ramp(8_033, 9_000);
+                assert!((a - want).abs() <= 8, "staff00 out {t} {a}");
+            }
+            if (16_033..97_866).contains(&t) {
+                let (_, _, y) = sprite(&st, "staff.akb").unwrap();
+                let want = 720.0 - (t - 16_033) as f32 * 3_360.0 / 81_833.0;
+                assert!((y - want).abs() < 3.0, "strip {t} {y} {want}");
+            }
+        }
     }
 
     #[test]

@@ -1736,9 +1736,14 @@ impl Session {
             self.rt.clicked = true;
             // The intro of 同級生 Remake takes no click.
             if let Some(b) = &mut self.busy {
-                if !b.frame && self.rt.scene.intro.is_none() && !self.rt.roll_locked {
+                // The staff roll takes no primary click (only a secondary
+                // click, Escape, Delete or keypad 0; see `roll_cancel`).
+                if !b.frame
+                    && self.rt.scene.intro.is_none()
+                    && !self.rt.roll_locked
+                    && !self.rt.rolling()
+                {
                     b.elapsed = b.ms;
-                    self.rt.cut_roll();
                 }
             }
             return Ok(());
@@ -1777,9 +1782,29 @@ impl Session {
         }
     }
 
+    /// The staff roll's cancel (0x4a8780 sends ids 1, 0x52, 0xd3 and the
+    /// secondary button to 0x480ff0): Escape, keypad 0, Delete or the
+    /// secondary click end it, and the call answers 1. Only while bit 11
+    /// of global 55 is set. Returns whether a roll was running.
+    fn roll_cancel(&mut self) -> bool {
+        if self.state != State::Busy || !self.rt.rolling() {
+            return false;
+        }
+        if !self.rt.roll_locked {
+            if let Some(b) = &mut self.busy {
+                b.elapsed = b.ms;
+                self.rt.cut_roll();
+            }
+        }
+        true
+    }
+
     /// Secondary click: closes a dialog or screen, else does what the
     /// settings say (hide the message window by default).
     pub fn secondary_click(&mut self) -> Result<()> {
+        if self.roll_cancel() {
+            return Ok(());
+        }
         if self.back()? {
             return Ok(());
         }
@@ -1820,6 +1845,9 @@ impl Session {
     /// Escape: ends the walk on the map, closes what is up, or on the
     /// mail forward screen does what a secondary click does.
     pub fn escape(&mut self) -> Result<()> {
+        if self.roll_cancel() {
+            return Ok(());
+        }
         if self.douk_cancel_key()? {
             return Ok(());
         }
@@ -1904,6 +1932,9 @@ impl Session {
     /// Keypad 0: a cancel on a dialog or notice of 同級生 Remake, as
     /// Escape and Delete are; nothing else.
     pub fn numpad0(&mut self) -> Result<()> {
+        if self.roll_cancel() {
+            return Ok(());
+        }
         self.douk_cancel_key().map(|_| ())
     }
 
@@ -2062,6 +2093,9 @@ impl Session {
     /// Delete: ends the walk on the map, or on the mail forward screen
     /// does what a secondary click does.
     pub fn delete_key(&mut self) -> Result<()> {
+        if self.roll_cancel() {
+            return Ok(());
+        }
         if self.douk_cancel_key()? || self.cancel_walk() {
             return Ok(());
         }
@@ -5375,9 +5409,13 @@ impl Session {
             let mut steps = 0;
             while self.state == State::Busy && steps < 64 {
                 let Some(b) = &mut self.busy else { break };
-                if self.ui.skip && self.rt.scene.intro.is_none() && !self.rt.roll_locked {
+                // The roll does not look at the skip mode either.
+                if self.ui.skip
+                    && self.rt.scene.intro.is_none()
+                    && !self.rt.roll_locked
+                    && !self.rt.rolling()
+                {
                     b.elapsed = b.ms;
-                    self.rt.cut_roll();
                 }
                 let step = left.min(b.ms - b.elapsed.min(b.ms));
                 b.elapsed += step;

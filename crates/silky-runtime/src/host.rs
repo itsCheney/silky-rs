@@ -516,7 +516,12 @@ impl Runtime {
         self.xml.get(path).copied().unwrap_or(default)
     }
 
-    /// Notes that a click or the skip mode cut the staff roll short.
+    /// Whether the staff roll is running.
+    pub(crate) fn rolling(&self) -> bool {
+        matches!(self.then, Some(FollowUp::EndRoll))
+    }
+
+    /// Notes that a cancel key or the secondary click cut the staff roll short.
     pub(crate) fn cut_roll(&mut self) {
         if matches!(self.then, Some(FollowUp::EndRoll)) {
             self.roll_cut = true;
