@@ -63,13 +63,17 @@ The effects are sprites of the shared effect stage: keyframes of fades, zooms an
 - `Game.50` is the message overlay of the end card. `50.0` prepares, `50.2` takes it away (and is also called alone as a clean up). `50.1(rule, frames, h, w, y, x)` wipes in the rectangle (x, y, w, h) of `moji.akb` (the handwriting) in its own place through the rule picture `NNN.BIN`, over `frames` frames, and the script waits; the piece stays until `50.2`. The rule picture lies on the piece's top left corner, as the pictures `150.BIN` to `153.BIN` are made for. The four calls write the line piece by piece, and the signature last. With `/Config/SceneSkip` at 1 nothing is done.
 - `Game.34(staff picture, strip)` is the staff roll. The music `31.WAV` starts (the scripts do not start it) and the script waits 130.33 s, the length of the music. The ending's `staffNN.akb` fades in and out over 5 s, `staff_p2.akb` follows from 5 s to 10 s, `staff_p3.akb` from 10.33 s to 13.33 s, then the credit strip (`staff_p4.akb` to `staff_p7.akb`, 575 x 3214) scrolls up from below the screen for 106.7 s. At 120 s the logo (`staff_p8.akb`) comes up on black and from 128 s turns into the closing page `staff_p1.akb`. A click, or skip mode, ends the roll at once; the music stops with it. The call leaves 0 on the stack, as the scripts ignore the value. It is not cut short by `/Config/SceneSkip`. The message window is taken away for the roll.
 
+### Calendar
+
+- `Game.39(days)` is the calendar of a date change. `days` is how many days the date column scrolls (word variable 100 holds the new day's row in the 31-row date table, August 18 to September 26). White curtains open over the new background, which drifts in behind a fine white veil (`InterludeBG.akb`); the month name (`Interlude.akb`) fades in, the column of dates fades in, a grey bar slides in, the disc lands (12 frames, 1.2 to 1.0 size), and the column scrolls down `days` cells in 32 frames so that the new day ends under the disc. The part of the column inside the disc's window is drawn in yellow while it scrolls. After a hold the curtains leave and everything fades out, about 280 frames in all (16 ms each, scaled by the effect speed). The script waits; a click ends it at once. With `/Config/SceneSkip` at 1 nothing is done. The white fade-out the script puts before it is lifted when the calendar starts, so the new background is up when it ends. Moves and fades are taken to be even and the layers that come in later start hidden; not compared with the original yet.
+
 ### Other commands carried out
 
 `Game.19` fills byte flags, `Game.26` ends the message window before the next script, `Game.27` and `Game.10` start up, `Game.22.0` registers the picture shown. See [game-commands.md](../game-commands.md#なないろリンカネーション).
 
 ## What does not work yet
 
-- Calendar screen (`Game.39`, shown at date changes): the script goes on at once.
+- Calendar (`Game.39`): not yet compared with the original; the disc's scale centre (62, 62), even moves and fades, and the one frame between its states are assumed.
 - Scene movies are not decoded (`Game.1002`): a still stands in or nothing is drawn. The movie laid over the picture by `Game.1001.0` is left out.
 - Not read far enough to guess the numbers: the fade in of `1001.0` (24 frames used), its zoom centre (the screen's middle used), the low point of the `1005` pulse (half used) and which way `Game.23.0` moves (from the first value to the second). In the animator: whether the 0.25 size of subs 0 and 10 is a quarter size on screen (it is drawn so, on A), which sides the pans of 1 and 11 move (100 pixels sideways and 5 down are used), what sub 30 does beside leaving A and B, whether the beam's wipe repeats (once), the pivot of the lines of 3 and 13 (the one point of their growth) and the units of the 128 frame fade of 20. In the staff roll the curves inside the stages are not known (pages fade in and out, the strip moves evenly, the logo fades into the closing page), nor the strip's real pace, and the sequence of the last pages is the plainest reading. The wipe of `Game.50.1` uses an even ramp. Effects in progress are not saved.
 - `Game.1004` and `1007` to `1009` are accepted and draw nothing.
@@ -137,5 +141,7 @@ Addresses in `nanairo.exe` as linked (image base 0x400000). The code itself does
 | Balloon (nine-slice) | 0x454050 |
 | `Game.34` staff roll: handler; set up; worker thread | 0x46fbc0; 0x46a4a0; 0x46a960 |
 | Calendar (`Game.39`): handler; constructor; init; screen loop; clean up | 0x4729e0; 0x4398b0; 0x439c20; 0x486d40; 0x439a50 |
+| Calendar: cut-out of the date cells; key builder; start; stop for skip; per-frame state function (jump table 0x43b36c) | 0x43a1d0; 0x43a620; 0x43ace0; 0x43ac30; 0x43ae10 |
+| Calendar: date table (12-byte rows: month, day, weekday); picture name `InterludeBG.akb` | 0x52db40; 0x503148 |
 | Ending overlay (`Game.50`) | 0x4731d0 |
 | `Game.1001` to `1006` handlers (the last is a thin wrapper that calls the animator's dispatcher) | 0x46fd50, 0x470750, 0x471370, 0x471b20, 0x471e80, 0x472570 |

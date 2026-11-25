@@ -150,6 +150,14 @@ pub enum Look {
     Fill { color: [u8; 4], w: u32, h: u32 },
     /// The screen as drawn under the effects.
     Screen,
+    /// A transparent picture of `w` by `h` with parts of the picture
+    /// `name` copied into it: (part left, top, width, height) to (x, y).
+    Pieces {
+        name: String,
+        w: u32,
+        h: u32,
+        pieces: Vec<((u32, u32, u32, u32), (i32, i32))>,
+    },
     /// `source` with its rows moved sideways along a sine wave: row `y`
     /// (from 0) moves right by `sin((phase + step * (y + 1))°) * amp`
     /// pixels, whole pixels towards zero.
@@ -225,6 +233,9 @@ pub struct Sprite {
     pub turn_at: (f32, f32),
     pub scale: (f32, f32),
     pub scale_at: (f32, f32),
+    /// Only this screen rectangle (left, top, width, height) of the
+    /// sprite is drawn; for sprites that are neither scaled nor turned.
+    pub clip: Option<(i32, i32, i32, i32)>,
     /// Colour the picture is multiplied by (RGB).
     pub tint: [u8; 3],
     /// Wiping in or out: rule picture, progress (0 to 1) and whether it is

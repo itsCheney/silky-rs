@@ -146,7 +146,15 @@ pub fn clear(st: &mut Stage, owner: u32) {
 /// Takes every effect of this game off the stage.
 pub fn clear_all(st: &mut Stage) {
     for owner in [
-        KIRARA, EVENT, MOVIE, OVERLAY, PULSE, ANIMATOR, ENDING, STAFF,
+        KIRARA,
+        EVENT,
+        MOVIE,
+        OVERLAY,
+        PULSE,
+        ANIMATOR,
+        ENDING,
+        STAFF,
+        super::calendar::CALENDAR,
     ] {
         clear(st, owner);
     }

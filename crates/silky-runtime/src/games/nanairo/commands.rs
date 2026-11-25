@@ -81,9 +81,8 @@ impl Runtime {
             // The ending's message overlay and the staff roll.
             50 => self.nanairo_ending(c),
             34 => self.nanairo_staff(vm, c),
-            // The calendar screen of a date change is not drawn here;
-            // the script goes on at once.
-            39 => self.done(),
+            // The calendar of a date change.
+            39 => self.nanairo_calendar(vm, c),
             1007..=1009 => self.done(),
             _ => None,
         }

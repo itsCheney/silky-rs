@@ -1976,7 +1976,25 @@ impl Drawn {
                 color[k] = ((color[k] as u32 * s.tint[k] as u32 + 127) / 255) as u8;
             }
             color[3] = ((color[3] as u32 * alpha as u32 + 127) / 255) as u8;
-            let corners = corners(s, part.2 as f32, part.3 as f32);
+            let mut part = part;
+            let mut corners = corners(s, part.2 as f32, part.3 as f32);
+            if let Some((cx, cy, cw, ch)) = s.clip {
+                let (sx, sy) = (s.x as i32, s.y as i32);
+                let (x0, y0) = (sx.max(cx), sy.max(cy));
+                let x1 = (sx + part.2 as i32).min(cx + cw);
+                let y1 = (sy + part.3 as i32).min(cy + ch);
+                if x1 <= x0 || y1 <= y0 {
+                    continue;
+                }
+                part = (
+                    part.0 + (x0 - sx) as u32,
+                    part.1 + (y0 - sy) as u32,
+                    (x1 - x0) as u32,
+                    (y1 - y0) as u32,
+                );
+                let (fx, fy, fw, fh) = (x0 as f32, y0 as f32, (x1 - x0) as f32, (y1 - y0) as f32);
+                corners = [[fx, fy], [fx + fw, fy], [fx, fy + fh]];
+            }
             match s.wipe {
                 Some((rule, t, shown)) => {
                     let from = canvas.clone();
@@ -2045,6 +2063,32 @@ fn picture(
                 Some(p) => crate::games::apeiria::holo::cut(&img, *p, 255)
                     .as_ref()
                     .clone(),
+            }
+        }
+        Look::Pieces { name, w, h, pieces } => {
+            let src = assets.image(name).ok()?;
+            let mut rgba = vec![0u8; (*w * *h) as usize * 4];
+            for &((pl, pt, pw, ph), (dx, dy)) in pieces {
+                for row in 0..ph as i32 {
+                    let (sy, ty) = (pt as i32 + row, dy + row);
+                    if sy >= src.height as i32 || ty < 0 || ty >= *h as i32 {
+                        continue;
+                    }
+                    for col in 0..pw as i32 {
+                        let (sx, tx) = (pl as i32 + col, dx + col);
+                        if sx >= src.width as i32 || tx < 0 || tx >= *w as i32 {
+                            continue;
+                        }
+                        let from = (sy as usize * src.width as usize + sx as usize) * 4;
+                        let to = (ty as usize * *w as usize + tx as usize) * 4;
+                        rgba[to..to + 4].copy_from_slice(&src.rgba[from..from + 4]);
+                    }
+                }
+            }
+            Image {
+                width: *w,
+                height: *h,
+                rgba,
             }
         }
         Look::Screen => {
