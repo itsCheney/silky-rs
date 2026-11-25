@@ -866,6 +866,14 @@ impl Runtime {
                 return Some(Flow::Continue);
             }
             (11, 1) => return Some(Flow::Continue),
+            // 先輩が私の妄想にドージンする: (source, y, x, target, height,
+            // width, target y, target x) lays the help picture over the
+            // copy of the screen that the following crossfade fades away,
+            // so the picture shows at once.
+            (5, 8) if self.assets.game().title == Title::Doujin => {
+                self.scene.cut_next_fade = true;
+                return Some(Flow::Continue);
+            }
             // Copy between sprites, at every picture change: the new
             // picture is drawn over sprite 6, which ends a dimming.
             (3, 9) => {

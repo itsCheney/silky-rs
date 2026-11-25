@@ -192,6 +192,13 @@ impl Runtime {
                 self.handled += 1;
                 Some(Ok(self.transition(c.int(0), Some(c.int(1).max(0) as u32))))
             }
+            // The crossfade to a picture change: cut when the help picture
+            // went into the screen copy first (Sprite.5).
+            (12, 3) if std::mem::take(&mut self.scene.cut_next_fade) => {
+                self.register_cg(vm);
+                self.handled += 1;
+                Some(Ok(Flow::Continue))
+            }
             // The auto save point.
             (AUTO_SAVE, -1) => {
                 self.auto_save = true;
@@ -224,8 +231,5 @@ pub(crate) fn nothing_to_do(class: i32, sub: i32) -> bool {
         (2, 1) | (10, 0 | 1) | (24, 0 | 2) | (26, 2..=4) | (1, 0)
             // Its own backlog: size, clear, commit of the entry.
             | (22, 0..=2)
-            // Sprite.5 once, after the help picture is loaded: a rectangle
-            // copy between layers, the picture is shown whole anyway.
-            | (19, 5)
     )
 }

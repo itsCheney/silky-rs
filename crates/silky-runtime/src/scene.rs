@@ -240,6 +240,10 @@ pub struct Scene {
     /// sub 10), shown while no background picture is loaded.
     #[serde(default)]
     pub town: Option<crate::games::doukyuusei::town::View>,
+    /// 先輩が私の妄想にドージンする: the help picture is already in the copy
+    /// of the screen, so the next picture change shows it at once.
+    #[serde(skip)]
+    pub cut_next_fade: bool,
     /// 先輩が私の妄想にドージンする: the doujinshi screen (`Game.40`).
     #[serde(skip)]
     pub comic: Option<crate::games::doujin::comic::Comic>,

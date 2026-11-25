@@ -2043,11 +2043,13 @@ impl Session {
         Ok(())
     }
 
-    /// 景の海のアペイリア: a scene of the scene list is being replayed
+    /// 景の海のアペイリア and 先輩が私の妄想にドージンする: a scene of the
+    /// scene list is being replayed
     /// (variable H 69, set by the scene list) and its text waits, so a
     /// secondary click, Escape or Delete asks about going back to the list.
     fn replaying(&self) -> bool {
-        self.rt.assets.game().title.is_apeiria()
+        let title = self.rt.assets.game().title;
+        (title.is_apeiria() || title == silky_format::game::Title::Doujin)
             && self.state == State::Text
             && self.dialog.is_none()
             && self.screen.is_none()
