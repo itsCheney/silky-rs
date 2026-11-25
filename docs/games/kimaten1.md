@@ -47,7 +47,7 @@ The skip button shows the tutorial the first time (byte 0xbc0), then asks to con
 
 `Game.45` turns the options the script registered into a list of bars, four to a page with up and down bars to turn pages, for the talk and look menus. A press answers the number the script gave the option, plus one; the back button and right click answer 100. The labels are the strings the option bodies leave; a conditional option list comes as several runs before the selection and keeps the script's numbers.
 
-Option n is on while byte 7500 + n is 1. Any other value draws it in grey text (128, 128, 128) with no hover, no sound and no result. A pressed bar shows the same text colour and baseline (28) as at rest, as in the exe.
+Option n is on while byte 7500 + n of the raw area is 1; the script's option wrapper sets bytes 7500 to 7563 to 1 (with st.r8) before it opens the list, and options that are not available clear theirs. Any other value draws it in grey text (128, 128, 128) with no hover, no sound and no result. A pressed bar shows the same text colour and baseline (28) as at rest, as in the exe.
 
 ### Map
 
@@ -164,6 +164,7 @@ Addresses in `kimaten.exe` of the build above. The code itself does not name the
 | Option list: `Game.45`, vtable, create, init, run | 0x49c4f0, 0x53a474, 0x4618f0, 0x461ae0, 0x461f10 |
 | Option list: open (`areaselect.area`), hover, click, cancel | 0x462430, 0x462630, 0x4626f0, 0x462970 |
 | Option list: draw by id, sprite layout, page layout | 0x462df0, 0x462ff0, 0x463190 |
+| Option list: option cell draw by id (tests the on flag), flag base set in init (this+0x130) | 0x462df0, 0x462430 |
 | Option list: bar state (id 5 grey by byte 899), help line, cell draw, up and down arrows | 0x463ff0, 0x464240, 0x463960, 0x463a30, 0x463b00 |
 | Option list: up and down strings, back help string | 0x53a454, 0x53a458, 0x5380d8 |
 | Help lines: investigation (「ここを調べる」), action menu strings, evidence strings | 0x5380c8, 0x53793c..0x537988, 0x53a77c..0x53a7c4 |
