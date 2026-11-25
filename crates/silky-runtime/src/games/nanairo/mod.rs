@@ -14,6 +14,7 @@ mod ending;
 pub(crate) mod figures;
 pub mod mode;
 pub mod music;
+pub mod scene;
 pub(crate) mod stage;
 pub(crate) mod window;
 

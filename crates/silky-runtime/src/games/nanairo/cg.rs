@@ -29,6 +29,9 @@ pub struct Combo {
     /// What the last composition put on the screen, in drawing order.
     #[serde(default)]
     on_screen: Vec<String>,
+    /// A scene picked in the scene mode is running: nothing is registered.
+    #[serde(default)]
+    replay: bool,
 }
 
 /// Places of the two picture tables.
@@ -48,6 +51,11 @@ impl Combo {
         } else {
             String::new()
         };
+    }
+
+    /// Whether a replayed scene is running (the registry is then off).
+    pub fn set_replay(&mut self, on: bool) {
+        self.replay = on;
     }
 
     /// Layer named for `slot`. It goes to the first free place up to that
@@ -125,7 +133,7 @@ impl Combo {
     /// Registers the combination: any picture with a name opens the CG
     /// tab, and a row of the table also sets its flag.
     pub fn register(&self, vm: &mut Vm) {
-        if self.base.is_empty() {
+        if self.base.is_empty() || self.replay {
             return;
         }
         vm.set_var_b(CG_TAB_FLAG, 1);
@@ -221,5 +229,17 @@ mod tests {
         // A longer combination than the row is not the row.
         let c = combo("HG080001_h01.akb", &[(0, "HG080001_h02.akb"), (1, "x")]);
         assert_eq!(c.entry(), None);
+    }
+
+    #[test]
+    fn a_replay_registers_nothing() {
+        let mut vm = Vm::new(silky_format::mes::Profile::default());
+        let mut c = combo("HG080001_h01.akb", &[(0, "HG080001_h02.akb")]);
+        c.set_replay(true);
+        c.register(&mut vm);
+        assert_eq!((vm.var_b(CG_TAB_FLAG), vm.var_b(SEEN_FLAG)), (0, 0));
+        c.set_replay(false);
+        c.register(&mut vm);
+        assert_eq!((vm.var_b(CG_TAB_FLAG), vm.var_b(SEEN_FLAG)), (1, 1));
     }
 }

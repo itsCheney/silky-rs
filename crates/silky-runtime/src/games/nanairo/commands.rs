@@ -4,7 +4,7 @@ use silky_vm::{Flow, Vm};
 
 use super::cg::ROWS;
 use super::cgmode::CgMode;
-use super::mode::Mode;
+use super::mode::{self, Mode};
 use super::music::{self, MusicMode};
 use super::{figures, stage};
 use crate::audio::Bus;
@@ -40,8 +40,27 @@ const INIT: i32 = 27;
 const TRIAL: i32 = 40;
 /// The CG mode.
 const CG_MODE: i32 = 30;
+/// The scene mode.
+const SCENE_MODE: i32 = 31;
 /// The music mode.
 const MUSIC_MODE: i32 = 32;
+
+/// The script variables the modes share (G bank): the CG screen's flag, the
+/// page or variant, the result of the screen and the screen's number
+/// (0 CG, 1 scene, 2 music).
+const SCRIPT_CG: usize = 16;
+const SCRIPT_PAGE: usize = 17;
+const SCRIPT_RESULT: usize = 18;
+const SCRIPT_SCREEN: usize = 19;
+
+/// The script's number of a screen.
+fn script_screen(mode: Mode) -> i32 {
+    match mode {
+        Mode::Cg => 0,
+        Mode::Scene => 1,
+        Mode::Music => 2,
+    }
+}
 
 impl Runtime {
     /// Opens one of the game's own mode screens (`Game.30` and `Game.32`,
@@ -50,6 +69,8 @@ impl Runtime {
     pub(crate) fn nanairo_open_mode(&mut self, vm: &mut Vm, mode: Mode) {
         // Whether each tab is open, in the order of the strip.
         let tabs = [Mode::Cg, Mode::Music, Mode::Scene].map(|m| vm.var_b(m.tab_byte()));
+        // Opening a mode ends a replay.
+        self.scene.cg.set_replay(false);
         let screen = match mode {
             Mode::Cg => {
                 self.cancelled = false;
@@ -63,7 +84,18 @@ impl Runtime {
                 }
                 Screen::NanairoCg(Box::new(CgMode::open(&flags, tabs, first)))
             }
-            _ => {
+            Mode::Scene => {
+                use super::scene::{SceneMode, FLAG_FIRST, SCENES};
+                let mut flags = [0u8; SCENES];
+                for (i, f) in flags.iter_mut().enumerate() {
+                    *f = vm.var_b(FLAG_FIRST + i);
+                }
+                // The page of the scene picked last is kept in a script
+                // variable.
+                let page = vm.var_g(SCRIPT_PAGE).int().max(0) as usize;
+                Screen::NanairoScene(Box::new(SceneMode::open(flags, tabs, page)))
+            }
+            Mode::Music => {
                 let mut tracks = [0u8; music::ROWS];
                 for (t, (flag, _)) in tracks.iter_mut().zip(music::TRACKS) {
                     *t = vm.var_b(flag);
@@ -85,6 +117,34 @@ impl Runtime {
         self.k1 = Some(screen);
     }
 
+    /// What the scene mode leaves in the script's variables when the mode
+    /// loop acts on its answer: a tab press clears the screens' variables
+    /// and the script's screen number follows the screen; a scene picked
+    /// is replayed by the script, which opens the screen again on the same
+    /// page, and the CG registry stays out of the replay.
+    pub(crate) fn nanairo_mode_left(
+        &mut self,
+        vm: &mut Vm,
+        from: Mode,
+        page: usize,
+        next: mode::Next,
+    ) {
+        match next {
+            mode::Next::Go(to) => {
+                for g in [SCRIPT_CG, SCRIPT_PAGE, SCRIPT_RESULT] {
+                    vm.set_g(g, 0);
+                }
+                vm.set_g(SCRIPT_SCREEN, script_screen(to));
+            }
+            mode::Next::Leave(v) if from == Mode::Scene && v >= 0 => {
+                vm.set_g(SCRIPT_SCREEN, script_screen(from));
+                vm.set_g(SCRIPT_PAGE, page as i32);
+                self.scene.cg.set_replay(true);
+            }
+            mode::Next::Leave(_) => {}
+        }
+    }
+
     /// This game's own commands. `None` for the others.
     pub(crate) fn nanairo_game(&mut self, vm: &mut Vm, c: &Call) -> Option<silky_vm::Result<Flow>> {
         // Event pictures, effect pictures and scene movies.
@@ -95,6 +155,7 @@ impl Runtime {
         }
         match c.command {
             TITLE => {
+                self.scene.cg.set_replay(false);
                 crate::games::nanairo::effects::clear_all(&mut self.scene.effects);
                 self.wait_for(Pause::Title)
             }
@@ -150,6 +211,10 @@ impl Runtime {
             }
             CG_MODE => {
                 self.nanairo_open_mode(vm, Mode::Cg);
+                self.wait_for(Pause::Kimaten1)
+            }
+            SCENE_MODE => {
+                self.nanairo_open_mode(vm, Mode::Scene);
                 self.wait_for(Pause::Kimaten1)
             }
             MUSIC_MODE => {

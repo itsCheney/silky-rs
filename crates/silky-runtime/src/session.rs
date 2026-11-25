@@ -2311,19 +2311,22 @@ impl Session {
                 let from = match &self.ui.k1 {
                     Some(K::NanairoMusic(_)) => Some(Mode::Music),
                     Some(K::NanairoCg(_)) => Some(Mode::Cg),
+                    Some(K::NanairoScene(_)) => Some(Mode::Scene),
                     _ => None,
                 };
+                let page = match &self.ui.k1 {
+                    Some(K::NanairoScene(s)) => s.page(),
+                    _ => 0,
+                };
                 let next = from.map(|m| mode::next(m, r));
+                if let (Some(m), Some(n)) = (from, next) {
+                    self.rt.nanairo_mode_left(&mut self.vm, m, page, n);
+                }
                 self.ui.k1 = None;
                 self.ui.hover = None;
                 self.base = None;
                 let mut r = r;
                 match next {
-                    // The scene screen is not done yet: the shared one.
-                    Some(Next::Go(Mode::Scene)) => {
-                        self.open_extras(crate::host::Extras::Scenes);
-                        return Ok(());
-                    }
                     Some(Next::Go(m)) => {
                         self.rt.nanairo_open_mode(&mut self.vm, m);
                         self.show_k1();

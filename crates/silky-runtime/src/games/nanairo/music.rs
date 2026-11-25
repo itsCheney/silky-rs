@@ -12,7 +12,9 @@ use std::sync::Arc;
 
 use silky_format::akb::Image;
 
-use super::mode::{self, Frame, Mode, Phase, BACK, FRAME_MS, QUIT, SLIDE_OUT_FRAMES};
+use super::mode::{
+    self, Frame, Mode, Phase, BACK, CANCEL_SOUND, FRAME_MS, OK_SOUND, QUIT, SLIDE_OUT_FRAMES,
+};
 use crate::assets::Assets;
 use crate::games::kimaten1::omake::Music;
 use crate::games::kimaten1::{Click, Look};
@@ -22,8 +24,6 @@ use crate::Result;
 pub const SHEET: &str = "MUSICmode.akb";
 /// The BGM of the three modes, started when nothing plays.
 pub const BGM: &str = "25.wav";
-const OK_SOUND: &str = "ses_001.wav";
-const CANCEL_SOUND: &str = "ses_002.wav";
 
 /// The tracks: the flag that opens each and its file, in the order the
 /// rows are drawn.

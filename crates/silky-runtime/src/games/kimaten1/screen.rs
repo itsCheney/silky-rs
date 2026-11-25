@@ -62,6 +62,8 @@ pub enum Screen {
     NanairoMusic(Box<crate::games::nanairo::music::MusicMode>),
     /// The CG mode of なないろリンカネーション (`Game.30`).
     NanairoCg(Box<crate::games::nanairo::cgmode::CgMode>),
+    /// The scene mode of なないろリンカネーション (`Game.31`).
+    NanairoScene(Box<crate::games::nanairo::scene::SceneMode>),
     /// The アンネViewer (`Game.33`).
     Viewer(Box<Viewer>),
     /// The staff roll (`Game.990`).
@@ -83,6 +85,7 @@ impl Screen {
             Screen::Doujin(o) => o.hit(x, y),
             Screen::NanairoMusic(o) => o.hit(x, y),
             Screen::NanairoCg(o) => o.hit(x, y),
+            Screen::NanairoScene(o) => o.hit(x, y),
             Screen::Viewer(v) => v.hit(x, y),
             Screen::Staff(s) => s.hit(x, y),
         }
@@ -101,6 +104,7 @@ impl Screen {
             Screen::Doujin(o) => o.enabled(id),
             Screen::NanairoMusic(o) => o.enabled(id),
             Screen::NanairoCg(o) => o.enabled(id),
+            Screen::NanairoScene(o) => o.enabled(id),
             Screen::Viewer(v) => v.enabled(id),
             Screen::Staff(_) => true,
         }
@@ -119,6 +123,7 @@ impl Screen {
             Screen::Doujin(o) => o.click(id),
             Screen::NanairoMusic(o) => o.click(id),
             Screen::NanairoCg(o) => o.click(id),
+            Screen::NanairoScene(o) => o.click(id),
             Screen::Viewer(v) => v.click(id),
             Screen::Staff(s) => s.click(id),
         }
@@ -137,6 +142,7 @@ impl Screen {
             Screen::Doujin(o) => o.cancel(),
             Screen::NanairoMusic(o) => o.cancel(),
             Screen::NanairoCg(o) => o.cancel(),
+            Screen::NanairoScene(o) => o.cancel(),
             Screen::Viewer(v) => v.cancel(),
             _ => Click::None,
         }
@@ -169,6 +175,7 @@ impl Screen {
             Screen::Doujin(o) => o.take_sound(),
             Screen::NanairoMusic(o) => o.take_sound(),
             Screen::NanairoCg(o) => o.take_sound(),
+            Screen::NanairoScene(o) => o.take_sound(),
             Screen::Viewer(v) => v.take_sound(),
             Screen::Staff(_) => None,
         }
@@ -187,6 +194,7 @@ impl Screen {
             Screen::Doujin(o) => o.draw(canvas, assets, look),
             Screen::NanairoMusic(o) => o.draw(canvas, assets, look),
             Screen::NanairoCg(o) => o.draw(canvas, assets, look),
+            Screen::NanairoScene(o) => o.draw(canvas, assets, look),
             Screen::Viewer(v) => v.draw(canvas, assets, look),
             Screen::Staff(s) => s.draw(canvas, assets, look),
         }
@@ -206,6 +214,7 @@ impl Screen {
             Screen::Doujin(o) => (o.auto_pick(), "omake"),
             Screen::NanairoMusic(o) => (o.auto_pick(), "nmusic"),
             Screen::NanairoCg(o) => (o.auto_pick(), "ncg"),
+            Screen::NanairoScene(o) => (o.auto_pick(), "nscene"),
             Screen::Viewer(v) => (v.auto_pick(), "viewer"),
             Screen::Staff(_) => (Some(super::staff::END_NOW), "staff"),
         }
@@ -350,6 +359,7 @@ impl Screen {
             Screen::Notebook(n) => n.animating(ms),
             Screen::NanairoMusic(o) => o.animating(ms),
             Screen::NanairoCg(o) => o.animating(ms),
+            Screen::NanairoScene(o) => o.animating(ms),
             _ => false,
         }
     }
@@ -363,6 +373,7 @@ impl Screen {
             Screen::Notebook(n) => n.tick(ms),
             Screen::NanairoMusic(o) => o.tick(ms),
             Screen::NanairoCg(o) => o.tick(ms),
+            Screen::NanairoScene(o) => o.tick(ms),
             _ => None,
         }
     }
@@ -376,6 +387,7 @@ impl Screen {
             Screen::Notebook(n) => n.settle(),
             Screen::NanairoMusic(o) => o.settle(),
             Screen::NanairoCg(o) => o.settle(),
+            Screen::NanairoScene(o) => o.settle(),
             _ => None,
         }
     }

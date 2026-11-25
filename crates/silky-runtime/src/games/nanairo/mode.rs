@@ -64,6 +64,9 @@ pub const QUIT: i32 = 0xf04;
 pub const TAB_CODE: i32 = 0x100;
 /// What a screen answers to leave to the script with nothing picked.
 pub const LEAVE: i32 = -1;
+/// The sound of a press, and of a right click that leaves.
+pub const OK_SOUND: &str = "ses_001.wav";
+pub const CANCEL_SOUND: &str = "ses_002.wav";
 
 /// Where the loop goes after a screen answered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
