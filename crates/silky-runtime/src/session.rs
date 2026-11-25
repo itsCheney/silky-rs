@@ -2257,6 +2257,41 @@ impl Session {
         Ok(())
     }
 
+    /// A right click on a screen that goes by the right-click setting:
+    /// buttons put away come back first; during a replay nothing else
+    /// happens (the original asks whether to return to the scene list,
+    /// which is not ported); then the setting decides.
+    fn k1_right_click(&mut self) -> Result<()> {
+        use crate::games::kimaten1::Click;
+        let mode = self.rt.k1_system_mode();
+        let Some(s) = self.ui.k1_menu.as_mut().or(self.ui.k1.as_mut()) else {
+            return Ok(());
+        };
+        if s.hidden() || mode == 0 {
+            // The screen hides its buttons, or brings them back.
+            let click = s.cancel();
+            return self.k1_answer(click);
+        }
+        if self.ui.k1_replay {
+            return Ok(());
+        }
+        let bar_click = |id| Click::Bar(id);
+        match mode {
+            1 => {
+                self.press(Button::Bar(bar::AUTO))?;
+                let on = self.ui.auto as i32;
+                self.rt.xml_set("/Config/AutoRead", on);
+            }
+            2 => self.k1_answer(bar_click(bar::CONFIG))?,
+            3 => self.rt.k1_flip_config("/Config/OneMes"),
+            4 if self.ui.has_saves => self.k1_answer(bar_click(bar::LOAD))?,
+            4 => self.k1_answer(bar_click(bar::CONFIG))?,
+            5 => self.k1_answer(bar_click(bar::SAVE))?,
+            _ => {}
+        }
+        Ok(())
+    }
+
     /// Opens the notebook as a system screen over what is up (the message,
     /// or the screen the script waits on). Closing it returns there.
     fn open_k1_notebook(&mut self) {
@@ -2491,6 +2526,10 @@ impl Session {
             if let Some(s) = self.ui.k1_menu.as_mut().or(self.ui.k1.as_mut()) {
                 // A fade in or out takes no input.
                 if s.blocks_input(ms) {
+                    return Ok(true);
+                }
+                if s.follows_setting() {
+                    self.k1_right_click()?;
                     return Ok(true);
                 }
                 let click = s.cancel();

@@ -143,10 +143,17 @@ The effects were compared under Wine by overall and cell luminance curves (the o
 ## Not done yet
 
 - Anne viewer: the glyph size and baseline come from the notice strips and the notebook measurements, since the exe gives only the cell.
-- Option list and bar: the meaning of h77 (+0x8c4) is assumed. The "return to the scene list?" confirm on right click during a replay is not ported. The `/Config/System` right-click modes are not wired for these screens. We keep one quick slot where the exe has ten (100 to 109). The snapshot behind a system screen includes the selection UI in the original.
-- Scene skip and waits: the `Game.40` sub 18 argument is taken as the slot. The effect speed setting is ignored. Waits on Ctrl and Shift are not ported. The blink wait of `Game.10` sub 15, the screen fades (`Screen` calls) and `Ui` waits were not checked for skip in the exe, so they still end on skip or a click.
+- Option list and bar: the meaning of h77 (+0x8c4) is assumed. The "return to the scene list?" confirm on right click during a replay is not ported. We keep one quick slot where the exe has ten (100 to 109). The snapshot behind a system screen includes the selection UI in the original.
+- Scene skip and waits: waits on Ctrl and Shift are not ported.
 - Effects (`Game.1001`, `1002`): open are the companion model's depth, the depth of sub 6's background copy (ours 2) and the piece depth of sub 1 (inferred). Random positions cannot match a run of the original (the exe seeds from the clock).
 - Flash white: ours works on the rasterised model picture, the original per mesh.
+
+## Skip, effect speed and right click
+
+- The `Game.40` sub 18 argument is the slot (`+0x2ac`), like the other `Game.40` subs.
+- The blink wait of `Game.10` sub 15 is five fixed 400 ms pauses and cannot be skipped or clicked through. The `Ui` waits hold the same way. A `Screen` fade does nothing with scene skip on, for a fade out of a screen that is covered already, or for a fade in of one that is not; otherwise it runs at least one frame and ends on no click.
+- The effect speed setting (`/Config/DisplayEffect/Speed`) scales the effect timelines that are waited on: 1 halves each key's frames (at least one) and the first wait, 2 plays them in one frame, 0 leaves them. A timeline nobody waits on stays at full length.
+- Right click on the action menu, investigation, evidence choice, option list, map (without a back button) and extras follows `/Config/System`: 0 puts the buttons away with the cancel sound (the next right click brings them back), 1 flips auto-read, 2 opens settings, 3 flips one-message mode, 4 loads if a save exists, 5 saves. While a question or page is open, or the screen is leaving, right click only closes that.
 
 ## Notices and blink compared
 
@@ -236,6 +243,7 @@ Addresses in `kimaten.exe` of the build above. The code itself does not name the
 | Window flags default 0x57 | 0x4c1380 |
 | Save flags: slot scan, set | 0x486e60, 0x4886c0, 0x488510 |
 | Replay right-click confirm | 0x4bfa80 |
+| Sprite animation wait (blocking flag +0x4d, key wait bit), per-cell effect speed | 0x4cb9e0, 0x4cdee0 |
 | Snapshot bit: capture if needed | 0x4c0310 |
 | `Mouse` class table, `Mouse.4`, `Mouse.2`, `Mouse.3` | 0x4b6090, 0x4b6310, 0x4b6180, 0x4b6240 |
 | Input device: vtable, get and set (vtable +0x3c, +0x40) | 0x53fb94, 0x4c4da0, 0x4c4db0 |

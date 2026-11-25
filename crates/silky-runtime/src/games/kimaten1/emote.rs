@@ -126,6 +126,8 @@ impl Runtime {
             }
             (15, 0) => {
                 self.k1_blink = true;
+                // Five fixed pauses; skip and clicks do not cut them.
+                self.k1_hold = true;
                 self.pause = Some(crate::host::Pause::Transition(crate::host::Transition {
                     ms: BAR_BLINK_MS,
                     rule: None,

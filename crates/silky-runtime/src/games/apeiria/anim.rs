@@ -361,9 +361,34 @@ pub struct Stage {
     pub rng: u32,
     /// Casablanca's effects: they wipe in where Apeiria's fade.
     pub casablanca: bool,
+    /// The effect speed setting (0 normal, 1 fast, 2 off) for the
+    /// timelines the script waits on (きまぐれテンプテーション: see
+    /// [`speed_frames`]). Other titles leave it at 0.
+    pub speed: u8,
+    /// Timelines the script waits on, whose keyframes the speed applies to.
+    blocking: Vec<u32>,
     /// Counts the changes, so that two stages compare equal while
     /// nothing changed.
     version: u64,
+}
+
+/// Frames of a keyframe played under a wait, by effect speed: fast halves
+/// them (keeping the frames when that leaves none), off makes it one.
+pub fn speed_frames(frames: i32, speed: u8) -> i32 {
+    match speed {
+        1 if frames >> 1 > 0 => frames >> 1,
+        2 => 1,
+        _ => frames,
+    }
+}
+
+/// The frames a keyframe waits before it starts, by effect speed.
+pub fn speed_wait(wait: i32, speed: u8) -> i32 {
+    match speed {
+        1 => wait / 2,
+        2 => 0,
+        _ => wait,
+    }
 }
 
 impl PartialEq for Stage {
@@ -454,6 +479,22 @@ impl Stage {
         }
     }
 
+    /// The script waits on timeline `g`: with the effect speed set, the
+    /// keyframe under way and the ones after play at that speed.
+    fn block_on(&mut self, g: u32) {
+        if self.speed == 0 || self.blocking.contains(&g) {
+            return;
+        }
+        self.blocking.push(g);
+        let speed = self.speed;
+        for s in self.sprites.iter_mut().filter(|s| s.group == g) {
+            s.frames = speed_frames(s.frames, speed);
+            if s.active & flag::WAIT != 0 {
+                s.wait = speed_wait(s.wait, speed);
+            }
+        }
+    }
+
     /// Takes up a program of steps, up to its first wait.
     pub fn play(&mut self, steps: Vec<Step>) {
         self.version += 1;
@@ -502,8 +543,12 @@ impl Stage {
     fn take_queued(&mut self) {
         while let Some(step) = self.queue.front().cloned() {
             match step {
-                Step::Wait(g) if self.running.contains(&g) => return,
-                Step::Wait(_) => {}
+                Step::Wait(g) => {
+                    self.block_on(g);
+                    if self.running.contains(&g) {
+                        return;
+                    }
+                }
                 Step::Add(mut s) => {
                     self.sprites.retain(|o| o.id != s.id);
                     s.started = self.video_ms;
@@ -517,6 +562,7 @@ impl Stage {
                     }
                 }
                 Step::Start(g, ids) => {
+                    self.blocking.retain(|&b| b != g);
                     for i in 0..self.sprites.len() {
                         if ids.contains(&self.sprites[i].id) {
                             self.sprites[i].group = g;
@@ -710,6 +756,11 @@ impl Stage {
     /// Takes up the sprite's next keyframe; `no_jump` passes over jumps
     /// (when finishing).
     fn load_next(&mut self, i: usize, no_jump: bool) {
+        let speed = if self.blocking.contains(&self.sprites[i].group) {
+            self.speed
+        } else {
+            0
+        };
         let s = &mut self.sprites[i];
         let Some(mut k) = s.keys.get(s.next).cloned() else {
             return;
@@ -729,7 +780,7 @@ impl Stage {
         let f = k.flags & !flag::JUMP;
         s.active |= f;
         if f & flag::WAIT != 0 {
-            s.wait = k.wait;
+            s.wait = speed_wait(k.wait, speed);
         }
         if f & flag::TURN != 0 {
             s.turn_at = k.turn_at;
@@ -741,7 +792,7 @@ impl Stage {
             s.active = 0;
         } else {
             s.frame = 1;
-            s.frames = k.frames.max(1);
+            s.frames = speed_frames(k.frames.max(1), speed);
         }
         // Start values.
         if f & flag::MOVE != 0 {
@@ -800,6 +851,64 @@ mod tests {
         }
         assert_eq!(seen, [50, 100, 150, 200, 200, 200]);
         assert_eq!(st.blocking_ms(), Some(0));
+    }
+
+    fn at_speed(speed: u8, keys: Vec<Key>) -> Stage {
+        let mut st = Stage::default();
+        st.speed = speed;
+        st.play(vec![
+            Step::Add(Sprite::new(1, 0, Look::Nothing, 0)),
+            Step::Keys(1, keys),
+            Step::Start(2, vec![1]),
+            Step::Wait(2),
+        ]);
+        st
+    }
+
+    #[test]
+    fn effect_speed_scales_the_frames_of_a_wait() {
+        let keys = || vec![Key::new(8).show(true).fade(0, 255)];
+        assert_eq!(at_speed(0, keys()).blocking_ms(), Some(9 * TICK_MS));
+        // Fast: half the frames.
+        assert_eq!(at_speed(1, keys()).blocking_ms(), Some(5 * TICK_MS));
+        // Off: one frame.
+        assert_eq!(at_speed(2, keys()).blocking_ms(), Some(2 * TICK_MS));
+    }
+
+    #[test]
+    fn effect_speed_keeps_a_one_frame_key_and_halves_the_first_wait() {
+        assert_eq!(speed_frames(1, 1), 1);
+        assert_eq!(speed_frames(9, 1), 4);
+        assert_eq!(speed_frames(9, 2), 1);
+        assert_eq!(speed_frames(9, 0), 9);
+        assert_eq!(speed_wait(7, 1), 3);
+        assert_eq!(speed_wait(7, 2), 0);
+        assert_eq!(speed_wait(7, 0), 7);
+    }
+
+    #[test]
+    fn effect_speed_leaves_a_timeline_nobody_waits_on() {
+        let mut st = Stage::default();
+        st.speed = 2;
+        st.play(vec![
+            Step::Add(Sprite::new(1, 0, Look::Nothing, 0)),
+            Step::Keys(1, vec![Key::new(8).show(true).fade(0, 255)]),
+            Step::Start(2, vec![1]),
+        ]);
+        assert_eq!(st.sprites[0].frames, 8);
+    }
+
+    #[test]
+    fn effect_speed_reaches_a_timeline_waited_on_later() {
+        let mut st = Stage::default();
+        st.speed = 1;
+        st.play(vec![
+            Step::Add(Sprite::new(1, 0, Look::Nothing, 0)),
+            Step::Keys(1, vec![Key::new(8).show(true).fade(0, 255)]),
+            Step::Start(2, vec![1]),
+        ]);
+        st.play(vec![Step::Wait(2)]);
+        assert_eq!(st.sprites[0].frames, 4);
     }
 
     #[test]

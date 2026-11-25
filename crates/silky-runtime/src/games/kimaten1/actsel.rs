@@ -339,8 +339,21 @@ impl ActSelect {
     pub fn cancel(&mut self) -> Click {
         if self.popup == Popup::Confirm && self.phase == Phase::Shown {
             self.popup = Popup::None;
+        } else if self.popup == Popup::None && !self.fade.leaving() {
+            // Mode 0 of the right-click setting: the buttons go away with
+            // the cancel sound, and come back with the next click.
+            if !self.fade.hidden() {
+                self.sound = Some(CANCEL);
+            }
+            self.fade.toggle_hidden();
         }
         Click::None
+    }
+
+    /// Whether a right click goes by the right-click setting (no question
+    /// or page is up and the screen is not leaving).
+    pub fn follows_setting(&self) -> bool {
+        self.popup == Popup::None && !self.fade.leaving()
     }
 
     pub fn take_bytes(&mut self) -> Vec<(usize, u8)> {
@@ -511,6 +524,28 @@ mod tests {
             vec![area(0, 1028, 566, 1130, 610)],
             vec![area(0, 494, 295, 588, 346), area(1, 694, 295, 788, 346)],
         )
+    }
+
+    #[test]
+    fn right_click_hides_the_buttons_and_brings_them_back() {
+        let mut m = menu(true);
+        assert!(m.follows_setting());
+        m.cancel();
+        assert!(m.fade.hidden());
+        assert_eq!(m.take_sound().as_deref(), Some(CANCEL));
+        m.cancel();
+        assert!(!m.fade.hidden());
+        assert_eq!(m.take_sound(), None);
+    }
+
+    #[test]
+    fn right_click_during_a_question_only_closes_it() {
+        let mut m = menu(true);
+        m.click(SKIP);
+        m.phase = Phase::Shown;
+        assert!(!m.follows_setting());
+        m.cancel();
+        assert!(!m.fade.hidden());
     }
 
     #[test]

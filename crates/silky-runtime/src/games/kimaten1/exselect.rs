@@ -53,6 +53,7 @@ const TEXT_SIZE: f32 = 24.0;
 const TEXT_TOP: i32 = 29;
 const TEXT_BASELINE: f32 = (TEXT_TOP + 20) as f32;
 const CLICK: &str = "ses_001.wav";
+const CANCEL: &str = "ses_002.wav";
 /// First of the raw-area bytes that switch the options on, one for each
 /// number.
 pub const FLAG_FIRST: usize = 7500;
@@ -214,7 +215,7 @@ impl ExSelect {
     }
 
     pub fn cancel(&mut self) -> Click {
-        self.sound = Some(CLICK);
+        self.sound = Some(CANCEL);
         Click::Result(BACK_ANSWER)
     }
 

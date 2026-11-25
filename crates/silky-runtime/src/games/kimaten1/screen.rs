@@ -78,28 +78,28 @@ impl Screen {
     pub fn hit(&self, x: i32, y: i32) -> Option<i32> {
         match self {
             Screen::Action(s) => {
-                if s.fade.leaving() {
+                if s.fade.leaving() || s.fade.hidden() {
                     None
                 } else {
                     s.hit(x, y)
                 }
             }
             Screen::Area(s) => {
-                if s.fade.leaving() {
+                if s.fade.leaving() || s.fade.hidden() {
                     None
                 } else {
                     s.hit(x, y)
                 }
             }
             Screen::Ex(s) => {
-                if s.fade.leaving() {
+                if s.fade.leaving() || s.fade.hidden() {
                     None
                 } else {
                     s.hit(x, y)
                 }
             }
             Screen::Item(s) => {
-                if s.fade.leaving() {
+                if s.fade.leaving() || s.fade.hidden() {
                     None
                 } else {
                     s.hit(x, y)
@@ -183,6 +183,7 @@ impl Screen {
                 let c = s.cancel();
                 s.fade.begin(c)
             }
+            Screen::Item(s) => s.cancel(),
             Screen::Map(m) => m.cancel(),
             Screen::Notebook(n) => n.cancel(),
             Screen::Omake(o) => o.cancel(),
@@ -192,6 +193,30 @@ impl Screen {
             Screen::NanairoScene(o) => o.cancel(),
             Screen::Viewer(v) => v.cancel(),
             _ => Click::None,
+        }
+    }
+
+    /// Whether the right click of this screen goes by the right-click
+    /// setting (`/Config/System`): the action menu, the evidence choice,
+    /// the map without a back button and the music mode. The option list
+    /// and the investigation always answer 100.
+    pub fn follows_setting(&self) -> bool {
+        match self {
+            Screen::Action(s) => s.follows_setting(),
+            Screen::Item(s) => !s.fade.leaving(),
+            Screen::Map(m) => m.follows_setting(),
+            Screen::Omake(o) => o.follows_setting(),
+            _ => false,
+        }
+    }
+
+    /// Whether the buttons are put away by a right click.
+    pub fn hidden(&self) -> bool {
+        match self {
+            Screen::Action(s) => s.fade.hidden(),
+            Screen::Item(s) => s.fade.hidden(),
+            Screen::Map(m) => m.hidden(),
+            _ => false,
         }
     }
 

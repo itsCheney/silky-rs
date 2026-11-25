@@ -26,6 +26,9 @@ enum Leave {
 #[derive(Debug, Clone, Default)]
 pub struct Fade {
     leave: Leave,
+    /// The right click put the screen's buttons away (the picture behind
+    /// stays); the next one brings them back.
+    hidden: bool,
 }
 
 impl Fade {
@@ -42,6 +45,16 @@ impl Fade {
             }
             c => c,
         }
+    }
+
+    /// Whether the buttons are put away.
+    pub fn hidden(&self) -> bool {
+        self.hidden
+    }
+
+    /// Puts the buttons away, or brings them back.
+    pub fn toggle_hidden(&mut self) {
+        self.hidden = !self.hidden;
     }
 
     /// Whether the fade out has begun (the screen takes no more input).
@@ -91,6 +104,9 @@ impl Fade {
         look: &Look,
         draw: impl FnOnce(&mut Canvas, &Look) -> Result<()>,
     ) -> Result<()> {
+        if self.hidden {
+            return Ok(());
+        }
         let resting = Look {
             hover: None,
             pressed: None,
@@ -125,6 +141,35 @@ mod tests {
         assert_eq!(f.settle(), None);
         f.begin(Click::Close);
         assert_eq!(f.settle(), Some(Click::Close));
+    }
+
+    #[test]
+    fn hidden_buttons_draw_nothing() {
+        let mut f = Fade::default();
+        assert!(!f.hidden());
+        f.toggle_hidden();
+        assert!(f.hidden());
+        let mut canvas = Canvas::new(4, 4);
+        let look = Look {
+            hover: None,
+            pressed: None,
+            ms: 1000,
+            text: None,
+        };
+        let mut drew = false;
+        f.draw(&mut canvas, &look, |_, _| {
+            drew = true;
+            Ok(())
+        })
+        .unwrap();
+        assert!(!drew);
+        f.toggle_hidden();
+        f.draw(&mut canvas, &look, |_, _| {
+            drew = true;
+            Ok(())
+        })
+        .unwrap();
+        assert!(drew);
     }
 
     #[test]

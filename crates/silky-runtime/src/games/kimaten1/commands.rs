@@ -104,6 +104,7 @@ impl Runtime {
         args: &[Value],
     ) -> Option<silky_vm::Result<Flow>> {
         effects::sweep(&mut self.scene);
+        self.scene.effects.speed = self.k1_effect_speed();
         // With the scene skip setting on the original does nothing for
         // these calls (the arguments are taken and that is all): the
         // companion's load, face, show, fade and timelines, every standing

@@ -574,6 +574,12 @@ impl Omake {
         Click::None
     }
 
+    /// Whether a right click goes by the right-click setting: on the music
+    /// mode with no question or view up.
+    pub fn follows_setting(&self) -> bool {
+        self.mode == 2 && !self.dialog && self.view.is_none()
+    }
+
     /// The sound of the last press (taken once).
     pub fn take_sound(&mut self) -> Option<String> {
         self.sound.take().map(str::to_string)
@@ -1175,6 +1181,15 @@ mod tests {
         o.click(1);
         assert_eq!(o.take_sound().as_deref(), Some(OK_SOUND));
         assert!(o.take_globals().is_empty());
+    }
+
+    #[test]
+    fn only_the_music_mode_follows_the_right_click_setting() {
+        let follows: Vec<usize> = (0..3).filter(|&m| screen(m).follows_setting()).collect();
+        assert_eq!(follows.len(), 1);
+        let mut o = screen(follows[0]);
+        o.dialog = true;
+        assert!(!o.follows_setting());
     }
 
     #[test]

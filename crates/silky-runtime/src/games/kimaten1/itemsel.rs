@@ -29,6 +29,7 @@ const NAMES: [&str; 5] = [
     "注射器",
 ];
 const CLICK: &str = "ses_001.wav";
+const CANCEL: &str = "ses_002.wav";
 
 /// How often the headless run presented each piece: (the pieces held, piece).
 static TRIED: Mutex<Option<HashMap<(u8, u8), u32>>> = Mutex::new(None);
@@ -86,6 +87,18 @@ impl ItemSelect {
         }
     }
 
+    /// A right click, mode 0 of the right-click setting: the buttons go
+    /// away with the cancel sound, and come back with the next click.
+    pub fn cancel(&mut self) -> Click {
+        if !self.fade.leaving() {
+            if !self.fade.hidden() {
+                self.sound = Some(CANCEL);
+            }
+            self.fade.toggle_hidden();
+        }
+        Click::None
+    }
+
     pub fn take_sound(&mut self) -> Option<String> {
         self.sound.take().map(str::to_string)
     }
@@ -138,5 +151,21 @@ impl ItemSelect {
         (0..self.items.len())
             .min_by_key(|&k| (count(k), k))
             .map(|k| k as i32)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn right_click_hides_the_buttons_and_brings_them_back() {
+        let mut s = ItemSelect::open(Vec::new(), [1, 0, 0, 0, 0], true);
+        assert_eq!(s.cancel(), Click::None);
+        assert!(s.fade.hidden());
+        assert_eq!(s.take_sound().as_deref(), Some(CANCEL));
+        s.cancel();
+        assert!(!s.fade.hidden());
+        assert_eq!(s.take_sound(), None);
     }
 }

@@ -96,6 +96,7 @@ pub(super) const MENU_INFO: [&str; 8] = [
 ];
 /// The sound of a press.
 pub(super) const OK_SOUND: &str = "ses_001.wav";
+const CANCEL_SOUND: &str = "ses_002.wav";
 
 /// A fade of the map or the notebook takes 12 frames of 1/60 s.
 pub(super) const FADE_FRAMES: u64 = 12;
@@ -282,9 +283,24 @@ impl Map {
             self.leave = Leave::Pending(BACK_RESULT);
             return Click::None;
         }
-        // With no way back the right click only hides the buttons.
+        // With no way back the right click only hides the buttons (mode 0
+        // of the right-click setting), with the cancel sound.
+        if !self.hidden {
+            self.sound = Some(CANCEL_SOUND.into());
+        }
         self.hidden = !self.hidden;
         Click::None
+    }
+
+    /// Whether a right click goes by the right-click setting: the map has
+    /// no back button and nothing is open over it.
+    pub fn follows_setting(&self) -> bool {
+        self.book.is_none() && self.leave == Leave::No && !self.back
+    }
+
+    /// Whether the buttons are put away.
+    pub fn hidden(&self) -> bool {
+        self.hidden
     }
 
     /// Whether a fade is running at `ms` on the clock.
@@ -608,5 +624,20 @@ mod tests {
         assert_eq!(m.hit(140, 300), None);
         m.cancel();
         assert_eq!(m.hit(140, 300), Some(0));
+    }
+
+    #[test]
+    fn right_click_follows_the_setting_only_without_a_back_button() {
+        let m = map([true; PLACES], [false; PLACES], true);
+        assert!(!m.follows_setting());
+        let mut m = map([true; PLACES], [false; PLACES], false);
+        assert!(m.follows_setting());
+        // Hiding the buttons plays the cancel sound; bringing them back is quiet.
+        m.cancel();
+        assert!(m.hidden());
+        assert_eq!(m.take_sound().as_deref(), Some(CANCEL_SOUND));
+        m.cancel();
+        assert!(!m.hidden());
+        assert_eq!(m.take_sound(), None);
     }
 }

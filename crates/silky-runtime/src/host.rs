@@ -563,6 +563,34 @@ impl Runtime {
         scene_skip_on(&self.xml, self.k1_scene_skip)
     }
 
+    /// The effect speed setting of きまぐれテンプテーション
+    /// (`/Config/DisplayEffect/Speed`): 0 normal, 1 fast, 2 off.
+    pub(crate) fn k1_effect_speed(&self) -> u8 {
+        match self.xml.get("/Config/DisplayEffect/Speed") {
+            Some(&v @ 1..=2) => v as u8,
+            _ => 0,
+        }
+    }
+
+    /// What a right click does on the selection screens of
+    /// きまぐれテンプテーション (`/Config/System`): 0 puts the buttons away,
+    /// 1 turns auto read on or off, 2 opens the settings, 3 turns the
+    /// one-message mode on or off, 4 loads if a save exists (else the
+    /// settings), 5 saves.
+    pub(crate) fn k1_system_mode(&self) -> i32 {
+        self.xml.get("/Config/System").copied().unwrap_or(0)
+    }
+
+    /// Sets a configuration value.
+    pub(crate) fn xml_set(&mut self, path: &str, value: i32) {
+        self.xml.insert(path.to_string(), value);
+    }
+
+    /// Turns a 0 or 1 configuration value over; any other value stays.
+    pub(crate) fn k1_flip_config(&mut self, path: &str) {
+        flip_config(&mut self.xml, path);
+    }
+
     /// Script the current message is in (lowercase).
     pub fn message_script(&self) -> &str {
         &self.message_script
@@ -1099,6 +1127,11 @@ impl Runtime {
         }
         let scale = self.system.settings.effect_scale();
         let ms = (frames_ms(frames) as f32 * scale) as u32;
+        self.pause_for(ms, rule)
+    }
+
+    /// Pauses for `ms` milliseconds of transition, or goes on at once.
+    fn pause_for(&mut self, ms: u32, rule: Option<u32>) -> Flow {
         if ms == 0 {
             return Flow::Continue;
         }
@@ -1109,6 +1142,40 @@ impl Runtime {
             live: false,
         }));
         Flow::Yield
+    }
+
+    /// きまぐれテンプテーション's fades: with scene skip on they do
+    /// nothing (the screen is not covered or uncovered); a fade out of a
+    /// covered screen or a fade in of an open one does nothing either; and
+    /// the wait that runs is not cut short by skip or clicks.
+    fn k1_screen(&mut self, class: i32, sub: i32, args: &[Value]) -> Option<Flow> {
+        if class != SCREEN || !(screen::FADE_OUT..=screen::RULE_IN).contains(&sub) {
+            return None;
+        }
+        let n = |i: usize| args.get(i).map(Value::int).unwrap_or(0);
+        let colour = |v: i32| v as u32 & 0xff_ffff;
+        let rule = |i: usize| Some(n(i).max(0) as u32);
+        let (out, colour, rule) = match (sub, args.len()) {
+            (screen::FADE_OUT, 2) => (true, Some(colour(n(1))), None),
+            (screen::FADE_IN, 1) => (false, None, None),
+            (screen::RULE_OUT, 3) => (true, Some(colour(n(2))), rule(1)),
+            (screen::RULE_IN, 2) => (false, None, rule(1)),
+            _ => return None,
+        };
+        if k1_fade_skipped(self.scene_skip(), out, self.scene.cover.is_some()) {
+            return Some(Flow::Continue);
+        }
+        self.scene.cover = colour;
+        // The fade runs as a keyframe of the sprite animation: one frame at
+        // least, and the effect speed applies (it is waited on).
+        crate::games::kimaten1::effects::applied(
+            &mut self.scene.effects,
+            self.scene.background.as_deref(),
+        );
+        let frames = crate::games::apeiria::anim::speed_frames(n(0).max(1), self.k1_effect_speed());
+        let flow = self.pause_for(frames_ms(frames), rule);
+        self.k1_hold = matches!(flow, Flow::Yield);
+        Some(flow)
     }
 
     /// Screen, interface and shake calls. `None` for calls it does not
@@ -1123,6 +1190,11 @@ impl Runtime {
         let n = |i: usize| args.get(i).map(Value::int).unwrap_or(0);
         let rule = |i: usize| Some(n(i).max(0) as u32);
         let colour = |v: i32| v as u32 & 0xff_ffff;
+        if self.assets.game().title == Title::Kimaten1 {
+            if let Some(flow) = self.k1_screen(class, sub, args) {
+                return Some(flow);
+            }
+        }
         Some(match (class, sub, args.len()) {
             (SCREEN, screen::FADE_OUT, 2) => {
                 self.scene.cover = Some(colour(n(1)));
@@ -1149,6 +1221,8 @@ impl Runtime {
             (UI, ui_call::WAIT, 1) => {
                 let ms = n(0).max(0) as u32;
                 if ms > 0 {
+                    // きまぐれテンプテーション: skip and clicks do not end it.
+                    self.k1_hold = self.assets.game().title == Title::Kimaten1;
                     self.pause = Some(Pause::Transition(Transition {
                         ms,
                         rule: None,
@@ -1708,6 +1782,22 @@ impl Host for Runtime {
     }
 }
 
+/// Turns a 0 or 1 configuration value over (a missing one is 0); any other
+/// value stays.
+fn flip_config(values: &mut HashMap<String, i32>, path: &str) {
+    let v = values.get(path).copied().unwrap_or(0);
+    if matches!(v, 0 | 1) {
+        values.insert(path.to_string(), 1 - v);
+    }
+}
+
+/// きまぐれテンプテーション's screen fades do nothing with scene skip on,
+/// for a fade out of a screen that is covered already, or for a fade in of
+/// one that is not.
+fn k1_fade_skipped(scene_skip: bool, out: bool, covered: bool) -> bool {
+    scene_skip || out == covered
+}
+
 /// Whether the scene skip setting is on: written by a script, or held on
 /// by a running jump.
 fn scene_skip_on(values: &HashMap<String, i32>, jump: bool) -> bool {
@@ -1722,6 +1812,28 @@ fn scene_skip_set(values: &HashMap<String, i32>) -> bool {
 #[cfg(test)]
 mod scene_skip_tests {
     use super::*;
+
+    #[test]
+    fn a_flag_flips_between_zero_and_one_only() {
+        let mut values = HashMap::new();
+        flip_config(&mut values, "/Config/OneMes");
+        assert_eq!(values["/Config/OneMes"], 1);
+        flip_config(&mut values, "/Config/OneMes");
+        assert_eq!(values["/Config/OneMes"], 0);
+        values.insert("/Config/OneMes".to_string(), 7);
+        flip_config(&mut values, "/Config/OneMes");
+        assert_eq!(values["/Config/OneMes"], 7);
+    }
+
+    #[test]
+    fn screen_fades_do_nothing_when_skipped_or_pointless() {
+        assert!(k1_fade_skipped(true, true, false));
+        assert!(k1_fade_skipped(true, false, true));
+        assert!(!k1_fade_skipped(false, true, false));
+        assert!(k1_fade_skipped(false, true, true));
+        assert!(!k1_fade_skipped(false, false, true));
+        assert!(k1_fade_skipped(false, false, false));
+    }
 
     #[test]
     fn scene_skip_is_off_until_written() {
