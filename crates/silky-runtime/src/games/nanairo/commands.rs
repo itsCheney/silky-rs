@@ -3,6 +3,8 @@
 use silky_vm::{Flow, Vm};
 
 use super::{figures, stage};
+use crate::audio::Bus;
+use crate::games::kimaten1::Screen;
 use crate::games::Call;
 use crate::host::{Jolt, Pause, Runtime};
 use crate::scene::Character;
@@ -32,8 +34,34 @@ const CHAPTER_END: i32 = 26;
 const INIT: i32 = 27;
 /// Notice of the trial version.
 const TRIAL: i32 = 40;
+/// The music mode.
+const MUSIC_MODE: i32 = 32;
 
 impl Runtime {
+    /// `Game.32`: the music mode. The BGM left playing is faded out (the
+    /// screen's own start), and the mode's tabs fall back to the shared
+    /// screens for now.
+    fn nanairo_music_mode(&mut self, vm: &mut Vm) -> Option<silky_vm::Result<Flow>> {
+        use super::music::{MusicMode, ROWS, TRACKS};
+        let mut tracks = [0u8; ROWS];
+        for (t, (flag, _)) in tracks.iter_mut().zip(TRACKS) {
+            *t = vm.var_b(flag);
+        }
+        let tabs = [0xbba, 0xbbb, 0xbbc].map(|i| vm.var_b(i));
+        let st = &self.system.settings;
+        let screen = MusicMode::open(tracks, tabs, st.music_on, st.music);
+        // What plays fades out (the original leaves it near silent); with
+        // the music off it is stopped. Nothing plays, nothing starts: the
+        // opening track would be silenced at once.
+        if self.system.settings.music_on {
+            self.audio.fade_out(Bus::Music, 0, 512);
+        } else {
+            self.stop_music();
+        }
+        self.k1 = Some(Screen::NanairoMusic(Box::new(screen)));
+        self.wait_for(Pause::Kimaten1)
+    }
+
     /// This game's own commands. `None` for the others.
     pub(crate) fn nanairo_game(&mut self, vm: &mut Vm, c: &Call) -> Option<silky_vm::Result<Flow>> {
         // Event pictures, effect pictures and scene movies.
@@ -97,6 +125,7 @@ impl Runtime {
                 self.scene.speaker_name = None;
                 self.done()
             }
+            MUSIC_MODE => self.nanairo_music_mode(vm),
             // Object of the library's start up; nothing is read from it.
             10 => self.done(),
             // The ending's message overlay and the staff roll.

@@ -848,24 +848,7 @@ impl Session {
                         break;
                     }
                     Some(Pause::Extras(kind)) => {
-                        self.ui.title = None;
-                        self.ui.skip = false;
-                        self.ui.auto = false;
-                        self.ui.hover = None;
-                        let mut screen = ExtrasScreen::new(kind);
-                        screen.ap = crate::games::apeiria::omake::Omake::new(
-                            crate::games::apeiria::omake::tables(self.rt.assets.game().title),
-                        );
-                        self.screen = Some(Screen::Extras(screen));
-                        self.state = State::Extras;
-                        if self.menus.is_apeiria() {
-                            self.veil = Some(Veil {
-                                start: self.ui.clock,
-                                out: false,
-                                then: None,
-                            });
-                            self.apeiria_extras_music(kind);
-                        }
+                        self.open_extras(kind);
                         break;
                     }
                     Some(Pause::Movie) => match self.rt.open_movie() {
@@ -2197,6 +2180,29 @@ impl Session {
         }
     }
 
+    /// Opens one of the shared extras screens (the gallery, the scenes
+    /// or the music room).
+    fn open_extras(&mut self, kind: crate::host::Extras) {
+        self.ui.title = None;
+        self.ui.skip = false;
+        self.ui.auto = false;
+        self.ui.hover = None;
+        let mut screen = ExtrasScreen::new(kind);
+        screen.ap = crate::games::apeiria::omake::Omake::new(crate::games::apeiria::omake::tables(
+            self.rt.assets.game().title,
+        ));
+        self.screen = Some(Screen::Extras(screen));
+        self.state = State::Extras;
+        if self.menus.is_apeiria() {
+            self.veil = Some(Veil {
+                start: self.ui.clock,
+                out: false,
+                then: None,
+            });
+            self.apeiria_extras_music(kind);
+        }
+    }
+
     /// Carries out what a press on a screen of きまぐれテンプテーション did:
     /// its sound, the bytes it changed, and its answer to the script.
     fn k1_answer(&mut self, click: crate::games::kimaten1::Click) -> Result<()> {
@@ -2262,9 +2268,24 @@ impl Session {
             Click::None => {}
             Click::Bar(id) => self.press(crate::ui::Button::Bar(id))?,
             Click::Result(r) => {
+                // The music mode's tabs to the other two modes use the
+                // shared screens until the game's own are done.
+                let tab = match (&self.ui.k1, r) {
+                    (Some(crate::games::kimaten1::Screen::NanairoMusic(_)), 0x100) => {
+                        Some(crate::host::Extras::Gallery)
+                    }
+                    (Some(crate::games::kimaten1::Screen::NanairoMusic(_)), 0x102) => {
+                        Some(crate::host::Extras::Scenes)
+                    }
+                    _ => None,
+                };
                 self.ui.k1 = None;
                 self.ui.hover = None;
                 self.base = None;
+                if let Some(kind) = tab {
+                    self.open_extras(kind);
+                    return Ok(());
+                }
                 self.rt.answer_action(&mut self.vm, r);
                 self.run()?;
             }

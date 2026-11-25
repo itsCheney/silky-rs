@@ -58,6 +58,8 @@ pub enum Screen {
     Omake(Box<Omake>),
     /// The CG, scene and music modes of 先輩が私の妄想にドージンする.
     Doujin(Box<crate::games::doujin::omake::Omake>),
+    /// The music mode of なないろリンカネーション (`Game.32`).
+    NanairoMusic(Box<crate::games::nanairo::music::MusicMode>),
     /// The アンネViewer (`Game.33`).
     Viewer(Box<Viewer>),
     /// The staff roll (`Game.990`).
@@ -77,6 +79,7 @@ impl Screen {
             Screen::Notebook(n) => n.hit(x, y),
             Screen::Omake(o) => o.hit(x, y),
             Screen::Doujin(o) => o.hit(x, y),
+            Screen::NanairoMusic(o) => o.hit(x, y),
             Screen::Viewer(v) => v.hit(x, y),
             Screen::Staff(s) => s.hit(x, y),
         }
@@ -93,6 +96,7 @@ impl Screen {
             Screen::Notebook(n) => n.enabled(id),
             Screen::Omake(o) => o.enabled(id),
             Screen::Doujin(o) => o.enabled(id),
+            Screen::NanairoMusic(o) => o.enabled(id),
             Screen::Viewer(v) => v.enabled(id),
             Screen::Staff(_) => true,
         }
@@ -109,6 +113,7 @@ impl Screen {
             Screen::Notebook(n) => n.click(id),
             Screen::Omake(o) => o.click(id),
             Screen::Doujin(o) => o.click(id),
+            Screen::NanairoMusic(o) => o.click(id),
             Screen::Viewer(v) => v.click(id),
             Screen::Staff(s) => s.click(id),
         }
@@ -125,6 +130,7 @@ impl Screen {
             Screen::Notebook(n) => n.cancel(),
             Screen::Omake(o) => o.cancel(),
             Screen::Doujin(o) => o.cancel(),
+            Screen::NanairoMusic(o) => o.cancel(),
             Screen::Viewer(v) => v.cancel(),
             _ => Click::None,
         }
@@ -155,6 +161,7 @@ impl Screen {
             Screen::Notebook(n) => n.take_sound(),
             Screen::Omake(o) => o.take_sound(),
             Screen::Doujin(o) => o.take_sound(),
+            Screen::NanairoMusic(o) => o.take_sound(),
             Screen::Viewer(v) => v.take_sound(),
             Screen::Staff(_) => None,
         }
@@ -171,6 +178,7 @@ impl Screen {
             Screen::Notebook(n) => n.draw(canvas, assets, look),
             Screen::Omake(o) => o.draw(canvas, assets, look),
             Screen::Doujin(o) => o.draw(canvas, assets, look),
+            Screen::NanairoMusic(o) => o.draw(canvas, assets, look),
             Screen::Viewer(v) => v.draw(canvas, assets, look),
             Screen::Staff(s) => s.draw(canvas, assets, look),
         }
@@ -188,6 +196,7 @@ impl Screen {
             Screen::Notebook(n) => n.auto_pick(),
             Screen::Omake(o) => (o.auto_pick(), "omake"),
             Screen::Doujin(o) => (o.auto_pick(), "omake"),
+            Screen::NanairoMusic(o) => (o.auto_pick(), "nmusic"),
             Screen::Viewer(v) => (v.auto_pick(), "viewer"),
             Screen::Staff(_) => (Some(super::staff::END_NOW), "staff"),
         }
@@ -201,6 +210,7 @@ impl Screen {
             Screen::Notebook(n) => n.press_at(id, x, y),
             Screen::Omake(o) => o.press_at(id, x, y),
             Screen::Doujin(o) => o.press_at(id, x, y),
+            Screen::NanairoMusic(o) => o.press_at(id, x, y),
             Screen::Viewer(v) => v.press_at(id, x, y),
             _ => {}
         }
@@ -248,6 +258,7 @@ impl Screen {
         match self {
             Screen::Omake(o) => o.take_music(),
             Screen::Doujin(o) => o.take_music(),
+            Screen::NanairoMusic(o) => o.take_music(),
             Screen::Staff(s) => s.take_stop().then_some(Music::Stop),
             _ => None,
         }
@@ -258,13 +269,18 @@ impl Screen {
     pub fn track_ended(&mut self) -> bool {
         match self {
             Screen::Doujin(o) => o.track_ended(),
+            Screen::NanairoMusic(o) => o.track_ended(),
             _ => false,
         }
     }
 
     /// Whether the screen waits for a picked track to end.
     pub fn track_playing(&self) -> bool {
-        matches!(self, Screen::Doujin(o) if o.track_playing())
+        match self {
+            Screen::Doujin(o) => o.track_playing(),
+            Screen::NanairoMusic(o) => o.track_playing(),
+            _ => false,
+        }
     }
 
     /// The music volume the screen set (taken once).
@@ -272,6 +288,7 @@ impl Screen {
         match self {
             Screen::Omake(o) => o.take_volume(),
             Screen::Doujin(o) => o.take_volume(),
+            Screen::NanairoMusic(o) => o.take_volume(),
             _ => None,
         }
     }
@@ -305,6 +322,7 @@ impl Screen {
             Screen::Action(s) => s.animating(ms),
             Screen::Map(m) => m.animating(ms),
             Screen::Notebook(n) => n.animating(ms),
+            Screen::NanairoMusic(o) => o.animating(ms),
             _ => false,
         }
     }
@@ -316,6 +334,7 @@ impl Screen {
             Screen::Action(s) => s.tick(ms),
             Screen::Map(m) => m.tick(ms),
             Screen::Notebook(n) => n.tick(ms),
+            Screen::NanairoMusic(o) => o.tick(ms),
             _ => None,
         }
     }
@@ -327,6 +346,7 @@ impl Screen {
             Screen::Action(s) => s.settle(),
             Screen::Map(m) => m.settle(),
             Screen::Notebook(n) => n.settle(),
+            Screen::NanairoMusic(o) => o.settle(),
             _ => None,
         }
     }

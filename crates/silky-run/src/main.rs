@@ -919,6 +919,7 @@ fn snap(
                             screen,
                             silky_runtime::games::kimaten1::Screen::Map(_)
                                 | silky_runtime::games::kimaten1::Screen::Notebook(_)
+                                | silky_runtime::games::kimaten1::Screen::NanairoMusic(_)
                         );
                         let ui = Ui {
                             k1: Some(screen.clone()),
