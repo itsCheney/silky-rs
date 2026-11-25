@@ -30,25 +30,42 @@ fn lift_k(body: &str) -> i32 {
     }
 }
 
-/// Shift from where the shared renderer puts a figure (centred on a slot
-/// 300 pixels out, top at `300 - 7 * size`) to where this game does.
-pub fn offset(slot: i32, size: i32, body: &str) -> (i32, i32) {
-    let shared = match slot {
+/// Where the shared renderer puts the middle of a slot's figure, from the
+/// middle of the screen.
+fn shared_x(slot: i32) -> i32 {
+    match slot {
         1 => -300,
         2 => 300,
         _ => 0,
-    };
-    let own = match slot {
+    }
+}
+
+/// Where this game puts the left edge of a slot's figure, from the same
+/// place.
+fn own_x(slot: i32) -> i32 {
+    match slot {
         1 => -345,
         2 => 345,
         _ => 0,
-    };
+    }
+}
+
+/// Shift from where the shared renderer puts a figure (centred on a slot
+/// 300 pixels out, top at `300 - 7 * size`) to where this game does, for
+/// the figure of `slot` standing at the place of `place` (the same slot
+/// unless `Game.13.8` moved it).
+pub fn shifted(slot: i32, place: i32, size: i32, body: &str) -> (i32, i32) {
     let lift = if size > 50 {
         (2 * size - 100) * lift_k(body) / 100
     } else {
         0
     };
-    (own - shared, -lift - (300 - 7 * size))
+    (own_x(place) - shared_x(slot), -lift - (300 - 7 * size))
+}
+
+/// Whether two pictures are of the same character.
+pub fn same_character(a: &str, b: &str) -> bool {
+    id(a).is_some() && id(a) == id(b)
 }
 
 /// Left and top of the face window on the picture.
@@ -99,7 +116,11 @@ pub fn draw(
 
 #[cfg(test)]
 mod tests {
-    use super::offset;
+    use super::shifted;
+
+    fn offset(slot: i32, size: i32, body: &str) -> (i32, i32) {
+        shifted(slot, slot, size, body)
+    }
 
     /// The shared renderer's placement plus the shift is the game's.
     #[test]
@@ -112,5 +133,20 @@ mod tests {
         assert_eq!(300 - 700 + dy, -400);
         let (_, dy) = offset(0, 75, "tai11.akb");
         assert_eq!(300 - 525 + dy, -140);
+    }
+
+    /// A figure of the centre slot moved to the left place is 345 pixels
+    /// out, one of the left slot moved to the centre is 345 pixels in.
+    #[test]
+    fn places() {
+        assert_eq!(shifted(0, 1, 50, "tiy11.akb"), (-345, 50));
+        assert_eq!(shifted(1, 0, 50, "tiy11.akb"), (300, 50));
+        assert_eq!(shifted(2, 2, 50, "tiy11.akb"), offset(2, 50, "tiy11.akb"));
+    }
+
+    #[test]
+    fn characters() {
+        assert!(super::same_character("tiy11.akb", "tiy12_h03.akb"));
+        assert!(!super::same_character("tiy11.akb", "tai11.akb"));
     }
 }

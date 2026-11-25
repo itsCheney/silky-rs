@@ -2,9 +2,9 @@
 
 use silky_vm::{Flow, Vm};
 
-use super::stage;
+use super::{figures, stage};
 use crate::games::Call;
-use crate::host::{Pause, Runtime};
+use crate::host::{Jolt, Pause, Runtime};
 use crate::scene::Character;
 
 /// Standing characters.
@@ -104,6 +104,8 @@ impl Runtime {
 
     /// Standing characters.
     fn nanairo_character(&mut self, c: &Call) -> Option<silky_vm::Result<Flow>> {
+        let skip = self.scene_skip();
+        let factor = self.system.settings.effect_scale();
         let scene = &mut self.scene;
         match c.sub {
             // (time, size, name, slot)
@@ -111,8 +113,18 @@ impl Runtime {
                 let (size, slot) = (c.int(1), c.int(3));
                 let body = c.str(2)?;
                 self.character_time = self.character_time.max(c.int(0));
+                // A figure of another character has its own order and
+                // place; the same one keeps them.
+                if !scene
+                    .characters
+                    .get(&slot)
+                    .is_some_and(|old| stage::same_character(&old.body, &body))
+                {
+                    scene.figures.forget(slot);
+                }
+                let place = scene.figures.place(slot);
                 let character = Character {
-                    offset: stage::offset(slot, size, &body),
+                    offset: stage::shifted(slot, place, size, &body),
                     body,
                     face: None,
                     scale: size,
@@ -125,38 +137,113 @@ impl Runtime {
             1 if c.args.len() == 2 => {
                 self.character_time = self.character_time.max(c.int(0));
                 scene.characters.remove(&c.int(1));
+                scene.figures.forget(c.int(1));
             }
-            // Commit: every change crossfades over the longest time given.
+            // Commit: every change crossfades over the longest time given,
+            // and the hops, sways, bows and slides run at the same time;
+            // the script waits for the last of them.
             2 => {
+                for (slot, steps) in scene.figures.start() {
+                    if skip {
+                        continue;
+                    }
+                    self.character_time = self.character_time.max(steps.len() as i32);
+                    self.jolts.push((slot, Jolt { steps, step_ms: 16 }));
+                }
                 let t = std::mem::take(&mut self.character_time);
                 self.handled += 1;
                 return Some(Ok(self.transition(t, None)));
             }
-            // (flag, slot, name): the expression layer. The flag takes 0
-            // and 1; what it changes is not known.
+            // (flag, slot, name): the expression layer. The flag is not
+            // read by the original; a face that is put on a figure that
+            // stands without one fades in over 12 frames, a change of face
+            // is at once.
             5 if c.args.len() == 3 => {
                 if let Some(ch) = scene.characters.get_mut(&c.int(1)) {
                     ch.face = c.str(2).filter(|f| !f.is_empty());
+                }
+            }
+            // (side, slot): the order the figure overlaps the others in.
+            6 if c.args.len() == 2 => {
+                if scene.characters.contains_key(&c.int(1)) {
+                    scene.figures.set_side(c.int(1), c.int(0));
                 }
             }
             // (time): remove all.
             7 if c.args.len() == 1 => {
                 self.character_time = self.character_time.max(c.int(0));
                 scene.characters.clear();
+                scene.figures.forget_all();
+            }
+            // (place, slot): the figure slides to the place of another
+            // slot over 12 frames.
+            8 if c.args.len() == 2 => {
+                let (place, slot) = (c.int(0), c.int(1));
+                if let Some(ch) = scene.characters.get_mut(&slot) {
+                    let now = stage::shifted(slot, place, ch.scale, &ch.body);
+                    let shift = (ch.offset.0 - now.0, ch.offset.1 - now.1);
+                    ch.offset = now;
+                    scene.figures.set_place(slot, place);
+                    scene.figures.slide(slot, shift);
+                }
             }
             // (size, slot): zoom to a size, here at once.
             9 if c.args.len() == 2 => {
                 let (size, slot) = (c.int(0), c.int(1));
+                let place = scene.figures.place(slot);
                 if let Some(ch) = scene.characters.get_mut(&slot) {
                     ch.scale = size;
-                    ch.offset = stage::offset(slot, size, &ch.body);
+                    ch.offset = stage::shifted(slot, place, size, &ch.body);
                 }
             }
-            // Side of a slot (6), flags of the figure (11), motion (12)
-            // and effects attached to a figure (8, 13, 15) are not drawn;
-            // 14 detaches the attached effect layer, of which there is
-            // none here.
-            6 | 8 | 11 | 12 | 13 | 14 | 15 => {}
+            // (slot): a hop (10) or a bow (11) of 78 pixels.
+            10 | 11 if c.args.len() == 1 => {
+                if scene.characters.contains_key(&c.int(0)) {
+                    scene.figures.bow(c.int(0), c.sub - 10);
+                }
+            }
+            // (pixels, axis, slot): a hop (axis 0) or a sway (axis 1).
+            12 if c.args.len() == 3 => {
+                if scene.characters.contains_key(&c.int(2)) {
+                    scene.figures.hop(c.int(2), c.int(1), c.int(0));
+                }
+            }
+            // (kind, fade, release, slot): a glow around the figure. With
+            // the third value 0 it comes; with 1 it goes.
+            13 if c.args.len() == 4 => {
+                let (kind, fade, release, slot) = (c.int(0), c.int(1), c.int(2), c.int(3));
+                let size = scene.characters.get(&slot).map(|ch| ch.scale);
+                match (release, size) {
+                    (0, Some(size)) => {
+                        figures::attach(&mut scene.effects, &[(kind, slot, size)], factor)
+                    }
+                    (1, _) if fade != 0 => figures::release(&mut scene.effects, factor),
+                    (1, _) => figures::detach(&mut scene.effects),
+                    _ => {}
+                }
+            }
+            // The glow is taken away at once.
+            14 if c.args.is_empty() => figures::detach(&mut scene.effects),
+            // (_, fade, slot, slot): the glow of two figures: a green glow
+            // behind 葵, petals for the others.
+            15 if c.args.len() == 4 && c.int(1) == 0 => {
+                let parts: Vec<(i32, i32, i32)> = [c.int(3), c.int(2)]
+                    .into_iter()
+                    .filter_map(|slot| {
+                        let ch = scene.characters.get(&slot)?;
+                        let kind = if ch.body.to_ascii_lowercase().starts_with("tao") {
+                            0
+                        } else {
+                            1
+                        };
+                        Some((kind, slot, ch.scale))
+                    })
+                    .collect();
+                if !parts.is_empty() {
+                    figures::attach(&mut scene.effects, &parts, factor);
+                }
+            }
+            15 => {}
             _ => return None,
         }
         self.done()

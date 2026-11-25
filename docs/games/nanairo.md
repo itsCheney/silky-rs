@@ -39,7 +39,13 @@ Measured under Wine: the place and pitch of the message text and the place of th
 
 - Pictures are 1600 x 1600, named `t` + two letters + digits. The two letters give the character: iy 伊予, ai アイリス, ki 桔梗, fu 芙蓉, ko 琴莉, ao 葵, az 梓, yu 由美.
 - The figure's left edge is at (1280 - 16 x size) / 2. A side slot is 345 pixels further out. Above 50 % the figure is lifted by (2 x size - 100) x K / 100, with K by character (iy 400, ai 280, ko and ao 200, ki, fu, az and yu 140, others 0).
-- `13.0` places a figure, `13.1` removes one, `13.7` removes all, `13.5` sets the expression layer, `13.9` zooms (at once here), `13.2` crossfades every change over the longest time given.
+- `13.0` places a figure, `13.1` removes one, `13.7` removes all, `13.5` sets the expression layer (its first value is not read by the program), `13.9` zooms (at once here), `13.2` crossfades every change over the longest time given and waits until the motions below are over.
+- `13.6(side, slot)` sets the order the figures overlap in: the figure's layer takes depth side + 5, so a higher side is in front. A new figure starts with side 2 in the centre, 1 on the left and 0 on the right; the scripts bring the speaker forward with 3. It is kept while the same character stands there.
+- `13.8(place, slot)` slides the figure to the place of another slot (0 centre, 1 left, 2 right; the left edge as for a slot) over 12 frames; the script uses `13.8(1, 0)` to make room for a second figure. The slide is linear (not confirmed).
+- `13.10(slot)` and `13.11(slot)` move the figure over 12 frames of 16 ms: `13.10` up 78 pixels and back, `13.11` (the one the scripts use, after a figure appears) down 78 pixels and back. Both follow a fixed table of offsets.
+- `13.12(pixels, axis, slot)` is a hop (axis 0: up by half, the full amount, half, then at rest) or a sway (axis 1: left, right, at rest), one step each frame.
+- `13.13(kind, 1, 0, slot)` starts a glow and `13.13(kind, 1, 1, slot)` lets it go; `13.14` takes it away at once (the scripts send it before each commit). The glow darkens the background and what lies under the figures (black, three quarters), and fades in over 24 frames: kind 0 is `teffect.akb` (green light with sparks) behind the figure, squeezed to the figure's width and moved 80 x size to the right in the centre slot (376 in the right slot); kind 1 is `tai-effect.akb` (white petals) over the whole screen. When movies are on the original plays `HG060002_eff.mov` over the petals; movies are not decoded here, so only the picture is drawn. Letting it go fades it out over 24 frames. The curve of the fades is not confirmed.
+- `13.15(a, 0, slot, slot)` is the same glow for two figures at once: the green glow for 葵, petals for the others.
 - Backgrounds and pictures are in sprite 2 and lie under the figures. Sprite 3 is a sheet store that is never shown.
 
 ### CG registry
@@ -80,7 +86,7 @@ The effects are sprites of the shared effect stage: keyframes of fades, zooms an
 - `Game.1004` (no script calls it) is carried out as removing every standing character at once, with nothing drawn; the original's exact effect is not read. `1007` to `1009` draw nothing and are accepted: they only tidy caches and the save folder's thumbnail files at start up.
 - `Game.3`, `17` and `40` are reported.
 - `Game.30` to `32` use the shared extras screens, not the game's own sheets.
-- Standing character calls 6, 8 and 11 to 15 (side, effects, flags, motion) are accepted and not drawn. The flag of `13.5` is not understood.
+- Standing characters: the movie the glow of `13.13` and `13.15` plays over the petals is not drawn. A face that is put on a figure standing without one fades in over 12 frames in the original; here it appears with the crossfade of the commit. The curves of the slide and of the glow's fades are guessed linear; the exact frame rate of the motions (16 ms steps) and the glow's place for the left slot are not confirmed.
 
 ## Game commands
 
@@ -88,7 +94,7 @@ The effects are sprites of the shared effect stage: keyframes of fades, zooms an
 | --- | --- |
 | `10` | Start up; nothing to do |
 | `12.4(face, body)`, `12.5`, `12.6`, `12.7`, `12.8(picture)` | Face window |
-| `13.0`, `13.1`, `13.2`, `13.5`, `13.7`, `13.9` | Standing characters |
+| `13.0` to `13.2`, `13.5` to `13.15` | Standing characters |
 | `14.10(name)`, `14.1(slot, name)`, `14.11`, `14.5`, `14.7(n)` | CG registry |
 | `15(name)` | Speaker name |
 | `18` | Title menu |
@@ -123,6 +129,12 @@ Addresses in `nanairo.exe` as linked (image base 0x400000). The code itself does
 | `Wait.0` (class 28): dispatcher; wait loop | 0x4918a0; 0x473e60 |
 | Game class registration order | 0x47e480 |
 | Standing characters: handler, place and zoom | 0x46ee10, 0x443ec0 |
+| Standing characters: side (`13.6`), slide (`13.8`), bow (`13.10`, `13.11`), hop (`13.12`) | 0x444290, 0x444910 and 0x442180, 0x444970, 0x4449e0 |
+| Standing characters: per-frame update, bow, hop and fade steps | 0x444f40, 0x4451d0, 0x445300, 0x445080 |
+| Standing characters: commit loop; offset tables of bow and hop | 0x444d60, 0x444eb0; 0x50d840, 0x50d830, 0x50d420, 0x50d580, 0x50d590, 0x50d3d0 |
+| Standing characters: glow start (`13.13`), stop, remove (`13.14`), two figures (`13.15`) | 0x444550 and 0x4422e0, 0x442cb0, 0x444710, 0x4445d0 and 0x443010, 0x443190 |
+| Standing characters: expression layer (`13.5`) | 0x444b90, 0x441ae0 |
+| Glow pictures; movie name | 0x50673c, 0x506748; 0x506758 |
 | Face window: handler, crop and draw | 0x46eca0, 0x4590b0 |
 | Speaker name (`Game.15`) | 0x46f830 |
 | CG registry: handler | 0x46f3a0 |

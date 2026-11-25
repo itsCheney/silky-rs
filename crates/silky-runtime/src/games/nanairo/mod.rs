@@ -9,6 +9,7 @@ mod cg_table;
 pub(crate) mod commands;
 pub(crate) mod effects;
 mod ending;
+pub(crate) mod figures;
 pub(crate) mod stage;
 pub(crate) mod window;
 

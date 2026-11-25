@@ -155,6 +155,7 @@ pub fn clear_all(st: &mut Stage) {
         ENDING,
         STAFF,
         super::calendar::CALENDAR,
+        super::figures::FX,
     ] {
         clear(st, owner);
     }

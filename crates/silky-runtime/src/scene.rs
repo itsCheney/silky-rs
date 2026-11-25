@@ -285,6 +285,10 @@ pub struct Scene {
     /// なないろリンカネーション: the CG picture named so far (`Game.14`).
     #[serde(default)]
     pub cg: crate::games::nanairo::cg::Combo,
+    /// なないろリンカネーション: the order the standing characters were
+    /// told to overlap in, and the motions waiting for the next commit.
+    #[serde(default)]
+    pub figures: crate::games::nanairo::figures::Figures,
     /// Snow falls (ふゆから、くるる。, command 115).
     #[serde(default)]
     pub snow: bool,
