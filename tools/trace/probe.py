@@ -293,8 +293,10 @@ class Breakpoint:
         # value stack (a message line) is read at the place that takes it:
         # `hold` keeps the values of `args` under that name and records no
         # call; the next call of a stack breakpoint that is named in its `carry`
-        # gets them as its arguments.
+        # gets them as its arguments. With `join`, a hit while the values are
+        # still kept appends to them, the strings joined by that separator.
         self.hold = spec.get("hold")
+        self.join = spec.get("join")
         self.take = None
         if spec.get("carry"):
             self.take = (spec["carry"]["hold"], set(spec["carry"]["calls"]))
@@ -354,6 +356,10 @@ class Breakpoint:
         call["call"] = name
         values = [value(a) for a in args]
         if self.hold is not None:
+            prev = held.get(self.hold)
+            if self.join is not None and prev is not None and len(prev) == len(values):
+                values = [a + self.join + b if isinstance(a, str) and isinstance(b, str) else b
+                          for a, b in zip(prev, values)]
             held[self.hold] = values
             return None
         if values:
