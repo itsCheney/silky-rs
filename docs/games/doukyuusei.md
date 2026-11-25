@@ -199,7 +199,7 @@ The ending flags (byte variables 1720 to 1899) and the picture, scene and music 
 - Name entry: Japanese kana and kanji pages (not in this build). The keys, paste and focus moves are read from the program and not compared under Wine.
 - Chinese text: the exact face (the executable asks for SimHei and MS Gothic, whose ascent here comes from the frontend's face), the 700 and 900 weights (made by widening, not the real faces), the East Asian Width table (only the common wide and ambiguous ranges), a missing half-width character, the hint bars' wrapping and the name entry's grid in English (narrow letters sit at a fixed offset in the key) not compared under Wine.
 - Calls that change nothing here: `Game.10` subs 12, 13, 14 and 17 to 27 (14 puts the message window's layers away, same as no line up; the others do nothing in the program), `Select.0(-1)` (readies selection bar layers), `Game.20(24)` with a `.pal` file (not a sub command of this build), `Game.27(0)` (game's own mouse pointer; `Game.27(1)` hides it until the hover changes), `Game.35` (marks for the "skip scenes" setting).
-- Other place screens and other screens; the other `Game` commands (engine classes taken from [engine-2026](../builds/engine-2026.md)).
+- The plain selection (`Game.17(1)`) is not compared under Wine: every script calls it only in the second phase of a scene reached late in a girl's route. It runs the same code as look mode, which is compared. Other screens and the other `Game` commands (engine classes taken from [engine-2026](../builds/engine-2026.md)).
 
 ## Where things are in the executable
 
