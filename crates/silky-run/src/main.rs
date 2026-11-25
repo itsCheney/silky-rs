@@ -766,6 +766,8 @@ fn snap(
                     let mut screen = rt.k1.take().unwrap();
                     let (_, name) = screen.auto_pick();
                     let n = k1_shots.entry(name).or_default();
+                    // A fade the screen started (the viewer's model) is over.
+                    rt.scene.effects.settle();
                     if *n < 3 {
                         let mut frame = renderer.render_scene(&rt.scene, &mut rt.assets, false)?;
                         // K1_HOVER=x,y puts the pointer there in the saved frames.

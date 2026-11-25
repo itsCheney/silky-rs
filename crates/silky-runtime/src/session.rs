@@ -4595,6 +4595,17 @@ impl Session {
             self.frame = None;
             self.k1_answer(click)?;
         }
+        // The viewer's fades of the buttons and of the model.
+        if let Some(s) = self.ui.k1.as_mut() {
+            let ms = self.ui.clock.saturating_sub(self.ui.k1_since);
+            let (scene, redraw) = s.tick_scene(&mut self.rt.scene, ms);
+            if scene {
+                self.base = None;
+            }
+            if scene || redraw {
+                self.frame = None;
+            }
+        }
         // The staff roll rises by itself and ends when its time is up.
         if let Some(s) = self.ui.k1.as_ref().filter(|s| s.timed()) {
             self.frame = None;

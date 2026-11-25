@@ -17,13 +17,20 @@
 //!
 //! The model is not drawn here: the screen keeps the scene's slot 0 up to
 //! date (see [`Viewer::sync_scene`]) and draws the buttons over it.
+//!
+//! The original waits for its fades and answers no press meanwhile: the
+//! buttons fade out or in over 16 frames when they are hidden or brought
+//! back, and a model that is swapped fades out over 12 frames before the
+//! new one fades in over 12.
 
 use std::cell::Cell;
 
 use silky_format::area::Area;
 
+use super::effects::{self, Fade};
 use super::screen::{Click, Look};
 use crate::assets::Assets;
+use crate::host::frames_ms;
 use crate::render::Canvas;
 use crate::scene::{Emote, Place, Scene};
 use crate::Result;
@@ -63,6 +70,16 @@ const SHOWN_AGAIN: i32 = 0xf00;
 const YES: i32 = 0xd00;
 const NO: i32 = 0xd01;
 
+/// Frames the buttons fade over, and a model swap's two halves.
+const BUTTON_FADE: i32 = 16;
+const MODEL_FADE: i32 = 12;
+/// The scene slot the model is kept in.
+const SLOT: i32 = 0;
+/// The main timelines the original stops before it plays another motion
+/// when one of these played last (the waiting loops and the long
+/// sequences that do not end by themselves).
+const STOPPED_FIRST: [i32; 12] = [0, 1, 10, 46, 47, 56, 92, 93, 102, 138, 139, 148];
+
 /// The sounds of a press and of leaving.
 const OK_SOUND: &str = "ses_001.wav";
 const CANCEL_SOUND: &str = "ses_002.wav";
@@ -86,8 +103,14 @@ const LIST_TOP: i32 = 162;
 const BAR_TOP: i32 = 150;
 const BAR_HEIGHT: i32 = 405;
 const BAR_X: i32 = 1229;
+/// The help line's glyph cells are 16 pixels from (648, 696); the
+/// original puts a glyph's baseline the face's ascent under the top of
+/// its cell, and the help line takes 13 of the 16 pixels.
 const HELP_POS: (f32, f32) = (648.0, 709.0);
 const HELP_SIZE: f32 = 16.0;
+/// The list's cells are 24 pixels high from the row's top.
+const ROW_SIZE: f32 = 24.0;
+const ROW_ASCENT: f32 = 20.0;
 
 const OUTFIT_NAMES: [&str; OUTFITS] = [
     "悪魔",
@@ -160,6 +183,24 @@ struct Saved {
     emote: Option<Emote>,
 }
 
+/// Where a model swap stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Phase {
+    Idle,
+    /// The old model fades out.
+    Out,
+    /// The new one fades in.
+    In,
+}
+
+/// The buttons fading out (hidden) or in; the start is the first moment
+/// a tick saw it.
+#[derive(Debug, Clone, Copy)]
+struct ButtonFade {
+    rising: bool,
+    start: Option<u64>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Viewer {
     areas: Vec<Area>,
@@ -175,8 +216,19 @@ pub struct Viewer {
     /// button so far.
     pose: i32,
     steps: u32,
-    /// The motion picked (its place in the list of 180).
+    /// The motion picked (its place in the list of 180); it stays marked
+    /// when the model is loaded again.
     motion: Option<usize>,
+    /// The main timeline played on the model since it was loaded, how
+    /// often one was asked for, and whether the one playing was stopped
+    /// first.
+    live: Option<i32>,
+    plays: u32,
+    cut: bool,
+    /// The model is to be swapped for a new one.
+    reload: bool,
+    phase: Phase,
+    fade: Option<ButtonFade>,
     scroll: usize,
     /// The slider, 0 to 1.
     zoom: f32,
@@ -231,6 +283,12 @@ impl Viewer {
             pose: 0,
             steps: 0,
             motion: None,
+            live: None,
+            plays: 0,
+            cut: false,
+            reload: false,
+            phase: Phase::Idle,
+            fade: None,
             scroll: 0,
             zoom: ZOOM_START,
             hidden: false,
@@ -268,7 +326,9 @@ impl Viewer {
             files: Self::model_files(self.set, self.outfit),
             face: Some((self.face as i32, i32::from(self.blush))),
             sub: Some(self.pose),
-            pose: self.motion.map(timeline),
+            pose: self.live,
+            pose_seq: self.plays,
+            cut: self.cut,
             visible: true,
             place: Some(self.place()),
             ..Default::default()
@@ -286,21 +346,89 @@ impl Viewer {
             emote: scene.emote.take(),
         }));
         scene.background = Some(BACKGROUND.to_string());
-        self.dirty = true;
+        // The first model fades in like any other.
+        self.reload = true;
         self.sync_scene(scene);
     }
 
-    /// Puts the model in the scene if it changed; true when it did.
+    /// Puts the model in the scene if it changed; true when it did. A new
+    /// model starts a swap: the old one fades out first.
     pub fn sync_scene(&mut self, scene: &mut Scene) -> bool {
+        if self.phase != Phase::Idle {
+            return false;
+        }
+        if std::mem::take(&mut self.reload) {
+            self.dirty = false;
+            let old = scene.emotes.remove(&SLOT).filter(|e| e.visible);
+            match old {
+                Some(old) => {
+                    let ghost = effects::leave(scene, SLOT, old);
+                    effects::fade(&mut scene.effects, ghost, Fade::Out(MODEL_FADE));
+                    effects::bind(scene, ghost);
+                    effects::wait_for(&mut scene.effects, ghost);
+                    self.phase = Phase::Out;
+                }
+                None => self.bring_in(scene),
+            }
+            return true;
+        }
         if !std::mem::take(&mut self.dirty) {
             return false;
         }
-        scene.emotes.insert(0, self.emote());
+        scene.emotes.insert(SLOT, self.emote());
         true
+    }
+
+    /// Puts the new model in, fading in.
+    fn bring_in(&mut self, scene: &mut Scene) {
+        scene.emotes.insert(SLOT, self.emote());
+        effects::fade(&mut scene.effects, SLOT, Fade::In(MODEL_FADE));
+        effects::wait_for(&mut scene.effects, SLOT);
+        self.phase = Phase::In;
+    }
+
+    /// Whether the screen waits for a fade and answers no press.
+    fn busy(&self) -> bool {
+        self.fade.is_some() || self.reload || self.phase != Phase::Idle
+    }
+
+    /// Steps the fades; `ms` is the time since the screen opened. Returns
+    /// whether the scene changed and whether the screen is to be drawn
+    /// again.
+    pub fn tick(&mut self, scene: &mut Scene, ms: u64) -> (bool, bool) {
+        let mut redraw = false;
+        let mut changed = false;
+        if let Some(f) = &mut self.fade {
+            let start = *f.start.get_or_insert(ms);
+            if ms.saturating_sub(start) >= u64::from(frames_ms(BUTTON_FADE)) {
+                self.fade = None;
+            }
+            redraw = true;
+        }
+        let over = scene.effects.blocking_ms() == Some(0);
+        match self.phase {
+            Phase::Out if over => {
+                self.bring_in(scene);
+                changed = true;
+            }
+            Phase::In if over => {
+                self.phase = Phase::Idle;
+                changed = self.sync_scene(scene);
+            }
+            _ => {}
+        }
+        if self.phase == Phase::Idle && (self.reload || self.dirty) {
+            changed |= self.sync_scene(scene);
+        }
+        (changed, redraw || changed || self.phase != Phase::Idle)
     }
 
     /// Gives the scene back as it was.
     pub fn leave_scene(&mut self, scene: &mut Scene) {
+        let ghost = effects::ghost_key(SLOT);
+        scene.k1fx.ghosts.retain(|g| g.key != ghost);
+        effects::drop_fade(&mut scene.effects, ghost);
+        effects::drop_fade(&mut scene.effects, SLOT);
         if let Some(s) = self.saved.take() {
             scene.background = s.background;
             scene.background_offset = s.offset;
@@ -317,6 +445,9 @@ impl Viewer {
     }
 
     pub fn hit(&self, x: i32, y: i32) -> Option<i32> {
+        if self.busy() {
+            return None;
+        }
         if self.dialog {
             return self
                 .dialog_areas
@@ -339,22 +470,28 @@ impl Viewer {
     }
 
     pub fn click(&mut self, id: i32) -> Click {
+        // (`hit` already answers nothing while a fade runs.)
         if self.dialog {
             self.dialog = false;
+            // The question's own buttons: yes answers like a press, no
+            // like a cancel.
             if id == YES {
+                self.sound = Some(OK_SOUND);
                 self.unlock_all();
+            } else {
+                self.sound = Some(CANCEL_SOUND);
             }
             return Click::None;
         }
         if self.hidden {
-            self.hidden = false;
+            self.show();
             return Click::None;
         }
         match id {
             0..=11 if self.unlocked[id as usize] => {
                 self.sound = Some(OK_SOUND);
                 self.outfit = id as usize;
-                self.dirty = true;
+                self.reload_model();
             }
             FACE..=0x10d => {
                 self.sound = Some(OK_SOUND);
@@ -367,9 +504,7 @@ impl Viewer {
             }
             ROW..=0x311 => {
                 self.sound = Some(OK_SOUND);
-                let n = self.scroll + (id - ROW) as usize;
-                self.motion = Some(n);
-                self.dirty = true;
+                self.play_motion(self.scroll + (id - ROW) as usize);
             }
             BACK => {
                 self.sound = Some(CANCEL_SOUND);
@@ -377,7 +512,7 @@ impl Viewer {
             }
             HIDE => {
                 self.sound = Some(OK_SOUND);
-                self.hidden = true;
+                self.hide();
             }
             BLUSH => {
                 self.sound = Some(OK_SOUND);
@@ -393,6 +528,56 @@ impl Viewer {
         Click::None
     }
 
+    /// Picking a motion plays its timeline, again if it is the one
+    /// playing. The original stops the main timeline of the last motion
+    /// first when it is one of a few (see [`STOPPED_FIRST`]).
+    fn play_motion(&mut self, n: usize) {
+        self.cut = self
+            .motion
+            .is_some_and(|m| STOPPED_FIRST.contains(&timeline(m)));
+        self.motion = Some(n);
+        self.live = Some(timeline(n));
+        self.plays += 1;
+        self.dirty = true;
+    }
+
+    /// A model loaded anew starts without a main timeline.
+    fn reload_model(&mut self) {
+        self.live = None;
+        self.cut = false;
+        self.reload = true;
+        self.dirty = true;
+    }
+
+    fn hide(&mut self) {
+        self.hidden = true;
+        self.fade = Some(ButtonFade {
+            rising: false,
+            start: None,
+        });
+    }
+
+    fn show(&mut self) {
+        self.hidden = false;
+        self.fade = Some(ButtonFade {
+            rising: true,
+            start: None,
+        });
+    }
+
+    /// How opaque the buttons are, 0 to 255, `ms` after the screen opened.
+    fn button_alpha(&self, ms: u64) -> u8 {
+        match self.fade {
+            Some(f) => {
+                let since = ms.saturating_sub(f.start.unwrap_or(ms)) as f32;
+                let t = (since / frames_ms(BUTTON_FADE).max(1) as f32).clamp(0.0, 1.0);
+                (255.0 * if f.rising { t } else { 1.0 - t }) as u8
+            }
+            None if self.hidden => 0,
+            None => 255,
+        }
+    }
+
     /// The pose button goes round six steps: the first set with the plain
     /// pose, the second and third pose timelines, the second set with the
     /// plain pose, and the second and third pose timelines again. The sets
@@ -403,12 +588,14 @@ impl Viewer {
             0 => {
                 self.set = 0;
                 self.pose = 0;
+                self.reload_model();
             }
             1 | 4 => self.pose = 1,
             2 | 5 => self.pose = 2,
             _ => {
                 self.set = 1;
                 self.pose = 0;
+                self.reload_model();
             }
         }
         self.dirty = true;
@@ -423,7 +610,7 @@ impl Viewer {
 
     /// A press or drag at (x, y) on the slider or the scroll bar.
     pub fn press_at(&mut self, id: i32, x: i32, y: i32) {
-        if self.dialog || self.hidden {
+        if self.dialog || self.hidden || self.busy() {
             return;
         }
         match id {
@@ -454,13 +641,16 @@ impl Viewer {
     /// Right click or Escape: the buttons go and come back; a question
     /// is answered no.
     pub fn cancel(&mut self) -> Click {
+        if self.busy() {
+            return Click::None;
+        }
         if self.dialog {
             self.dialog = false;
         } else if self.hidden {
-            self.hidden = false;
+            self.show();
         } else {
             self.sound = Some(CANCEL_SOUND);
-            self.hidden = true;
+            self.hide();
         }
         Click::None
     }
@@ -516,7 +706,8 @@ impl Viewer {
     }
 
     pub fn draw(&self, canvas: &mut Canvas, assets: &mut Assets, look: &Look) -> Result<()> {
-        if self.hidden {
+        let alpha = self.button_alpha(look.ms);
+        if alpha == 0 {
             return Ok(());
         }
         let sheet = assets.image("viewer_p.akb")?;
@@ -528,7 +719,7 @@ impl Viewer {
         };
         let look = if self.dialog { &calm } else { look };
         let part = |c: &mut Canvas, p: (u32, u32, u32, u32), at: (i32, i32)| {
-            c.draw_part(&sheet, p, at.0, at.1, false, 255);
+            c.draw_part(&sheet, p, at.0, at.1, false, alpha);
         };
         // Panels, the face picture and its frame.
         part(canvas, (467, 672, 243, 243), (245, 21));
@@ -536,7 +727,14 @@ impl Viewer {
             (self.outfit % 4) as u32,
             (self.set * 3 + self.outfit / 4) as u32,
         );
-        canvas.draw_part(&tab, (col * 224, row * 224, 224, 224), 254, 30, false, 255);
+        canvas.draw_part(
+            &tab,
+            (col * 224, row * 224, 224, 224),
+            254,
+            30,
+            false,
+            alpha,
+        );
         part(canvas, (0, 672, 316, 68), (670, 620));
         part(canvas, (710, 672, 444, 105), (834, 8));
         part(canvas, (1712, 0, 261, 487), (1003, 131));
@@ -592,15 +790,22 @@ impl Viewer {
             };
             let top = LIST_TOP + 24 * i as i32;
             if let Some(tr) = look.text {
-                let color =
-                    [[255, 255, 255, 255], [255, 0, 0, 255], [255, 255, 0, 255]][st as usize];
-                tr.draw_plain(
+                // White, red under the pointer, yellow for the motion
+                // picked; the glyphs sit under the row's top by the
+                // ascent of a 24 pixel face.
+                let color = [
+                    [255, 255, 255, alpha],
+                    [255, 0, 0, alpha],
+                    [255, 255, 0, alpha],
+                ][st as usize];
+                tr.draw_bold_edged(
                     canvas,
                     &format!("アクション{:03}", n + 1),
                     LIST_LEFT as f32,
-                    top as f32 + 20.0,
-                    24.0,
+                    top as f32 + ROW_ASCENT,
+                    ROW_SIZE,
                     color,
+                    [0, 0, 0, alpha],
                 );
             }
         }
@@ -621,13 +826,14 @@ impl Viewer {
         };
         part(canvas, (1154, 672 + st * 33, 34, 33), (358, 273));
         if let (Some(tr), Some(line)) = (look.text, self.help(look.hover)) {
-            tr.draw_plain(
+            tr.draw_bold_edged(
                 canvas,
                 &line,
                 HELP_POS.0,
                 HELP_POS.1,
                 HELP_SIZE,
-                [255, 255, 255, 255],
+                [255, 255, 255, alpha],
+                [0, 0, 0, alpha],
             );
         }
         if self.dialog {
@@ -687,6 +893,96 @@ mod tests {
             vec![area(0, 494, 295, 588, 346), area(1, 694, 295, 788, 346)],
             |i| u8::from(open.contains(&(i - OUTFIT_FIRST))),
         )
+    }
+
+    /// Runs the fades out.
+    fn settle(v: &mut Viewer, scene: &mut Scene) {
+        for i in 0..200 {
+            scene.effects.advance(16);
+            v.tick(scene, i * 16);
+        }
+    }
+
+    #[test]
+    fn the_same_motion_plays_again_and_some_are_stopped_first() {
+        let mut v = viewer(&[0]);
+        v.click(ROW);
+        let first = v.emote();
+        assert_eq!((first.pose, first.cut), (Some(0), false));
+        v.click(ROW);
+        let again = v.emote();
+        assert_eq!(again.pose, Some(0));
+        assert_ne!(again.pose_seq, first.pose_seq);
+        // Timeline 0 played last: it is stopped before the next starts.
+        assert!(again.cut);
+        // Timeline 2 is not one of them.
+        v.click(ROW + 2);
+        v.click(ROW + 3);
+        assert!(!v.emote().cut);
+        // A model loaded anew starts without one.
+        v.click(0);
+        assert_eq!(v.emote().pose, None);
+        assert_eq!(v.motion, Some(3));
+    }
+
+    #[test]
+    fn a_swap_fades_out_then_in_and_blocks_presses() {
+        let mut scene = Scene::default();
+        let mut v = viewer(&[0, 3]);
+        v.enter(&mut scene);
+        settle(&mut v, &mut scene);
+        v.click(3);
+        assert!(v.sync_scene(&mut scene));
+        // The old model is gone from its slot and fades as a ghost.
+        assert!(!scene.emotes.contains_key(&0));
+        assert_eq!(effects::ghosts(&scene).count(), 1);
+        assert_eq!(v.hit(10, 30), None);
+        let mut seen_in = false;
+        for i in 0..200u64 {
+            scene.effects.advance(16);
+            v.tick(&mut scene, i * 16);
+            seen_in |= scene.emotes.contains_key(&0);
+        }
+        assert!(seen_in && v.hit(10, 30).is_some());
+        assert_eq!(scene.emotes[&0].files[0], "ta03_h0007.psb");
+    }
+
+    #[test]
+    fn the_buttons_fade_over_sixteen_frames() {
+        let mut scene = Scene::default();
+        let mut v = viewer(&[0]);
+        v.enter(&mut scene);
+        settle(&mut v, &mut scene);
+        assert_eq!(v.button_alpha(0), 255);
+        assert_eq!(v.cancel(), Click::None);
+        v.tick(&mut scene, 1000);
+        assert_eq!(v.button_alpha(1000), 255);
+        assert!(v.button_alpha(1000 + 133) < 140);
+        assert_eq!(v.hit(10, 30), None);
+        v.tick(&mut scene, 1000 + 300);
+        assert_eq!(v.button_alpha(2000), 0);
+        assert_eq!(v.hit(10, 30), Some(SHOWN_AGAIN));
+        v.click(SHOWN_AGAIN);
+        v.tick(&mut scene, 3000);
+        assert_eq!(v.button_alpha(3000), 0);
+        v.tick(&mut scene, 3400);
+        assert_eq!(v.button_alpha(3400), 255);
+    }
+
+    #[test]
+    fn presses_sound_as_the_original_does() {
+        let mut v = viewer(&[0]);
+        v.click(FACE + 1);
+        assert_eq!(v.take_sound().as_deref(), Some(OK_SOUND));
+        v.click(BACK);
+        assert_eq!(v.take_sound().as_deref(), Some(CANCEL_SOUND));
+        v.click(UNLOCK);
+        v.take_sound();
+        v.click(NO);
+        assert_eq!(v.take_sound().as_deref(), Some(CANCEL_SOUND));
+        v.click(UNLOCK);
+        v.click(YES);
+        assert_eq!(v.take_sound().as_deref(), Some(OK_SOUND));
     }
 
     #[test]
@@ -799,11 +1095,14 @@ mod tests {
     fn back_leaves_and_right_click_hides_the_buttons() {
         let mut v = viewer(&[0]);
         assert_eq!(v.click(BACK), Click::Result(LEAVE));
+        let mut scene = Scene::default();
         assert_eq!(v.cancel(), Click::None);
         assert!(v.hidden);
+        settle(&mut v, &mut scene);
         assert_eq!(v.hit(10, 10), Some(SHOWN_AGAIN));
         v.click(SHOWN_AGAIN);
         assert!(!v.hidden);
+        settle(&mut v, &mut scene);
         assert_eq!(v.hit(10, 30), Some(0));
     }
 
@@ -818,7 +1117,11 @@ mod tests {
         v.enter(&mut scene);
         assert_eq!(scene.background.as_deref(), Some(BACKGROUND));
         assert_eq!(scene.emotes.keys().copied().collect::<Vec<_>>(), [0]);
+        // The model fades in first and nothing is pressed meanwhile.
         assert!(!v.sync_scene(&mut scene));
+        assert_eq!(v.hit(10, 30), None);
+        settle(&mut v, &mut scene);
+        assert_eq!(v.hit(10, 30), Some(0));
         v.click(FACE + 2);
         assert!(v.sync_scene(&mut scene));
         assert_eq!(scene.emotes[&0].face, Some((2, 0)));

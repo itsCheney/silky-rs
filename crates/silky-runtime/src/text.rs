@@ -219,7 +219,22 @@ impl TextRenderer {
         size: f32,
         color: [u8; 4],
     ) {
-        let black = [0, 0, 0, 255];
+        self.draw_bold_edged(canvas, line, x, y, size, color, [0, 0, 0, 255]);
+    }
+
+    /// [`Self::draw_bold_outlined`] with the edge's own colour (and
+    /// opacity, for text that fades).
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_bold_edged(
+        &self,
+        canvas: &mut Canvas,
+        line: &str,
+        x: f32,
+        y: f32,
+        size: f32,
+        color: [u8; 4],
+        black: [u8; 4],
+    ) {
         let mut layers: Vec<(f32, f32, [u8; 4])> = Vec::new();
         for dy in -1..=1 {
             for dx in -1..=2 {

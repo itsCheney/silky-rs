@@ -132,6 +132,15 @@ pub struct Emote {
     /// sub 13).
     #[serde(default)]
     pub next_pose: Option<i32>,
+    /// Counts the times the main timeline is asked for again: a change
+    /// plays `pose` once more even when it is the same one (the
+    /// アンネViewer's motion list does this).
+    #[serde(default)]
+    pub pose_seq: u32,
+    /// The main timeline playing is stopped at once before `pose` starts,
+    /// instead of fading out under it.
+    #[serde(default)]
+    pub cut: bool,
     pub visible: bool,
     /// The second outfit (byte 708) when the model was loaded; an H scene
     /// model then starts without its clothes.

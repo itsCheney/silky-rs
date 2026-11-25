@@ -855,8 +855,11 @@ impl Stage {
                 self.character.set_sub(n.max(0) as usize);
             }
         }
-        if emote.pose != self.applied.pose {
+        if emote.pose != self.applied.pose || emote.pose_seq != self.applied.pose_seq {
             if let Some(n) = emote.pose {
+                if emote.cut {
+                    self.character.h_stop_main();
+                }
                 self.character.set_pose(n.max(0) as usize);
             }
         }

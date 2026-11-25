@@ -65,6 +65,10 @@ const NEXT: i32 = 0x101;
 const SCROLLBAR: i32 = 0x102;
 const VOLUME: i32 = 0x200;
 
+/// The sounds of a press and of leaving by a right click.
+const OK_SOUND: &str = "ses_001.wav";
+const CANCEL_SOUND: &str = "ses_002.wav";
+
 /// What the music mode asks of the sound.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Music {
@@ -106,6 +110,7 @@ pub struct Omake {
     bytes: Vec<(usize, u8)>,
     music: Option<Music>,
     new_volume: Option<f32>,
+    sound: Option<&'static str>,
     /// The cell under the pointer on the scene page and since when.
     hover_since: Cell<(Option<i32>, u64)>,
 }
@@ -193,6 +198,7 @@ impl Omake {
             bytes: Vec::new(),
             music: None,
             new_volume: None,
+            sound: None,
             hover_since: Cell::new((None, 0)),
         }
     }
@@ -360,10 +366,15 @@ impl Omake {
     }
 
     pub fn click(&mut self, id: i32) -> Click {
+        // The question's own buttons: yes answers like a press, no like
+        // a cancel.
         if self.dialog {
             self.dialog = false;
             if id == YES {
+                self.sound = Some(OK_SOUND);
                 self.unlock_all();
+            } else {
+                self.sound = Some(CANCEL_SOUND);
             }
             return Click::None;
         }
@@ -374,13 +385,19 @@ impl Omake {
             0xa00..=0xa02 => {
                 let k = (id & 0xff) as usize;
                 if self.tab_open(k) {
+                    self.sound = Some(OK_SOUND);
                     self.mode = k;
                     self.hover_since.set((None, 0));
                 }
                 return Click::None;
             }
-            BACK => return Click::Result(LEAVE),
+            // Leaving by the button sounds like any press.
+            BACK => {
+                self.sound = Some(OK_SOUND);
+                return Click::Result(LEAVE);
+            }
             UNLOCK => {
+                self.sound = Some(OK_SOUND);
                 self.dialog = true;
                 return Click::None;
             }
@@ -390,6 +407,7 @@ impl Omake {
             0 => match id {
                 0..=11 => {
                     if let Some(e) = self.cell_entry(id) {
+                        self.sound = Some(OK_SOUND);
                         self.view = Some(View {
                             entry: e,
                             page: 0,
@@ -397,13 +415,23 @@ impl Omake {
                         });
                     }
                 }
-                PREV if self.page > 0 => self.page -= 1,
-                NEXT if self.page + 1 < PAGES => self.page += 1,
-                0x200..=0x202 => self.page = (id & 0xff) as usize,
+                PREV if self.page > 0 => {
+                    self.sound = Some(OK_SOUND);
+                    self.page -= 1;
+                }
+                NEXT if self.page + 1 < PAGES => {
+                    self.sound = Some(OK_SOUND);
+                    self.page += 1;
+                }
+                0x200..=0x202 if (id & 0xff) as usize != self.page => {
+                    self.sound = Some(OK_SOUND);
+                    self.page = (id & 0xff) as usize;
+                }
                 _ => {}
             },
             1 => {
                 if (0..SCENES as i32).contains(&id) && self.saved.scenes[id as usize] != 0 {
+                    self.sound = Some(OK_SOUND);
                     return Click::Result(id);
                 }
             }
@@ -430,10 +458,20 @@ impl Omake {
             return Click::None;
         }
         match id {
-            BACK => self.view = None,
-            PREV if v.page > 0 => v.page -= 1,
-            NEXT if v.page + 1 < self.view_pages(&v) => v.page += 1,
+            BACK => {
+                self.sound = Some(OK_SOUND);
+                self.view = None;
+            }
+            PREV if v.page > 0 => {
+                self.sound = Some(OK_SOUND);
+                v.page -= 1;
+            }
+            NEXT if v.page + 1 < self.view_pages(&v) => {
+                self.sound = Some(OK_SOUND);
+                v.page += 1;
+            }
             0..=11 => {
+                self.sound = Some(OK_SOUND);
                 let (first, _, _) = entry(v.entry);
                 v.shown = Some(first + v.page * PER_PAGE + id as usize);
             }
@@ -452,6 +490,7 @@ impl Omake {
                 if self.saved.tracks[track] != 1 {
                     return;
                 }
+                self.sound = Some(OK_SOUND);
                 if self.playing == Some(track) {
                     self.playing = None;
                     self.music = Some(Music::Stop);
@@ -460,8 +499,14 @@ impl Omake {
                     self.music = Some(Music::Play(track_file(track)));
                 }
             }
-            PREV if self.scroll > 0 => self.scroll -= 1,
-            NEXT if self.scroll < SCROLL_MAX => self.scroll += 1,
+            PREV if self.scroll > 0 => {
+                self.sound = Some(OK_SOUND);
+                self.scroll -= 1;
+            }
+            NEXT if self.scroll < SCROLL_MAX => {
+                self.sound = Some(OK_SOUND);
+                self.scroll += 1;
+            }
             _ => {}
         }
     }
@@ -486,7 +531,9 @@ impl Omake {
         }
     }
 
-    /// Right click or Escape.
+    /// Right click or Escape. The question and the view of an entry go
+    /// without a sound. On the modes themselves it leaves with the cancel
+    /// sound; the music mode first stops the track that plays.
     pub fn cancel(&mut self) -> Click {
         if self.dialog {
             self.dialog = false;
@@ -496,8 +543,19 @@ impl Omake {
             } else {
                 self.view = None;
             }
+        } else if self.mode == 2 && self.playing.is_some() {
+            self.playing = None;
+            self.music = Some(Music::Stop);
+        } else {
+            self.sound = Some(CANCEL_SOUND);
+            return Click::Result(LEAVE);
         }
         Click::None
+    }
+
+    /// The sound of the last press (taken once).
+    pub fn take_sound(&mut self) -> Option<String> {
+        self.sound.take().map(str::to_string)
     }
 
     pub fn take_bytes(&mut self) -> Vec<(usize, u8)> {
@@ -1070,6 +1128,46 @@ mod tests {
             next += count;
         }
         assert_eq!(next, PICTURES.len());
+    }
+
+    fn screen(mode: usize) -> Omake {
+        let saved = Saved {
+            seen: vec![0; PICTURES.len().div_ceil(8)],
+            scenes: [1; SCENES],
+            tracks: [1; TRACKS],
+            tabs: [1; MODES],
+            volume: 1.0,
+        };
+        Omake::open(mode, [vec![], vec![], vec![]], vec![], saved)
+    }
+
+    #[test]
+    fn presses_sound_and_right_click_leaves() {
+        let mut o = screen(1);
+        assert_eq!(o.click(0), Click::Result(0));
+        assert_eq!(o.take_sound().as_deref(), Some(OK_SOUND));
+        o.click(0xa02);
+        assert_eq!(o.take_sound().as_deref(), Some(OK_SOUND));
+        // A track plays, then a right click stops it with no sound.
+        o.click(0);
+        o.take_sound();
+        assert_eq!(o.cancel(), Click::None);
+        assert_eq!(o.take_sound(), None);
+        assert_eq!(o.music, Some(Music::Stop));
+        // With none playing it leaves with the cancel sound.
+        assert_eq!(o.cancel(), Click::Result(LEAVE));
+        assert_eq!(o.take_sound().as_deref(), Some(CANCEL_SOUND));
+        // The question: yes sounds like a press, no like a cancel.
+        o.click(UNLOCK);
+        o.take_sound();
+        o.click(NO);
+        assert_eq!(o.take_sound().as_deref(), Some(CANCEL_SOUND));
+        o.click(UNLOCK);
+        o.click(YES);
+        assert_eq!(o.take_sound().as_deref(), Some(OK_SOUND));
+        // Leaving by the button sounds as a press.
+        assert_eq!(o.click(BACK), Click::Result(LEAVE));
+        assert_eq!(o.take_sound().as_deref(), Some(OK_SOUND));
     }
 
     #[test]

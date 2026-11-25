@@ -248,6 +248,11 @@ impl Runtime {
     /// committed). Does nothing in the other games.
     pub(crate) fn register_cg(&mut self, vm: &mut Vm) {
         if self.assets.game().title == Title::Kimaten1 {
+            // The script sets h69 while the extras and their scene replay
+            // run; the engine registers no picture then.
+            if vm.var_h(69).int() == 1 {
+                return;
+            }
             if let Some(bg) = &self.scene.background {
                 let set = crate::games::kimaten1::omake::register(
                     &vm.bytes,

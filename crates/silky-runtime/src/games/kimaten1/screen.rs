@@ -153,7 +153,7 @@ impl Screen {
             Screen::Item(s) => s.take_sound(),
             Screen::Map(m) => m.take_sound(),
             Screen::Notebook(n) => n.take_sound(),
-            Screen::Omake(_) => None,
+            Screen::Omake(o) => o.take_sound(),
             Screen::Doujin(o) => o.take_sound(),
             Screen::Viewer(v) => v.take_sound(),
             Screen::Staff(_) => None,
@@ -223,6 +223,16 @@ impl Screen {
         match self {
             Screen::Viewer(v) => v.sync_scene(scene),
             _ => false,
+        }
+    }
+
+    /// Steps what the screen does by itself (the viewer's fades) `ms`
+    /// after it opened: whether the scene changed, and whether the screen
+    /// is to be drawn again.
+    pub fn tick_scene(&mut self, scene: &mut crate::scene::Scene, ms: u64) -> (bool, bool) {
+        match self {
+            Screen::Viewer(v) => v.tick(scene, ms),
+            _ => (false, false),
         }
     }
 
