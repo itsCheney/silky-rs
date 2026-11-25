@@ -162,6 +162,10 @@ pub enum Pause {
     /// きまぐれテンプテーション2's H mode (`Game.49`, see
     /// [`crate::games::kimaten2::hmode`]); the scripts go on when it ends.
     HMode,
+    /// A script asks to quit (なないろリンカネーション, `Game.3`): the
+    /// frontend asks the player, ends the game on yes and runs the scripts
+    /// again on no.
+    Quit,
 }
 
 /// A button of きまぐれテンプテーション2's action menu (`Game.42`).
@@ -491,6 +495,12 @@ impl Runtime {
             self.pause = None;
         }
         true
+    }
+
+    /// The value the scripts wrote to the original's configuration at
+    /// `path`, or `default` when none did.
+    pub(crate) fn config_value(&self, path: &str, default: i32) -> i32 {
+        self.xml.get(path).copied().unwrap_or(default)
     }
 
     /// The original's scene skip setting (`/Config/SceneSkip`), off unless

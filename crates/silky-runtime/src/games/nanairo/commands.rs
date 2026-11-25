@@ -7,6 +7,8 @@ use crate::games::Call;
 use crate::host::{Jolt, Pause, Runtime};
 use crate::scene::Character;
 
+/// Quit: asks, and ends the game on yes.
+const QUIT: i32 = 3;
 /// Standing characters.
 const CHARACTER: i32 = 13;
 /// CG registry.
@@ -22,10 +24,14 @@ const TITLE: i32 = 18;
 const FILL: i32 = 19;
 /// Capture of the screen for the CG registry.
 const CAPTURE: i32 = 22;
+/// Auto save.
+const AUTO_SAVE: i32 = 17;
 /// Chapter end.
 const CHAPTER_END: i32 = 26;
 /// Initialisation of the message window.
 const INIT: i32 = 27;
+/// Notice of the trial version.
+const TRIAL: i32 = 40;
 
 impl Runtime {
     /// This game's own commands. `None` for the others.
@@ -45,6 +51,19 @@ impl Runtime {
                 self.scene.speaker_name = c.str(0);
                 self.done()
             }
+            QUIT => self.wait_for(Pause::Quit),
+            // Saves unless the player switched auto save off (it is on in
+            // a new install); the frontend writes the save at the next
+            // message, as for the other games' auto save points.
+            AUTO_SAVE => {
+                if self.config_value("/Config/AutoSave/Enable", 1) != 0 {
+                    self.auto_save = true;
+                }
+                self.done()
+            }
+            // The notice shows pictures that this release does not carry,
+            // so nothing is drawn and the call returns at once.
+            TRIAL => self.done(),
             CHARACTER => self.nanairo_character(c),
             PORTRAIT => self.nanairo_portrait(c),
             CG => self.nanairo_cg(c, vm),

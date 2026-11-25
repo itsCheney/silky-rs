@@ -72,6 +72,9 @@ pub struct Session {
     start: String,
     state: State,
     veil: Option<Veil>,
+    /// A script asked to quit (`Pause::Quit`) and its box is up; the
+    /// script goes on when the box is gone and the game is not over.
+    script_quit: bool,
     /// Scene without the interface, rendered again only when it changes.
     base: Option<Canvas>,
     /// Whether the screen was covered when the last transition began or
@@ -234,6 +237,7 @@ impl Session {
             start: start.to_string(),
             state: State::Text,
             veil: None,
+            script_quit: false,
             base: None,
             was_covered: false,
             plate_hold: None,
@@ -814,6 +818,17 @@ impl Session {
                     }
                     Some(Pause::HMode) => {
                         self.open_hmode();
+                        break;
+                    }
+                    Some(Pause::Quit) => {
+                        self.ui.skip = false;
+                        self.ui.auto = false;
+                        self.ui.hover = None;
+                        self.skip_to_choice = false;
+                        self.state = State::Choice;
+                        self.script_quit = true;
+                        self.frame = None;
+                        self.ask(Action::Quit)?;
                         break;
                     }
                     Some(Pause::Costume(mode)) => {
@@ -3831,7 +3846,10 @@ impl Session {
                     d.dont_ask = !d.dont_ask;
                     // 同級生 Remake writes the setting when the box is
                     // ticked, whatever the answer.
-                    if self.rt.assets.game().title == silky_format::game::Title::Doukyuusei {
+                    if matches!(
+                        self.rt.assets.game().title,
+                        silky_format::game::Title::Doukyuusei | silky_format::game::Title::Nanairo
+                    ) {
                         let s = &mut self.rt.system.settings;
                         if d.action == Action::FlagJump {
                             s.confirm_event = !d.dont_ask;
@@ -4861,6 +4879,14 @@ impl Session {
         self.ui.voice = self.rt.voice_playing();
         // Calls recorded for a trace carry the session clock.
         self.vm.set_trace_tick(self.ui.clock);
+        if self.script_quit && self.dialog.is_none() {
+            // The box was answered no (or the question was not asked).
+            self.script_quit = false;
+            self.frame = None;
+            if self.state != State::Ended {
+                self.run()?;
+            }
+        }
         self.ui.tooltips = self.rt.system.settings.tooltips;
         if self.state != State::Busy && self.rt.scene.cover.is_none() && self.plate_gone {
             self.plate_hold = None;

@@ -644,6 +644,8 @@ pub struct Screens {
     douk: bool,
     /// 景の海のアペイリア: its own dialog.
     apeiria: bool,
+    /// なないろリンカネーション: its own dialog.
+    nanairo: bool,
 }
 
 pub(crate) fn area_file(assets: &Assets, name: &str) -> Vec<Area> {
@@ -685,6 +687,7 @@ impl Screens {
             }
         }
         let douk = assets.game().title == silky_format::game::Title::Doukyuusei;
+        let nanairo = assets.game().title == silky_format::game::Title::Nanairo;
         if douk {
             // 同級生 Remake's back button.
             for a in &mut backlog {
@@ -697,7 +700,17 @@ impl Screens {
             language,
             save_load: area_file(assets, "saveload.area"),
             backlog,
-            dialog: area_file(assets, "dialog.area"),
+            dialog: {
+                let mut areas = area_file(assets, "dialog.area");
+                // The third area of なないろリンカネーション's dialog is its
+                // "do not show next time" check box.
+                if nanairo {
+                    for a in areas.iter_mut().filter(|a| a.id == 3) {
+                        a.id = dialog_ids::DONT_ASK;
+                    }
+                }
+                areas
+            },
             savenote: if douk {
                 area_file(assets, "savenote.area")
             } else {
@@ -707,6 +720,7 @@ impl Screens {
             stars: assets.game().title == silky_format::game::Title::Fuyukuru,
             douk,
             apeiria: assets.game().title.is_apeiria(),
+            nanairo,
             help: HelpLines::load(assets, "saveloadhelp"),
         }
     }
@@ -1302,6 +1316,16 @@ impl Screens {
         if self.apeiria {
             return draw_apeiria_dialog(canvas, assets, ui, d, &self.dialog);
         }
+        if self.nanairo {
+            return crate::games::nanairo::dialog::draw(
+                canvas,
+                assets,
+                ui,
+                &d.action,
+                d.dont_ask,
+                &self.dialog,
+            );
+        }
         canvas.fill(0, 0, canvas.width, canvas.height, [0, 0, 0, 110]);
         let ds = match self.kimaten2 {
             true => &KIMATEN2_DIALOG,
@@ -1628,6 +1652,7 @@ mod tests {
             stars: false,
             douk: true,
             apeiria: false,
+            nanairo: false,
         };
         let d = |commenting| Dialog {
             action: Action::Save(None),

@@ -50,8 +50,10 @@ Measured under Wine: the place and pitch of the message text and the place of th
 
 ### CG registry
 
-- The scripts name the picture (`14.10`) and its layers in slot order (`14.1`). A name is kept only if it begins with `H`. When the scene is committed, the combination is looked up in a table of 493 rows. A match sets byte 3200 + row, and also bytes 3001 and 3002. The CG mode reads these bytes.
+- The scripts name the picture (`14.10`) and its layers in slot order (`14.1`). A name is kept only if it begins with a capital `H`. A layer goes to the first free place up to its slot, or replaces the one at the slot. When the scene is committed, the combination is looked up in the game's CG table of 644 rows: the picture and the first six layers must equal a row's, place by place. A match sets the byte flag of that row and byte 3001. Any registered picture with a name also sets byte 3002 (the CG tab of the extras screens).
+- The flags of the table run from 3200 to 3845 and are 3200 + row only up to row 492; row 493 holds 3694. The table is in `cg_table.rs`, the rows in the game's order, so the flag comes from the row and not from its number.
 - Names are compared without case and without `.akb`.
+- Not read: what the program's settings block holds in the field that stops registering when it is 1 (the registry does nothing then; probably while a scene is replayed from the scene screen, which is not here yet).
 
 ### Event pictures and effect pictures
 
@@ -70,6 +72,12 @@ The effects are sprites of the shared effect stage: keyframes of fades, zooms an
 - `Game.50` is the message overlay of the end card. `50.0` prepares, `50.2` takes it away (and is also called alone as a clean up). `50.1(rule, frames, h, w, y, x)` wipes in the rectangle (x, y, w, h) of `moji.akb` (the handwriting) in its own place through the rule picture `NNN.BIN`, over `frames` frames, and the script waits; the piece stays until `50.2`. The rule picture lies on the piece's top left corner, as the pictures `150.BIN` to `153.BIN` are made for. The four calls write the line piece by piece, and the signature last. With `/Config/SceneSkip` at 1 nothing is done.
 - `Game.34(staff picture, strip)` is the staff roll. The music `31.WAV` starts (the scripts do not start it) and the script waits 130.33 s, the length of the music. The ending's `staffNN.akb` fades in and out over 5 s, `staff_p2.akb` follows from 5 s to 10 s, `staff_p3.akb` from 10.33 s to 13.33 s, then the credit strip (`staff_p4.akb` to `staff_p7.akb`, 575 x 3214) scrolls up from below the screen for 106.7 s. At 120 s the logo (`staff_p8.akb`) comes up on black and from 128 s turns into the closing page `staff_p1.akb`. A click, or skip mode, ends the roll at once; the music stops with it. The call leaves 0 on the stack, as the scripts ignore the value. It is not cut short by `/Config/SceneSkip`. The message window is taken away for the roll.
 
+### Quit, auto save and the trial notice
+
+- `Game.3` is the quit box. It asks "Do you want to end the game?" (`ExitDialog.akb`: a dim layer over the screen, a band with the question, yes and no buttons and a check box "do not show next time"). Yes (area 0) ends the game; no (area 1) goes back to the script. With the check box ticked the setting is kept and the next `Game.3` ends the game without asking. The same box, with the other questions of the sheet, is the one the window bar and the other quit and confirm buttons use. The result of the box (0 yes, 1 no) was read from the program.
+- `Game.17` is the auto save. No script calls it. It saves unless `/Config/AutoSave/Enable` was written as 0 (a new install has it on). Here the save is written at the next message by the same path as the other games' auto save points, and only while the player's auto save setting is on. The original writes the save to its slot 100 at once with the screen as the picture.
+- `Game.40(kind)` is the notice of the trial version: it loads `trial.area` or `trial2.area` and opens a web page when the first area is clicked. Those files are not in the archives of this game, so nothing is shown. The call is accepted and does nothing.
+
 ### Calendar
 
 - `Game.39(days)` is the calendar of a date change. `days` is how many days the date column scrolls (word variable 100 holds the new day's row in the 31-row date table, August 18 to September 26). White curtains open over the new background, which drifts in behind a fine white veil (`InterludeBG.akb`); the month name (`Interlude.akb`) fades in, the column of dates fades in, a grey bar slides in, the disc lands (12 frames, 1.2 to 1.0 size), and the column scrolls down `days` cells in 32 frames so that the new day ends under the disc. The part of the column inside the disc's window is drawn in yellow while it scrolls. After a hold the curtains leave and everything fades out, about 280 frames in all (16 ms each, scaled by the effect speed). The script waits; a click ends it at once. With `/Config/SceneSkip` at 1 nothing is done. The white fade-out the script puts before it is lifted when the calendar starts, so the new background is up when it ends. Moves and fades are taken to be even and the layers that come in later start hidden. Compared with the original on four calendars of the first route, among them one that scrolls three days: the days shown, the month, the column, the bar and the disc are in the same places, and the column scrolls the same distance in an even move. The original under Wine ran too slowly to compare timing.
@@ -84,7 +92,6 @@ The effects are sprites of the shared effect stage: keyframes of fades, zooms an
 - Scene movies are not decoded (`Game.1002`): a still stands in or nothing is drawn. The movie laid over the picture by `Game.1001.0` is left out.
 - Not read far enough to guess the numbers: the fade in of `1001.0` (24 frames used), its zoom centre (the screen's middle used), the low point of the `1005` pulse (half used) and which way `Game.23.0` moves (from the first value to the second). In the animator: whether the 0.25 size of subs 0 and 10 is a quarter size on screen (it is drawn so, on A), which sides the pans of 1 and 11 move (100 pixels sideways and 5 down are used), what sub 30 does beside leaving A and B, whether the beam's wipe repeats (once), the pivot of the lines of 3 and 13 (the one point of their growth) and the units of the 128 frame fade of 20. In the staff roll the curves inside the stages are not known (pages fade in and out, the strip moves evenly, the logo fades into the closing page), nor the strip's real pace, and the sequence of the last pages is the plainest reading. The wipe of `Game.50.1` uses an even ramp. Effects in progress are not saved.
 - `Game.1004` (no script calls it) is carried out as removing every standing character at once, with nothing drawn; the original's exact effect is not read. `1007` to `1009` draw nothing and are accepted: they only tidy caches and the save folder's thumbnail files at start up.
-- `Game.3`, `17` and `40` are reported.
 - `Game.30` to `32` use the shared extras screens, not the game's own sheets.
 - Standing characters: the movie the glow of `13.13` and `13.15` plays over the petals is not drawn. A face that is put on a figure standing without one fades in over 12 frames in the original; here it appears with the crossfade of the commit. The curves of the slide and of the glow's fades are guessed linear; the exact frame rate of the motions (16 ms steps) and the glow's place for the left slot are not confirmed.
 
@@ -115,6 +122,9 @@ The effects are sprites of the shared effect stage: keyframes of fades, zooms an
 | `1004` | Remove all standing characters (not used by the scripts) |
 | `1007` to `1009` | Accepted, nothing drawn (cache and thumbnail file upkeep) |
 | `39` | Calendar |
+| `3` | Quit box; yes ends the game |
+| `17` | Auto save |
+| `40` | Trial notice (accepted, nothing shown) |
 
 Calls that return a value, read from the executable: 18, 30 to 32 and 34.
 
@@ -138,7 +148,12 @@ Addresses in `nanairo.exe` as linked (image base 0x400000). The code itself does
 | Face window: handler, crop and draw | 0x46eca0, 0x4590b0 |
 | Speaker name (`Game.15`) | 0x46f830 |
 | CG registry: handler | 0x46f3a0 |
-| CG table (493 rows, flags 3200 + n) | 0x533cf0 |
+| CG table (644 rows of 36 bytes: flag, then up to eight picture names; ends with -1) | 0x533cf0 |
+| CG registration: match and set the flags; start (`14.10`); layer (`14.1`) | 0x43d650; 0x43d840; 0x43d9f0 |
+| `Game.3` quit: handler; yes or no box constructor; click; button draw | 0x494c50; 0x449650; 0x449a40; 0x449c90 |
+| Box setting read (`/Config/Dialog/%02u/Enable`, default on); table of question to setting | 0x474c40 (path at 0x509490); 0x50d440, 0x50d3c0 |
+| `Game.17` auto save: handler; setting read (`/Config/AutoSave/Enable`, path at 0x5094c0); slot writer | 0x46f970; 0x4750d0; 0x463c20 |
+| `Game.40` trial notice: handler; object run | 0x472890; 0x46dc60 |
 | `Game.22`: handler; workers of subs 1 and 2 | 0x46fa10; 0x46e380, 0x46e4f0 |
 | `Game.23` scroll: handler | 0x4734d0 |
 | `/Config/SceneSkip` read; `/Config/DisplayEffect/Speed` read | 0x474ac0; 0x509390 |

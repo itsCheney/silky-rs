@@ -726,6 +726,8 @@ fn snap(
                 }
                 // Headless: H mode is left at once with its finish button.
                 Some(Pause::HMode) => println!("H mode (finished at once)"),
+                // Headless: the quit box is answered no.
+                Some(Pause::Quit) => println!("quit asked (answered no)"),
                 // アンネの部屋's costume screen: 次へ.
                 Some(Pause::Costume(_)) => {
                     println!("costume screen -> next");

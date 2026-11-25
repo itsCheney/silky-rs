@@ -164,6 +164,9 @@ Commands of ふゆから、くるる。 general enough to try on a game not know
 | `50.0`, `50.1(rule, frames, h, w, y, x)`, `50.2` | | Ending overlay: wipes in a rectangle of `moji.akb` through rule `NNN.BIN`, the script waits; `50.2` takes it away | Read |
 | `1001.3`, `1002.2`, `1003.2`, `1005.2`, `1006.100` | | Clean up: take the effect away | Read |
 | `1006` other subs | | Do nothing | Read |
+| `3` | | Quit: the yes or no box (`ExitDialog.akb`); yes ends the game, no goes on | Read |
+| `17` | | Auto save (unless `/Config/AutoSave/Enable` is 0); written at the next message | Read |
+| `40(kind)` | | Trial notice; its area files are not in the archives, so nothing is shown | Read |
 | `39`, `1004`, `1007` to `1009` | | Accepted, nothing drawn or started | Read |
 
 ## 先輩が私の妄想にドージンする
