@@ -65,7 +65,8 @@ fn script_screen(mode: Mode) -> i32 {
 impl Runtime {
     /// Opens one of the game's own mode screens (`Game.30` and `Game.32`,
     /// and the tabs that go from one to the other). The BGM left playing is
-    /// faded out by the music mode (the screen's own start).
+    /// faded out by the music mode (the screen's own start); a mode
+    /// opened over silence starts the mode BGM.
     pub(crate) fn nanairo_open_mode(&mut self, vm: &mut Vm, mode: Mode) {
         // Whether each tab is open, in the order of the strip.
         let tabs = [Mode::Cg, Mode::Music, Mode::Scene].map(|m| vm.var_b(m.tab_byte()));
@@ -102,10 +103,8 @@ impl Runtime {
                 }
                 let st = &self.system.settings;
                 let screen = MusicMode::open(tracks, tabs, st.music_on, st.music);
-                // What plays fades out (the original leaves it near
-                // silent); with the music off it is stopped. Nothing
-                // plays, nothing starts: the opening track would be
-                // silenced at once.
+                // What plays fades out over 32 steps down to -50 dB and
+                // then stops; with the music off it is stopped at once.
                 if self.system.settings.music_on {
                     self.audio.fade_out(Bus::Music, 0, 512);
                 } else {
@@ -115,6 +114,17 @@ impl Runtime {
             }
         };
         self.k1 = Some(screen);
+        // Every pass of the mode loop starts the mode BGM when nothing
+        // plays, so a mode opened over silence plays it at once.
+        self.nanairo_mode_bgm();
+    }
+
+    /// Starts the BGM of the mode screens when the music is on and the
+    /// music channel is silent.
+    pub(crate) fn nanairo_mode_bgm(&mut self) {
+        if self.system.settings.music_on && !self.audio.is_playing(Bus::Music, 0) {
+            let _ = self.play_music(music::BGM);
+        }
     }
 
     /// What the scene mode leaves in the script's variables when the mode

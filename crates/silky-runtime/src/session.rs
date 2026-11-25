@@ -2350,7 +2350,12 @@ impl Session {
             Some(crate::games::kimaten1::omake::Music::Play(file)) => {
                 let _ = self.rt.play_music_once(&file);
             }
-            Some(crate::games::kimaten1::omake::Music::Stop) => self.rt.stop_music(),
+            Some(crate::games::kimaten1::omake::Music::Stop) => {
+                self.rt.stop_music();
+                if self.ui.k1.as_ref().is_some_and(|k| k.is_nanairo_mode()) {
+                    self.rt.nanairo_mode_bgm();
+                }
+            }
             None => {}
         }
         if let Some(v) = volume {
@@ -5188,6 +5193,9 @@ impl Session {
                 && k.track_ended()
             {
                 self.frame = None;
+                if k.is_nanairo_mode() {
+                    self.rt.nanairo_mode_bgm();
+                }
             }
         }
         let flag = crate::games::doukyuusei::flaglist::available(

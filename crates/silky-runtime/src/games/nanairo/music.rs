@@ -5,8 +5,9 @@
 //! The script draws the background before it calls this; the screen draws
 //! the frame and its own parts over it. A row plays its track once; the
 //! row stays yellow and the speaker mark and the title show while it plays.
-//! The BGM the script left playing is faded out on entry, and a track
-//! picked is left playing on leaving.
+//! The BGM the script left playing is faded out on entry (or stopped, with
+//! the music off), and a track picked is left playing on leaving. Whenever
+//! the music channel is silent the screens start [`BGM`].
 
 use std::sync::Arc;
 
@@ -22,7 +23,8 @@ use crate::render::Canvas;
 use crate::Result;
 
 pub const SHEET: &str = "MUSICmode.akb";
-/// The BGM of the three modes, started when nothing plays.
+/// The BGM of the three modes, started whenever the music channel is silent
+/// and the music is on (also the first row of the music mode).
 pub const BGM: &str = "25.wav";
 
 /// The tracks: the flag that opens each and its file, in the order the
