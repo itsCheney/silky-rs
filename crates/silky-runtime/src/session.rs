@@ -87,6 +87,8 @@ pub struct Session {
     /// lies above them.
     under: Option<Canvas>,
     emote_moved: bool,
+    /// Whether the cached scene picture was made with the message window.
+    base_window: bool,
     frame: Option<Canvas>,
     /// Time the current message has been shown.
     shown_ms: u64,
@@ -238,6 +240,7 @@ impl Session {
             plate_gone: false,
             under: None,
             emote_moved: false,
+            base_window: false,
             frame: None,
             shown_ms: 0,
             saves: None,
@@ -1790,11 +1793,11 @@ impl Session {
                 self.ui.window_hidden = true;
                 self.base = None;
             }
-            RightClick::Settings => self.open_settings(),
+            RightClick::Settings => self.room_system(room::Sys::Settings),
             RightClick::Skip => self.press(Button::Bar(bar::SKIP))?,
             RightClick::Auto => self.press(Button::Bar(bar::AUTO))?,
-            RightClick::Load => self.open_save_load(Mode::Load),
-            RightClick::Save => self.open_save_load(Mode::Save),
+            RightClick::Load => self.room_system(room::Sys::Load),
+            RightClick::Save => self.room_system(room::Sys::Save),
         }
         Ok(())
     }
@@ -2052,6 +2055,22 @@ impl Session {
             && !self.menu_sliding()
             && matches!(self.ui.panel, Some(DoukPanel::Room(ref r)) if !r.look);
         if room_up {
+            self.room_system(room::Sys::Backlog);
+            return Ok(());
+        }
+        // The message window: Backspace brings it back when the player hid
+        // it, else opens the backlog (the window fades away first).
+        let message = self.douk_system.is_some()
+            && self.state == State::Text
+            && self.screen.is_none()
+            && self.dialog.is_none()
+            && !self.menu_sliding()
+            && self.ui.panel.is_none();
+        if message && self.ui.window_hidden {
+            self.ui.window_hidden = false;
+            self.base = None;
+            self.frame = None;
+        } else if message {
             self.room_system(room::Sys::Backlog);
         }
         Ok(())
@@ -2638,7 +2657,10 @@ impl Session {
                     b.scroll_by(d, self.log.len());
                 }
             }
-            None if up && self.state == State::Text => self.open_backlog(),
+            None if up && self.state == State::Text => {
+                self.room_system(room::Sys::Backlog);
+                return Ok(());
+            }
             // きまぐれテンプテーション2: down goes on like a click.
             None if self.layout.is_kimaten2() && self.state == State::Text => {
                 return self.proceed();
@@ -3306,7 +3328,10 @@ impl Session {
     /// Whether the side buttons or the room's buttons are sliding (the
     /// program takes no input).
     fn menu_sliding(&self) -> bool {
-        self.ui.menu_anim.is_some() || self.ui.room_fx.is_some() || self.ui.screen_fx.is_some()
+        self.ui.menu_anim.is_some()
+            || self.ui.room_fx.is_some()
+            || self.ui.screen_fx.is_some()
+            || self.ui.win_fx.is_some()
     }
 
     /// Starts a slide of the room (see [`crate::games::doukyuusei::room::Fx`]).
@@ -3333,6 +3358,17 @@ impl Session {
     /// twelve passes as look mode's), and slides back in when the screen
     /// is closed; elsewhere the screen opens at once.
     fn room_system(&mut self, sys: room::Sys) {
+        if self.window_fades(sys) {
+            self.ui.win_fx = Some(crate::games::doukyuusei::menu::WindowFx::new(
+                true,
+                self.ui.clock,
+                self.rt.system.settings.effect_scale(),
+                Some(sys),
+            ));
+            self.ui.hover = None;
+            self.frame = None;
+            return;
+        }
         if !self.room_slides(sys) {
             self.open_system(sys);
             return;
@@ -3340,6 +3376,68 @@ impl Session {
         self.room_slide(room::Step::HideRoom, None);
         if let Some(fx) = &mut self.ui.room_fx {
             fx.open = Some(sys);
+        }
+    }
+
+    /// Whether the message window fades away before `sys` opens over a
+    /// message (same twelve passes; the screen opens when it is gone).
+    fn window_fades(&self, sys: room::Sys) -> bool {
+        self.douk_system.is_some()
+            && self.state == State::Text
+            && self.rt.scene.text.is_some()
+            && !self.ui.window_hidden
+            && self.screen.is_none()
+            && self.dialog.is_none()
+            && self.ui.panel.is_none()
+            && self.hmode.is_none()
+            && self.ui.win_fx.is_none()
+            && !self.menu_sliding()
+            && self.can_open(sys)
+    }
+
+    /// Ends the message window's fade when its last pass is shown: after
+    /// the fade out the screen opens.
+    fn tick_window_fx(&mut self) {
+        let Some(fx) = self.ui.win_fx else {
+            return;
+        };
+        self.frame = None;
+        if !fx.done(self.ui.clock) {
+            return;
+        }
+        self.ui.win_fx = None;
+        if !fx.out {
+            let (x, y) = self.ui.pointer;
+            self.ui.hover = self.hit(x, y);
+            self.sync_cursor();
+            return;
+        }
+        if let Some(sys) = fx.open {
+            self.ui.win_off = true;
+            self.open_system(sys);
+        }
+    }
+
+    /// The screen that took the message window away is closed: the window
+    /// fades back in (unless the game has gone on to something else).
+    fn tick_window_return(&mut self) {
+        if !self.ui.win_off
+            || self.screen.is_some()
+            || self.ui.screen_fx.is_some()
+            || self.ui.win_fx.is_some()
+        {
+            return;
+        }
+        self.ui.win_off = false;
+        self.frame = None;
+        if self.state == State::Text && self.rt.scene.text.is_some() && !self.ui.window_hidden {
+            self.ui.win_fx = Some(crate::games::doukyuusei::menu::WindowFx::new(
+                false,
+                self.ui.clock,
+                self.rt.system.settings.effect_scale(),
+                None,
+            ));
+            self.ui.hover = None;
         }
     }
 
@@ -4877,6 +4975,8 @@ impl Session {
         }
         self.tick_menu_anim();
         self.tick_screen_fx();
+        self.tick_window_fx();
+        self.tick_window_return();
         self.tick_room_fx()?;
         self.room_return();
         self.tick_dialog();
@@ -5140,7 +5240,7 @@ impl Session {
             self.skip_to_choice = false;
             self.frame = None;
         }
-        if self.state == State::Text && !self.ui.window_hidden {
+        if self.state == State::Text && !self.ui.window_hidden && self.ui.win_fx.is_none() {
             let st = &self.rt.system.settings;
             let text = self.rt.scene.text.as_deref().unwrap_or("");
             let due = if self.ui.skip {
@@ -5338,7 +5438,10 @@ impl Session {
                 }
                 None => match &self.movie {
                     Some(p) => movie_frame(&p.movie, self.renderer.canvas()),
-                    None => self.game_frame()?,
+                    None => match self.ui.win_fx {
+                        Some(fx) => self.window_fade_frame(fx)?,
+                        None => self.game_frame()?,
+                    },
                 },
             };
             // A system screen fades over the scene it opened on.
@@ -5380,6 +5483,20 @@ impl Session {
         Ok(self.frame.as_ref().unwrap())
     }
 
+    /// The game while its message window fades away or back in.
+    fn window_fade_frame(
+        &mut self,
+        fx: crate::games::doukyuusei::menu::WindowFx,
+    ) -> Result<Canvas> {
+        let was = self.ui.win_off;
+        self.ui.win_off = true;
+        let bare = self.game_frame();
+        self.ui.win_off = false;
+        let full = self.game_frame();
+        self.ui.win_off = was;
+        Ok(Canvas::blend(&bare?, &full?, fx.alpha(self.ui.clock), None))
+    }
+
     /// The game with its interface.
     fn game_frame(&mut self) -> Result<Canvas> {
         {
@@ -5395,7 +5512,10 @@ impl Session {
                 // 同級生 Remake puts its selections up without it.
                 && !(!self.ui.choices.is_empty()
                     && self.rt.assets.game().title == silky_format::game::Title::Doukyuusei);
-            let moved = std::mem::take(&mut self.emote_moved);
+            // A system screen opened from a message has taken the window away.
+            let window = window && !self.ui.win_off;
+            let moved = std::mem::take(&mut self.emote_moved) || self.base_window != window;
+            self.base_window = window;
             if self.base.is_none() || (moved && self.under.is_none()) {
                 let under = self
                     .renderer
@@ -5465,8 +5585,9 @@ impl Session {
                 h.draw(&mut frame, images.each_ref().map(|i| i.as_ref()));
                 return Ok(frame);
             }
-            let text_shown =
-                matches!(self.state, State::Text | State::Choice) && self.rt.scene.text.is_some();
+            let text_shown = matches!(self.state, State::Text | State::Choice)
+                && self.rt.scene.text.is_some()
+                && !self.ui.win_off;
             // 同級生 Remake: the status plate is part of the covered screen,
             // so it goes dark and comes back with the fade.
             let ui_alpha = match (&self.busy, self.ui.plate.is_some()) {

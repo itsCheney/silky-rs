@@ -117,6 +117,48 @@ impl ScreenFx {
     }
 }
 
+/// The message window (frame, text, name plate, face, bottom buttons and
+/// the status plate) fading out before a system screen opens over a
+/// message, or fading back in after it closed; input waits. Twelve passes
+/// (fewer with a faster screen speed), linear.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowFx {
+    /// Fading out (a screen is about to open).
+    pub out: bool,
+    /// The session clock (ms) when it started.
+    pub start: u64,
+    /// Passes it takes.
+    pub n: u32,
+    /// The screen that opens when the fade out ends.
+    pub open: Option<super::room::Sys>,
+}
+
+impl WindowFx {
+    pub fn new(out: bool, start: u64, scale: f32, open: Option<super::room::Sys>) -> Self {
+        Self {
+            out,
+            start,
+            n: slide_passes(scale),
+            open,
+        }
+    }
+
+    /// Whether the last pass has been shown.
+    pub fn done(&self, clock: u64) -> bool {
+        passes(self.start, clock) >= self.n
+    }
+
+    /// How much of the window shows, 0 to 1.
+    pub fn alpha(&self, clock: u64) -> f32 {
+        let t = (passes(self.start, clock).min(self.n) as f32) / self.n as f32;
+        if self.out {
+            1.0 - t
+        } else {
+            t
+        }
+    }
+}
+
 /// A slide of the six buttons that is running.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MenuAnim {
@@ -264,6 +306,22 @@ mod tests {
         assert_eq!(out.n, 6);
         assert_eq!(out.alpha(0), 1.0);
         assert_eq!(out.alpha(10_000), 0.0);
+    }
+
+    #[test]
+    fn the_message_window_fades_out_then_in() {
+        use super::super::room::Sys;
+        let out = WindowFx::new(true, 0, 1.0, Some(Sys::Backlog));
+        assert_eq!(out.n, 12);
+        assert_eq!(out.alpha(0), 1.0);
+        assert!((out.alpha(100) - 0.5).abs() < 0.01);
+        assert!(!out.done(190));
+        assert!(out.done(200));
+        assert_eq!(out.alpha(10_000), 0.0);
+        let back = WindowFx::new(false, 500, 0.0, None);
+        assert_eq!(back.n, 1);
+        assert_eq!(back.alpha(500), 0.0);
+        assert_eq!(back.alpha(10_000), 1.0);
     }
 
     #[test]

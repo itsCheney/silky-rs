@@ -205,6 +205,12 @@ pub struct Ui {
     pub room_fx: Option<crate::games::doukyuusei::room::Fx>,
     /// 同級生 Remake: a system screen fades in or out; input waits.
     pub screen_fx: Option<crate::games::doukyuusei::menu::ScreenFx>,
+    /// 同級生 Remake: the message window fades out before a system screen
+    /// opens over a message, and back in when it closes; input waits.
+    pub win_fx: Option<crate::games::doukyuusei::menu::WindowFx>,
+    /// 同級生 Remake: a system screen opened from a message is up (or about
+    /// to come back), so the message window's layers are away.
+    pub win_off: bool,
     /// 同級生 Remake: a system screen opened from the room is up, the room
     /// stays slid away behind it.
     pub room_away: bool,
@@ -311,6 +317,14 @@ impl Ui {
         let kept = if self.plate_keep { 255 } else { 0 };
         let looking = matches!(&self.panel, Some(Panel::Room(r)) if r.look && !r.is_plain());
         let pass = self.room_pass();
+        // The message window's own fade takes the plate (unless byte 4084
+        // keeps it) and the menu button with it.
+        if self.win_off {
+            return Chrome {
+                plate: if up { kept } else { 0 },
+                menu: None,
+            };
+        }
         let (plate, menu) = match pass {
             Some(p) if matches!(p.step, Step::HideRoom | Step::ShowRoom) => {
                 (p.plate_alpha().max(kept), Some(p.menu_dx()))
@@ -2721,6 +2735,27 @@ impl Layout {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_plate_and_menu_button_go_with_the_message_window() {
+        let mut ui = Ui::default();
+        ui.plate = Some(crate::games::doukyuusei::plate::Plate {
+            weekday: 1,
+            date: 401,
+            time: 800,
+            money: 0,
+            mode: 1,
+        });
+        assert_eq!(ui.chrome().plate, 255);
+        assert_eq!(ui.chrome().menu, Some(0));
+        ui.win_off = true;
+        assert_eq!(ui.chrome().plate, 0);
+        assert_eq!(ui.chrome().menu, None);
+        // Byte 4084 keeps the plate.
+        ui.plate_keep = true;
+        assert_eq!(ui.chrome().plate, 255);
+        assert_eq!(ui.chrome().menu, None);
+    }
 
     #[test]
     fn title_buttons_jump_and_settle() {
