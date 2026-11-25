@@ -225,6 +225,15 @@ impl Screen {
         }
     }
 
+    /// The notebook this screen is, or the one the map has open.
+    pub fn notebook(&self) -> Option<&Notebook> {
+        match self {
+            Screen::Notebook(n) => Some(n),
+            Screen::Map(m) => m.book(),
+            _ => None,
+        }
+    }
+
     /// The mouse wheel (`up` away from the player); true when the screen
     /// has something to scroll.
     pub fn wheel(&mut self, up: bool) -> bool {

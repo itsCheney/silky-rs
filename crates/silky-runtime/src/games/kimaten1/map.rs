@@ -182,6 +182,11 @@ impl Map {
         (0..PLACES as i32).contains(&id).then_some(id as usize)
     }
 
+    /// The notebook, while it is open over the map.
+    pub fn book(&self) -> Option<&Notebook> {
+        self.book.as_deref()
+    }
+
     pub fn hit(&self, x: i32, y: i32) -> Option<i32> {
         if let Some(b) = &self.book {
             return b.hit(x, y);

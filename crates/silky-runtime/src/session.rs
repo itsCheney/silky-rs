@@ -2175,7 +2175,9 @@ impl Session {
         let vars = (BOOK_FIRST..BOOK_FIRST + BOOK_VARS)
             .map(|i| self.vm.var_b(i))
             .collect();
-        if let Ok(n) = Notebook::new(&self.rt.assets, vars) {
+        let book = Notebook::new(&self.rt.assets, vars)
+            .map(|n| n.from_bar(self.ui.notebook, !self.ui.has_log, !self.ui.has_saves));
+        if let Ok(n) = book {
             self.ui.k1_menu = Some(crate::games::kimaten1::Screen::Notebook(n));
             self.ui.k1_since = self.ui.clock;
             self.ui.hover = None;
@@ -2232,6 +2234,7 @@ impl Session {
         // A system screen over the script's own takes the press; what it
         // closes with is never an answer to the script.
         if let Some(s) = &mut self.ui.k1_menu {
+            let is_book = matches!(s, crate::games::kimaten1::Screen::Notebook(_));
             let sound = s.take_sound();
             let voice = s.take_voice();
             for (i, v) in s.take_bytes() {
@@ -2248,7 +2251,15 @@ impl Session {
                     self.ui.hover = None;
                     self.base = None;
                 }
-                Click::Bar(id) => self.press(crate::ui::Button::Bar(id))?,
+                Click::Bar(id) => {
+                    // The notebook's own menu buttons leave it first.
+                    if is_book {
+                        self.ui.k1_menu = None;
+                        self.ui.hover = None;
+                        self.base = None;
+                    }
+                    self.press(crate::ui::Button::Bar(id))?
+                }
                 Click::None => {}
             }
             return Ok(());
@@ -2578,6 +2589,9 @@ impl Session {
     pub fn arrow(&mut self, key: crate::games::apeiria::keys::Arrow) -> Result<Option<(i32, i32)>> {
         use crate::games::apeiria::keys::{self, Move};
         use crate::games::apeiria::omake;
+        if let Some(to) = self.k1_arrow(key) {
+            return Ok(to);
+        }
         if matches!(self.ui.panel, Some(DoukPanel::Room(_)))
             && self.dialog.is_none()
             && self.screen.is_none()
@@ -2628,6 +2642,30 @@ impl Session {
         Ok(None)
     }
 
+    /// Arrow keys on the notebook of きまぐれテンプテーション: `Some` when
+    /// one is up (the pointer moves to the element the key leads to, if
+    /// there is one).
+    fn k1_arrow(&mut self, key: crate::games::apeiria::keys::Arrow) -> Option<Option<(i32, i32)>> {
+        if self.dialog.is_some() || self.screen.is_some() || self.veil.is_some() {
+            return None;
+        }
+        let book = self
+            .ui
+            .k1_menu
+            .as_ref()
+            .or(self.ui.k1.as_ref())?
+            .notebook()?;
+        let at = match self.ui.hover {
+            Some(Button::Kimaten1(id)) => Some(id),
+            _ => None,
+        };
+        let to = book.arrow(at, key).and_then(|id| book.centre(id));
+        if let Some((x, y)) = to {
+            self.pointer_move(x, y);
+        }
+        Some(to)
+    }
+
     /// Arrow keys on a 同級生 Remake selection: `Some` when one is up (the
     /// pointer moves to the target, if there is one).
     fn douk_arrow(
@@ -2662,6 +2700,11 @@ impl Session {
         if let Some(s) = self.ui.k1_menu.as_mut().or(self.ui.k1.as_mut()) {
             if s.wheel(up) {
                 return self.k1_answer(crate::games::kimaten1::Click::None);
+            }
+            // The notebook takes the wheel whether or not it scrolls: the
+            // message behind it gets none.
+            if s.notebook().is_some() || self.ui.k1_menu.is_some() {
+                return Ok(());
             }
         }
         let d = if up { -1 } else { 1 };
@@ -4508,6 +4551,21 @@ impl Session {
             && (self.dialog.is_some() || matches!(self.ui.panel, Some(DoukPanel::Name(_))))
         {
             return Ok(());
+        }
+        // The notebook of きまぐれテンプテーション: Enter clicks what the
+        // pointer is on (where the arrow keys put it).
+        if self.dialog.is_none()
+            && self.screen.is_none()
+            && self
+                .ui
+                .k1_menu
+                .as_ref()
+                .or(self.ui.k1.as_ref())
+                .is_some_and(|s| s.notebook().is_some())
+        {
+            let (x, y) = self.ui.pointer;
+            self.pointer_down(x, y)?;
+            return self.pointer_up(x, y);
         }
         // 景の海のアペイリア's extras: Enter clicks where the arrow keys
         // put the pointer.

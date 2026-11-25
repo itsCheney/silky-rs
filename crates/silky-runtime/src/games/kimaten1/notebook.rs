@@ -22,9 +22,10 @@ use std::cell::Cell;
 
 use silky_format::area::{self, Area};
 
-use super::map::{draw_info, fade_alpha, faded, FADE_MS, MENU_INFO, OK_SOUND};
+use super::map::{fade_alpha, faded, FADE_MS, MENU_INFO, OK_SOUND};
 use super::screen::{Click, Look};
 use crate::assets::Assets;
+use crate::games::apeiria::keys::Arrow;
 use crate::render::Canvas;
 use crate::Result;
 
@@ -88,6 +89,12 @@ const VIEW: (i32, i32, u32, u32) = (385, 130, 808, 523);
 const TITLE_POS: (i32, i32) = (492, 35);
 const TITLE_SIZE: (u32, u32) = (707, 77);
 const TITLE_ROWS: usize = 12;
+/// The help line: written from this corner, a 16 pixel cell for each full
+/// width character. The glyph size and baseline are measured from the
+/// original's frames (the executable only gives the cell).
+const INFO_CELL: f32 = 16.0;
+const INFO_TEXT: f32 = 12.0;
+const INFO_TEXT_POS: (f32, f32) = (668.0, 707.0);
 const INFO_BAR: ((u32, u32, u32, u32), (i32, i32)) = ((364, 0, 513, 30), (540, 687));
 /// Scroll arrows: the shape in `archive00_p.akb` and where they go.
 const ARROW_SIZE: (u32, u32) = (49, 44);
@@ -201,6 +208,15 @@ pub struct Notebook {
     leave: Leave,
     /// The screen's clock when it was first seen, for the fade in.
     since: Cell<Option<u64>>,
+    /// Opened from the message window's bar: its first four buttons open
+    /// the engine's own screens.
+    system: bool,
+    /// Byte 899: the notebook's own button (always the current one here)
+    /// is lit instead of grey.
+    unlocked: bool,
+    /// The history and load buttons are grey (no log, no saves).
+    history_off: bool,
+    load_off: bool,
 }
 
 impl Notebook {
@@ -243,6 +259,33 @@ impl Notebook {
             voice: None,
             leave: Leave::No,
             since: Cell::new(None),
+            system: false,
+            unlocked: true,
+            history_off: false,
+            load_off: false,
+        }
+    }
+
+    /// The notebook opened from the message window's bar: its menu buttons
+    /// work, and the history and load buttons are grey as on the bar.
+    pub fn from_bar(mut self, unlocked: bool, history_off: bool, load_off: bool) -> Self {
+        self.system = true;
+        self.unlocked = unlocked;
+        self.history_off = history_off;
+        self.load_off = load_off;
+        self
+    }
+
+    /// The picture row of menu button `n` (0 to 5). The notebook's own
+    /// button is the current one: lit once unlocked, grey before; the
+    /// history and load buttons go grey as on the bar.
+    fn menu_state(&self, n: i32, state: u32) -> u32 {
+        match n {
+            5 if self.extras || !self.unlocked => 3,
+            5 => 2,
+            2 if self.history_off => 3,
+            4 if self.load_off => 3,
+            _ => state,
         }
     }
 
@@ -347,6 +390,8 @@ impl Notebook {
             // Only the title menu's copy has the button that unlocks all.
             UNLOCK => self.extras,
             MENU_NOTEBOOK => false,
+            m if m == MENU + 2 => !self.history_off,
+            m if m == MENU + 4 => !self.load_off,
             _ => true,
         }
     }
@@ -394,6 +439,14 @@ impl Notebook {
             UNLOCK => {
                 self.sound = Some(OK_SOUND.into());
                 self.unlock_all();
+            }
+            // The first five menu buttons end the screen and the window
+            // opens what they stand for.
+            m if self.system && (MENU..MENU + 5).contains(&m) => {
+                self.sound = Some(OK_SOUND.into());
+                self.playing = false;
+                self.voice = Some(Voice::Stop);
+                return super::chrome::bar_click(m).unwrap_or(Click::None);
             }
             _ => {}
         }
@@ -469,6 +522,86 @@ impl Notebook {
         let d = if up { -SCROLL_STEP } else { SCROLL_STEP };
         self.offset = (self.offset + d).clamp(0, self.max_scroll());
         true
+    }
+
+    /// Where an arrow key sends the pointer, from the element under it
+    /// (`None`: nothing), as the original's four key handlers do. A key
+    /// moves the pointer to the middle of another element whether or not
+    /// that element can be pressed; the help line follows the hover. From
+    /// no element the pointer first goes to the first row, and the key's
+    /// own move then runs from that stale state: only right goes further
+    /// (to the up arrow).
+    pub fn arrow(&self, at: Option<i32>, key: Arrow) -> Option<i32> {
+        let mut first = None;
+        let (g, s) = match at {
+            Some(id) => (id >> 8, id & 0xff),
+            None => {
+                first = Some(0);
+                (0, -1)
+            }
+        };
+        let to = match key {
+            Arrow::Up => match g {
+                0 => Some(if s == 0 { PREV } else { (s - 1) & 0xff }),
+                1 => match s {
+                    1 => Some(UP),
+                    0 if self.extras => Some(UNLOCK),
+                    _ => None,
+                },
+                2 => Some(DOWN),
+                0xf => Some(NEXT),
+                _ => None,
+            },
+            Arrow::Down => match g {
+                0 => Some(if s == ROWS as i32 - 1 {
+                    NEXT
+                } else {
+                    (s + 1) & 0xff
+                }),
+                1 => match s {
+                    0 => Some(DOWN),
+                    1 => Some(BACK),
+                    _ => None,
+                },
+                3 => match s {
+                    0 => Some(0),
+                    1 => Some(MENU),
+                    _ => None,
+                },
+                5 => Some(UP),
+                _ => None,
+            },
+            Arrow::Left => match g {
+                1 => Some(match s {
+                    0 => PREV,
+                    1 => NEXT,
+                    _ => 0,
+                }),
+                2 => Some(MENU_NOTEBOOK),
+                5 => Some(PREV),
+                0xf if s != 0 => Some(MENU + s - 1),
+                _ => None,
+            },
+            Arrow::Right => match g {
+                0 => Some(UP),
+                3 => match s {
+                    0 => Some(UP),
+                    1 => Some(DOWN),
+                    _ => None,
+                },
+                0xf => Some(if s == 5 { BACK } else { MENU + s + 1 }),
+                _ => None,
+            },
+        };
+        // An element the screen lacks is not found and the pointer stays.
+        let known = |id: i32| self.areas.iter().any(|a| a.id == id);
+        to.filter(|&id| known(id)).or(first.filter(|&id| known(id)))
+    }
+
+    /// The middle of element `id`, where a key puts the pointer.
+    pub fn centre(&self, id: i32) -> Option<(i32, i32)> {
+        let a = self.areas.iter().find(|a| a.id == id)?;
+        Some(((a.left + a.right) / 2, (a.top + a.bottom) / 2))
     }
 
     /// A press or drag at y on the thumb's track: the thumb is centred on
@@ -666,7 +799,7 @@ impl Notebook {
         // Bottom row: menu buttons and the way out.
         for n in 0..6 {
             let id = MENU + n;
-            let st = if id == MENU_NOTEBOOK { 3 } else { state(id) };
+            let st = self.menu_state(n, state(id));
             canvas.draw_part(
                 &sheet,
                 (
@@ -695,7 +828,18 @@ impl Notebook {
             255,
         );
         if let (Some(tr), Some(info)) = (look.text, self.info(look.hover)) {
-            draw_info(tr, canvas, &info);
+            // 16 pixel cells; the glyphs are smaller, white with a black edge.
+            tr.with_fixed_cells(INFO_CELL / INFO_TEXT, |tr| {
+                tr.draw_outlined(
+                    canvas,
+                    &info,
+                    INFO_TEXT_POS.0,
+                    INFO_TEXT_POS.1,
+                    INFO_TEXT,
+                    [255, 255, 255, 255],
+                    [0, 0, 0, 255],
+                )
+            });
         }
         Ok(())
     }
@@ -718,6 +862,7 @@ impl Notebook {
             PREV => "捜査手帳項目リストを１ページ戻します",
             NEXT => "捜査手帳項目リストを１ページ進めます",
             VOICE if self.selected == Some(VOICE_ENTRY) => "録音音声を再生します",
+            UNLOCK if self.extras => "全ての捜査手帳項目を解放します",
             0xf00..=0xf05 => MENU_INFO[(id - MENU) as usize],
             _ => return None,
         };
@@ -742,8 +887,71 @@ mod tests {
                 right: 318,
                 bottom: 167 + 32 * i,
             })
+            .chain(
+                [UP, DOWN, TRACK, BACK, PREV, NEXT, VOICE, UNLOCK]
+                    .into_iter()
+                    .chain(MENU..MENU + 6)
+                    .map(|id| Area {
+                        id,
+                        left: 0,
+                        top: 0,
+                        right: 10,
+                        bottom: 10,
+                    }),
+            )
             .collect();
         Notebook::with_areas(areas, v, false)
+    }
+
+    #[test]
+    fn keys_walk_the_elements_as_the_original() {
+        let b = book(&[]);
+        use Arrow::*;
+        // From nothing: the first row, and right goes on to the up arrow.
+        assert_eq!(b.arrow(None, Down), Some(0));
+        assert_eq!(b.arrow(None, Up), Some(0));
+        assert_eq!(b.arrow(None, Left), Some(0));
+        assert_eq!(b.arrow(None, Right), Some(UP));
+        assert_eq!(b.arrow(Some(UP), Left), Some(PREV));
+        assert_eq!(b.arrow(Some(PREV), Down), Some(0));
+        // Rows: up and down, the page buttons at the ends, right to the arrow.
+        assert_eq!(b.arrow(Some(3), Down), Some(4));
+        assert_eq!(b.arrow(Some(3), Up), Some(2));
+        assert_eq!(b.arrow(Some(0), Up), Some(PREV));
+        assert_eq!(b.arrow(Some(13), Down), Some(NEXT));
+        assert_eq!(b.arrow(Some(5), Right), Some(UP));
+        assert_eq!(b.arrow(Some(5), Left), None);
+        // The scroll bar, the back button and the menu row.
+        assert_eq!(b.arrow(Some(UP), Down), Some(DOWN));
+        assert_eq!(b.arrow(Some(DOWN), Down), Some(BACK));
+        assert_eq!(b.arrow(Some(DOWN), Up), Some(UP));
+        assert_eq!(b.arrow(Some(DOWN), Left), Some(NEXT));
+        assert_eq!(b.arrow(Some(BACK), Up), Some(DOWN));
+        assert_eq!(b.arrow(Some(BACK), Left), Some(MENU + 5));
+        assert_eq!(b.arrow(Some(NEXT), Down), Some(MENU));
+        assert_eq!(b.arrow(Some(MENU + 2), Right), Some(MENU + 3));
+        assert_eq!(b.arrow(Some(MENU + 5), Right), Some(BACK));
+        assert_eq!(b.arrow(Some(MENU), Left), None);
+        assert_eq!(b.arrow(Some(MENU + 2), Up), Some(NEXT));
+        // The unlock button exists only on the title's copy.
+        assert_eq!(b.arrow(Some(UP), Up), None);
+        let mut t = book(&[]);
+        t.extras = true;
+        assert_eq!(t.arrow(Some(UP), Up), Some(UNLOCK));
+        assert_eq!(t.arrow(Some(UNLOCK), Down), Some(UP));
+        assert_eq!(t.arrow(Some(UNLOCK), Left), Some(PREV));
+    }
+
+    #[test]
+    fn the_menu_row_opens_the_windows_screens_from_the_bar_only() {
+        let mut b = book(&[]).from_bar(true, true, false);
+        // History is grey, the notebook's own button does nothing.
+        assert_eq!(b.click(MENU + 2), Click::None);
+        assert_eq!(b.click(MENU + 5), Click::None);
+        assert!(matches!(b.click(MENU + 3), Click::Bar(_)));
+        assert!(matches!(b.click(MENU), Click::Bar(_)));
+        let mut m = book(&[]);
+        assert_eq!(m.click(MENU + 3), Click::None);
     }
 
     #[test]

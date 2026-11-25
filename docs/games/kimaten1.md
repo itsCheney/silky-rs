@@ -57,6 +57,29 @@ Option n is on while byte 7500 + n of the raw area is 1; the script's option wra
 
 The 捜査手帳 lists 36 entries on three pages of 14 rows. An entry opens its page (`archive_w01.akb` and on) under a title picture. A tall page scrolls with the wheel (10 pixels a notch, also in the map's embedded notebook) or by dragging the scroll bar. Each entry has a byte (900 and on): 0 locked, 1 read, 2 or 3 new; opening a new entry reads it. One entry holds a recording, played from a button over its picture: five lines in turn (`kt_b0155`, `kt_c0201`, `kt_b0156`, `kt_c0202`, `kt_c0203`). The background and page fade in and out over 12 frames. No `Game` command opens the notebook: the script announces it with a notice, and the player opens it from the bar, the map's menu or the title.
 
+The bottom row has six menu buttons (settings, sound, history, save, load, notebook). The notebook's own button is the current one: lit (row 2 of its picture) once byte 899 is set, grey before, and pressing it does nothing. History and load are grey as on the bar. Opened from the window's bar, the first five buttons close the notebook and the window opens what they stand for (the sound button opens the settings, as on the action menu's bar). The wheel scrolls only a page that is tall enough, wherever the pointer is; with nothing open it does nothing (and does not reach the message behind).
+
+The keys put the pointer on another element (the help line follows the hover; nothing else happens, no sound). The focus is the element under the pointer; from none, every key first goes to the first row. Ids are the area file's: rows 0 to 13, up arrow 0x100, down arrow 0x101, thumb track 0x102, back 0x200, page back 0x300, page forward 0x301, recording 0x400, unlock-all 0x500 (title copy only), menu buttons 0xf00 to 0xf05.
+
+| Key | From | To |
+| --- | --- | --- |
+| Up | row n | row n-1; row 0: page back |
+| Up | down arrow, back, menu button | up arrow, down arrow, page forward |
+| Up | up arrow | unlock-all (title copy), else nothing |
+| Down | row n | row n+1; row 13: page forward |
+| Down | up arrow, down arrow | down arrow, back |
+| Down | page back, page forward, unlock-all | row 0, first menu button, up arrow |
+| Left | up arrow, down arrow, track | page back, page forward, row 0 |
+| Left | back, unlock-all | notebook menu button, page back |
+| Left | menu button n | menu button n-1 (none from the first) |
+| Right | any row | up arrow |
+| Right | page back, page forward | up arrow, down arrow |
+| Right | menu button n | menu button n+1; the last: back |
+
+The keys always move the pointer, whether or not the target can be pressed. A key with no entry in the table does nothing (from none it still goes to row 0). Enter presses what the pointer is on, as a click does.
+
+The help line is written in 16 pixel cells at (668, 695), white glyphs with a black edge, smaller than the cell.
+
 ### Notices
 
 `Game.44` queues a string (sub 0), shows the queue (sub 1), takes the strips down (sub 2), clears the queue (sub 3) or answers whether strips are still up (sub 4). A notice is a small pink strip, such as 「捜査手帳」が解放されました, that slides in from the right edge, stays four seconds and slides out. The strips of one batch are as wide as the longest; the older ones step down to make room.
@@ -106,13 +129,15 @@ CG, scene and music modes (`Game.30` to `Game.32`) are tabs of one screen: a pre
 
 Frames of the first action menu and the first map (second chapter) were compared with screenshots of the original at the same pointer positions (menu: look, move; map: rooms 101 and 102; plus the frame right after pressing Move). The backgrounds differ (the reference save loads a different scene), so only the interface pixels were measured: over the pixels the interface draws opaquely the map matches to an RMSE of about 3 to 5 (floors, cards, crown and wings, locked card, title, back button, information line), and the menu buttons, heart marker, pressed state and title match as well. One difference was found and fixed: the menu wrote a help line when a large button was hovered, the original does not. The history button is grey in the reference only because that save has no backlog. A right click on the map did not cancel in the reference run; the exe's handler answers 100 when the back button is on, so that is taken to be a test artefact (the click may have been missed) and was not copied.
 
+The notebook (opened from the action menu's bar, six entries new, the rest locked) was compared with frames of the original in the chrome areas: the list column, the new and locked markers, both page pills and arrows, the title area and the lower bar match to an RMSE of about 1 (top) and 4 (the whole bottom strip, which keeps an edge-blur difference on the bar's frames in the reference that the pixels of our sheet do not reproduce). Fixed from that: the notebook's own button is lit instead of grey, history and load grey as on the bar, the help line's place, size and black edge, and the key focus (the same four keys, Right then Left then Down give the original's help lines and outlined first row). Opening takes the same 12 frame fade.
+
 ## Not done yet
 
 - Skip tutorial: the OK button's pressed row and wait for release, and the confirm dialog's 12-frame fades.
 - Fold slide: the exe may block input during it. The stepping rate was not checked in this build.
 - `Game.10` sub 18 acts on a part of the window that nothing in the story reaches.
 - Title sparkles: the layer over the buttons is a guess.
-- Map and notebook: input is not blocked during the fades. A flag bit on the message window object at map exit is not identified. The notebook's keyboard keys are not ported.
+- Map and notebook: input is not blocked during the fades. A flag bit on the message window object at map exit is not identified.
 - Anne viewer: the text edge and baselines are estimated. A same-outfit reselect may keep the running pose in the original. The wheel is ignored while the buttons are hidden; the original scrolls.
 - Extras: the CG cell sound is not skipped when g[16] is 1. Message bar buttons 0 and 2 do not grey while h[69] is 1.
 - Option list and bar: the flags at 0x8a4 and 0x8c4 in the option list, the quick save and load greying in the action menu and the meaning of 0x6a4 are unknown. The greying of history and load is approximate.
@@ -187,7 +212,8 @@ Addresses in `kimaten.exe` of the build above. The code itself does not name the
 | Notebook: scroll bar draw, thumb draw, drag loop | 0x480490, 0x4805a0, 0x480640 |
 | Notebook: select entry, info line, voice lines and next line, unlock all | 0x480a70, 0x47ffe0, 0x482100, 0x4821b0 |
 | Notebook: fade in and out, wheel, thumb press | 0x47fb60, 0x47fda0, 0x47edb0, 0x47ee70 |
-| Notebook: keyboard, entry variable table | 0x47eeb0..0x47f110, 0x5368f0..0x536980 |
+| Notebook: keyboard (up, down, left, right), entry variable table | 0x47eeb0, 0x47ef70, 0x47f040, 0x47f110, 0x5368f0..0x536980 |
+| Notebook: menu button state (grey or current), help text draw, pointer to element, element lookup | 0x4904e0, 0x4908b0, 0x49cd50, 0x49ccc0 |
 | Skip tutorial: vtable | 0x53cf34 |
 | Skip tutorial: create, open, hover, press and close | 0x4928a0, 0x4929e0, 0x492ae0, 0x492bb0 |
 | Skip tutorial: fade in, fade out | 0x492d80, 0x492f30 |
