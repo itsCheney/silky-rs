@@ -45,9 +45,9 @@ const SCENE_MODE: i32 = 31;
 /// The music mode.
 const MUSIC_MODE: i32 = 32;
 
-/// The script variables the modes share (G bank): the CG screen's flag, the
-/// page or variant, the result of the screen and the screen's number
-/// (0 CG, 1 scene, 2 music).
+/// The script variables the modes share (G bank): the resume flag of the CG
+/// screen, the page or variant, the result of the screen (the picture to
+/// resume on) and the screen's number (0 CG, 1 scene, 2 music).
 const SCRIPT_CG: usize = 16;
 const SCRIPT_PAGE: usize = 17;
 const SCRIPT_RESULT: usize = 18;
@@ -70,18 +70,16 @@ impl Runtime {
     pub(crate) fn nanairo_open_mode(&mut self, vm: &mut Vm, mode: Mode) {
         // Whether each tab is open, in the order of the strip.
         let tabs = [Mode::Cg, Mode::Music, Mode::Scene].map(|m| vm.var_b(m.tab_byte()));
-        // Opening a mode ends a replay.
-        self.scene.cg.set_replay(false);
         let screen = match mode {
             Mode::Cg => {
                 self.cancelled = false;
                 let flags: Vec<u8> = ROWS.iter().map(|r| vm.var_b(r.flag as usize)).collect();
-                // With script variable 9 at 1 the screen opens on the
-                // picker of the picture in variable 25.
-                let first = (vm.var_g(9).int() == 1).then(|| vm.var_g(25).int().max(0) as usize);
+                // With the resume flag at 1 the screen opens on the picker of
+                // the picture in the result variable, and clears the flag.
+                let first = (vm.var_g(SCRIPT_CG).int() == 1)
+                    .then(|| vm.var_g(SCRIPT_RESULT).int().max(0) as usize);
                 if first.is_some() {
-                    vm.set_g(8, 0);
-                    vm.set_g(9, 0);
+                    vm.set_g(SCRIPT_CG, 0);
                 }
                 Screen::NanairoCg(Box::new(CgMode::open(&flags, tabs, first)))
             }
@@ -129,18 +127,19 @@ impl Runtime {
     }
 
     /// Starts the BGM of the mode screens when the music is on and the
-    /// music channel is silent.
+    /// music channel is silent. It is played as the music mode plays a
+    /// track (once); every pass of the loop starts it again after it ends.
     pub(crate) fn nanairo_mode_bgm(&mut self) {
         if self.system.settings.music_on && !self.audio.is_playing(Bus::Music, 0) {
-            let _ = self.play_music(music::BGM);
+            let _ = self.play_music_once(music::BGM);
         }
     }
 
     /// What the scene mode leaves in the script's variables when the mode
-    /// loop acts on its answer: a tab press clears the screens' variables
-    /// and the script's screen number follows the screen; a scene picked
-    /// is replayed by the script, which opens the screen again on the same
-    /// page, and the CG registry stays out of the replay.
+    /// loop acts on its answer: a tab press clears the page variable and
+    /// the script's screen number follows the screen; a scene picked is
+    /// replayed by the script, which opens the screen again on the same
+    /// page.
     pub(crate) fn nanairo_mode_left(
         &mut self,
         vm: &mut Vm,
@@ -150,15 +149,11 @@ impl Runtime {
     ) {
         match next {
             mode::Next::Go(to) => {
-                for g in [SCRIPT_CG, SCRIPT_PAGE, SCRIPT_RESULT] {
-                    vm.set_g(g, 0);
-                }
+                vm.set_g(SCRIPT_PAGE, 0);
                 vm.set_g(SCRIPT_SCREEN, script_screen(to));
             }
             mode::Next::Leave(v) if from == Mode::Scene && v >= 0 => {
-                vm.set_g(SCRIPT_SCREEN, script_screen(from));
                 vm.set_g(SCRIPT_PAGE, page as i32);
-                self.scene.cg.set_replay(true);
             }
             mode::Next::Leave(_) => {}
         }
@@ -174,7 +169,6 @@ impl Runtime {
         }
         match c.command {
             TITLE => {
-                self.scene.cg.set_replay(false);
                 crate::games::nanairo::effects::clear_all(&mut self.scene.effects);
                 self.wait_for(Pause::Title)
             }

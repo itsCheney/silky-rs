@@ -770,7 +770,11 @@ impl Session {
                         break;
                     }
                     Some(Pause::Choice) => {
-                        if self.rt.system.settings.auto_save_at_choices {
+                        // Nanairo: no auto save while the extras flag is set.
+                        let extras = self.rt.assets.game().title
+                            == silky_format::game::Title::Nanairo
+                            && self.vm.var_h(REPLAY_VAR).int() != 0;
+                        if self.rt.system.settings.auto_save_at_choices && !extras {
                             self.auto_save();
                         }
                         let len = self.logged;

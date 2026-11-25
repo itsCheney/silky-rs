@@ -330,8 +330,10 @@ impl CgMode {
     pub fn centre(&self, id: i32) -> Option<(i32, i32)> {
         if let Some(v) = &self.view {
             let np = self.view_cells(v);
+            // The press beside the cells is not a button of the picker,
+            // so the pointer is not moved to it.
             if id == OUTSIDE {
-                return Some((640, 360));
+                return None;
             }
             if (0..np as i32).contains(&id) {
                 let (x, y) = view_cell(np, id as usize);
@@ -405,9 +407,9 @@ impl CgMode {
                     } else {
                         Mode::Scene
                     };
-                    // The next screen starts from the top: the viewing flag
-                    // and the variant are cleared.
-                    self.globals = vec![(16, 0), (17, 0)];
+                    // The next screen starts from the top: the variant is
+                    // cleared and the screen number set, by the mode loop
+                    // (`nanairo_mode_left`).
                     self.leave = Leave::Pending(to.code());
                 }
             }
@@ -433,7 +435,7 @@ impl CgMode {
                 if self.variant_seen(v.item, var) {
                     self.sound = Some(OK_SOUND);
                     // The script shows the picture from this variant on.
-                    self.globals = vec![(8, 0), (16, 0), (17, var as i32)];
+                    self.globals = vec![(17, var as i32)];
                     self.leave = Leave::Pending(v.item as i32);
                 }
             }
@@ -850,7 +852,7 @@ mod tests {
         assert_eq!(m.settle(), None);
         m.click(5);
         assert_eq!(m.take_sound().as_deref(), Some("ses_001.wav"));
-        assert_eq!(m.take_globals(), vec![(8, 0), (16, 0), (17, 5)]);
+        assert_eq!(m.take_globals(), vec![(17, 5)]);
         assert_eq!(m.tick(100), None);
         assert_eq!(m.tick(100 + 12 * 16), Some(Click::Result(4)));
         assert_eq!(mode::next(Mode::Cg, 4), mode::Next::Leave(4));
@@ -872,7 +874,7 @@ mod tests {
         assert!(!m.enabled(NEXT));
         // Variant 30 is the one cell of the last page.
         m.click(0);
-        assert_eq!(m.take_globals(), vec![(8, 0), (16, 0), (17, 30)]);
+        assert_eq!(m.take_globals(), vec![(17, 30)]);
         // A single page has no arrows.
         let m = CgMode::open(&flags(&[4]), [1; 3], Some(4));
         assert_eq!(m.hit(560, 620), Some(OUTSIDE));
@@ -906,7 +908,7 @@ mod tests {
         assert_eq!(m.settle(), None);
         m.click(0xf01);
         assert_eq!(m.take_sound().as_deref(), Some("ses_001.wav"));
-        assert_eq!(m.take_globals(), vec![(16, 0), (17, 0)]);
+        assert!(m.take_globals().is_empty());
         assert_eq!(m.settle(), Some(Click::Result(0x101)));
         assert_eq!(mode::next(Mode::Cg, 0x101), mode::Next::Go(Mode::Music));
         let mut m = open(&[]);

@@ -437,8 +437,9 @@ impl Runtime {
         if self.scene_skip() {
             return self.done();
         }
-        // The calendar writes an auto save as it starts.
-        self.nanairo_auto_save();
+        // The calendar writes an auto save, whatever the configuration says
+        // (the original does it as the calendar ends).
+        self.auto_save = true;
         // The one value is the last before the command, so it may arrive
         // as the sub command.
         let days = if c.sub >= 0 { c.sub } else { c.int(0) };
