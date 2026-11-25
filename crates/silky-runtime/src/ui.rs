@@ -181,6 +181,9 @@ pub struct Ui {
     /// place the bar has slid (0 up, [`BAR_DROP`] out of sight).
     pub menu_lock: bool,
     pub bar_drop: i32,
+    /// A voice line is playing (the wait mark of なないろリンカネーション
+    /// turns into a speaker).
+    pub voice: bool,
     /// Animation clock in milliseconds.
     pub clock: u64,
     /// Whether there are saves to load (enables Continue and Load).

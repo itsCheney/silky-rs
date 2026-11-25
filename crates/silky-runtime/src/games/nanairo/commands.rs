@@ -31,7 +31,9 @@ impl Runtime {
     /// This game's own commands. `None` for the others.
     pub(crate) fn nanairo_game(&mut self, vm: &mut Vm, c: &Call) -> Option<silky_vm::Result<Flow>> {
         // Event pictures, effect pictures and scene movies.
-        if matches!(c.command, 22 | 23 | 1001..=1006) && !(c.command == 22 && c.sub == 0) {
+        if matches!(c.command, 22 | 23 | 1001..=1003 | 1005 | 1006)
+            && !(c.command == 22 && c.sub == 0)
+        {
             return self.nanairo_effects(c);
         }
         match c.command {
@@ -83,6 +85,18 @@ impl Runtime {
             34 => self.nanairo_staff(vm, c),
             // The calendar of a date change.
             39 => self.nanairo_calendar(vm, c),
+            // Takes every standing character away at once (with the scenes
+            // skipped it does nothing). The scripts never call it.
+            1004 => {
+                if !self.scene_skip() {
+                    self.scene.characters.clear();
+                }
+                self.done()
+            }
+            // Housekeeping with no picture: 1007 empties a cache of loaded
+            // objects, 1008 and 1009 (called once for each of 132 slots at
+            // start up) check for and create the blank 8 by 8 thumbnail
+            // files of the save folder.
             1007..=1009 => self.done(),
             _ => None,
         }

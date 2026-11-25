@@ -4563,6 +4563,7 @@ impl Session {
     pub fn tick(&mut self, ms: u64) -> Result<bool> {
         let before = self.ui.clock;
         self.ui.clock += ms;
+        self.ui.voice = self.rt.voice_playing();
         // Calls recorded for a trace carry the session clock.
         self.vm.set_trace_tick(self.ui.clock);
         self.ui.tooltips = self.rt.system.settings.tooltips;

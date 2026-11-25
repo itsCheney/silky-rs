@@ -1553,9 +1553,6 @@ impl Renderer {
             crate::games::nanairo::stage::draw(&mut canvas, assets, scene, self.text())?;
             if text {
                 self.draw_text_at(&mut canvas, scene, None, (0, 0));
-                // The click-wait mark beside the buttons.
-                let (x, y) = window::WAIT_AT;
-                canvas.draw_part(&parts, window::WAIT, x, y, false, 255);
             }
         } else if scene.text.is_some() && window && self.title == Title::Kimaten2 {
             self.kimaten2_window(&mut canvas, scene, assets)?;

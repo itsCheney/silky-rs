@@ -22,7 +22,7 @@ Measured under Wine: the place and pitch of the message text and the place of th
 - The window is the alpha mask in the top 199 rows of `meswaku.akb`, filled with the window colour. Its top is at 521 (`/Config/MesWnd/Pos` of a new install).
 - Default colour is 19, 70, 133 and the default transparency 50, each of 268. The program scales each by 255 / 268.
 - Buttons are cells of `meswaku.akb` laid over the click areas of `mes.area`, which are relative to the window. Ids 0 to 12: save, load, quick save, quick load, voice loop, hide, auto, skip, next choice, previous choice, title, backlog, settings. Cells have four state rows: normal, hover, pressed, disabled. Auto, skip and voice loop show pressed while on.
-- Click wait: a 29 x 28 mark at (1050, window top + 154). It is shown as one still frame; the sheet holds its frames in a row from x = 691.
+- Click wait: a 29 x 28 mark at (1050, window top + 154), shown while a message waits for a click. Its frames lie in two rows of `meswaku.akb` from x = 691, 29 apart: a triangle (11 frames, y = 461) and a speaker (14 frames, y = 433). A timer steps it: frames 0 to 4 play in (100 ms each), then the loop runs at 400 ms a frame, frames 5 and 6 for the triangle and 5 to 8 for the speaker. While a voice line plays the mark is the speaker, otherwise the triangle. When that changes, the picture on screen plays out (triangle frames 7 to 10, speaker frames 9 to 13, 100 ms each) and the other one plays in. Every new wait starts from frame 0 of the triangle (or the speaker if a voice is playing).
 
 ### Text
 
@@ -76,11 +76,11 @@ The effects are sprites of the shared effect stage: keyframes of fades, zooms an
 - Calendar (`Game.39`): not yet compared with the original; the disc's scale centre (62, 62), even moves and fades, and the one frame between its states are assumed.
 - Scene movies are not decoded (`Game.1002`): a still stands in or nothing is drawn. The movie laid over the picture by `Game.1001.0` is left out.
 - Not read far enough to guess the numbers: the fade in of `1001.0` (24 frames used), its zoom centre (the screen's middle used), the low point of the `1005` pulse (half used) and which way `Game.23.0` moves (from the first value to the second). In the animator: whether the 0.25 size of subs 0 and 10 is a quarter size on screen (it is drawn so, on A), which sides the pans of 1 and 11 move (100 pixels sideways and 5 down are used), what sub 30 does beside leaving A and B, whether the beam's wipe repeats (once), the pivot of the lines of 3 and 13 (the one point of their growth) and the units of the 128 frame fade of 20. In the staff roll the curves inside the stages are not known (pages fade in and out, the strip moves evenly, the logo fades into the closing page), nor the strip's real pace, and the sequence of the last pages is the plainest reading. The wipe of `Game.50.1` uses an even ramp. Effects in progress are not saved.
-- `Game.1004` and `1007` to `1009` are accepted and draw nothing.
+- `Game.1004` (no script calls it) is carried out as removing every standing character at once, with nothing drawn; the original's exact effect is not read. `1007` to `1009` draw nothing and are accepted: they only tidy caches and the save folder's thumbnail files at start up.
 - `Game.3`, `17` and `40` are reported.
 - `Game.30` to `32` use the shared extras screens, not the game's own sheets.
 - Standing character calls 6, 8 and 11 to 15 (side, effects, flags, motion) are accepted and not drawn. The flag of `13.5` is not understood.
-- Text line length and the click-wait mark's animation are not measured.
+- Text line length is not measured. The click-wait mark's timing is read from the program, not compared with the original on screen.
 - The figure positions are not yet compared with the original.
 
 ## Game commands
@@ -107,7 +107,9 @@ The effects are sprites of the shared effect stage: keyframes of fades, zooms an
 | `34(staff picture, strip)` | Staff roll (returns 0) |
 | `50.0`, `50.1(rule, frames, h, w, y, x)`, `50.2` | Ending message overlay |
 | `1001.3`, `1002.2`, `1003.2`, `1005.2` | Clean up: take the effect away |
-| `39`, `1004`, `1007` to `1009` | Accepted, nothing drawn |
+| `1004` | Remove all standing characters (not used by the scripts) |
+| `1007` to `1009` | Accepted, nothing drawn (cache and thumbnail file upkeep) |
+| `39` | Calendar |
 
 Calls that return a value, read from the executable: 18, 30 to 32 and 34.
 
@@ -136,6 +138,8 @@ Addresses in `nanairo.exe` as linked (image base 0x400000). The code itself does
 | `Game.19` fill | 0x473430 |
 | `Game.26` chapter end | 0x454980 |
 | Message window: layer creation (window, wait mark, face layer) | 0x455f60 |
+| Wait mark: step function (frame, phase, row; timer 100 / 400 ms) | 0x458750 |
+| `Game.1004` handler; `1007` (clears object map); `1008`, `1009` (thumbnail files `thm%03u`) | 0x471b20; 0x497fc0; 0x4727c0, 0x472600 |
 | Message window: colour and transparency (K at 0x50d328) | 0x456160 |
 | Window buttons: layout; button layer placed at (828, Pos + 23) | 0x451af0; 0x4529b0 |
 | Balloon (nine-slice) | 0x454050 |
