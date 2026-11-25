@@ -229,6 +229,12 @@ const SLIDE_BIG: i32 = 171;
 const SLIDE_QUICK: i32 = 153;
 /// How far the menu button (and the six with it) slides right.
 const SLIDE_MENU: i32 = 265;
+/// The hint bar's rectangle (left, top, right, bottom): while the pointer
+/// is inside it in look mode or on the plain selection, the bar moves up
+/// out of the way.
+const HINT_RECT: (i32, i32, i32, i32) = (658, 1005, 1242, 1073);
+/// How far the hint bar moves up.
+const HINT_DODGE: i32 = 100;
 /// The hint bar's cell in the sheet.
 const HINT_BAR: (u32, u32, u32, u32) = (0, 684, 584, 68);
 /// The byte a look at a thing leaves set, so that the place's next room
@@ -252,6 +258,17 @@ pub enum Step {
     ShowRoom,
 }
 
+/// The system screens the menu's buttons open over the room (and
+/// Backspace opens the backlog).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sys {
+    Settings,
+    Save,
+    Load,
+    Backlog,
+    Schedule,
+}
+
 /// A slide that is running. Input waits meanwhile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Fx {
@@ -268,6 +285,9 @@ pub struct Fx {
     /// The menu button and the plate take part (not when the room opens
     /// over a plate that is already up).
     pub chrome: bool,
+    /// A system screen that opens when this slide (the room going away)
+    /// ends; the room slides back in once the screen is closed.
+    pub open: Option<Sys>,
 }
 
 impl Fx {
@@ -279,6 +299,7 @@ impl Fx {
             hint: None,
             then: None,
             chrome: true,
+            open: None,
         }
     }
 
@@ -301,7 +322,7 @@ impl Fx {
     /// The step that follows, for a slide that does not end the room.
     pub fn next(&self) -> Option<Step> {
         match (self.step, self.then) {
-            (Step::HideRoom, None) => Some(Step::ShowBack),
+            (Step::HideRoom, None) if self.open.is_none() => Some(Step::ShowBack),
             (Step::HideBack, None) => Some(Step::ShowRoom),
             _ => None,
         }
@@ -324,6 +345,18 @@ fn lerp(a: i32, b: i32, t: u32, n: u32) -> i32 {
 }
 
 impl Pass {
+    /// The room as it stands while a system screen is open over it: the
+    /// last pass of the room going away.
+    pub fn away() -> Self {
+        Self {
+            step: Step::HideRoom,
+            t: 1,
+            n: 1,
+            hint: None,
+            chrome: true,
+        }
+    }
+
     fn leaving(&self) -> bool {
         matches!(self.step, Step::HideRoom | Step::HideBack)
     }
@@ -489,6 +522,13 @@ impl Room {
         })
     }
 
+    /// Whether the hint bar is out of the pointer's way: look mode and the
+    /// plain selection, with the pointer in the bar's home rectangle.
+    pub fn hint_dodges(&self, x: i32, y: i32) -> bool {
+        let (l, t, r, b) = HINT_RECT;
+        self.look && (l..r).contains(&x) && (t..b).contains(&y)
+    }
+
     /// The picture of the game's own pointer for the element under the
     /// pointer (see [`cursor`]): by the verb of a thing, none otherwise.
     pub fn cursor_picture(hover: Option<i32>) -> u8 {
@@ -539,20 +579,23 @@ impl Room {
         hover: Option<i32>,
         _font: Option<&Font>,
         fx: Option<Pass>,
+        dodge: bool,
     ) -> Result<()> {
         let sheet = assets.image("search_p.akb")?;
         let slide = |h: i32| fx.map_or((0, 255), |p| p.place(h));
         // The hint bar, and its line in the GDI font (size 20) from (725,
         // 1029); the line rides the bar.
         let (dy, alpha) = slide(SLIDE_BIG);
+        // Sliding sets the bar's place outright; the dodge is for a bar at rest.
+        let up = if dodge && fx.is_none() { HINT_DODGE } else { 0 };
         if alpha > 0 {
-            canvas.draw_part(&sheet, HINT_BAR, 658, 1005 + dy, false, alpha);
+            canvas.draw_part(&sheet, HINT_BAR, 658, 1005 + dy - up, false, alpha);
             let id = match fx {
                 Some(p) => p.line(),
                 None => self.hint(hover),
             };
             if let Some(line) = id.and_then(|id| self.system.as_ref()?.get(0, id)) {
-                let at = (HINT_TEXT.0, HINT_TEXT.1 + dy);
+                let at = (HINT_TEXT.0, HINT_TEXT.1 + dy - up);
                 gdi::draw_hint_faded(canvas, line, at, (20, HINT_WIDTH), alpha);
             }
         }
@@ -782,6 +825,34 @@ mod tests {
         assert_eq!(out.line(), Some(234));
         // Look mode has no plate while its arrow comes or goes.
         assert_eq!(out.plate_alpha(), 0);
+    }
+
+    #[test]
+    fn a_system_screen_ends_the_slide_without_look_mode() {
+        let mut fx = Fx::new(Step::HideRoom, 0, 1.0);
+        fx.open = Some(Sys::Backlog);
+        assert_eq!(fx.next(), None);
+        // The room waits away behind the screen.
+        let p = Pass::away();
+        assert_eq!(p.place(171), (171, 0));
+        assert_eq!(p.menu_dx(), 265);
+        assert_eq!(p.plate_alpha(), 0);
+    }
+
+    #[test]
+    fn the_hint_bar_dodges_the_pointer_in_look_mode_only() {
+        let mut r = room(0);
+        assert!(!r.hint_dodges(700, 1040));
+        r.look = true;
+        assert!(r.hint_dodges(658, 1005));
+        assert!(r.hint_dodges(1241, 1072));
+        assert!(!r.hint_dodges(1242, 1040));
+        assert!(!r.hint_dodges(700, 1073));
+        assert!(!r.hint_dodges(700, 1004));
+        // The bar's moved place (100 up) is outside the rectangle.
+        assert!(!r.hint_dodges(700, 950));
+        r.plain = true;
+        assert!(r.hint_dodges(700, 1040));
     }
 
     #[test]

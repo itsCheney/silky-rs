@@ -133,9 +133,10 @@ impl Panel {
         hover: Option<i32>,
         font: Option<&window::Font>,
         fx: Option<room::Pass>,
+        dodge: bool,
     ) -> crate::Result<()> {
         match self {
-            Panel::Room(r) => r.draw(canvas, assets, state, hover, font, fx),
+            Panel::Room(r) => r.draw(canvas, assets, state, hover, font, fx, dodge),
             Panel::Hours(h) => h.draw(canvas, assets, language, state),
             Panel::Picker(p) => p.draw(canvas, assets, language, state),
             Panel::Album(a) => a.draw(canvas, assets, language, state),

@@ -1360,6 +1360,12 @@ impl Session {
                 });
             }
         }
+        // The hint bar steps aside for the pointer.
+        let up = matches!(&self.ui.panel, Some(DoukPanel::Room(r)) if r.hint_dodges(x, y));
+        if up != self.ui.hint_up {
+            self.ui.hint_up = up;
+            self.frame = None;
+        }
         // The game's own pointer follows the system's.
         if self.sync_cursor() || self.rt.cursor.shown() {
             self.frame = None;
@@ -2046,7 +2052,7 @@ impl Session {
             && !self.menu_sliding()
             && matches!(self.ui.panel, Some(DoukPanel::Room(ref r)) if !r.look);
         if room_up {
-            self.open_backlog();
+            self.room_system(room::Sys::Backlog);
         }
         Ok(())
     }
@@ -3289,6 +3295,7 @@ impl Session {
     fn room_slide(&mut self, step: room::Step, then: Option<i32>) {
         let mut fx = room::Fx::new(step, self.ui.clock, self.rt.system.settings.effect_scale());
         fx.then = then;
+        self.ui.room_away = false;
         if let Some(DoukPanel::Room(r)) = &self.ui.panel {
             let hover = match self.ui.hover {
                 Some(Button::Panel(id)) => Some(id),
@@ -3299,6 +3306,58 @@ impl Session {
         self.ui.room_fx = Some(fx);
         self.ui.hover = None;
         self.frame = None;
+    }
+
+    /// Opens a system screen from a menu button or Backspace. Over the
+    /// room with its buttons up the room slides away first (the same
+    /// twelve passes as look mode's), and slides back in when the screen
+    /// is closed; elsewhere the screen opens at once.
+    fn room_system(&mut self, sys: room::Sys) {
+        let on_room = matches!(&self.ui.panel, Some(DoukPanel::Room(r)) if !r.look);
+        if !on_room || self.ui.room_fx.is_some() || !self.can_open(sys) {
+            self.open_system(sys);
+            return;
+        }
+        self.room_slide(room::Step::HideRoom, None);
+        if let Some(fx) = &mut self.ui.room_fx {
+            fx.open = Some(sys);
+        }
+    }
+
+    /// Whether `open_system` would open its screen now.
+    fn can_open(&self, sys: room::Sys) -> bool {
+        let at_panel = self.douk_system.is_some() && self.state == State::Choice;
+        let ready = self.state == State::Text || at_panel;
+        match sys {
+            room::Sys::Settings | room::Sys::Load => true,
+            room::Sys::Save => ready && self.saves.is_some(),
+            room::Sys::Backlog => ready && !self.log.is_empty(),
+            room::Sys::Schedule => {
+                self.douk_system.is_some() && self.ui.flag_list && !self.ui.classic
+            }
+        }
+    }
+
+    fn open_system(&mut self, sys: room::Sys) {
+        match sys {
+            room::Sys::Settings => self.open_settings(),
+            room::Sys::Save => self.open_save_load(Mode::Save),
+            room::Sys::Load => self.open_save_load(Mode::Load),
+            room::Sys::Backlog => self.open_backlog(),
+            room::Sys::Schedule => self.open_flag(),
+        }
+    }
+
+    /// The system screen opened from the room is closed: the room slides
+    /// back in.
+    fn room_return(&mut self) {
+        if !self.ui.room_away || self.screen.is_some() || self.ui.room_fx.is_some() {
+            return;
+        }
+        self.ui.room_away = false;
+        if matches!(&self.ui.panel, Some(DoukPanel::Room(r)) if !r.look && !r.is_plain()) {
+            self.room_slide(room::Step::ShowRoom, None);
+        }
     }
 
     /// The look button or the back arrow: look mode starts with the buttons
@@ -3381,6 +3440,11 @@ impl Session {
         self.ui.room_fx = None;
         if let Some(result) = fx.then {
             return self.room_answer(result);
+        }
+        if let Some(sys) = fx.open {
+            self.ui.room_away = true;
+            self.open_system(sys);
+            return Ok(());
         }
         if let Some(step) = fx.next() {
             // Look mode begins as the buttons are gone, and ends as the
@@ -4382,7 +4446,7 @@ impl Session {
                     self.ui.auto = false;
                 }
                 bar::PREVIOUS_CHOICE => self.previous_choice()?,
-                bar::CONFIG => self.open_settings(),
+                bar::CONFIG => self.room_system(room::Sys::Settings),
                 bar::COSTUME => self.open_costume(),
                 bar::PIN => {
                     let st = &mut self.rt.system.settings;
@@ -4400,11 +4464,11 @@ impl Session {
                 bar::TITLE => self.ask(Action::Title)?,
                 bar::QUICK_SAVE => self.save(save::QUICK)?,
                 bar::QUICK_LOAD => self.load(save::QUICK)?,
-                bar::SAVE => self.open_save_load(Mode::Save),
-                bar::LOAD => self.open_save_load(Mode::Load),
-                bar::BACKLOG => self.open_backlog(),
+                bar::SAVE => self.room_system(room::Sys::Save),
+                bar::LOAD => self.room_system(room::Sys::Load),
+                bar::BACKLOG => self.room_system(room::Sys::Backlog),
                 bar::MAP => self.open_jump(),
-                bar::SCHEDULE => self.open_flag(),
+                bar::SCHEDULE => self.room_system(room::Sys::Schedule),
                 bar::QUIT => self.ask(Action::Quit)?,
                 id => self
                     .rt
@@ -4680,6 +4744,7 @@ impl Session {
         }
         self.tick_menu_anim();
         self.tick_room_fx()?;
+        self.room_return();
         self.tick_dialog();
         // The game's own pointer swaps its two frames every 300 ms.
         self.sync_cursor();

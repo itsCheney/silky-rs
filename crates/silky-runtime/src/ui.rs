@@ -203,6 +203,11 @@ pub struct Ui {
     /// 同級生 Remake: the room's buttons, hint bar, menu button and plate
     /// slide out or in; input waits.
     pub room_fx: Option<crate::games::doukyuusei::room::Fx>,
+    /// 同級生 Remake: a system screen opened from the room is up, the room
+    /// stays slid away behind it.
+    pub room_away: bool,
+    /// 同級生 Remake: the room's hint bar is moved up for the pointer.
+    pub hint_up: bool,
     /// 同級生 Remake: byte 4084 keeps the status plate up through the
     /// room's look mode.
     pub plate_keep: bool,
@@ -286,6 +291,15 @@ impl Ui {
         self.chrome().menu.is_some()
     }
 
+    /// 同級生 Remake: where the room's slide is: the running one, or the
+    /// room away behind a system screen.
+    pub fn room_pass(&self) -> Option<crate::games::doukyuusei::room::Pass> {
+        self.room_fx.map(|f| f.pass(self.clock)).or_else(|| {
+            self.room_away
+                .then(crate::games::doukyuusei::room::Pass::away)
+        })
+    }
+
     /// 同級生 Remake: how the plate (opacity) and the menu button (shift to
     /// the right) show. The room's slides fade and move them, look mode
     /// has no menu button and no plate unless byte 4084 keeps it.
@@ -294,7 +308,7 @@ impl Ui {
         let up = self.plate.is_some() && !matches!(self.panel, Some(Panel::Jump(_)));
         let kept = if self.plate_keep { 255 } else { 0 };
         let looking = matches!(&self.panel, Some(Panel::Room(r)) if r.look && !r.is_plain());
-        let pass = self.room_fx.map(|f| f.pass(self.clock));
+        let pass = self.room_pass();
         let (plate, menu) = match pass {
             Some(p) if matches!(p.step, Step::HideRoom | Step::ShowRoom) => {
                 (p.plate_alpha().max(kept), Some(p.menu_dx()))
@@ -2568,7 +2582,13 @@ impl Layout {
                 },
                 hover,
                 font,
-                ui.room_fx.map(|f| f.pass(ui.clock)),
+                ui.room_pass(),
+                match p {
+                    crate::games::doukyuusei::Panel::Room(r) => {
+                        r.hint_dodges(ui.pointer.0, ui.pointer.1)
+                    }
+                    _ => false,
+                },
             );
         }
         if let (false, Some(k)) = (ui.actions.is_empty(), &self.kimaten2) {
