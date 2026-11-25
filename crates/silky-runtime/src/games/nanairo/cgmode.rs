@@ -204,6 +204,9 @@ const VIEW_SHADE: u32 = 0xc0;
 pub struct CgMode {
     /// Whether each row of the CG table has been seen.
     seen: Vec<bool>,
+    /// How many rows have a flag that is not 0 (the completion counts
+    /// those, a row is shown only when its flag is 1).
+    set: usize,
     /// The tab bytes in the order of the strip (CG, music, scene).
     tabs: [u8; 3],
     page: usize,
@@ -219,6 +222,7 @@ impl CgMode {
     /// screen opens on that picture's page with its picker up.
     pub fn open(flags: &[u8], tabs: [u8; 3], first: Option<usize>) -> Self {
         let mut s = CgMode {
+            set: flags.iter().take(ROWS.len()).filter(|&&f| f != 0).count(),
             seen: (0..ROWS.len())
                 .map(|r| flags.get(r).copied() == Some(1))
                 .collect(),
@@ -268,7 +272,7 @@ impl CgMode {
 
     /// Share of the table's rows seen, as the counter shows it.
     pub fn percent(&self) -> u32 {
-        mode::percent(self.seen.iter().filter(|&&s| s).count(), ROWS.len())
+        mode::percent(self.set, ROWS.len())
     }
 
     fn tab_open(&self, i: usize) -> bool {
@@ -735,6 +739,20 @@ mod tests {
         assert!(!m.item_open(3));
         assert_eq!(m.percent(), 1);
         assert_eq!(open(&[]).percent(), 1);
+        // A fresh game reads 1 (the counter is never under 1); 7 rows of
+        // 644 are the first to read 1 by their share; any flag that is not
+        // 0 counts.
+        let mut f = vec![0u8; ROWS.len()];
+        for r in 0..6 {
+            f[r] = 1;
+        }
+        assert_eq!(CgMode::open(&f, [1; 3], None).percent(), 1);
+        f[6] = 2;
+        assert_eq!(CgMode::open(&f, [1; 3], None).percent(), 1);
+        for r in 0..13 {
+            f[r] = 1;
+        }
+        assert_eq!(CgMode::open(&f, [1; 3], None).percent(), 2);
         let all: Vec<usize> = (0..COUNT).collect();
         assert_eq!(open(&all).percent(), 100);
     }

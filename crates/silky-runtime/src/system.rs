@@ -194,6 +194,10 @@ impl Settings {
             use crate::games::nanairo::window::{ALPHA, COLOUR, SCALE};
             s.window_color = COLOUR.map(|c| c as f32 / SCALE as f32);
             s.window_opacity = (SCALE - ALPHA) as f32 / SCALE as f32;
+            // The music volume of a new install is 200 on a bar of 267.
+            s.music = 200.0 / 267.0;
+            // The effect volume starts at the bar's end (267 of 267).
+            s.effects = 1.0;
         } else {
             s.window_opacity = 0.6;
         }
@@ -343,6 +347,13 @@ impl SystemData {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nanairo_music_volume_starts_at_200_of_267() {
+        let s = Settings::for_title(silky_format::game::Title::Nanairo);
+        assert_eq!((s.music * 267.0).round() as i32, 200);
+        assert_eq!(s.effects, 1.0);
+    }
 
     #[test]
     fn voice_groups() {
