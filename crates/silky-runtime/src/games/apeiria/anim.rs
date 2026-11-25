@@ -194,12 +194,14 @@ pub enum Look {
         stride: u32,
     },
     /// The picture of a movie at the stage's clock: `mode` 0 shows it as
-    /// it is, 1 takes its green as the opacity (the colour is white), 2 its
-    /// brightness as the opacity (the colour is a pale blue); `looped`
-    /// starts it again when it ends, otherwise its last picture stays.
+    /// it is, 1 takes its green as the opacity of the plain `colour`, 2
+    /// takes the mean of its three colours as the opacity of a fixed pale
+    /// colour (the movie's own only where it is opaque); `looped` starts it
+    /// again when it ends, otherwise its last picture stays.
     Video {
         name: String,
         mode: u8,
+        colour: [u8; 3],
         looped: bool,
     },
 }
@@ -251,6 +253,8 @@ pub struct Sprite {
     /// shown at the end.
     pub wipe: Option<(u32, f32, bool)>,
     pub keys: Vec<Key>,
+    /// The stage's movie clock when the sprite was put up.
+    pub started: u64,
     next: usize,
     /// Changes under way (the keyframe's flags, less the wait once over).
     active: u32,
@@ -500,8 +504,9 @@ impl Stage {
             match step {
                 Step::Wait(g) if self.running.contains(&g) => return,
                 Step::Wait(_) => {}
-                Step::Add(s) => {
+                Step::Add(mut s) => {
                     self.sprites.retain(|o| o.id != s.id);
+                    s.started = self.video_ms;
                     self.sprites.push(s);
                 }
                 Step::Keys(id, keys) => {

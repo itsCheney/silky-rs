@@ -1455,7 +1455,11 @@ impl Host for Runtime {
                             }
                             self.movie_unplayed = true;
                         }
-                        (2, []) => self.movie = None,
+                        (2, []) => {
+                            self.movie = None;
+                            // The moving background stops with the close.
+                            crate::games::nanairo::video::background_end(&mut self.scene.effects);
+                        }
                         (3, []) if self.movie.is_some() => {
                             self.handled += 1;
                             self.pause = Some(Pause::Movie);

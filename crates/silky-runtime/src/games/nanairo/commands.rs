@@ -266,6 +266,9 @@ impl Runtime {
     fn nanairo_character(&mut self, c: &Call) -> Option<silky_vm::Result<Flow>> {
         let skip = self.scene_skip();
         let factor = self.system.settings.effect_scale();
+        let petals = self
+            .movie_playable(super::figures::PETALS_MOVIE)
+            .then_some(super::figures::PETALS_MOVIE);
         let scene = &mut self.scene;
         match c.sub {
             // (time, size, name, slot)
@@ -382,7 +385,10 @@ impl Runtime {
                 let size = scene.characters.get(&slot).map(|ch| ch.scale);
                 match (release, size) {
                     (0, Some(size)) => {
-                        figures::attach(&mut scene.effects, &[(kind, slot, size)], factor)
+                        figures::attach(&mut scene.effects, &[(kind, slot, size)], factor);
+                        if let Some(movie) = petals {
+                            figures::petals_movie(&mut scene.effects, movie);
+                        }
                     }
                     (1, _) if fade != 0 => figures::release(&mut scene.effects, factor),
                     (1, _) => figures::detach(&mut scene.effects),
@@ -408,6 +414,9 @@ impl Runtime {
                     .collect();
                 if !parts.is_empty() {
                     figures::attach(&mut scene.effects, &parts, factor);
+                    if let Some(movie) = petals {
+                        figures::petals_movie(&mut scene.effects, movie);
+                    }
                 }
             }
             15 => {}

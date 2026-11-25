@@ -31,6 +31,8 @@ const SCREEN: (u32, u32) = (1280, 720);
 /// Glow of the first kind (green light with sparks) and petals.
 const GLOW_PICTURE: &str = "teffect.akb";
 const PETALS_PICTURE: &str = "tai-effect.akb";
+/// The movie that plays for the petals when movies are on.
+pub(super) const PETALS_MOVIE: &str = "HG060002_eff.mov";
 /// Frames a new face takes to come in over the picture shown: the blend
 /// gains 22 of 255 at each frame, so it is whole at the twelfth.
 pub(super) const FACE_FRAMES: i32 = 12;
@@ -200,8 +202,8 @@ pub fn detach(st: &mut Stage) {
 /// kind 1 is petals over the whole screen.
 ///
 /// Approximate: the curve of the fades is not known (linear is used). The
-/// original also plays a movie over the petals when movies are on; that is
-/// left out.
+/// original plays a movie for the petals when movies are on (see
+/// [`petals_movie`]).
 pub fn attach(st: &mut Stage, parts: &[(i32, i32, i32)], factor: f32) {
     detach(st);
     let mut fx = Fx::new(st, FX);
@@ -234,6 +236,16 @@ pub fn attach(st: &mut Stage, parts: &[(i32, i32, i32)], factor: f32) {
         .collect();
     fx.play(keys, false);
     fx.run();
+}
+
+/// With the movies on, the petals are the movie's picture (its green is
+/// the opacity of white) instead of the still picture.
+pub fn petals_movie(st: &mut Stage, name: &str) {
+    for s in st.sprites.iter_mut().filter(|s| s.owner == FX) {
+        if matches!(&s.look, Look::Picture { name: n, .. } if n == PETALS_PICTURE) {
+            s.look = super::video::video(name, super::video::GREEN_AS_OPACITY, super::video::WHITE);
+        }
+    }
 }
 
 /// Where the glow picture lies: its width is the figure's size, kept

@@ -1933,20 +1933,28 @@ struct Playing {
     image: Arc<Image>,
 }
 
+/// The colour a movie of mode 2 takes where it is not opaque (stored as
+/// blue, green, red bytes b0 c8 ff in the original).
+const KEY_COLOUR: [u8; 3] = [0xff, 0xc8, 0xb0];
+
 /// The picture of a movie frame for a movie sprite's mode.
-pub(crate) fn video_picture(movie: &crate::movie::Movie, mode: u8) -> Arc<Image> {
+pub(crate) fn video_picture(movie: &crate::movie::Movie, mode: u8, colour: [u8; 3]) -> Arc<Image> {
     let mut rgba = movie.rgba.clone();
     match mode {
         1 => {
             for px in rgba.chunks_exact_mut(4) {
-                *px.last_mut().unwrap() = px[1];
-                px[..3].fill(255);
+                let g = px[1];
+                px[..3].copy_from_slice(&colour);
+                px[3] = g;
             }
         }
         2 => {
             for px in rgba.chunks_exact_mut(4) {
-                let y = (px[0] as u32 * 299 + px[1] as u32 * 587 + px[2] as u32 * 114) / 1000;
-                px.copy_from_slice(&[0xb0, 0xc8, 0xff, y as u8]);
+                let mean = (px[0] as u32 + px[1] as u32 + px[2] as u32) / 3;
+                if mean < 255 {
+                    px[..3].copy_from_slice(&KEY_COLOUR);
+                }
+                px[3] = mean as u8;
             }
         }
         _ => {}
@@ -2004,9 +2012,20 @@ impl Drawn {
                     }
                     Err(_) => continue,
                 },
-                Look::Video { name, mode, looped } => {
-                    let Some(img) = self.video(s.id, name, *mode, *looped, stage.video_ms, assets)
-                    else {
+                Look::Video {
+                    name,
+                    mode,
+                    colour,
+                    looped,
+                } => {
+                    let Some(img) = self.video(
+                        s.id,
+                        name,
+                        (*mode, *colour),
+                        *looped,
+                        (s.started, stage.video_ms),
+                        assets,
+                    ) else {
                         continue;
                     };
                     let part = (0, 0, img.width, img.height);
@@ -2072,9 +2091,9 @@ impl Drawn {
         &mut self,
         id: u32,
         name: &str,
-        mode: u8,
+        (mode, colour): (u8, [u8; 3]),
         looped: bool,
-        now: u64,
+        (started, now): (u64, u64),
         assets: &mut Assets,
     ) -> Option<Arc<Image>> {
         if !self.streams.contains_key(name) {
@@ -2084,14 +2103,14 @@ impl Drawn {
         let stream = self.streams.get(name)?.clone();
         if self.movies.get(&id).is_none_or(|p| p.name != name) {
             let movie = crate::movie::Movie::open(stream.clone()).ok()?;
-            let image = video_picture(&movie, mode);
+            let image = video_picture(&movie, mode, colour);
             let name = name.to_string();
             self.movies.insert(
                 id,
                 Playing {
                     name,
                     movie,
-                    origin: now,
+                    origin: started,
                     image,
                 },
             );
@@ -2104,7 +2123,7 @@ impl Drawn {
             changed = true;
         }
         if changed {
-            p.image = video_picture(&p.movie, mode);
+            p.image = video_picture(&p.movie, mode, colour);
         }
         Some(p.image.clone())
     }

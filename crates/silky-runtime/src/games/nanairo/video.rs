@@ -24,6 +24,9 @@ const Z_BACKGROUND: i32 = -1;
 pub(super) const OPAQUE: u8 = 0;
 pub(super) const GREEN_AS_OPACITY: u8 = 1;
 pub(super) const BRIGHTNESS_AS_OPACITY: u8 = 2;
+/// The plain colours of the movies that give only the opacity.
+pub(super) const WHITE: [u8; 3] = [255; 3];
+pub(super) const RED: [u8; 3] = [255, 0, 0];
 
 /// The name of the stream a descriptor points to: after a 4 byte
 /// version, a zero padded name. Without a descriptor (a stream named
@@ -61,7 +64,7 @@ pub fn is_background(s: &Sprite) -> bool {
 pub fn background_begin(st: &mut Stage, name: &str) {
     clear(st, BACKGROUND);
     let mut fx = Fx::new(st, BACKGROUND);
-    let id = fx.sprite(0, video(name, OPAQUE, true), Z_BACKGROUND);
+    let id = fx.sprite(0, video(name, OPAQUE, WHITE), Z_BACKGROUND);
     if let Some(Step::Add(s)) = fx.steps.last_mut() {
         s.shown = true;
     }
@@ -69,12 +72,19 @@ pub fn background_begin(st: &mut Stage, name: &str) {
     st.until_background.push(id);
 }
 
+/// `Movie.2`: the moving background is closed and the stage's picture
+/// shows again.
+pub fn background_end(st: &mut Stage) {
+    clear(st, BACKGROUND);
+}
+
 /// A movie sprite's look.
-pub(super) fn video(name: &str, mode: u8, looped: bool) -> Look {
+pub(super) fn video(name: &str, mode: u8, colour: [u8; 3]) -> Look {
     Look::Video {
         name: name.to_string(),
         mode,
-        looped,
+        colour,
+        looped: true,
     }
 }
 
@@ -96,6 +106,9 @@ impl Runtime {
         if !self.movie_playable(name) {
             return false;
         }
+        // The movie takes the place of the picture the scene had put up,
+        // as the still of the script's other branch does.
+        self.scene.layers.remove(&super::stage::OVERLAY_SPRITE);
         background_begin(&mut self.scene.effects, name);
         true
     }
@@ -152,13 +165,13 @@ mod tests {
     fn modes_turn_a_picture_into_opacity() {
         use crate::games::apeiria::effects::video_picture;
         let m = clip();
-        let opaque = video_picture(&m, OPAQUE);
+        let opaque = video_picture(&m, OPAQUE, WHITE);
         assert_eq!(opaque.rgba[3], 255);
-        let green = video_picture(&m, GREEN_AS_OPACITY);
-        assert_eq!(green.rgba[..3], [255, 255, 255]);
+        let green = video_picture(&m, GREEN_AS_OPACITY, RED);
+        assert_eq!(green.rgba[..3], [255, 0, 0]);
         assert_eq!(green.rgba[3], m.rgba[1]);
-        let luma = video_picture(&m, BRIGHTNESS_AS_OPACITY);
-        assert_eq!(luma.rgba[..3], [0xb0, 0xc8, 0xff]);
+        let luma = video_picture(&m, BRIGHTNESS_AS_OPACITY, WHITE);
+        assert_eq!(luma.rgba[..3], [0xff, 0xc8, 0xb0]);
         assert!(luma.rgba[3] > 0 && luma.rgba[3] < 255);
     }
 

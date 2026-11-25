@@ -16,7 +16,7 @@
 use silky_format::game::Kind;
 use silky_vm::Flow;
 
-use super::video::{video, BRIGHTNESS_AS_OPACITY, GREEN_AS_OPACITY, OPAQUE};
+use super::video::{video, BRIGHTNESS_AS_OPACITY, GREEN_AS_OPACITY, OPAQUE, RED, WHITE};
 use crate::games::apeiria::anim::{Key, Look, Sprite, Stage, Step, TICK_MS};
 use crate::games::Call;
 use crate::host::{frames_ms, Pause, Runtime, Transition};
@@ -215,7 +215,7 @@ pub fn event_begin(st: &mut Stage, movie: Option<&str>, factor: f32) {
     ];
     fx.play(vec![(effect, pulse)], false);
     if let Some(name) = movie {
-        fx.sprite(2, video(name, BRIGHTNESS_AS_OPACITY, true), Z_SECOND);
+        fx.sprite(2, video(name, GREEN_AS_OPACITY, RED), Z_SECOND);
         if let Some(Step::Add(s)) = fx.steps.last_mut() {
             s.shown = true;
         }
@@ -396,9 +396,9 @@ impl Runtime {
                 let look = if self.movie_playable(&name) {
                     if sub == 0 {
                         self.movie_sound(&name);
-                        video(&name, OPAQUE, false)
+                        video(&name, OPAQUE, WHITE)
                     } else {
-                        video(&name, GREEN_AS_OPACITY, false)
+                        video(&name, BRIGHTNESS_AS_OPACITY, WHITE)
                     }
                 } else {
                     let stem = name.rsplit_once('.').map_or(name.as_str(), |n| n.0);

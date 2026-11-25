@@ -15,7 +15,7 @@ use crate::Result;
 
 /// Sprite that event pictures and scene stills are loaded into over the
 /// background; it only shows while it is copied onto the screen.
-const OVERLAY_SPRITE: i32 = 6;
+pub(super) const OVERLAY_SPRITE: i32 = 6;
 
 /// `Sprite.3(flag, source, y, x, target, height, width, target y, target
 /// x)`: the screen is the target sprite 0. A whole picture copied from
