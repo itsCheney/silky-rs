@@ -146,7 +146,7 @@ impl TextLayout {
             },
             // なないろリンカネーション: measured under Wine, 28 pixel cells
             // from x = 258, the first line's glyphs on rows 618..637 and
-            // lines 32 apart. The line length is not measured yet.
+            // lines 32 apart; a line holds 31 cells (the executable's box).
             Title::Nanairo => Self {
                 left: nanairo::window::TEXT_LEFT,
                 baseline: nanairo::window::TEXT_BASELINE,

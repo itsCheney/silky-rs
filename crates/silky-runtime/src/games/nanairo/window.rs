@@ -30,12 +30,21 @@ pub const SCALE: u32 = 268;
 
 /// Left of the text and the first line's baseline (measured under Wine:
 /// glyph rows 618..637), the pen advance of a full-width character, the
-/// line pitch and the line length (not measured yet).
+/// line pitch and the line length.
+///
+/// The game starts every message with the text box at (256, 90) to
+/// (1124, 186) on the window layer. A character is drawn, the pen moves on
+/// by its width, and when the pen has reached the right edge the next
+/// character starts a new line at the left edge. So a line holds 31
+/// full-width characters (868 pixels from the left edge); there is no
+/// word or line-start rule. The scripts break their lines by hand at 28
+/// to 30 cells and show up to three lines to a message.
 pub const TEXT_LEFT: f32 = 258.0;
 pub const TEXT_BASELINE: f32 = 637.0;
 pub const TEXT_CELL: f32 = 28.0;
 pub const TEXT_LINE: f32 = 32.0;
-pub const TEXT_WIDTH: f32 = 28.0 * 28.0;
+pub const TEXT_COLUMNS: u32 = 31;
+pub const TEXT_WIDTH: f32 = TEXT_COLUMNS as f32 * TEXT_CELL;
 
 /// The click-wait mark: a 29 by 28 layer at x = 1050, 154 below the window
 /// top. Its frames lie in two rows of the sheet from x = 691, 29 apart: a
@@ -228,6 +237,15 @@ impl Bar {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A line of the scripts' longest length (30 cells) fits the box, a
+    /// 32nd cell does not.
+    #[test]
+    fn line_length() {
+        assert_eq!(TEXT_WIDTH, 868.0);
+        assert!(30.0 * TEXT_CELL <= TEXT_WIDTH);
+        assert!(32.0 * TEXT_CELL > TEXT_WIDTH);
+    }
 
     fn frames(voice: impl Fn(u64) -> bool, until: u64) -> Vec<(u32, u32)> {
         let mut m = Mark::new(0);

@@ -27,7 +27,8 @@ Measured under Wine: the place and pitch of the message text and the place of th
 ### Text
 
 - Size 24, a full-width character advances 28 pixels, text starts at x = 258, the first line's baseline is at y = 637 and lines are 32 apart. These were measured under Wine. Glyphs have an outline.
-- The line length is not measured. 784 pixels (28 cells) is used.
+- Line length: every message starts with the text box at (256, 90) to (1124, 186) on the window layer (the same layer coordinates as the window at y = 521), 868 pixels wide. The program draws a character, moves the pen on by its width (14 a byte, so 28 for a full-width character), and when the pen has reached the right edge the next character starts a new line at the left edge and one pitch (32) lower. So a line holds 31 full-width characters, wrapping is by position and so by cell, and there is no line-start or line-end rule (no such table or character test is in the program). Drawing stops when a wrap would put a line within one pitch of the bottom edge (186). The scripts break their lines by hand (`text 0`) at 28 cells, up to 30 with closing punctuation, and show at most three lines to a message, so the program's own wrap does not occur in the shipped scripts. Line length is read from the program and the scripts, not measured under Wine.
+- Text style comes from script variables set at start up (`START.MES`, `LIBLARY.LIB`): cell 28, line pitch 32, white text with a black edge. The program makes its text fonts with `Font.0(28, 28)`.
 
 ### Speaker name and face window
 
@@ -80,7 +81,7 @@ The effects are sprites of the shared effect stage: keyframes of fades, zooms an
 - `Game.3`, `17` and `40` are reported.
 - `Game.30` to `32` use the shared extras screens, not the game's own sheets.
 - Standing character calls 6, 8 and 11 to 15 (side, effects, flags, motion) are accepted and not drawn. The flag of `13.5` is not understood.
-- Text line length is not measured. The click-wait mark's timing is read from the program, not compared with the original on screen.
+- The click-wait mark's timing is read from the program, not compared with the original on screen.
 - The figure positions are not yet compared with the original.
 
 ## Game commands
@@ -141,6 +142,9 @@ Addresses in `nanairo.exe` as linked (image base 0x400000). The code itself does
 | Wait mark: step function (frame, phase, row; timer 100 / 400 ms) | 0x458750 |
 | `Game.1004` handler; `1007` (clears object map); `1008`, `1009` (thumbnail files `thm%03u`) | 0x471b20; 0x497fc0; 0x4727c0, 0x472600 |
 | Message window: colour and transparency (K at 0x50d328) | 0x456160 |
+| Message window: start-of-message text box reset (box 256, 90 to 1124, 186; cursor 256, 90), called through slot 0xe8 | 0x456370, 0x457b34 |
+| Text draw: sets the box and pen from the script variables; pen loop (advance per byte, wrap at the right edge, stop near the bottom) | 0x47f6d0, 0x490950 |
+| Text fonts: `Font.0` handler; font set made (heights size and size - 2, weights 400 and 700); glyph draw with edge | 0x48b710, 0x483db0, 0x484070, 0x483e80 |
 | Window buttons: layout; button layer placed at (828, Pos + 23) | 0x451af0; 0x4529b0 |
 | Balloon (nine-slice) | 0x454050 |
 | `Game.34` staff roll: handler; set up; worker thread | 0x46fbc0; 0x46a4a0; 0x46a960 |
